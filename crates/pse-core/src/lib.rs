@@ -507,6 +507,11 @@ pub fn macro_step(
         por_trace,
         carrier_id: state.active_carrier,
         carrier_offset: state.phase_ladder[state.active_carrier].offset,
+        // The optional falsification pass is not wired into macro_step yet
+        // (PR D-4). Default to None so the commit_proof shape is identical
+        // to the pre-change form.
+        falsification_p_value: None,
+        surrogate_count: None,
     };
 
     // Build crystal (Inv I17: crystal required before commit)
