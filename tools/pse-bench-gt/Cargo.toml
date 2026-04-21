@@ -1,0 +1,11 @@
+[package]
+name = "pse-bench-gt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ground-truth precision/recall benchmark suite for the Post-Symbolic Engine"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
