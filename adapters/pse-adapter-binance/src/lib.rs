@@ -265,6 +265,98 @@ pub fn embedded_btc_klines() -> Vec<BinanceTick> {
     ticks
 }
 
+// ─── Ground Truth ────────────────────────────────────────────────────────────
+
+/// A labeled ground-truth event in an embedded Binance dataset.
+///
+/// Indices refer to positions in the `Vec<BinanceTick>` returned by a
+/// ground-truth-bearing generator such as
+/// [`embedded_btc_klines_with_regime_shift`]. `start_index` is inclusive,
+/// `end_index` is exclusive.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroundTruthEvent {
+    /// Inclusive start index into the tick vector.
+    pub start_index: usize,
+    /// Exclusive end index.
+    pub end_index: usize,
+    /// Semantic label, e.g. `"volatility_regime_shift"`.
+    pub label: &'static str,
+    /// Domain-specific severity. For regime-shift: volatility multiplier.
+    pub severity: f64,
+}
+
+/// Returns 100 BTC/USDT candles with a deliberate regime shift injected.
+///
+/// Structure:
+/// - Indices `0..50`: same baseline random walk as [`embedded_btc_klines`]
+///   (base price 65 000, ±0.3 % per candle).
+/// - Indices `50..70`: regime shift — 5× volatility, −1 % downward drift,
+///   elevated volume. This is the labeled ground-truth anomaly.
+/// - Indices `70..100`: restored baseline dynamics at the new (lower)
+///   price level.
+///
+/// The pre-shift prefix is deliberately byte-identical to the first 50
+/// ticks of [`embedded_btc_klines`] (same PRNG seed, same formulae), which
+/// lets downstream tests check that PSE reacts to the regime change rather
+/// than to any idiosyncrasy of the dataset.
+pub fn embedded_btc_klines_with_regime_shift() -> Vec<BinanceTick> {
+    let mut ticks = Vec::with_capacity(100);
+    let base_price = 65000.0_f64;
+    let mut rng: u64 = 42;
+    let next_rng = |r: &mut u64| -> f64 {
+        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
+    };
+
+    let mut price = base_price;
+    for i in 0..100 {
+        // Regime window: indices 50..70 carry the anomaly.
+        let in_shift = (50..70).contains(&i);
+        let vol_scale = if in_shift { 5.0 } else { 1.0 };
+        let drift = if in_shift { -0.010 } else { 0.0 };
+
+        let change_pct = next_rng(&mut rng) * 0.003 * vol_scale + drift;
+        let open = price;
+        let close = open * (1.0 + change_pct);
+        let intra_vol = next_rng(&mut rng).abs() * 0.002 * vol_scale;
+        let high = open.max(close) * (1.0 + intra_vol);
+        let low = open.min(close) * (1.0 - intra_vol);
+        let volume = 50.0 + next_rng(&mut rng).abs() * 200.0 * vol_scale;
+        let quote_volume = volume * (open + close) / 2.0;
+        let num_trades = 500 + (next_rng(&mut rng).abs() * 5000.0) as u64;
+
+        ticks.push(BinanceTick {
+            symbol: "BTCUSDT".to_string(),
+            open,
+            high,
+            low,
+            close,
+            volume,
+            quote_volume,
+            num_trades,
+        });
+
+        price = close;
+        // Apply the baseline +0.5 % trend nudge every 20 candles, but only
+        // outside the regime-shift window (the shift should dominate there).
+        if i % 20 == 19 && !in_shift {
+            price *= 1.0 + next_rng(&mut rng) * 0.005;
+        }
+    }
+
+    ticks
+}
+
+/// Ground-truth annotations for [`embedded_btc_klines_with_regime_shift`].
+pub fn embedded_binance_ground_truth() -> Vec<GroundTruthEvent> {
+    vec![GroundTruthEvent {
+        start_index: 50,
+        end_index: 70,
+        label: "volatility_regime_shift",
+        severity: 5.0,
+    }]
+}
+
 /// Returns 100 embedded ETH/USDT klines for offline mode.
 pub fn embedded_eth_klines() -> Vec<BinanceTick> {
     let mut ticks = Vec::with_capacity(100);
@@ -466,6 +558,64 @@ mod tests {
         // Verify each crystal has a valid evidence chain
         for crystal in &crystals {
             assert!(!crystal.evidence_chain.is_empty() || crystal.region.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_regime_shift_data_is_well_formed() {
+        let ticks = embedded_btc_klines_with_regime_shift();
+        assert_eq!(ticks.len(), 100);
+        assert!(ticks.iter().all(|t| t.is_valid()));
+        assert!(ticks.iter().all(|t| t.symbol == "BTCUSDT"));
+    }
+
+    #[test]
+    fn test_regime_shift_prefix_matches_baseline() {
+        // First 50 ticks of the regime-shift variant must be byte-identical
+        // to the first 50 of the plain baseline — the same PRNG sequence is
+        // drawn because vol_scale=1, drift=0, and no extra RNG draw before
+        // the regime window.
+        let baseline = embedded_btc_klines();
+        let shifted = embedded_btc_klines_with_regime_shift();
+        for i in 0..50 {
+            assert_eq!(baseline[i].open,  shifted[i].open,  "open mismatch at {}", i);
+            assert_eq!(baseline[i].high,  shifted[i].high,  "high mismatch at {}", i);
+            assert_eq!(baseline[i].low,   shifted[i].low,   "low mismatch at {}", i);
+            assert_eq!(baseline[i].close, shifted[i].close, "close mismatch at {}", i);
+            assert_eq!(baseline[i].volume, shifted[i].volume);
+            assert_eq!(baseline[i].num_trades, shifted[i].num_trades);
+        }
+    }
+
+    #[test]
+    fn test_regime_shift_window_has_elevated_volatility() {
+        let ticks = embedded_btc_klines_with_regime_shift();
+        // Realized volatility proxy: mean absolute log return.
+        let abs_ret = |from: usize, to: usize| -> f64 {
+            let rs: Vec<f64> = ticks[from..to]
+                .iter()
+                .map(|t| ((t.close / t.open).ln()).abs())
+                .collect();
+            rs.iter().sum::<f64>() / rs.len() as f64
+        };
+        let baseline_vol = abs_ret(0, 50);
+        let shift_vol = abs_ret(50, 70);
+        assert!(
+            shift_vol > baseline_vol * 2.5,
+            "regime-shift window volatility ({:.6}) should exceed baseline ({:.6}) by ≥2.5×",
+            shift_vol,
+            baseline_vol
+        );
+    }
+
+    #[test]
+    fn test_ground_truth_indices_within_bounds() {
+        let ticks = embedded_btc_klines_with_regime_shift();
+        let gt = embedded_binance_ground_truth();
+        assert!(!gt.is_empty());
+        for ev in &gt {
+            assert!(ev.start_index < ev.end_index);
+            assert!(ev.end_index <= ticks.len());
         }
     }
 }
