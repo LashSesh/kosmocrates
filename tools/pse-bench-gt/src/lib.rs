@@ -12,6 +12,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod runner;
+pub mod scenarios;
+
 // ─── Ground-Truth Event ──────────────────────────────────────────────────────
 
 /// A canonical ground-truth event, normalized across adapters.
