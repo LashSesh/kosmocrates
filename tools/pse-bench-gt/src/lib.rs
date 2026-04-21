@@ -12,6 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod baselines;
 pub mod runner;
 pub mod scenarios;
 
@@ -177,6 +178,27 @@ fn match_at_threshold(
     // Every unconsumed detection is a false positive.
     let fp = consumed.iter().filter(|c| !**c).count() as u64;
     (tp, fp, fn_)
+}
+
+/// Group detections by their `source` and compute [`Metrics`] per group.
+///
+/// Useful for split reporting when multiple detectors (PSE, baseline_a,
+/// baseline_b) write into the same detection vector. Sources are returned
+/// in deterministic alphabetical order.
+pub fn metrics_by_source(
+    ground_truth: &[GroundTruthEvent],
+    detections: &[Detection],
+    tolerance_ticks: u64,
+) -> std::collections::BTreeMap<String, Metrics> {
+    let mut buckets: std::collections::BTreeMap<String, Vec<Detection>> =
+        std::collections::BTreeMap::new();
+    for d in detections {
+        buckets.entry(d.source.clone()).or_default().push(d.clone());
+    }
+    buckets
+        .into_iter()
+        .map(|(src, dets)| (src, score_detections(ground_truth, &dets, tolerance_ticks)))
+        .collect()
 }
 
 /// Trapezoidal AUPRC by sweeping thresholds over unique detection scores.

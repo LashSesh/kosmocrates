@@ -1,9 +1,11 @@
 //! Command-line driver for the ground-truth benchmark suite.
 //!
-//! Currently runs a single scenario (seismo) and prints a markdown summary.
-//! Additional scenarios and baseline comparators are wired in later.
+//! Currently runs a single scenario (seismo) and prints a markdown summary
+//! split by detection source so PSE and the classical baselines can be
+//! compared side-by-side. Additional scenarios join in later increments.
 
 use pse_bench_gt::scenarios::{run_seismo_scenario, ScenarioResult, SEISMO_DEFAULT_TOLERANCE};
+use pse_bench_gt::{metrics_by_source, Metrics};
 use pse_types::Config;
 
 fn main() {
@@ -39,27 +41,61 @@ fn print_scenario_report(result: &ScenarioResult) {
     }
     println!();
 
-    println!("### PSE detections");
+    println!("### Detections per source");
     println!();
-    let crystals = result.detections.iter().filter(|d| d.source == "pse_crystal").count();
-    let hits = result.detections.iter().filter(|d| d.source == "pse_memory_hit").count();
-    println!("- `pse_crystal` detections: **{}**", crystals);
-    println!("- `pse_memory_hit` detections: **{}**", hits);
-    println!();
-
-    println!("### Metrics");
-    println!();
-    println!("| Metric | Value |");
-    println!("|--------|-------|");
-    println!("| TP | {} |", result.metrics.tp);
-    println!("| FP | {} |", result.metrics.fp);
-    println!("| FN | {} |", result.metrics.fn_);
-    println!("| Precision | {:.4} |", result.metrics.precision);
-    println!("| Recall | {:.4} |", result.metrics.recall);
-    println!("| F1 | {:.4} |", result.metrics.f1);
-    match result.metrics.auprc {
-        Some(a) => println!("| AUPRC | {:.4} |", a),
-        None => println!("| AUPRC | _undefined (constant scores)_ |"),
+    let by_src = bucket_count_by_source(&result.detections);
+    println!("| Source | # detections |");
+    println!("|--------|--------------|");
+    for (src, n) in &by_src {
+        println!("| `{}` | {} |", src, n);
     }
     println!();
+
+    println!("### Metrics per source");
+    println!();
+    let per_source = metrics_by_source(
+        &result.ground_truth,
+        &result.detections,
+        result.tolerance_ticks,
+    );
+    println!("| Source | TP | FP | FN | Precision | Recall | F1 | AUPRC |");
+    println!("|--------|----|----|----|-----------|--------|-----|-------|");
+    for (src, m) in &per_source {
+        println!(
+            "| `{}` | {} | {} | {} | {:.4} | {:.4} | {:.4} | {} |",
+            src, m.tp, m.fp, m.fn_, m.precision, m.recall, m.f1, fmt_auprc(m)
+        );
+    }
+    println!();
+
+    println!("### Aggregate (all sources combined)");
+    println!();
+    let m = &result.metrics;
+    println!("| Metric | Value |");
+    println!("|--------|-------|");
+    println!("| TP | {} |", m.tp);
+    println!("| FP | {} |", m.fp);
+    println!("| FN | {} |", m.fn_);
+    println!("| Precision | {:.4} |", m.precision);
+    println!("| Recall | {:.4} |", m.recall);
+    println!("| F1 | {:.4} |", m.f1);
+    println!("| AUPRC | {} |", fmt_auprc(m));
+    println!();
+}
+
+fn bucket_count_by_source(
+    detections: &[pse_bench_gt::Detection],
+) -> std::collections::BTreeMap<String, usize> {
+    let mut out = std::collections::BTreeMap::new();
+    for d in detections {
+        *out.entry(d.source.clone()).or_insert(0) += 1;
+    }
+    out
+}
+
+fn fmt_auprc(m: &Metrics) -> String {
+    match m.auprc {
+        Some(a) => format!("{:.4}", a),
+        None => "_undefined_".to_string(),
+    }
 }
