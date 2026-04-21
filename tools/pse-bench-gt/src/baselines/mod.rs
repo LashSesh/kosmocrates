@@ -5,4 +5,5 @@
 //! with a distinct `source` string. The bench-gt scorer treats them
 //! exactly like PSE detections: same matching rules, same metrics.
 
+pub mod isoforest;
 pub mod stl_zscore;

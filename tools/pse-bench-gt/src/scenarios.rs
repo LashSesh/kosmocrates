@@ -12,7 +12,7 @@ use pse_core::GlobalState;
 use pse_types::Config;
 use serde::{Deserialize, Serialize};
 
-use crate::baselines::stl_zscore;
+use crate::baselines::{isoforest, stl_zscore};
 use crate::{score_detections, Detection, GroundTruthEvent, Metrics};
 
 /// Default tolerance windows per scenario. Reasoning:
@@ -62,10 +62,16 @@ pub fn run_seismo_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioRes
 
     let mut detections = crate::runner::run_pse(&mut state, &payloads, config, &adapter);
 
-    // Classical baseline on event magnitudes — same tick frame as PSE.
+    // Classical baselines on event magnitudes — same tick frame as PSE.
     let features = extract_seismo_features(&events);
     let stl_cfg = stl_zscore::StlZscoreConfig::default();
     detections.extend(stl_zscore::detect(&features, &stl_cfg));
+
+    // Isolation Forest expects a row-per-tick matrix; promote the 1-D
+    // magnitude series into 1-feature vectors.
+    let if_samples: Vec<Vec<f64>> = features.iter().map(|m| vec![*m]).collect();
+    let if_cfg = isoforest::IsoForestConfig::default();
+    detections.extend(isoforest::detect(&if_samples, &if_cfg));
 
     let ground_truth: Vec<GroundTruthEvent> = embedded_seismo_ground_truth()
         .into_iter()
