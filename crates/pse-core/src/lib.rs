@@ -3,6 +3,8 @@
 //! Coordinates the full pipeline from observation ingestion through consensus,
 //! carrier geometry, morphogenic updates, and crystal archival.
 
+pub mod falsify;
+
 /// The trait that domain plugins implement to use the PSE engine.
 pub trait DomainAdapter: Send + Sync + 'static {
     /// Human-readable name for this domain.
