@@ -4,7 +4,10 @@
 //! split by detection source so PSE and the classical baselines can be
 //! compared side-by-side. Additional scenarios join in later increments.
 
-use pse_bench_gt::scenarios::{run_seismo_scenario, ScenarioResult, SEISMO_DEFAULT_TOLERANCE};
+use pse_bench_gt::scenarios::{
+    run_binance_scenario, run_seismo_scenario, run_vitals_scenario, ScenarioResult,
+    BINANCE_DEFAULT_TOLERANCE, SEISMO_DEFAULT_TOLERANCE, VITALS_DEFAULT_TOLERANCE,
+};
 use pse_bench_gt::{metrics_by_source, Metrics};
 use pse_types::Config;
 
@@ -14,8 +17,14 @@ fn main() {
     println!("# PSE Ground-Truth Benchmark");
     println!();
 
-    let seismo = run_seismo_scenario(&config, SEISMO_DEFAULT_TOLERANCE);
-    print_scenario_report(&seismo);
+    let scenarios = vec![
+        run_seismo_scenario(&config, SEISMO_DEFAULT_TOLERANCE),
+        run_vitals_scenario(&config, VITALS_DEFAULT_TOLERANCE),
+        run_binance_scenario(&config, BINANCE_DEFAULT_TOLERANCE),
+    ];
+    for s in &scenarios {
+        print_scenario_report(s);
+    }
 }
 
 fn print_scenario_report(result: &ScenarioResult) {

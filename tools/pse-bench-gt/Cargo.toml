@@ -13,6 +13,8 @@ pse-core = { path = "../../crates/pse-core" }
 pse-types = { path = "../../crates/pse-types" }
 pse-graph = { path = "../../crates/pse-graph" }
 pse-adapter-seismo = { path = "../../adapters/pse-adapter-seismo" }
+pse-adapter-vitals = { path = "../../adapters/pse-adapter-vitals" }
+pse-adapter-binance = { path = "../../adapters/pse-adapter-binance" }
 
 [[bin]]
 name = "bench_gt"
