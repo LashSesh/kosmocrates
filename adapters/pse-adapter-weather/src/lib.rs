@@ -160,6 +160,7 @@ impl ObservationAdapter for WeatherAdapter {
             context: context.clone(),
             digest,
             schema_version: "1.0.0".to_string(),
+            phase_hint: None,
         })
     }
 }

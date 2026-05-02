@@ -10,6 +10,7 @@ use pse_types::{
     content_address_raw,
 };
 use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::Direction;
 use thiserror::Error;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -107,6 +108,7 @@ impl ObservationAdapter for PassthroughAdapter {
             context: context.clone(),
             digest,
             schema_version: self.schema_version.clone(),
+            phase_hint: None,
         })
     }
 }
@@ -153,6 +155,7 @@ impl FastPassthroughAdapter {
             context: MeasurementContext::default(),
             digest,
             schema_version: self.schema_version.clone(),
+            phase_hint: None,
         }
     }
 }
@@ -350,22 +353,12 @@ impl PersistentGraph {
                 }
             }
 
-            let p = fnv_to_unit(&obs.payload);
-            let activation = self.graph
-                .node_weight(*self.id_map.get(&vid).expect("just upserted"))
-                .map(|d| d.activation_count)
-                .unwrap_or(1);
-            let rho = (activation as f64 * 0.1_f64).min(1.0);
-            let omega = (timestamp * (std::f64::consts::TAU / 86_400.0))
-                .rem_euclid(std::f64::consts::TAU);
-
-            if let Some(embed) = self.embedding.get_mut(&vid) {
-                embed.p = p;
-                embed.rho = rho;
-                embed.omega = omega;
-                embed.eta = 0.5;
-            }
-
+            // E.3: per-vertex 5D embedding is now computed in a single
+            // post-batch pass below from actual graph topology, not from
+            // payload hashes or wall-clock time. We still snapshot the
+            // current (stale-but-defined) embedding into the tensor
+            // archive on each observation so the per-observation history
+            // remains aligned to the timestamp axis.
             let snap = self.embedding.get(&vid).cloned().unwrap_or_default();
             if let Some(archive) = self.tensor.get_mut(&vid) {
                 archive.push(snap, timestamp);
@@ -427,16 +420,70 @@ impl PersistentGraph {
             }
         }
 
-        let max_degree = self.graph.node_indices()
-            .map(|ni| self.graph.neighbors_undirected(ni).count())
-            .max().unwrap_or(1).max(1) as f64;
+        // E.3: compute the 5D embedding for every vertex from the actual
+        // graph topology. All five axes are now physically grounded:
+        //
+        //   p (potential)    = sum of incident edge weights, normalized by
+        //                      the maximum such sum across all vertices.
+        //                      Captures local "potential energy density".
+        //   ρ (density)      = local clustering coefficient
+        //                      (edges among neighbours) / C(deg, 2).
+        //                      Captures local triangle density.
+        //   ω (frequency)    = activation_count, normalized by the maximum
+        //                      activation count. Captures recurrence rate
+        //                      (replaces the previous arbitrary daily-cycle
+        //                      derivation from wall-clock timestamps).
+        //   χ (connectivity) = undirected degree, normalized by the maximum
+        //                      degree. Kept from the prior implementation.
+        //   η (causality)    = out_degree / (out_degree + in_degree + ε)
+        //                      in [0, 1]: 0.5 = balanced flow,
+        //                      1 = pure source, 0 = pure sink.
+        //                      Replaces the previous constant 0.5 (the
+        //                      causality axis was effectively dead).
+        //
+        // Cost: O(|V| · ⟨deg⟩²) for clustering; the rest are O(|V|·⟨deg⟩).
+        // For PSE's typical small graphs this is fully tolerable.
+        let mut max_degree = 1.0_f64;
+        let mut max_activation = 1u64;
+        let mut max_incident_weight = 1e-9_f64;
+        let node_indices: Vec<NodeIndex> = self.graph.node_indices().collect();
+        // Pre-pass: gather normalization constants.
+        for ni in &node_indices {
+            let deg = self.graph.neighbors_undirected(*ni).count() as f64;
+            if deg > max_degree { max_degree = deg; }
+            if let Some(data) = self.graph.node_weight(*ni) {
+                if data.activation_count > max_activation {
+                    max_activation = data.activation_count;
+                }
+            }
+            let inc_w = sum_incident_edge_weights(&self.graph, *ni);
+            if inc_w > max_incident_weight { max_incident_weight = inc_w; }
+        }
 
         let all_vids: Vec<VertexId> = self.embedding.keys().cloned().collect();
         for vid in all_vids {
             if let Some(&nidx) = self.id_map.get(&vid) {
-                let degree = self.graph.neighbors_undirected(nidx).count() as f64;
+                let undirected_deg = self.graph.neighbors_undirected(nidx).count() as f64;
+                let out_deg = self.graph.neighbors_directed(nidx, Direction::Outgoing).count() as f64;
+                let in_deg = self.graph.neighbors_directed(nidx, Direction::Incoming).count() as f64;
+                let activation = self.graph.node_weight(nidx)
+                    .map(|d| d.activation_count).unwrap_or(0);
+                let inc_w = sum_incident_edge_weights(&self.graph, nidx);
+                let rho = clustering_coefficient(&self.graph, nidx);
+                let p = inc_w / max_incident_weight;
+                let omega = (activation as f64) / (max_activation as f64);
+                let chi = undirected_deg / max_degree;
+                let eta = if out_deg + in_deg < 1e-12 {
+                    0.5
+                } else {
+                    out_deg / (out_deg + in_deg)
+                };
                 if let Some(embed) = self.embedding.get_mut(&vid) {
-                    embed.chi = degree / max_degree;
+                    embed.p = p.clamp(0.0, 1.0);
+                    embed.rho = rho.clamp(0.0, 1.0);
+                    embed.omega = omega.clamp(0.0, 1.0);
+                    embed.chi = chi.clamp(0.0, 1.0);
+                    embed.eta = eta.clamp(0.0, 1.0);
                 }
             }
         }
@@ -484,7 +531,60 @@ impl PersistentGraph {
     }
 }
 
+/// Sum of all edge weights incident to a vertex (both incoming and
+/// outgoing, counted once per directed edge — duplicates a self-loop
+/// twice, which is the correct contribution of a self-loop to the
+/// vertex's potential energy).
+fn sum_incident_edge_weights(
+    graph: &DiGraph<VertexData, EdgeAnnotation>,
+    nidx: NodeIndex,
+) -> f64 {
+    let mut sum = 0.0_f64;
+    for er in graph.edges_directed(nidx, Direction::Outgoing) {
+        sum += er.weight().weight;
+    }
+    for er in graph.edges_directed(nidx, Direction::Incoming) {
+        sum += er.weight().weight;
+    }
+    sum
+}
+
+/// Local clustering coefficient of a vertex: the fraction of
+/// neighbour-pairs that are themselves directly connected. Returns 0
+/// for vertices with degree < 2.
+///
+/// Treats the underlying graph as undirected for the purpose of
+/// "neighbour-pair connectivity" — the directed edge-set contains each
+/// observation-driven link, but topologically two vertices that
+/// share *any* edge between them are connected for clustering.
+fn clustering_coefficient(
+    graph: &DiGraph<VertexData, EdgeAnnotation>,
+    nidx: NodeIndex,
+) -> f64 {
+    let neighbours: Vec<NodeIndex> = graph
+        .neighbors_undirected(nidx)
+        .filter(|n| *n != nidx)
+        .collect();
+    let k = neighbours.len();
+    if k < 2 {
+        return 0.0;
+    }
+    let max_pairs = (k * (k - 1) / 2) as f64;
+    let mut connected_pairs = 0.0_f64;
+    for i in 0..k {
+        for j in (i + 1)..k {
+            let a = neighbours[i];
+            let b = neighbours[j];
+            if graph.contains_edge(a, b) || graph.contains_edge(b, a) {
+                connected_pairs += 1.0;
+            }
+        }
+    }
+    connected_pairs / max_pairs
+}
+
 /// Map a byte slice to a float in [0, 1) using FNV-1a.
+#[allow(dead_code)]
 fn fnv_to_unit(data: &[u8]) -> f64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for &b in data {
@@ -570,6 +670,7 @@ mod tests {
             context: MeasurementContext::default(),
             digest,
             schema_version: "1.0.0".to_string(),
+            phase_hint: None,
         }
     }
 
@@ -628,5 +729,176 @@ mod tests {
         let g = PersistentGraph::new();
         let topo = g.topology_signature();
         assert_eq!(topo.betti_0, 0);
+    }
+
+    // ── E.3: 5D state from topology ──────────────────────────────────────
+
+    #[test]
+    fn embedding_eta_is_no_longer_constant_05() {
+        // The most important invariant of E.3: the causality axis must
+        // *actually depend on direction*. With a pure source vertex
+        // (out-degree > 0, in-degree = 0) η must be ≈ 1.0, not 0.5.
+        let mut g = PersistentGraph::new();
+        let cfg = PersistenceConfig::default();
+        // Two observations into "src1" → vertex created.
+        let obs = vec![
+            make_obs("src1", b"a".to_vec(), 1.0),
+            make_obs("src1", b"b".to_vec(), 2.0),
+        ];
+        g.apply_observations(&obs, &cfg).unwrap();
+        // Manually push outgoing edges from src1 to two new vertices.
+        let src = derive_vertex_id("src1");
+        g.upsert_edge(src, derive_vertex_id("dst1"), 3.0);
+        g.upsert_edge(src, derive_vertex_id("dst2"), 3.0);
+        // Force an embedding refresh by ingesting one more observation.
+        let extra = vec![make_obs("src1", b"c".to_vec(), 4.0)];
+        g.apply_observations(&extra, &cfg).unwrap();
+        let embed = g.embedding.get(&src).expect("src1 embedding present");
+        assert!(
+            embed.eta > 0.6,
+            "pure source vertex must have η near 1.0 (out-only), got {}",
+            embed.eta
+        );
+    }
+
+    #[test]
+    fn embedding_eta_is_05_for_balanced_flow() {
+        // A vertex with equal in- and out-degree is balanced; η = 0.5.
+        let mut g = PersistentGraph::new();
+        let cfg = PersistenceConfig::default();
+        let center = derive_vertex_id("center");
+        let a = derive_vertex_id("a");
+        let b = derive_vertex_id("b");
+        // a → center → b balances center's flow exactly.
+        g.upsert_edge(a, center, 1.0);
+        g.upsert_edge(center, b, 1.0);
+        // Trigger embedding refresh with a no-op batch.
+        let dummy = vec![make_obs("a", b"x".to_vec(), 2.0)];
+        g.apply_observations(&dummy, &cfg).unwrap();
+        let embed = g.embedding.get(&center).expect("center embedding present");
+        assert!(
+            (embed.eta - 0.5).abs() < 0.05,
+            "balanced-flow vertex must have η ≈ 0.5, got {}",
+            embed.eta
+        );
+    }
+
+    #[test]
+    fn embedding_eta_for_pure_sink_is_below_05() {
+        // Pure sink (in-degree only): η ≈ 0.
+        let mut g = PersistentGraph::new();
+        let cfg = PersistenceConfig::default();
+        let sink = derive_vertex_id("sink");
+        for src_name in &["a", "b", "c"] {
+            g.upsert_edge(derive_vertex_id(src_name), sink, 1.0);
+        }
+        let trigger = vec![make_obs("a", b"x".to_vec(), 1.0)];
+        g.apply_observations(&trigger, &cfg).unwrap();
+        let embed = g.embedding.get(&sink).expect("sink embedding present");
+        assert!(
+            embed.eta < 0.4,
+            "pure sink vertex must have η near 0, got {}",
+            embed.eta
+        );
+    }
+
+    #[test]
+    fn embedding_omega_reflects_recurrence() {
+        // A vertex hit many times has higher ω than one hit once.
+        let mut g = PersistentGraph::new();
+        let cfg = PersistenceConfig::default();
+        let frequent = vec![
+            make_obs("freq", b"1".to_vec(), 1.0),
+            make_obs("freq", b"2".to_vec(), 2.0),
+            make_obs("freq", b"3".to_vec(), 3.0),
+            make_obs("freq", b"4".to_vec(), 4.0),
+        ];
+        g.apply_observations(&frequent, &cfg).unwrap();
+        let rare = vec![make_obs("rare", b"1".to_vec(), 5.0)];
+        g.apply_observations(&rare, &cfg).unwrap();
+        let f = g.embedding.get(&derive_vertex_id("freq")).unwrap();
+        let r = g.embedding.get(&derive_vertex_id("rare")).unwrap();
+        assert!(f.omega >= r.omega, "ω(frequent) {} should ≥ ω(rare) {}",
+                f.omega, r.omega);
+        assert!(f.omega > 0.5, "ω(frequent) should be near 1.0, got {}", f.omega);
+    }
+
+    #[test]
+    fn embedding_rho_zero_for_isolated_neighbours() {
+        // A star graph: centre connected to leaves, leaves not connected to
+        // each other. Centre's clustering coefficient is 0.
+        let mut g = PersistentGraph::new();
+        let cfg = PersistenceConfig::default();
+        let centre = derive_vertex_id("centre");
+        for leaf in &["l1", "l2", "l3"] {
+            g.upsert_edge(centre, derive_vertex_id(leaf), 1.0);
+        }
+        let trigger = vec![make_obs("centre", b"x".to_vec(), 1.0)];
+        g.apply_observations(&trigger, &cfg).unwrap();
+        let embed = g.embedding.get(&centre).unwrap();
+        assert_eq!(embed.rho, 0.0, "star centre must have ρ = 0, got {}", embed.rho);
+    }
+
+    #[test]
+    fn embedding_rho_one_for_triangle() {
+        // A triangle (a-b-c-a): every vertex has ρ = 1 because its two
+        // neighbours are themselves connected.
+        let mut g = PersistentGraph::new();
+        let cfg = PersistenceConfig::default();
+        let a = derive_vertex_id("a");
+        let b = derive_vertex_id("b");
+        let c = derive_vertex_id("c");
+        g.upsert_edge(a, b, 1.0);
+        g.upsert_edge(b, c, 1.0);
+        g.upsert_edge(c, a, 1.0);
+        let trigger = vec![make_obs("a", b"x".to_vec(), 1.0)];
+        g.apply_observations(&trigger, &cfg).unwrap();
+        for vid in [a, b, c] {
+            let embed = g.embedding.get(&vid).unwrap();
+            assert_eq!(embed.rho, 1.0, "triangle vertex {} must have ρ = 1, got {}",
+                       vid, embed.rho);
+        }
+    }
+
+    #[test]
+    fn embedding_p_in_unit_interval_after_observations() {
+        let mut g = PersistentGraph::new();
+        let cfg = PersistenceConfig::default();
+        let obs = vec![
+            make_obs("a", b"x".to_vec(), 1.0),
+            make_obs("b", b"y".to_vec(), 1.0),
+            make_obs("c", b"z".to_vec(), 1.0),
+        ];
+        g.apply_observations(&obs, &cfg).unwrap();
+        for (_, embed) in g.embedding.iter() {
+            assert!((0.0..=1.0).contains(&embed.p), "p out of range: {}", embed.p);
+            assert!((0.0..=1.0).contains(&embed.rho), "ρ out of range: {}", embed.rho);
+            assert!((0.0..=1.0).contains(&embed.omega), "ω out of range: {}", embed.omega);
+            assert!((0.0..=1.0).contains(&embed.chi), "χ out of range: {}", embed.chi);
+            assert!((0.0..=1.0).contains(&embed.eta), "η out of range: {}", embed.eta);
+        }
+    }
+
+    #[test]
+    fn embedding_is_deterministic_on_same_input() {
+        // Inv I4: replay determinism. Same observations → same 5D state.
+        let cfg = PersistenceConfig::default();
+        let mut g1 = PersistentGraph::new();
+        let mut g2 = PersistentGraph::new();
+        let obs = vec![
+            make_obs("a", b"hello".to_vec(), 1.0),
+            make_obs("b", b"world".to_vec(), 2.0),
+            make_obs("a", b"again".to_vec(), 3.0),
+        ];
+        g1.apply_observations(&obs, &cfg).unwrap();
+        g2.apply_observations(&obs, &cfg).unwrap();
+        for (vid, e1) in g1.embedding.iter() {
+            let e2 = g2.embedding.get(vid).unwrap();
+            assert_eq!(e1.p,     e2.p);
+            assert_eq!(e1.rho,   e2.rho);
+            assert_eq!(e1.omega, e2.omega);
+            assert_eq!(e1.chi,   e2.chi);
+            assert_eq!(e1.eta,   e2.eta);
+        }
     }
 }

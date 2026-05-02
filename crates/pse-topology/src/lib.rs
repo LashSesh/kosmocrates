@@ -1027,6 +1027,7 @@ mod tests {
                 context: MeasurementContext::default(),
                 digest,
                 schema_version: "1.0.0".to_string(),
+                phase_hint: None,
             }
         };
 

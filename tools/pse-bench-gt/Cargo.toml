@@ -1,0 +1,25 @@
+[package]
+name = "pse-bench-gt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ground-truth precision/recall benchmark suite for the Post-Symbolic Engine"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+pse-core = { path = "../../crates/pse-core" }
+pse-types = { path = "../../crates/pse-types" }
+pse-graph = { path = "../../crates/pse-graph" }
+pse-adapter-seismo = { path = "../../adapters/pse-adapter-seismo" }
+pse-adapter-vitals = { path = "../../adapters/pse-adapter-vitals" }
+pse-adapter-binance = { path = "../../adapters/pse-adapter-binance" }
+
+[[bin]]
+name = "bench_gt"
+path = "src/bin/bench_gt.rs"
+
+[[bin]]
+name = "window_ablation"
+path = "src/bin/window_ablation.rs"

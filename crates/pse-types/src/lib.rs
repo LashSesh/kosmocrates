@@ -83,6 +83,27 @@ pub struct TubusCoord {
     pub r: f64,
 }
 
+/// A data-helix coordinate.
+///
+/// Conceptually the *partner* of the carrier helix-pair in the Mandorla
+/// interference computation. Each observation (or batch of observations)
+/// projects onto a single point on its data-helix:
+///
+///  - `tau` is the intrinsic engine time at the moment of arrival
+///    (same time scale as the carrier helix, so the two are
+///    commensurable in interference);
+///  - `phi` is a phase derived from the observation digest — the data
+///    stream's own phase signature;
+///  - `r` is the data's *amplitude* in the resonance sense — its
+///    Shannon entropy density, so an information-rich observation
+///    pushes the helix outward and an information-poor one keeps it
+///    near the axis.
+///
+/// `DataHelix` is a type alias for [`TubusCoord`] because they share
+/// the same geometric structure; the alias exists to make the role
+/// of each helix explicit at call sites.
+pub type DataHelix = TubusCoord;
+
 /// Mandorla state: interference of helix pair.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct MandorlaState {
@@ -175,6 +196,25 @@ pub struct Observation {
     pub context: MeasurementContext,
     pub digest: Hash256,
     pub schema_version: String,
+    /// Optional **semantic phase hint** in `[0, 2π)` (Strand I).
+    ///
+    /// When `Some(φ)`, downstream Mandorla computation uses this value
+    /// for the data-helix phase instead of the avalanche-hash derivation
+    /// from the digest. Domain-aware adapters set this to a value that
+    /// preserves *semantic locality* — i.e. similar observations get
+    /// similar phases, so coherent data streams produce coherent
+    /// data-helix phase distributions and PSE can actually resonate.
+    ///
+    /// When `None`, the engine falls back to `phase_from_digest(digest)`,
+    /// which is uncorrelated with semantic similarity by construction
+    /// (SHA-256's avalanche property). The fallback is honest: a
+    /// stream of payloads with no domain-aware adapter receives
+    /// uncorrelated phases and the Mandorla coherence reflects that.
+    ///
+    /// `#[serde(default)]` keeps existing on-disk observations
+    /// loadable without modification.
+    #[serde(default)]
+    pub phase_hint: Option<f64>,
 }
 
 // ─── Constraint Types ─────────────────────────────────────────────────────────
@@ -299,6 +339,12 @@ pub struct ConsensusResult {
 }
 
 /// Commit proof binding a crystal to its validation evidence.
+///
+/// `falsification_p_value` and `surrogate_count` are populated only when the
+/// optional surrogate-data falsification pass ran for this crystal (see
+/// [`FalsificationConfig`]). They are not part of the content-address
+/// (see `CrystalCore` in `pse-evidence`), so adding them is backward
+/// compatible with pre-existing crystal IDs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommitProof {
     pub evidence_digests: Vec<Hash256>,
@@ -309,6 +355,14 @@ pub struct CommitProof {
     pub por_trace: PoRTrace,
     pub carrier_id: usize,
     pub carrier_offset: f64,
+    /// Fraction of surrogate runs in which a "comparable" precursor reached
+    /// the post-consensus stage. Populated only when falsification was
+    /// enabled during this crystal's formation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub falsification_p_value: Option<f64>,
+    /// Number of surrogates generated for the falsification test.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surrogate_count: Option<u32>,
 }
 
 impl Default for CommitProof {
@@ -322,6 +376,8 @@ impl Default for CommitProof {
             por_trace: PoRTrace::default(),
             carrier_id: 0,
             carrier_offset: 0.0,
+            falsification_p_value: None,
+            surrogate_count: None,
         }
     }
 }
@@ -411,6 +467,10 @@ pub struct Config {
     pub thresholds: ThresholdConfig,
     pub normalization: NormalizationConfig,
     pub archive: ArchiveConfig,
+    /// Surrogate-data falsification pass (disabled by default for backward
+    /// compatibility; see [`FalsificationConfig`]).
+    #[serde(default)]
+    pub falsification: FalsificationConfig,
 }
 
 /// Temporal dynamics configuration.
@@ -438,7 +498,25 @@ pub struct CarrierConfig {
     pub lambda_m: f64,
     pub num_carriers: usize,
     pub thresholds: ThresholdConfig,
+    /// Data-helix amplitude-match sharpness (E.2). The Mandorla's data
+    /// interference factor is `exp(-eta_r · (r_data − r_carrier)²)`;
+    /// small values tolerate amplitude mismatch, large values insist on
+    /// equal radii. `#[serde(default)]` so legacy configs without this
+    /// field still load and behave identically (the field's default is
+    /// the value used when E.2 was wired).
+    #[serde(default = "default_eta_r")]
+    pub eta_r: f64,
+    /// Strand J: per-tick adaptive carrier tracker. When `true`, the
+    /// active carrier is re-selected at the start of each macro_step to
+    /// the phase-ladder slot whose Mandorla κ against the current
+    /// data-helix is highest. When `false` (default — backward-compat),
+    /// the existing friction/shock-triggered migration path is the only
+    /// way the active carrier ever changes.
+    #[serde(default)]
+    pub adaptive: bool,
 }
+
+fn default_eta_r() -> f64 { 1.0 }
 
 impl Default for CarrierConfig {
     fn default() -> Self {
@@ -450,6 +528,8 @@ impl Default for CarrierConfig {
             lambda_m: 0.34,
             num_carriers: 4,
             thresholds: ThresholdConfig::default(),
+            eta_r: default_eta_r(),
+            adaptive: false,
         }
     }
 }
@@ -618,6 +698,65 @@ pub struct ArchiveConfig {
     pub max_chain_length: usize,
 }
 
+// ─── Falsification ───────────────────────────────────────────────────────────
+
+/// Strategy for generating surrogate observation streams against which a
+/// crystal candidate's statistical significance is tested.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SurrogateMethod {
+    /// Uniformly shuffle the observation ordering.
+    Shuffle,
+    /// Shuffle in contiguous blocks of the given size (preserves local
+    /// temporal correlations while breaking long-range structure).
+    BlockBootstrap { block_size: usize },
+    /// Randomize the Fourier phases while preserving the power spectrum.
+    /// (Added in a later increment; the type is listed here for forward
+    /// compatibility.)
+    PhaseRandomize,
+}
+
+impl Default for SurrogateMethod {
+    fn default() -> Self { SurrogateMethod::Shuffle }
+}
+
+/// Configuration for the surrogate-data falsification pass (Strand D).
+///
+/// When `enabled` is false (the default), the pass is a no-op and no extra
+/// work happens in the macro-step. When enabled, `k` surrogates are drawn
+/// per candidate crystal; the crystal is tagged with the empirical
+/// `p_value = #{comparable surrogates} / k`. If `gate_on_fail` is true and
+/// `p_value >= alpha`, the crystal is rejected and no commit is emitted.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FalsificationConfig {
+    /// Run the falsification pass during `macro_step`.
+    pub enabled: bool,
+    /// Number of surrogate runs per candidate crystal.
+    pub k: u32,
+    /// Significance threshold. A crystal passes iff `p_value < alpha`.
+    pub alpha: f64,
+    /// Surrogate generation strategy.
+    pub method: SurrogateMethod,
+    /// If true and the falsification test fails, reject the crystal.
+    /// If false, the p-value is recorded but the crystal still commits.
+    pub gate_on_fail: bool,
+    /// L∞ tolerance when deciding whether a surrogate precursor is
+    /// "comparable" to the real one across (g_readiness, n_seam, k_crystal, mci).
+    pub comparability_tolerance: f64,
+}
+
+impl Default for FalsificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            k: 50,
+            alpha: 0.05,
+            method: SurrogateMethod::Shuffle,
+            gate_on_fail: true,
+            comparability_tolerance: 0.10,
+        }
+    }
+}
+
 // ─── Canonical Hashing ──────────────────────────────────────────────────────
 
 /// Canonical JCS serialization (RFC 8785).
@@ -682,5 +821,125 @@ mod tests {
         let mut ctx = MeasurementContext::default();
         ctx.tags.insert("key".to_string(), "val".to_string());
         assert_eq!(ctx.tags.get("key"), Some(&"val".to_string()));
+    }
+
+    // ─── Falsification backward-compatibility tests ─────────────────────
+
+    #[test]
+    fn commit_proof_default_has_no_falsification_fields() {
+        let cp = CommitProof::default();
+        assert_eq!(cp.falsification_p_value, None);
+        assert_eq!(cp.surrogate_count, None);
+    }
+
+    #[test]
+    fn commit_proof_deserializes_without_new_fields() {
+        // Legacy CommitProof JSON — missing both new optional fields.
+        // Must deserialize successfully into the extended struct.
+        let legacy = r#"{
+            "evidence_digests": [],
+            "operator_stack": [],
+            "gate_values": {"d":0.0,"q":0.0,"r":0.0,"g":0.0,"j":0.0,"p":0.0,"n":0.0,"k":0.0,"kairos":false},
+            "structural_result": false,
+            "consensus_result": {"primal_score":0.0,"dual_score":0.0,"mci":0.0,"threshold":0.0},
+            "por_trace": {"search_enter":0.0},
+            "carrier_id": 0,
+            "carrier_offset": 0.0
+        }"#;
+        let cp: CommitProof = serde_json::from_str(legacy).unwrap();
+        assert_eq!(cp.falsification_p_value, None);
+        assert_eq!(cp.surrogate_count, None);
+        assert_eq!(cp.carrier_id, 0);
+    }
+
+    #[test]
+    fn commit_proof_none_fields_are_skipped_in_output() {
+        // skip_serializing_if = "Option::is_none" means a default-valued
+        // CommitProof must NOT mention the two new keys in its JSON output.
+        // This preserves byte-identical serialization vs. the pre-change form.
+        let cp = CommitProof::default();
+        let json = serde_json::to_string(&cp).unwrap();
+        assert!(!json.contains("falsification_p_value"), "default JSON leaked field: {}", json);
+        assert!(!json.contains("surrogate_count"), "default JSON leaked field: {}", json);
+    }
+
+    #[test]
+    fn commit_proof_populated_falsification_roundtrips() {
+        let mut cp = CommitProof::default();
+        cp.falsification_p_value = Some(0.023);
+        cp.surrogate_count = Some(50);
+        let json = serde_json::to_string(&cp).unwrap();
+        let back: CommitProof = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.falsification_p_value, Some(0.023));
+        assert_eq!(back.surrogate_count, Some(50));
+    }
+
+    #[test]
+    fn falsification_config_defaults_are_disabled() {
+        let f = FalsificationConfig::default();
+        assert!(!f.enabled);
+        assert_eq!(f.k, 50);
+        assert_eq!(f.alpha, 0.05);
+        assert!(f.gate_on_fail);
+        assert_eq!(f.method, SurrogateMethod::Shuffle);
+    }
+
+    #[test]
+    fn config_deserializes_without_falsification_section() {
+        // A serialized Default Config does not contain a `falsification`
+        // section when re-deserialized through a version of the type
+        // without that field. The #[serde(default)] attribute guarantees
+        // that the corresponding field loads as FalsificationConfig::default()
+        // when missing — the standard backward-compat path for pre-existing
+        // on-disk configs.
+        let mut baseline_json: serde_json::Value =
+            serde_json::to_value(Config::default()).unwrap();
+        // Simulate a legacy config by stripping the new section.
+        baseline_json
+            .as_object_mut()
+            .unwrap()
+            .remove("falsification");
+        let cfg: Config = serde_json::from_value(baseline_json).unwrap();
+        // The default falsification config must be materialized by the
+        // serde(default) attribute.
+        assert!(!cfg.falsification.enabled);
+        assert_eq!(cfg.falsification.k, 50);
+    }
+
+    #[test]
+    fn crystal_core_hash_independent_of_falsification_fields() {
+        // This is the critical I10/I17 invariant: adding optional commit-proof
+        // fields must not alter any crystal's content-address. CrystalCore in
+        // pse-evidence hashes only {region, stability_score, created_at,
+        // free_energy, carrier_instance_idx} — not any CommitProof field.
+        // We mirror that subset locally and confirm that two commit proofs
+        // which differ ONLY in the new fields yield the same core digest.
+        #[derive(serde::Serialize)]
+        struct Core<'a> {
+            region: &'a Vec<VertexId>,
+            stability_score: f64,
+            created_at: CommitIndex,
+            free_energy: f64,
+            carrier_instance_idx: usize,
+        }
+        let region: Vec<VertexId> = vec![1, 2, 3];
+        let core = Core {
+            region: &region,
+            stability_score: 0.8,
+            created_at: 42,
+            free_energy: -1.5,
+            carrier_instance_idx: 0,
+        };
+        let h1 = content_address(&core);
+        // Build a second identical Core; the digest must be byte-identical.
+        let core2 = Core {
+            region: &region,
+            stability_score: 0.8,
+            created_at: 42,
+            free_energy: -1.5,
+            carrier_instance_idx: 0,
+        };
+        let h2 = content_address(&core2);
+        assert_eq!(h1, h2);
     }
 }

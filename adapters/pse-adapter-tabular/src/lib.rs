@@ -176,7 +176,7 @@ impl ObservationAdapter for TabularAdapter {
         Ok(Observation {
             timestamp: 0.0, source_id: self.source.clone(),
             provenance: ProvenanceEnvelope { origin: self.source.clone(), chain: Vec::new(), sig: None },
-            payload, context: context.clone(), digest, schema_version: "1.0.0".into(),
+            payload, context: context.clone(), digest, schema_version: "1.0.0".into(), phase_hint: None,
         })
     }
 }

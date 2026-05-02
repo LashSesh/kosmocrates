@@ -36,6 +36,8 @@ members = [
     "adapters/pse-adapter-tabular",
     "adapters/pse-adapter-modelmon",
     "tools/pse-audit",
+    "tools/pse-bench-bbo",
+    "tools/pse-bench-gt",
 ]
 
 [workspace.package]

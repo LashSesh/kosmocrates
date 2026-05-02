@@ -112,7 +112,7 @@ impl ObservationAdapter for VitalsAdapter {
         Ok(Observation {
             timestamp: 0.0, source_id: self.source.clone(),
             provenance: ProvenanceEnvelope { origin: self.source.clone(), chain: Vec::new(), sig: None },
-            payload, context: context.clone(), digest, schema_version: "1.0.0".into(),
+            payload, context: context.clone(), digest, schema_version: "1.0.0".into(), phase_hint: None,
         })
     }
 }
@@ -136,7 +136,7 @@ pub fn generate_embedded_data(seed: u64, duration_sec: u32) -> Vec<VitalReading>
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
 
-    let samples_per_sec = 10_u32; // downsampled for PSE
+    let samples_per_sec = EMBEDDED_SAMPLE_RATE_HZ; // downsampled for PSE
     let total_samples = duration_sec * samples_per_sec;
 
     for sample in 0..total_samples {
@@ -153,8 +153,8 @@ pub fn generate_embedded_data(seed: u64, duration_sec: u32) -> Vec<VitalReading>
             sample_rate_hz: samples_per_sec,
         });
 
-        // Patient B: normal for first 40s, then afib
-        let afib_onset = duration_sec as f64 * 0.67; // ~40s for 60s duration
+        // Patient B: normal sinus rhythm, then afib onset at AFIB_ONSET_FRACTION
+        let afib_onset = duration_sec as f64 * AFIB_ONSET_FRACTION;
         let is_afib = t >= afib_onset;
         let hr_b = if is_afib {
             72.0 + next_rng(&mut rng) * 40.0 // highly irregular
@@ -171,6 +171,54 @@ pub fn generate_embedded_data(seed: u64, duration_sec: u32) -> Vec<VitalReading>
         });
     }
     readings
+}
+
+// ─── Ground Truth ────────────────────────────────────────────────────────────
+
+/// Fraction of the total duration at which patient B transitions into
+/// atrial fibrillation in [`generate_embedded_data`].
+pub const AFIB_ONSET_FRACTION: f64 = 0.67;
+
+/// Effective sample rate of the data produced by [`generate_embedded_data`].
+pub const EMBEDDED_SAMPLE_RATE_HZ: u32 = 10;
+
+/// A labeled ground-truth event in an embedded vitals dataset.
+///
+/// Indices refer to positions in the `Vec<VitalReading>` returned by
+/// [`generate_embedded_data`], which interleaves patient A (even indices)
+/// and patient B (odd indices) ECG samples.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroundTruthEvent {
+    /// Inclusive start index into the embedded data vector.
+    pub start_index: usize,
+    /// Exclusive end index.
+    pub end_index: usize,
+    /// Semantic label, e.g. `"afib_onset"`.
+    pub label: &'static str,
+    /// Domain-specific severity in [0, 1] (categorical → 1.0).
+    pub severity: f64,
+}
+
+/// Ground-truth annotations for `generate_embedded_data(_, duration_sec)`.
+///
+/// Patient A remains in normal sinus rhythm for the full duration. Patient B
+/// transitions into atrial fibrillation at
+/// `AFIB_ONSET_FRACTION * duration_sec` seconds. Because the output vector
+/// interleaves A and B at 10 Hz, the afib window is `2 * onset_sample + 1`
+/// (first patient-B sample in the afib regime) to `2 * total_samples`
+/// (end of the vector).
+pub fn embedded_vitals_ground_truth(duration_sec: u32) -> Vec<GroundTruthEvent> {
+    let total_time_samples = (duration_sec * EMBEDDED_SAMPLE_RATE_HZ) as usize;
+    let onset_time_sample =
+        ((AFIB_ONSET_FRACTION * duration_sec as f64) * EMBEDDED_SAMPLE_RATE_HZ as f64) as usize;
+    let afib_start = 2 * onset_time_sample + 1;
+    let afib_end = 2 * total_time_samples;
+    vec![GroundTruthEvent {
+        start_index: afib_start,
+        end_index: afib_end,
+        label: "afib_onset",
+        severity: 1.0,
+    }]
 }
 
 /// Describe a crystal with medical disclaimer.
@@ -224,5 +272,38 @@ mod tests {
     }
     #[test] fn test_disclaimer_present() {
         assert!(MEDICAL_DISCLAIMER.contains("NOT A MEDICAL DEVICE"));
+    }
+
+    #[test]
+    fn test_ground_truth_indices_within_bounds() {
+        let duration_sec = 60;
+        let data = generate_embedded_data(42, duration_sec);
+        let gt = embedded_vitals_ground_truth(duration_sec);
+        assert!(!gt.is_empty());
+        for ev in &gt {
+            assert!(ev.start_index < ev.end_index);
+            assert!(ev.end_index <= data.len(), "gt end {} > data len {}", ev.end_index, data.len());
+        }
+    }
+
+    #[test]
+    fn test_ground_truth_window_is_patient_b_afib_region() {
+        let duration_sec = 60;
+        let data = generate_embedded_data(42, duration_sec);
+        let gt = embedded_vitals_ground_truth(duration_sec);
+        let afib = gt.iter().find(|e| e.label == "afib_onset").unwrap();
+
+        // Start index must be a patient B reading (odd index in the interleave).
+        assert_eq!(afib.start_index % 2, 1);
+        assert_eq!(data[afib.start_index].patient_id, "patient_B");
+
+        // Window should cover the tail of the data — afib persists until end.
+        assert_eq!(afib.end_index, data.len());
+
+        // With AFIB_ONSET_FRACTION = 0.67 and 60 s @ 10 Hz, onset is at sample
+        // floor(40.2 * 10) = 402 → patient-B vec index 805.
+        let expected_start = 2 * ((AFIB_ONSET_FRACTION * duration_sec as f64
+            * EMBEDDED_SAMPLE_RATE_HZ as f64) as usize) + 1;
+        assert_eq!(afib.start_index, expected_start);
     }
 }

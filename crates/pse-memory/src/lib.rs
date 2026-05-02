@@ -158,6 +158,43 @@ impl PatternMemory {
         }
     }
 
+    /// Return the top-K crystals by similarity to a candidate, without
+    /// updating hit/miss statistics.
+    ///
+    /// Used by the resonance-fingerprint query interface (E.6) where
+    /// the operation is *introspection*, not a "decide whether to skip
+    /// the cascade" call. The hot-path `lookup()` semantics — exact
+    /// match short-circuit, hit/miss accounting — are deliberately
+    /// absent here so that asking the engine "what does this look like?"
+    /// does not perturb the cross-session learning statistics.
+    ///
+    /// Results are sorted by descending similarity. K=0 yields an empty
+    /// vector. K larger than the index simply returns all entries.
+    pub fn top_k(&self, candidate: &CrystalSignature, k: usize) -> Vec<(Hash256, f64)> {
+        if k == 0 || self.index.is_empty() {
+            return Vec::new();
+        }
+        let spectral_k = self.config.spectral_k;
+        let mut scored: Vec<(Hash256, f64)> = self
+            .index
+            .iter()
+            .map(|sig| (sig.crystal_id, similarity(candidate, sig, spectral_k)))
+            .collect();
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        scored.truncate(k);
+        scored
+    }
+
+    /// Borrow a stored signature by its crystal id (for deviation
+    /// computation against a top-K hit). O(n) over the index because
+    /// the index is small relative to the cost of the surrounding
+    /// query path.
+    pub fn signature_for(&self, crystal_id: &Hash256) -> Option<&CrystalSignature> {
+        self.index.iter().find(|s| &s.crystal_id == crystal_id)
+    }
+
     /// Add a newly created crystal to the index.
     /// Called after successful cascade validation + crystallization.
     pub fn insert(&mut self, signature: CrystalSignature) {
@@ -485,5 +522,83 @@ mod tests {
         let b = vec![1.0, 2.0, 3.0];
         let sim = cosine_similarity(&a, &b, 8);
         assert!(sim.abs() < 1e-9);
+    }
+
+    // ── E.6: introspective queries ──────────────────────────────────────
+
+    fn sig_with_id(spectral: Vec<f64>, id_byte: u8) -> CrystalSignature {
+        CrystalSignature {
+            crystal_id: [id_byte; 32],
+            spectral,
+            resonance: 0.5,
+            confidence: 0.5,
+            content_hash: [0u8; 32],
+            tick_range: (0, 0),
+            observation_count: 10,
+        }
+    }
+
+    #[test]
+    fn top_k_returns_highest_similarity_first() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        // a near-identical, b moderate-overlap, c orthogonal
+        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
+        mem.insert(sig_with_id(vec![0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xBB));
+        mem.insert(sig_with_id(vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xCC));
+        let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
+        let top = mem.top_k(&candidate, 3);
+        assert_eq!(top.len(), 3);
+        // First entry must be the (near-)identical one (id 0xAA).
+        assert_eq!(top[0].0, [0xAA; 32]);
+        // Scores must be non-increasing.
+        for w in top.windows(2) {
+            assert!(w[0].1 >= w[1].1);
+        }
+    }
+
+    #[test]
+    fn top_k_does_not_update_stats() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
+        let stats_before = mem.stats().clone();
+        let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
+        let _ = mem.top_k(&candidate, 1);
+        let stats_after = mem.stats().clone();
+        assert_eq!(stats_before.total_lookups, stats_after.total_lookups);
+        assert_eq!(stats_before.hits, stats_after.hits);
+        assert_eq!(stats_before.misses, stats_after.misses);
+    }
+
+    #[test]
+    fn top_k_handles_k_larger_than_index() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
+        mem.insert(sig_with_id(vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xBB));
+        let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
+        let top = mem.top_k(&candidate, 100);
+        assert_eq!(top.len(), 2);
+    }
+
+    #[test]
+    fn top_k_zero_returns_empty() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
+        let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
+        assert!(mem.top_k(&candidate, 0).is_empty());
+    }
+
+    #[test]
+    fn signature_for_returns_stored_signature() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        let sig = sig_with_id(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], 0x42);
+        mem.insert(sig.clone());
+        let fetched = mem.signature_for(&sig.crystal_id).unwrap();
+        assert_eq!(fetched.spectral, sig.spectral);
+    }
+
+    #[test]
+    fn signature_for_unknown_returns_none() {
+        let mem = PatternMemory::new(MemoryConfig::default());
+        assert!(mem.signature_for(&[0x99; 32]).is_none());
     }
 }

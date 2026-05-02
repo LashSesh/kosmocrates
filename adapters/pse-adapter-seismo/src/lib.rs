@@ -156,6 +156,7 @@ impl ObservationAdapter for SeismoAdapter {
             context: context.clone(),
             digest,
             schema_version: "1.0.0".to_string(),
+            phase_hint: None,
         })
     }
 }
@@ -365,6 +366,50 @@ pub fn embedded_seismo_data() -> Vec<SeismoEvent> {
     events
 }
 
+// ─── Ground Truth ────────────────────────────────────────────────────────────
+
+/// A labeled ground-truth event in an embedded seismo dataset.
+///
+/// Used by the ground-truth benchmark suite (pse-bench-gt) to score PSE
+/// detections against known anomalies. `start_index` is inclusive,
+/// `end_index` is exclusive, both indexing into the `Vec<SeismoEvent>`
+/// returned by [`embedded_seismo_data`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroundTruthEvent {
+    /// Inclusive start index into the embedded data vector.
+    pub start_index: usize,
+    /// Exclusive end index.
+    pub end_index: usize,
+    /// Semantic label, e.g. `"mainshock"` or `"aftershock_cluster"`.
+    pub label: &'static str,
+    /// Domain-specific severity. For seismo: peak magnitude in the window.
+    pub severity: f64,
+}
+
+/// Ground-truth annotations for [`embedded_seismo_data`].
+///
+/// The embedded data is structured as:
+/// - Indices `0..184`: background seismicity along the Pacific Ring of Fire.
+/// - Index `184`: the M6.0 mainshock (15 km SW of Hualien, Taiwan).
+/// - Indices `185..200`: the 15-event aftershock cluster, all within 50 km
+///   and 72 hours of the mainshock, magnitudes decaying per Bath's law.
+pub fn embedded_seismo_ground_truth() -> Vec<GroundTruthEvent> {
+    vec![
+        GroundTruthEvent {
+            start_index: 184,
+            end_index: 185,
+            label: "mainshock",
+            severity: 6.0,
+        },
+        GroundTruthEvent {
+            start_index: 185,
+            end_index: 200,
+            label: "aftershock_cluster",
+            severity: 4.0,
+        },
+    ]
+}
+
 /// Describe a crystal in human-readable form based on seismological context.
 ///
 /// Formats the crystal's stability, region size, and coherence into a
@@ -535,6 +580,51 @@ mod tests {
         // Verify each crystal has a valid evidence chain
         for crystal in &crystals {
             assert!(!crystal.evidence_chain.is_empty() || crystal.region.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_ground_truth_indices_within_bounds() {
+        let events = embedded_seismo_data();
+        let gt = embedded_seismo_ground_truth();
+        assert!(!gt.is_empty(), "ground truth must not be empty");
+        for ev in &gt {
+            assert!(ev.start_index < ev.end_index, "window must be non-empty: {:?}", ev);
+            assert!(
+                ev.end_index <= events.len(),
+                "end_index {} out of bounds for {} events",
+                ev.end_index,
+                events.len()
+            );
+        }
+    }
+
+    #[test]
+    fn test_ground_truth_mainshock_has_magnitude_six() {
+        let events = embedded_seismo_data();
+        let gt = embedded_seismo_ground_truth();
+        let mainshock = gt.iter().find(|e| e.label == "mainshock")
+            .expect("mainshock entry must exist");
+        // The single event at the mainshock index must be the M6.0 Hualien quake.
+        let ev = &events[mainshock.start_index];
+        assert!((ev.magnitude - 6.0).abs() < 1e-9, "expected M6.0, got {}", ev.magnitude);
+        assert_eq!(ev.magnitude_type, "mw");
+    }
+
+    #[test]
+    fn test_ground_truth_aftershocks_are_smaller_than_mainshock() {
+        let events = embedded_seismo_data();
+        let gt = embedded_seismo_ground_truth();
+        let cluster = gt.iter().find(|e| e.label == "aftershock_cluster")
+            .expect("aftershock cluster entry must exist");
+        // All aftershocks must be strictly smaller than the M6.0 mainshock.
+        for ev in &events[cluster.start_index..cluster.end_index] {
+            assert!(
+                ev.magnitude < 6.0,
+                "aftershock magnitude {} should be below mainshock",
+                ev.magnitude
+            );
+            assert!(ev.magnitude >= 1.0, "aftershock magnitude {} too small", ev.magnitude);
         }
     }
 }
