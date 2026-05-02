@@ -1,0 +1,16 @@
+[package]
+name = "pse-bench-bbo"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Non-stationary black-box optimization benchmark for the TRITON navigator"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+pse-navigator = { path = "../../crates/pse-navigator" }
+
+[[bin]]
+name = "bench_bbo"
+path = "src/bin/bench_bbo.rs"
