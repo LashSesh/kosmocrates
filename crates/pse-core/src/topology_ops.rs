@@ -313,6 +313,233 @@ pub fn dual(crystal: &SemanticCrystal) -> SemanticCrystal {
     }
 }
 
+// ─── M.3 — bridge ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Error)]
+pub enum BridgeError {
+    /// The two crystals' regions do not intersect — no shared substrate
+    /// to bridge across.
+    #[error("regions are disjoint: no shared substrate to bridge")]
+    DisjointRegions,
+    /// The crystal topologies are incompatible under the configured
+    /// tolerances. Re-uses the [`ComposeError`] semantics for the
+    /// underlying compatibility check.
+    #[error("incompatible topologies: {0}")]
+    Incompatible(String),
+}
+
+/// Configuration for [`bridge`].
+#[derive(Clone, Debug)]
+pub struct BridgeConfig {
+    /// Spectral gap tolerance (mirrors [`ComposeConfig::spectral_gap_tolerance`]).
+    pub spectral_gap_tolerance: f64,
+    /// Kuramoto coherence tolerance.
+    pub kuramoto_coherence_tolerance: f64,
+    /// Require equal Betti numbers.
+    pub require_equal_betti: bool,
+}
+
+impl Default for BridgeConfig {
+    fn default() -> Self {
+        Self {
+            spectral_gap_tolerance: 0.05,
+            kuramoto_coherence_tolerance: 0.10,
+            require_equal_betti: true,
+        }
+    }
+}
+
+/// Meso-bridge between two crystals, focused on their shared substrate.
+///
+/// Whereas [`compose`] *unions* regions to broaden scope, `bridge`
+/// *intersects* regions: the resulting crystal lives only on the
+/// vertices that both inputs have in common. Stability is the
+/// **harmonic mean** of the inputs — the "weakest link" semantics
+/// appropriate for a coupling: the bridge can carry resonance only as
+/// strongly as the weaker of the two paths it spans.
+///
+/// Compatibility:
+///  - Regions must intersect (otherwise [`BridgeError::DisjointRegions`]).
+///  - Topology signatures must be within `config` tolerances.
+///
+/// Symmetry: `bridge(a, b)` and `bridge(b, a)` produce bit-identical
+/// crystal_ids (the inputs are sorted by crystal_id internally before
+/// the operation runs).
+///
+/// `scale_tag = "bridge"`, `parent_crystal_ids = [a.id, b.id]` sorted.
+pub fn bridge(
+    a: &SemanticCrystal,
+    b: &SemanticCrystal,
+    config: &BridgeConfig,
+) -> Result<SemanticCrystal, BridgeError> {
+    // Compatibility check (mirrors compose's, but typed as BridgeError).
+    if config.require_equal_betti
+        && (a.topology_signature.betti_0 != b.topology_signature.betti_0
+            || a.topology_signature.betti_1 != b.topology_signature.betti_1
+            || a.topology_signature.betti_2 != b.topology_signature.betti_2)
+    {
+        return Err(BridgeError::Incompatible(format!(
+            "Betti number mismatch: ({},{},{}) vs ({},{},{})",
+            a.topology_signature.betti_0, a.topology_signature.betti_1,
+            a.topology_signature.betti_2,
+            b.topology_signature.betti_0, b.topology_signature.betti_1,
+            b.topology_signature.betti_2,
+        )));
+    }
+    if (a.topology_signature.spectral_gap - b.topology_signature.spectral_gap).abs()
+        > config.spectral_gap_tolerance
+    {
+        return Err(BridgeError::Incompatible(format!(
+            "spectral_gap differs by {:.4}; tolerance {:.4}",
+            (a.topology_signature.spectral_gap - b.topology_signature.spectral_gap).abs(),
+            config.spectral_gap_tolerance,
+        )));
+    }
+    if (a.topology_signature.kuramoto_coherence - b.topology_signature.kuramoto_coherence).abs()
+        > config.kuramoto_coherence_tolerance
+    {
+        return Err(BridgeError::Incompatible(format!(
+            "kuramoto_coherence differs by {:.4}; tolerance {:.4}",
+            (a.topology_signature.kuramoto_coherence
+                - b.topology_signature.kuramoto_coherence)
+                .abs(),
+            config.kuramoto_coherence_tolerance,
+        )));
+    }
+
+    // Sort by crystal_id for canonical (a, b) → (lo, hi).
+    let (lo, hi) = if a.crystal_id <= b.crystal_id {
+        (a, b)
+    } else {
+        (b, a)
+    };
+
+    // Region: intersection.
+    let lo_set: BTreeSet<VertexId> = lo.region.iter().copied().collect();
+    let region: Vec<VertexId> = hi
+        .region
+        .iter()
+        .copied()
+        .filter(|v| lo_set.contains(v))
+        .collect();
+    if region.is_empty() {
+        return Err(BridgeError::DisjointRegions);
+    }
+    let mut region = region;
+    region.sort_unstable();
+    region.dedup();
+
+    // Stability: harmonic mean = 2·a·b / (a + b). Bounded above by min,
+    // below by 0; for a = b, the harmonic mean equals a.
+    let sa = lo.stability_score.max(1e-12);
+    let sb = hi.stability_score.max(1e-12);
+    let stability_score = (2.0 * sa * sb / (sa + sb)).clamp(0.0, 1.0);
+
+    // Topology signature: per-axis mean (Betti pass through, equal by check).
+    let topology_signature = mean_topology(&[lo, hi]);
+
+    // Evidence chain: lo's chain followed by hi's. Concatenation
+    // preserves auditability through both endpoints.
+    let evidence_chain: EvidenceChain = lo
+        .evidence_chain
+        .iter()
+        .cloned()
+        .chain(hi.evidence_chain.iter().cloned())
+        .collect();
+
+    // Constraint program: deduplicated union by candidate id.
+    let mut constraint_program = ConstraintProgram::new();
+    let mut seen: BTreeSet<Hash256> = BTreeSet::new();
+    for c in [lo, hi] {
+        for cand in &c.constraint_program {
+            if seen.insert(cand.id) {
+                constraint_program.push(cand.clone());
+            }
+        }
+    }
+
+    let created_at = lo.created_at.max(hi.created_at) + 1;
+    // Free energy: sum (additive coupling free-energy contribution).
+    let free_energy = lo.free_energy + hi.free_energy;
+    let parent_crystal_ids =
+        vec![hex_encode(&lo.crystal_id), hex_encode(&hi.crystal_id)];
+    let carrier_instance_idx = lo.carrier_instance_idx.min(hi.carrier_instance_idx);
+
+    // Synthetic commit proof for the bridge (structural commit, no live cascade).
+    let evidence_digests: Vec<Hash256> = lo
+        .commit_proof
+        .evidence_digests
+        .iter()
+        .copied()
+        .chain(hi.commit_proof.evidence_digests.iter().copied())
+        .collect();
+    let commit_proof = CommitProof {
+        evidence_digests,
+        operator_stack: vec![("bridge".to_string(), "1.0.0".to_string())],
+        gate_values: GateSnapshot {
+            d: 1.0,
+            q: 1.0,
+            r: 1.0,
+            g: stability_score,
+            j: 1.0,
+            p: 1.0,
+            n: 1.0,
+            k: stability_score,
+            kairos: true,
+        },
+        structural_result: true,
+        consensus_result: ConsensusResult {
+            primal_score: stability_score,
+            dual_score: stability_score,
+            mci: 1.0,
+            threshold: 0.6,
+        },
+        por_trace: PoRTrace::default(),
+        carrier_id: carrier_instance_idx,
+        carrier_offset: 0.0,
+        falsification_p_value: None,
+        surrogate_count: None,
+    };
+
+    // Crystal id from the canonical CrystalCore subset.
+    #[derive(Serialize)]
+    struct CrystalCore<'a> {
+        region: &'a Vec<VertexId>,
+        stability_score: f64,
+        created_at: u64,
+        free_energy: f64,
+        carrier_instance_idx: usize,
+    }
+    let core = CrystalCore {
+        region: &region,
+        stability_score,
+        created_at,
+        free_energy,
+        carrier_instance_idx,
+    };
+    let crystal_id = content_address(&core);
+
+    Ok(SemanticCrystal {
+        crystal_id,
+        region,
+        constraint_program,
+        stability_score,
+        topology_signature,
+        betti_numbers: vec![1, 0, 0],
+        evidence_chain,
+        commit_proof,
+        operator_versions: BTreeMap::new(),
+        created_at,
+        free_energy,
+        carrier_instance_idx,
+        scale_tag: "bridge".into(),
+        universe_id: String::new(),
+        sub_crystal_ids: Vec::new(),
+        parent_crystal_ids,
+        genesis_metadata: None,
+    })
+}
+
 // ─── Internals ───────────────────────────────────────────────────────────────
 
 fn check_compatibility(
@@ -713,5 +940,128 @@ mod tests {
         assert_eq!(d.region, composed.region);
         assert_eq!(d.scale_tag, "dual");
         assert_eq!(d.carrier_instance_idx, composed.carrier_instance_idx ^ 1);
+    }
+
+    // ── M.3: bridge ──────────────────────────────────────────────────────
+
+    #[test]
+    fn bridge_disjoint_regions_errors() {
+        let a = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![4, 5, 6], 0.7, 1, 0.30, 0.70, 2);
+        let r = bridge(&a, &b, &BridgeConfig::default());
+        assert!(matches!(r, Err(BridgeError::DisjointRegions)));
+    }
+
+    #[test]
+    fn bridge_overlapping_regions_succeeds() {
+        let a = make_crystal(vec![1, 2, 3, 4], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![3, 4, 5, 6], 0.7, 1, 0.30, 0.70, 2);
+        let bridged = bridge(&a, &b, &BridgeConfig::default()).unwrap();
+        assert_eq!(bridged.region, vec![3, 4]);
+        assert_eq!(bridged.scale_tag, "bridge");
+        assert_eq!(bridged.parent_crystal_ids.len(), 2);
+    }
+
+    #[test]
+    fn bridge_stability_is_harmonic_mean() {
+        let a = make_crystal(vec![1, 2], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![1, 2], 0.5, 1, 0.30, 0.70, 1);
+        let bridged = bridge(&a, &b, &BridgeConfig::default()).unwrap();
+        let expected = 2.0 * 0.8 * 0.5 / (0.8 + 0.5);
+        assert!((bridged.stability_score - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn bridge_stability_is_bounded_min_geometric() {
+        // Standard inequality for positive reals a ≤ b:
+        //   min(a, b) ≤ harmonic_mean(a, b) ≤ geometric_mean(a, b) ≤ max(a, b)
+        // The harmonic mean expresses "weakest-link" semantics in the
+        // sense that it is *closer* to the minimum than the geometric
+        // mean (which compose uses).
+        let a = make_crystal(vec![1, 2], 0.9, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![1, 2], 0.3, 1, 0.30, 0.70, 1);
+        let bridged = bridge(&a, &b, &BridgeConfig::default()).unwrap();
+        let geo_mean = (0.9_f64 * 0.3_f64).sqrt();
+        assert!(
+            bridged.stability_score >= 0.3 - 1e-9
+                && bridged.stability_score <= geo_mean + 1e-9,
+            "harmonic mean must lie in [min, geometric_mean]: got {} \
+             outside [0.3, {}]",
+            bridged.stability_score,
+            geo_mean
+        );
+    }
+
+    #[test]
+    fn bridge_stability_is_strictly_below_compose_stability() {
+        // For the same two stabilities, bridge (harmonic mean) is
+        // strictly less than compose (geometric mean) when the inputs
+        // differ — this captures the "bridge is more conservative"
+        // semantics relative to compose.
+        let a = make_crystal(vec![1, 2], 0.9, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![1, 2], 0.3, 1, 0.30, 0.70, 1);
+        let bridged = bridge(&a, &b, &BridgeConfig::default()).unwrap();
+        let composed = compose(&[a, b], &ComposeConfig::default()).unwrap();
+        assert!(
+            bridged.stability_score < composed.stability_score,
+            "bridge should be below compose when inputs differ: \
+             bridge={} compose={}",
+            bridged.stability_score,
+            composed.stability_score
+        );
+    }
+
+    #[test]
+    fn bridge_is_symmetric_in_argument_order() {
+        let a = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![2, 3, 4], 0.7, 1, 0.30, 0.70, 2);
+        let ab = bridge(&a, &b, &BridgeConfig::default()).unwrap();
+        let ba = bridge(&b, &a, &BridgeConfig::default()).unwrap();
+        assert_eq!(ab.crystal_id, ba.crystal_id);
+    }
+
+    #[test]
+    fn bridge_betti_mismatch_errors() {
+        let a = make_crystal(vec![1, 2], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![2, 3], 0.7, 2, 0.30, 0.70, 2);
+        let r = bridge(&a, &b, &BridgeConfig::default());
+        assert!(matches!(r, Err(BridgeError::Incompatible(_))));
+    }
+
+    #[test]
+    fn bridge_spectral_gap_outside_tolerance_errors() {
+        let a = make_crystal(vec![1, 2], 0.8, 1, 0.10, 0.70, 1);
+        let b = make_crystal(vec![2, 3], 0.7, 1, 0.50, 0.70, 2);
+        let r = bridge(&a, &b, &BridgeConfig::default());
+        assert!(matches!(r, Err(BridgeError::Incompatible(_))));
+    }
+
+    #[test]
+    fn bridge_with_self_returns_same_region() {
+        // Bridging a crystal with itself: region = full region (set
+        // intersection of identical sets), stability harmonic-mean of
+        // itself = itself.
+        let a = make_crystal(vec![1, 2, 3], 0.7, 1, 0.30, 0.70, 1);
+        let bridged = bridge(&a, &a, &BridgeConfig::default()).unwrap();
+        assert_eq!(bridged.region, a.region);
+        assert!((bridged.stability_score - a.stability_score).abs() < 1e-12);
+    }
+
+    #[test]
+    fn bridge_of_compose_outputs_works() {
+        // Closure: bridge can take composed crystals as inputs.
+        let c1 = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 1);
+        let c2 = make_crystal(vec![3, 4, 5], 0.7, 1, 0.30, 0.70, 2);
+        let composed_a = compose(&[c1, c2], &ComposeConfig::default()).unwrap();
+
+        let c3 = make_crystal(vec![3, 4, 6, 7], 0.6, 1, 0.30, 0.70, 1);
+        let c4 = make_crystal(vec![5, 8], 0.7, 1, 0.30, 0.70, 2);
+        let composed_b = compose(&[c3, c4], &ComposeConfig::default()).unwrap();
+
+        // composed_a region = {1,2,3,4,5}; composed_b region = {3,4,5,6,7,8}.
+        // Intersection = {3, 4, 5}.
+        let bridged = bridge(&composed_a, &composed_b, &BridgeConfig::default()).unwrap();
+        assert_eq!(bridged.region, vec![3, 4, 5]);
+        assert_eq!(bridged.scale_tag, "bridge");
     }
 }

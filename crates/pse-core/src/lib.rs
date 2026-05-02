@@ -12,7 +12,9 @@ pub mod topology_ops;
 pub use crystal_adapter::CrystalAdapter;
 pub use explore::{resonance_landscape_explorer, ResonanceExplorationResult, ResonanceProbe};
 pub use query::{resonance_fingerprint, ResonanceFingerprint};
-pub use topology_ops::{compose, dual, ComposeConfig, ComposeError};
+pub use topology_ops::{
+    bridge, compose, dual, BridgeConfig, BridgeError, ComposeConfig, ComposeError,
+};
 
 /// The trait that domain plugins implement to use the PSE engine.
 pub trait DomainAdapter: Send + Sync + 'static {
