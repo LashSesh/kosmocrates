@@ -23,6 +23,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod functions;
+pub mod navigator_runner;
 pub mod optimizers;
 
 /// A scalar f64 evaluation of a (possibly non-stationary) test
