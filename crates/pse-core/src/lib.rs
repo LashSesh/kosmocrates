@@ -5,8 +5,10 @@
 
 pub mod crystal_adapter;
 pub mod falsify;
+pub mod query;
 
 pub use crystal_adapter::CrystalAdapter;
+pub use query::{resonance_fingerprint, ResonanceFingerprint};
 
 /// The trait that domain plugins implement to use the PSE engine.
 pub trait DomainAdapter: Send + Sync + 'static {
