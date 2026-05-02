@@ -4,10 +4,12 @@
 //! carrier geometry, morphogenic updates, and crystal archival.
 
 pub mod crystal_adapter;
+pub mod explore;
 pub mod falsify;
 pub mod query;
 
 pub use crystal_adapter::CrystalAdapter;
+pub use explore::{resonance_landscape_explorer, ResonanceExplorationResult, ResonanceProbe};
 pub use query::{resonance_fingerprint, ResonanceFingerprint};
 
 /// The trait that domain plugins implement to use the PSE engine.
