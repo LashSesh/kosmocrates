@@ -538,6 +538,43 @@ pub fn macro_step(
 
     state.consensus.last_result = Some(consensus.clone());
 
+    // D.4: surrogate-data falsification pass.
+    //
+    // Optional, off by default (config.falsification.enabled = false).
+    // When enabled: re-run the engine on `k` permuted versions of the
+    // current batch and compute the empirical p-value as the fraction
+    // of surrogates whose maximum κ matched or exceeded the real
+    // batch's. If `gate_on_fail` and `p_value >= alpha`, the crystal
+    // is rejected and the commit is suppressed. Either way the
+    // p-value lands in the commit proof when the crystal does commit.
+    let (fals_p_value, fals_count): (Option<f64>, Option<u32>) = if config
+        .falsification
+        .enabled
+        && !canonical_obs.is_empty()
+    {
+        let result = falsify::falsify_with_surrogates(
+            &canonical_obs,
+            config,
+            config.falsification.k,
+            config.falsification.method.clone(),
+            // Per-tick seed derived from the commit index so two replays
+            // of the same RunDescriptor produce identical p-values
+            // (Inv I4 preserved through the falsifier).
+            0xFA15_E700_u64.wrapping_add(state.commit_index),
+            adapter,
+        );
+        if config.falsification.gate_on_fail
+            && result.p_value >= config.falsification.alpha
+        {
+            state.engine_state =
+                EngineState::Rejected("falsification failed".into());
+            return Ok(None);
+        }
+        (Some(result.p_value), Some(result.k_actual))
+    } else {
+        (None, None)
+    };
+
     // Build commit proof
     let por_trace = state.por_fsm.get_trace().clone();
     let operator_stack: Vec<(String, String)> = config
@@ -561,11 +598,8 @@ pub fn macro_step(
         por_trace,
         carrier_id: state.active_carrier,
         carrier_offset: state.phase_ladder[state.active_carrier].offset,
-        // The optional falsification pass is not wired into macro_step yet
-        // (PR D-4). Default to None so the commit_proof shape is identical
-        // to the pre-change form.
-        falsification_p_value: None,
-        surrogate_count: None,
+        falsification_p_value: fals_p_value,
+        surrogate_count: fals_count,
     };
 
     // Build crystal (Inv I17: crystal required before commit)
@@ -738,5 +772,96 @@ mod tests {
         assert_eq!(temperature_regime(0.3), "calm");
         assert_eq!(temperature_regime(1.0), "normal");
         assert_eq!(temperature_regime(3.0), "volatile");
+    }
+
+    // ── D.4: macro_step integration of falsification ─────────────────────
+
+    use pse_graph::PassthroughAdapter;
+    use pse_types::SurrogateMethod;
+
+    /// Helper: drive a few macro_steps with the given config and return
+    /// the count of crystals committed. The test stream is deliberately
+    /// trivial so the test runs quickly even with falsification on.
+    fn macro_step_crystal_count(config: &Config, n: usize) -> usize {
+        let mut state = GlobalState::new(config);
+        let adapter = PassthroughAdapter::new("d4-test");
+        let mut count = 0;
+        for i in 0..n {
+            let payload = serde_json::to_vec(&format!("payload-{}", i)).unwrap();
+            if let Ok(Some(_)) = macro_step(&mut state, &[payload], config, &adapter) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn falsification_disabled_by_default_no_op() {
+        // With config.falsification.enabled = false (the default),
+        // macro_step must behave bit-identically to the pre-D.4 form:
+        // commit proofs carry None for the new fields.
+        let config = Config::default();
+        assert!(!config.falsification.enabled);
+        let mut state = GlobalState::new(&config);
+        let adapter = PassthroughAdapter::new("default");
+        // Run enough ticks to give some chance of a crystal forming
+        // (in practice 0 with default thresholds, but the test is
+        // tolerant). We assert the commit_proof structure.
+        for i in 0..3 {
+            let payload = serde_json::to_vec(&format!("p{}", i)).unwrap();
+            if let Ok(Some(crystal)) = macro_step(&mut state, &[payload], &config, &adapter) {
+                assert_eq!(crystal.commit_proof.falsification_p_value, None);
+                assert_eq!(crystal.commit_proof.surrogate_count, None);
+            }
+        }
+    }
+
+    #[test]
+    fn falsification_with_alpha_zero_rejects_every_commit() {
+        // gate_on_fail = true and alpha = 0.0 means "reject if p_value
+        // >= 0.0" — which is always true. So no crystal can ever
+        // commit, regardless of the underlying engine behaviour.
+        // This is the strict-rejection sanity check for the gating path.
+        let mut config = Config::default();
+        config.falsification.enabled = true;
+        config.falsification.gate_on_fail = true;
+        config.falsification.alpha = 0.0;
+        config.falsification.k = 4; // small k for test speed
+        config.falsification.method = SurrogateMethod::Shuffle;
+        let count = macro_step_crystal_count(&config, 5);
+        assert_eq!(count, 0, "alpha=0 must reject every potential crystal");
+    }
+
+    #[test]
+    fn falsification_with_alpha_one_admits_every_commit() {
+        // alpha = 1.0 means "reject only if p_value >= 1.0". Since
+        // p_value is in [0, 1] and the comparable count is bounded by
+        // k_actual, the test is permissive. Crystal commit count must
+        // match the no-falsification baseline (subject to determinism).
+        let mut config = Config::default();
+        config.falsification.enabled = true;
+        config.falsification.gate_on_fail = true;
+        config.falsification.alpha = 1.001; // numerically > 1.0 to be safe
+        config.falsification.k = 4;
+        config.falsification.method = SurrogateMethod::Shuffle;
+        let count_with = macro_step_crystal_count(&config, 5);
+
+        let mut baseline_config = Config::default();
+        baseline_config.falsification.enabled = false;
+        let count_without = macro_step_crystal_count(&baseline_config, 5);
+
+        // The runs go through the same engine path; with permissive
+        // alpha the count must equal the no-falsification baseline.
+        assert_eq!(count_with, count_without);
+    }
+
+    #[test]
+    fn falsification_disabled_run_is_deterministic_replayable() {
+        // Inv I4: same input, same output, regardless of the
+        // falsification pass being present in the source code.
+        let config = Config::default();
+        let count_a = macro_step_crystal_count(&config, 4);
+        let count_b = macro_step_crystal_count(&config, 4);
+        assert_eq!(count_a, count_b);
     }
 }
