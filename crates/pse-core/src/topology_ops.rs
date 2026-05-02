@@ -540,6 +540,148 @@ pub fn bridge(
     })
 }
 
+// ─── M.4 — query ─────────────────────────────────────────────────────────────
+
+/// Configuration for [`query`] — the relative weight of each
+/// similarity dimension. The defaults emphasise topology (the
+/// "shape") over region (the "where") over stability (the "how
+/// strong"), reflecting the Strand-E principle that *form is
+/// identity*.
+#[derive(Clone, Debug)]
+pub struct QueryConfig {
+    /// Weight on the cosine similarity of the spectral signature
+    /// vector `[spectral_gap, cheeger, kuramoto, prop_time, β₀, β₁,
+    /// β₂, χ]` between template and candidate. Default 0.5.
+    pub topology_weight: f64,
+    /// Weight on the region similarity (Jaccard index of vertex sets).
+    /// Default 0.3.
+    pub region_weight: f64,
+    /// Weight on stability proximity `1 − |s_template − s_candidate|`.
+    /// Default 0.2.
+    pub stability_weight: f64,
+}
+
+impl Default for QueryConfig {
+    fn default() -> Self {
+        Self {
+            topology_weight: 0.5,
+            region_weight: 0.3,
+            stability_weight: 0.2,
+        }
+    }
+}
+
+/// Find the top-K candidates that most resemble a template crystal.
+///
+/// This is the **read-modality** of the M-operator family: a template
+/// expresses a topological question ("what crystals look like this?")
+/// and the engine returns ranked answers from the supplied candidate
+/// set. The candidate set is typically the live archive
+/// (`state.archive.crystals()`) or a previously-loaded pattern memory.
+///
+/// Similarity is a weighted convex combination of three independent
+/// channels:
+///
+///  - **Topology** (cosine on spectral signature, default weight 0.5)
+///  - **Region** (Jaccard index of vertex sets, default weight 0.3)
+///  - **Stability** (1 − |Δstability|, default weight 0.2)
+///
+/// All three lie in `[0, 1]`; the weighted sum is therefore in `[0, 1]`.
+/// Self-similarity is exactly 1.0 (a crystal queried against itself
+/// scores 1.0). Results are sorted by descending similarity.
+///
+/// `top_k = 0` returns an empty vector. `top_k` larger than the
+/// candidate set returns the entire set (sorted).
+pub fn query(
+    template: &SemanticCrystal,
+    candidates: &[SemanticCrystal],
+    config: &QueryConfig,
+    top_k: usize,
+) -> Vec<(SemanticCrystal, f64)> {
+    if top_k == 0 || candidates.is_empty() {
+        return Vec::new();
+    }
+    let mut scored: Vec<(SemanticCrystal, f64)> = candidates
+        .iter()
+        .map(|c| (c.clone(), crystal_similarity(template, c, config)))
+        .collect();
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored.truncate(top_k);
+    scored
+}
+
+/// Crystal-to-crystal similarity in `[0, 1]`. Public for downstream
+/// callers (tests, custom rankers) that want the same metric outside
+/// the `query` driver.
+pub fn crystal_similarity(
+    a: &SemanticCrystal,
+    b: &SemanticCrystal,
+    config: &QueryConfig,
+) -> f64 {
+    let total_w = config.topology_weight
+        + config.region_weight
+        + config.stability_weight;
+    if total_w < 1e-12 {
+        return 0.0;
+    }
+    let topo = topology_cosine(&a.topology_signature, &b.topology_signature);
+    let region = region_jaccard(&a.region, &b.region);
+    let stab = (1.0 - (a.stability_score - b.stability_score).abs()).clamp(0.0, 1.0);
+    let weighted = config.topology_weight * topo
+        + config.region_weight * region
+        + config.stability_weight * stab;
+    (weighted / total_w).clamp(0.0, 1.0)
+}
+
+/// Cosine similarity of the 8-axis spectral signature of two
+/// topology signatures. Returns values in `[-1, 1]` mathematically;
+/// we clamp negative values to 0 so the output composes cleanly with
+/// the other unit-interval channels.
+fn topology_cosine(a: &TopologySignature, b: &TopologySignature) -> f64 {
+    let av = topology_vec(a);
+    let bv = topology_vec(b);
+    let mut dot = 0.0_f64;
+    let mut na = 0.0_f64;
+    let mut nb = 0.0_f64;
+    for (x, y) in av.iter().zip(bv.iter()) {
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    if na < 1e-12 || nb < 1e-12 {
+        return 0.0;
+    }
+    (dot / (na.sqrt() * nb.sqrt())).max(0.0).clamp(0.0, 1.0)
+}
+
+fn topology_vec(t: &TopologySignature) -> [f64; 8] {
+    [
+        t.spectral_gap,
+        t.cheeger_estimate,
+        t.kuramoto_coherence,
+        t.mean_propagation_time,
+        t.betti_0 as f64,
+        t.betti_1 as f64,
+        t.betti_2 as f64,
+        t.euler_char as f64,
+    ]
+}
+
+/// Jaccard index of two vertex regions: `|A ∩ B| / |A ∪ B|`. Both
+/// empty regions return 1.0 (degenerate but consistent).
+fn region_jaccard(a: &[VertexId], b: &[VertexId]) -> f64 {
+    let sa: BTreeSet<VertexId> = a.iter().copied().collect();
+    let sb: BTreeSet<VertexId> = b.iter().copied().collect();
+    let intersection = sa.intersection(&sb).count();
+    let union = sa.union(&sb).count();
+    if union == 0 {
+        return 1.0;
+    }
+    intersection as f64 / union as f64
+}
+
 // ─── Internals ───────────────────────────────────────────────────────────────
 
 fn check_compatibility(
@@ -1063,5 +1205,153 @@ mod tests {
         let bridged = bridge(&composed_a, &composed_b, &BridgeConfig::default()).unwrap();
         assert_eq!(bridged.region, vec![3, 4, 5]);
         assert_eq!(bridged.scale_tag, "bridge");
+    }
+
+    // ── M.4: query ───────────────────────────────────────────────────────
+
+    #[test]
+    fn query_empty_candidates_returns_empty() {
+        let template = make_crystal(vec![1, 2], 0.5, 1, 0.30, 0.70, 1);
+        let result = query(&template, &[], &QueryConfig::default(), 5);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn query_top_k_zero_returns_empty() {
+        let template = make_crystal(vec![1, 2], 0.5, 1, 0.30, 0.70, 1);
+        let candidate = make_crystal(vec![1, 2], 0.5, 1, 0.30, 0.70, 1);
+        let result = query(
+            &template,
+            std::slice::from_ref(&candidate),
+            &QueryConfig::default(),
+            0,
+        );
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn query_self_match_scores_one() {
+        // A crystal queried against itself (or a crystal with the same
+        // topology + region + stability) must score exactly 1.0.
+        let template = make_crystal(vec![1, 2, 3], 0.7, 1, 0.30, 0.70, 5);
+        let result = query(
+            &template,
+            std::slice::from_ref(&template),
+            &QueryConfig::default(),
+            1,
+        );
+        assert_eq!(result.len(), 1);
+        assert!(
+            (result[0].1 - 1.0).abs() < 1e-9,
+            "self-match must score 1.0; got {}",
+            result[0].1
+        );
+    }
+
+    #[test]
+    fn query_returns_sorted_descending() {
+        let template = make_crystal(vec![1, 2, 3], 0.7, 1, 0.30, 0.70, 1);
+        // Three candidates with decreasing similarity to template:
+        //  - identical
+        //  - same topology + different region
+        //  - different stability + same region
+        let identical = template.clone();
+        let diff_region = make_crystal(vec![100, 200], 0.7, 1, 0.30, 0.70, 1);
+        let diff_stability = make_crystal(vec![1, 2, 3], 0.1, 1, 0.30, 0.70, 1);
+
+        let candidates = vec![diff_region, identical, diff_stability];
+        let result = query(&template, &candidates, &QueryConfig::default(), 3);
+        assert_eq!(result.len(), 3);
+        for w in result.windows(2) {
+            assert!(
+                w[0].1 >= w[1].1,
+                "results not in descending order: {} < {}",
+                w[0].1,
+                w[1].1
+            );
+        }
+    }
+
+    #[test]
+    fn query_top_k_caps_result_size() {
+        let template = make_crystal(vec![1, 2], 0.5, 1, 0.30, 0.70, 1);
+        let candidates: Vec<SemanticCrystal> = (0..10)
+            .map(|i| make_crystal(vec![i as u64, (i + 1) as u64], 0.5, 1, 0.30, 0.70, 1))
+            .collect();
+        let result = query(&template, &candidates, &QueryConfig::default(), 3);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn query_top_k_larger_than_candidates_returns_all() {
+        let template = make_crystal(vec![1, 2], 0.5, 1, 0.30, 0.70, 1);
+        let candidates: Vec<SemanticCrystal> = (0..3)
+            .map(|i| make_crystal(vec![i as u64], 0.5, 1, 0.30, 0.70, 1))
+            .collect();
+        let result = query(&template, &candidates, &QueryConfig::default(), 100);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn query_is_deterministic_under_same_inputs() {
+        let template = make_crystal(vec![1, 2, 3], 0.7, 1, 0.30, 0.70, 1);
+        let candidates: Vec<SemanticCrystal> = (0..5)
+            .map(|i| make_crystal(vec![i as u64, (i + 1) as u64], 0.5, 1, 0.30, 0.70, 1))
+            .collect();
+        let r1 = query(&template, &candidates, &QueryConfig::default(), 3);
+        let r2 = query(&template, &candidates, &QueryConfig::default(), 3);
+        assert_eq!(r1.len(), r2.len());
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert_eq!(a.0.crystal_id, b.0.crystal_id);
+            assert!((a.1 - b.1).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn query_with_topology_only_weights_ignores_region() {
+        // Set region_weight = stability_weight = 0; only topology matters.
+        // Two candidates with same topology but very different regions
+        // should score equal.
+        let cfg = QueryConfig {
+            topology_weight: 1.0,
+            region_weight: 0.0,
+            stability_weight: 0.0,
+        };
+        let template = make_crystal(vec![1, 2, 3], 0.7, 1, 0.30, 0.70, 1);
+        let same_topo_diff_region =
+            make_crystal(vec![100, 200, 300], 0.7, 1, 0.30, 0.70, 1);
+        let same_topo_diff_region_2 =
+            make_crystal(vec![400, 500], 0.7, 1, 0.30, 0.70, 1);
+        let result = query(
+            &template,
+            &[same_topo_diff_region, same_topo_diff_region_2],
+            &cfg,
+            2,
+        );
+        assert!(
+            (result[0].1 - result[1].1).abs() < 1e-9,
+            "topology-only weighting should make region-different crystals tie: \
+             scores {} vs {}",
+            result[0].1,
+            result[1].1
+        );
+    }
+
+    #[test]
+    fn query_works_on_compose_and_bridge_outputs() {
+        // Closure: query operates on any crystal, including outputs of
+        // compose and bridge. The post-symbolic computation algebra is
+        // closed under all four operators.
+        let c1 = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 1);
+        let c2 = make_crystal(vec![2, 3, 4], 0.7, 1, 0.30, 0.70, 2);
+        let composed = compose(&[c1.clone(), c2.clone()], &ComposeConfig::default()).unwrap();
+        let bridged = bridge(&c1, &c2, &BridgeConfig::default()).unwrap();
+        let candidates = vec![composed.clone(), bridged.clone(), c1.clone()];
+        let result = query(&c1, &candidates, &QueryConfig::default(), 3);
+        // Must return all three with finite, sorted scores.
+        assert_eq!(result.len(), 3);
+        for (_, score) in &result {
+            assert!((0.0..=1.0).contains(score));
+        }
     }
 }
