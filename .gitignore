@@ -9,3 +9,4 @@ bench_results.json
 .DS_Store
 Thumbs.db
 *.zip
+bench_window_ablation.json

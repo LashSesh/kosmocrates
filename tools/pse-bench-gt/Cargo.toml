@@ -19,3 +19,7 @@ pse-adapter-binance = { path = "../../adapters/pse-adapter-binance" }
 [[bin]]
 name = "bench_gt"
 path = "src/bin/bench_gt.rs"
+
+[[bin]]
+name = "window_ablation"
+path = "src/bin/window_ablation.rs"
