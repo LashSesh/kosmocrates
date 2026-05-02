@@ -37,6 +37,7 @@ pub mod catalog;
 pub mod analysis;
 pub mod export;
 pub mod phase_layout;
+pub mod signature;
 
 pub use error::{ScanError, ScanResult};
 pub use ingest::InputGraph;
@@ -62,3 +63,6 @@ pub use scaffold::MetatronScaffold;
 pub use platonic::{classify_platonic, PlatonicClass};
 pub use spectrum::compute_spectrum;
 pub use phase_layout::metatron_phase_layout;
+pub use signature::{
+    compute_signature, compute_signature_with_cache, signature_from_scan_report,
+};

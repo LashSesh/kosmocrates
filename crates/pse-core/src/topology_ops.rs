@@ -229,6 +229,7 @@ pub fn compose(
         sub_crystal_ids: Vec::new(),
         parent_crystal_ids,
         genesis_metadata: None,
+        metatron_signature: None,
     })
 }
 
@@ -310,6 +311,10 @@ pub fn dual(crystal: &SemanticCrystal) -> SemanticCrystal {
         sub_crystal_ids: crystal.sub_crystal_ids.clone(),
         parent_crystal_ids: vec![parent],
         genesis_metadata: crystal.genesis_metadata.clone(),
+        // The dual carries the same Metatron signature as the original
+        // — same form, same canonical identity. The transverse carrier
+        // does not change the graph topology.
+        metatron_signature: crystal.metatron_signature.clone(),
     }
 }
 
@@ -537,6 +542,7 @@ pub fn bridge(
         sub_crystal_ids: Vec::new(),
         parent_crystal_ids,
         genesis_metadata: None,
+        metatron_signature: None,
     })
 }
 
@@ -878,6 +884,7 @@ pub fn interpolate(
         sub_crystal_ids: Vec::new(),
         parent_crystal_ids,
         genesis_metadata: None,
+        metatron_signature: None,
     }
 }
 
@@ -1017,6 +1024,7 @@ mod tests {
             sub_crystal_ids: Vec::new(),
             parent_crystal_ids: Vec::new(),
             genesis_metadata: None,
+            metatron_signature: None,
         }
     }
 

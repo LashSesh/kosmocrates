@@ -382,6 +382,63 @@ impl Default for CommitProof {
     }
 }
 
+/// Strand O.3: canonical Metatron-scaffold topology signature.
+///
+/// A passive data structure that pse-metatron fills in by running its
+/// scaffold-scan over the induced subgraph of a crystal's region.
+/// Stored as an optional field on [`SemanticCrystal`] so any crystal
+/// whose region is small enough (≤ 7 vertices for the canonical S₇
+/// orbit cache, ≤ 13 for the general scaffold) carries its own
+/// **canonical group-theoretic identity** — not just a topological
+/// signature, but the unique class identifier in the Periodic Table
+/// of Graphs.
+///
+/// Two crystals with identical `canonical_hash` are *isomorphic by
+/// proof*, not just similar by metric. This is the qualitative
+/// upgrade Strand O delivers: from cosine similarity to canonical
+/// identity.
+///
+/// All numeric fields default to zero; `canonical_hash` defaults to
+/// the empty string. The struct is `#[serde(default)]` so legacy
+/// crystals without this signature continue to deserialise.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MetatronTopologySignature {
+    /// 16-character hex FNV-1a hash of the canonical 13×13 form.
+    /// Two crystals with the same canonical_hash are guaranteed
+    /// isomorphic (modulo the S₇ permutation group).
+    pub canonical_hash: String,
+    /// Number of vertices in the subgraph that was scanned.
+    pub n: u32,
+    /// Number of edges in the subgraph.
+    pub m: u32,
+    /// Size of the orbit under S₇. Together with stabilizer_order
+    /// satisfies the orbit-stabilizer theorem: orbit · stab = 5040.
+    pub orbit_size: u64,
+    /// Order of the stabilizer subgroup. High values indicate high
+    /// internal symmetry of the subgraph.
+    pub stabilizer_order: u64,
+    /// Full adjacency-matrix spectrum (eigenvalues, sorted ascending).
+    pub spectrum: Vec<f64>,
+    /// Largest absolute eigenvalue.
+    pub spectral_radius: f64,
+    /// Algebraic connectivity (λ₂ of the Laplacian).
+    pub algebraic_connectivity: f64,
+    /// Graph energy E(G) = Σ|λᵢ| (Gutman 1978).
+    pub graph_energy: f64,
+    /// Number of spanning trees τ(G) (Kirchhoff's matrix-tree theorem).
+    pub spanning_tree_count: u64,
+    /// Triangle count.
+    pub triangle_count: u32,
+    /// Whether the subgraph contains the tetrahedron (K₄) as a
+    /// subgraph.
+    pub contains_tetrahedron: bool,
+    /// Whether the subgraph contains the octahedron (K_{2,2,2}) as a
+    /// subgraph.
+    pub contains_octahedron: bool,
+    /// Whether the subgraph contains the 3-cube (Q₃) as a subgraph.
+    pub contains_cube: bool,
+}
+
 /// Semantic crystal — the fundamental unit of validated knowledge.
 ///
 /// Content-addressed (SHA-256), evidence-chained, deterministically reproducible.
@@ -409,6 +466,12 @@ pub struct SemanticCrystal {
     pub parent_crystal_ids: Vec<String>,
     #[serde(default)]
     pub genesis_metadata: Option<GenesisMetadata>,
+    /// Strand O.3: canonical Metatron-scaffold signature, computed
+    /// when the crystal's region is small enough for the S₇ orbit
+    /// scan. `None` for crystals whose region exceeds the scan bound.
+    /// Backward-compatible: defaults to None on legacy serialisations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metatron_signature: Option<MetatronTopologySignature>,
 }
 
 // ─── Scheduler Configuration ─────────────────────────────────────────────────

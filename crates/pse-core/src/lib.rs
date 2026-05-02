@@ -6,6 +6,7 @@
 pub mod crystal_adapter;
 pub mod explore;
 pub mod falsify;
+pub mod metatron_attach;
 pub mod query;
 pub mod topology_ops;
 
@@ -15,6 +16,10 @@ pub use query::{resonance_fingerprint, ResonanceFingerprint};
 pub use topology_ops::{
     bridge, compose, crystal_similarity, dual, interpolate, query, BridgeConfig,
     BridgeError, ComposeConfig, ComposeError, QueryConfig,
+};
+pub use metatron_attach::{
+    attach_signature, attach_signature_global, induced_adjacency, signature_for_region,
+    signature_for_region_global, METATRON_REGION_CAP,
 };
 
 /// The trait that domain plugins implement to use the PSE engine.
@@ -694,6 +699,13 @@ pub fn macro_step(
     }
 
     state.engine_state = EngineState::Monolithizing;
+
+    // Strand O.3: attach the canonical Metatron-scaffold signature to
+    // the crystal if its region is small enough for the S₇ orbit
+    // scan. Done in-place before archive.append so the immutable
+    // record carries the canonical identity. Uses the process-global
+    // S₇ cache (lazy-initialised on first call).
+    metatron_attach::attach_signature_global(&mut crystal, &state.graph);
 
     // Commit (append to immutable archive, Inv I10)
     state.archive.append(crystal.clone());
