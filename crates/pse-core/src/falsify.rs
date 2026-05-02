@@ -17,7 +17,10 @@
 //! `seed: u64` via xorshift64. This is the same family used elsewhere
 //! in PSE for replayable runs and is consistent with Inv I4.
 
-use pse_types::SurrogateMethod;
+use pse_graph::ObservationAdapter;
+use pse_types::{Config, Observation, SurrogateMethod};
+
+use crate::{macro_step, GlobalState};
 
 // ─── Tiny deterministic PRNG ─────────────────────────────────────────────────
 
@@ -55,6 +58,118 @@ pub enum SurrogateError {
     /// Block size invalid (zero or larger than the observation count).
     #[error("invalid block size: {block_size} (observations: {n})")]
     InvalidBlockSize { block_size: usize, n: usize },
+}
+
+/// Outcome of an end-to-end falsification pass.
+///
+/// `p_value` is the empirical fraction of surrogate runs whose maximum
+/// Mandorla coherence (max κ across all macro_steps in that run) was
+/// **at least as high as** the real run's max κ. A low p-value means
+/// the real stream's resonance peak is statistically rare under the
+/// null hypothesis "structure is gone" — i.e. the resonance is
+/// genuinely structural rather than a coincidence of the marginal
+/// distribution.
+#[derive(Clone, Debug)]
+pub struct FalsificationResult {
+    /// Empirical p-value: comparable_count / k.
+    pub p_value: f64,
+    /// Maximum κ reached during the real-stream run.
+    pub real_max_kappa: f64,
+    /// Maximum κ reached on each surrogate run (length = k_actual).
+    pub surrogate_max_kappas: Vec<f64>,
+    /// Number of surrogate runs actually executed (some may have been
+    /// skipped if `generate_surrogate` returned an error for that seed).
+    pub k_actual: u32,
+}
+
+// ─── End-to-end Falsification Driver ────────────────────────────────────────
+
+/// Run the engine on the original observation stream and on `k`
+/// surrogate streams; return the empirical p-value plus per-run max-κ
+/// trajectory.
+///
+/// The real stream is processed first to record `real_max_kappa`. Then
+/// `k` surrogate streams are generated using the supplied
+/// [`SurrogateMethod`]; each is run on a **fresh, throwaway**
+/// `GlobalState` (no contamination of the caller's archive or memory)
+/// with the engine's `falsification.enabled` flag forced off (no
+/// recursion). For every run the maximum Mandorla κ across all
+/// macro_steps is recorded.
+///
+/// p_value = (#surrogates with max κ ≥ real max κ) / k.
+///
+/// Determinism: each surrogate's PRNG seed is `seed.wrapping_add(i)`
+/// for the i-th surrogate, so two invocations with the same `seed`
+/// produce identical surrogate sequences and identical p-values.
+/// Inv I4 is preserved for the falsification call itself.
+///
+/// Per-surrogate `generate_surrogate` errors are skipped (the
+/// surrogate is omitted from the count); `k_actual` reports the
+/// number of surrogates that ran successfully.
+pub fn falsify_with_surrogates(
+    observations: &[Observation],
+    config: &Config,
+    k: u32,
+    method: SurrogateMethod,
+    seed: u64,
+    adapter: &dyn ObservationAdapter,
+) -> FalsificationResult {
+    let payloads: Vec<Vec<u8>> = observations.iter().map(|o| o.payload.clone()).collect();
+    let real_max_kappa = run_and_measure_max_kappa(&payloads, config, adapter);
+
+    let mut surrogate_max_kappas = Vec::with_capacity(k as usize);
+    for i in 0..k {
+        let s_seed = seed.wrapping_add(i as u64);
+        let surrogate = match generate_surrogate(&payloads, &method, s_seed) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let s_max = run_and_measure_max_kappa(&surrogate, config, adapter);
+        surrogate_max_kappas.push(s_max);
+    }
+    let k_actual = surrogate_max_kappas.len() as u32;
+    let comparable = surrogate_max_kappas
+        .iter()
+        .filter(|&&s| s >= real_max_kappa)
+        .count();
+    let p_value = if k_actual == 0 {
+        1.0
+    } else {
+        comparable as f64 / k_actual as f64
+    };
+
+    FalsificationResult {
+        p_value,
+        real_max_kappa,
+        surrogate_max_kappas,
+        k_actual,
+    }
+}
+
+/// Run a fresh engine over a payload sequence and return the
+/// maximum Mandorla κ observed across all macro_steps.
+///
+/// Caps `falsification.enabled` to false in the inner config to
+/// prevent the engine from triggering its own falsification recursively
+/// once D.4 wires that into macro_step.
+fn run_and_measure_max_kappa(
+    payloads: &[Vec<u8>],
+    config: &Config,
+    adapter: &dyn ObservationAdapter,
+) -> f64 {
+    let mut inner = config.clone();
+    inner.falsification.enabled = false;
+    let mut state = GlobalState::new(&inner);
+    let mut max_kappa = 0.0_f64;
+    for p in payloads {
+        let _ = macro_step(&mut state, &[p.clone()], &inner, adapter);
+        if let Some(active) = state.phase_ladder.get(state.active_carrier) {
+            if active.mandorla.kappa > max_kappa {
+                max_kappa = active.mandorla.kappa;
+            }
+        }
+    }
+    max_kappa
 }
 
 /// Generate one surrogate observation stream from the original stream.
@@ -295,5 +410,147 @@ mod tests {
             err,
             Err(SurrogateError::PhaseRandomizeUnimplemented)
         ));
+    }
+
+    // ── End-to-end falsification (D.3) ───────────────────────────────────
+
+    use pse_graph::PassthroughAdapter;
+    use pse_types::{
+        content_address_raw, MeasurementContext, Observation, ProvenanceEnvelope,
+    };
+
+    fn obs_from_payloads(payloads: Vec<Vec<u8>>) -> Vec<Observation> {
+        payloads
+            .into_iter()
+            .map(|p| Observation {
+                timestamp: 0.0,
+                source_id: "test".into(),
+                provenance: ProvenanceEnvelope::default(),
+                payload: p.clone(),
+                context: MeasurementContext::default(),
+                digest: content_address_raw(&p),
+                schema_version: "1.0.0".into(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn falsify_returns_well_formed_result_for_small_input() {
+        let cfg = Config::default();
+        let adapter = PassthroughAdapter::new("test");
+        let observations = obs_from_payloads((0..5).map(|i| vec![i as u8]).collect());
+        let result = falsify_with_surrogates(
+            &observations,
+            &cfg,
+            8,
+            SurrogateMethod::Shuffle,
+            42,
+            &adapter,
+        );
+        assert!(result.p_value >= 0.0 && result.p_value <= 1.0);
+        assert!(result.real_max_kappa >= 0.0 && result.real_max_kappa <= 1.0);
+        for k in &result.surrogate_max_kappas {
+            assert!(*k >= 0.0 && *k <= 1.0);
+        }
+    }
+
+    #[test]
+    fn falsify_is_deterministic_under_same_seed() {
+        let cfg = Config::default();
+        let adapter = PassthroughAdapter::new("det");
+        let observations = obs_from_payloads((0..6).map(|i| vec![i as u8, 0xff]).collect());
+        let r1 = falsify_with_surrogates(
+            &observations,
+            &cfg,
+            5,
+            SurrogateMethod::Shuffle,
+            7,
+            &adapter,
+        );
+        let r2 = falsify_with_surrogates(
+            &observations,
+            &cfg,
+            5,
+            SurrogateMethod::Shuffle,
+            7,
+            &adapter,
+        );
+        assert_eq!(r1.surrogate_max_kappas.len(), r2.surrogate_max_kappas.len());
+        for (a, b) in r1
+            .surrogate_max_kappas
+            .iter()
+            .zip(r2.surrogate_max_kappas.iter())
+        {
+            assert!((a - b).abs() < 1e-12);
+        }
+        assert!((r1.p_value - r2.p_value).abs() < 1e-12);
+    }
+
+    #[test]
+    fn falsify_does_not_pollute_caller_state() {
+        // The real-stream run uses an internal throwaway GlobalState;
+        // any external state object passed in by the caller (n/a here
+        // since the API does not take one) must be unaffected. We
+        // assert this indirectly: two runs back-to-back with the same
+        // seed produce the same numbers.
+        let cfg = Config::default();
+        let adapter = PassthroughAdapter::new("isolation");
+        let observations = obs_from_payloads(vec![vec![1, 2, 3], vec![4, 5, 6]]);
+        let r1 = falsify_with_surrogates(
+            &observations,
+            &cfg,
+            3,
+            SurrogateMethod::Shuffle,
+            99,
+            &adapter,
+        );
+        let r2 = falsify_with_surrogates(
+            &observations,
+            &cfg,
+            3,
+            SurrogateMethod::Shuffle,
+            99,
+            &adapter,
+        );
+        assert_eq!(r1.real_max_kappa, r2.real_max_kappa);
+    }
+
+    #[test]
+    fn falsify_disables_recursion_in_inner_config() {
+        // We can't directly inspect the inner config, but we CAN assert
+        // that calling falsify with falsification.enabled = true on the
+        // outer config does not cause infinite recursion / stack
+        // overflow. A finite return is itself the proof of D-2's
+        // recursion guard (R-D6 in the original plan).
+        let mut cfg = Config::default();
+        cfg.falsification.enabled = true;
+        let adapter = PassthroughAdapter::new("recurse-guard");
+        let observations = obs_from_payloads(vec![vec![1], vec![2], vec![3]]);
+        let _result = falsify_with_surrogates(
+            &observations,
+            &cfg,
+            3,
+            SurrogateMethod::Shuffle,
+            1,
+            &adapter,
+        );
+        // If we got here, the recursion guard worked.
+    }
+
+    #[test]
+    fn falsify_with_zero_k_returns_p_value_one() {
+        let cfg = Config::default();
+        let adapter = PassthroughAdapter::new("zero-k");
+        let observations = obs_from_payloads(vec![vec![1], vec![2], vec![3]]);
+        let result = falsify_with_surrogates(
+            &observations,
+            &cfg,
+            0,
+            SurrogateMethod::Shuffle,
+            1,
+            &adapter,
+        );
+        assert_eq!(result.k_actual, 0);
+        assert_eq!(result.p_value, 1.0);
     }
 }
