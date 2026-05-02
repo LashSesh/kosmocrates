@@ -27,6 +27,17 @@ pub enum CapsuleError {
     Expired,
     #[error("max uses exceeded")]
     MaxUsesExceeded,
+    /// Strand K: detected an attempt to reuse a `(run_id, seal_counter)`
+    /// pair that has already produced a sealed capsule. AES-256-GCM's
+    /// IND-CPA security collapses on nonce reuse (see COMPLIANCE.md
+    /// assumption C5). The [`CapsuleSealer`] guards against this by
+    /// refusing to seal under a previously-used (run_id, counter)
+    /// fingerprint.
+    #[error("nonce reuse: (run_id, seal_counter) = ({0}, {1}) was already used")]
+    NonceReuse(String, u64),
+    /// Counter would wrap past `u64::MAX` for this run_id.
+    #[error("seal counter exhausted for run_id {0} (≥ u64::MAX seals)")]
+    CounterExhausted(String),
 }
 
 #[derive(Debug, Error)]
@@ -90,8 +101,13 @@ fn derive_session_key(master_key: &[u8; 32], manifest: &ExecutionManifest) -> [u
     okm
 }
 
-/// Compute deterministic nonce from run_id and seal_counter
-fn compute_nonce(run_id: &Hash256, seal_counter: u64) -> [u8; 12] {
+/// Compute deterministic nonce from `run_id` and `seal_counter`.
+///
+/// Public for [`CapsuleSealer`] introspection and tests. **Must NOT
+/// be called twice with the same `(run_id, seal_counter)` pair under
+/// the same session-key**: AES-GCM is IND-CPA-secure only under
+/// unique nonces (COMPLIANCE.md assumption C5).
+pub fn compute_nonce(run_id: &Hash256, seal_counter: u64) -> [u8; 12] {
     let mut data = Vec::with_capacity(40);
     data.extend_from_slice(run_id);
     data.extend_from_slice(&seal_counter.to_le_bytes());
@@ -338,5 +354,241 @@ mod tests {
 
         let result = open(&capsule, MASTER_KEY, &manifest2, None);
         assert!(result.is_err());
+    }
+}
+
+// ─── Strand K — Counter-Reuse Detector ──────────────────────────────────────
+
+/// In-process detector that prevents `(run_id, seal_counter)` reuse
+/// across [`CapsuleSealer::seal`] calls.
+///
+/// COMPLIANCE.md assumption C5 (AES-256-GCM IND-CPA security under
+/// unique nonces) only holds if no two seals under the same session
+/// key share a `(run_id, counter)` pair. The legacy free-function
+/// [`seal`] always uses `seal_counter = 0`; calling it twice with the
+/// same `manifest.run_id` produces the same nonce and silently
+/// breaks the security argument. `CapsuleSealer` fixes this for the
+/// in-process case: a counter is auto-incremented per `run_id`, and
+/// any duplicate is refused with [`CapsuleError::NonceReuse`].
+///
+/// **Scope.** The detector is in-memory and per-instance. Process
+/// restarts, multi-process deployments, or capsule sharing across
+/// machines are out of scope and require a persistent or networked
+/// counter authority. Document this requirement in the operator's
+/// QMS (Art. 17).
+pub struct CapsuleSealer {
+    master_key: [u8; 32],
+    /// Per-run counters. Maintained as a BTreeMap so iteration order
+    /// is deterministic (a property exercised by the audit pipeline).
+    counters: std::sync::Mutex<BTreeMap<Hash256, u64>>,
+}
+
+impl CapsuleSealer {
+    /// Create a new sealer bound to a 32-byte master key.
+    pub fn new(master_key: [u8; 32]) -> Self {
+        Self {
+            master_key,
+            counters: std::sync::Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// Read-only snapshot of the next counter that would be issued for
+    /// a given `run_id`. Useful for audit and tests; does not advance
+    /// the counter.
+    pub fn next_counter_for(&self, run_id: &Hash256) -> u64 {
+        let counters = self.counters.lock().expect("counter mutex");
+        *counters.get(run_id).unwrap_or(&0)
+    }
+
+    /// Seal a secret, auto-incrementing the per-run counter. Returns
+    /// `(capsule, counter_used)` so the caller can record which
+    /// counter value the capsule was issued under (audit / replay).
+    pub fn seal(
+        &self,
+        secret: &[u8],
+        policy: CapsulePolicy,
+        bind: BTreeMap<String, Hash256>,
+        manifest: &ExecutionManifest,
+    ) -> Result<(Capsule, u64)> {
+        let counter = {
+            let mut counters = self.counters.lock().expect("counter mutex");
+            let entry = counters.entry(manifest.run_id).or_insert(0);
+            let current = *entry;
+            *entry = entry
+                .checked_add(1)
+                .ok_or_else(|| CapsuleError::CounterExhausted(format!("{:?}", manifest.run_id)))?;
+            current
+        };
+        let session_key = derive_session_key(&self.master_key, manifest);
+        let nonce_bytes = compute_nonce(&manifest.run_id, counter);
+
+        // AAD = canonical JSON of policy + bind.
+        #[derive(Serialize)]
+        struct AadContent<'a> {
+            policy: &'a CapsulePolicy,
+            bind: &'a BTreeMap<String, Hash256>,
+        }
+        let aad_content = AadContent { policy: &policy, bind: &bind };
+        let aad = serde_json::to_vec(&aad_content)
+            .expect("AAD serialization must not fail");
+
+        let key = Key::<Aes256Gcm>::from_slice(&session_key);
+        let cipher = Aes256Gcm::new(key);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let ciphertext = cipher
+            .encrypt(nonce, aes_gcm::aead::Payload { msg: secret, aad: &aad })
+            .map_err(|_| CapsuleError::EncryptFailed)?;
+
+        Ok((
+            Capsule {
+                schema_version: "1.0.0".to_string(),
+                alg: "AES-256-GCM".to_string(),
+                nonce: nonce_bytes.to_vec(),
+                ciphertext,
+                aad,
+                policy,
+                bind,
+            },
+            counter,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod sealer_tests {
+    use super::*;
+    use pse_evidence::Archive;
+    use pse_manifest::{build_manifest, TraceEntry};
+    use pse_registry::RegistrySet;
+
+    const MASTER_KEY: &[u8; 32] = &[7u8; 32];
+
+    fn dummy_manifest(seed: u64) -> ExecutionManifest {
+        let mut config = pse_types::Config::default();
+        // Vary a config field per `seed` so each manifest gets a
+        // distinct rd_digest (otherwise all dummy manifests would
+        // share one run_id).
+        config.temporal.dt2 = seed as f64 * 0.001 + 0.01;
+        let rd = pse_types::RunDescriptor {
+            config,
+            operator_versions: BTreeMap::new(),
+            initial_state_digest: [0u8; 32],
+            seed: Some(seed),
+            registry_digests: BTreeMap::new(),
+            scheduler: pse_types::SchedulerConfig::default(),
+        };
+        let archive = Archive::new();
+        let registries = RegistrySet::new();
+        let traces: Vec<TraceEntry> = vec![];
+        let obs_log: Vec<Vec<Vec<u8>>> = vec![];
+        build_manifest(&rd, &traces, &archive, &registries, "test", &obs_log)
+    }
+
+    fn dummy_policy(manifest: &ExecutionManifest) -> CapsulePolicy {
+        CapsulePolicy {
+            require_lock_program_id: [0u8; 32],
+            require_rd_digest: manifest.rd_digest,
+            require_gate_proofs: vec![],
+            require_manifest_id: Some(manifest.run_id),
+            expires_at: None,
+            max_uses: None,
+        }
+    }
+
+    #[test]
+    fn sealer_seal_counter_starts_at_zero() {
+        let sealer = CapsuleSealer::new(*MASTER_KEY);
+        let manifest = dummy_manifest(1);
+        assert_eq!(sealer.next_counter_for(&manifest.run_id), 0);
+        let policy = dummy_policy(&manifest);
+        let (_, counter_used) =
+            sealer.seal(b"secret", policy, BTreeMap::new(), &manifest).unwrap();
+        assert_eq!(counter_used, 0);
+        assert_eq!(sealer.next_counter_for(&manifest.run_id), 1);
+    }
+
+    #[test]
+    fn sealer_increments_counter_per_seal() {
+        let sealer = CapsuleSealer::new(*MASTER_KEY);
+        let manifest = dummy_manifest(1);
+        let mut counters_used = Vec::new();
+        for _ in 0..5 {
+            let (_, c) = sealer
+                .seal(b"x", dummy_policy(&manifest), BTreeMap::new(), &manifest)
+                .unwrap();
+            counters_used.push(c);
+        }
+        assert_eq!(counters_used, vec![0, 1, 2, 3, 4]);
+        assert_eq!(sealer.next_counter_for(&manifest.run_id), 5);
+    }
+
+    #[test]
+    fn sealer_uses_distinct_nonces_per_seal() {
+        // The whole point of K: every seal under the same run_id
+        // produces a *different* nonce.
+        let sealer = CapsuleSealer::new(*MASTER_KEY);
+        let manifest = dummy_manifest(1);
+        let (cap1, _) = sealer
+            .seal(b"a", dummy_policy(&manifest), BTreeMap::new(), &manifest)
+            .unwrap();
+        let (cap2, _) = sealer
+            .seal(b"b", dummy_policy(&manifest), BTreeMap::new(), &manifest)
+            .unwrap();
+        let (cap3, _) = sealer
+            .seal(b"c", dummy_policy(&manifest), BTreeMap::new(), &manifest)
+            .unwrap();
+        assert_ne!(cap1.nonce, cap2.nonce);
+        assert_ne!(cap2.nonce, cap3.nonce);
+        assert_ne!(cap1.nonce, cap3.nonce);
+    }
+
+    #[test]
+    fn sealer_independent_runs_keep_independent_counters() {
+        let sealer = CapsuleSealer::new(*MASTER_KEY);
+        let m1 = dummy_manifest(1);
+        let m2 = dummy_manifest(2);
+        assert_ne!(m1.run_id, m2.run_id);
+        let (_, c1) = sealer
+            .seal(b"x", dummy_policy(&m1), BTreeMap::new(), &m1)
+            .unwrap();
+        let (_, c2) = sealer
+            .seal(b"y", dummy_policy(&m2), BTreeMap::new(), &m2)
+            .unwrap();
+        assert_eq!(c1, 0);
+        assert_eq!(c2, 0);
+        assert_eq!(sealer.next_counter_for(&m1.run_id), 1);
+        assert_eq!(sealer.next_counter_for(&m2.run_id), 1);
+    }
+
+    #[test]
+    fn sealer_capsules_open_correctly() {
+        // Forward compat: capsules sealed via CapsuleSealer must open
+        // through the legacy free-function `open()` without modification.
+        let sealer = CapsuleSealer::new(*MASTER_KEY);
+        let manifest = dummy_manifest(1);
+        let (capsule, _) = sealer
+            .seal(b"hello", dummy_policy(&manifest), BTreeMap::new(), &manifest)
+            .unwrap();
+        let opened = open(&capsule, MASTER_KEY, &manifest, None).unwrap();
+        assert_eq!(opened, b"hello");
+    }
+
+    #[test]
+    fn legacy_free_seal_function_silently_reuses_nonce() {
+        // Diagnostic / regression test that documents *why* K exists:
+        // calling the legacy free-function seal() twice with the same
+        // run_id silently produces the same nonce. This is the C5
+        // assumption gap the CapsuleSealer wraps shut.
+        let manifest = dummy_manifest(1);
+        let cap1 = seal(
+            b"a", dummy_policy(&manifest), BTreeMap::new(), MASTER_KEY, &manifest,
+        ).unwrap();
+        let cap2 = seal(
+            b"b", dummy_policy(&manifest), BTreeMap::new(), MASTER_KEY, &manifest,
+        ).unwrap();
+        // Same run_id + counter=0 → same nonce. This is the bug.
+        // CapsuleSealer prevents it; bare seal() does not.
+        assert_eq!(cap1.nonce, cap2.nonce);
     }
 }
