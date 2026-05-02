@@ -232,6 +232,87 @@ pub fn compose(
     })
 }
 
+// ─── M.2 — dual ──────────────────────────────────────────────────────────────
+
+/// Topology-preserving inversion of a crystal.
+///
+/// Conceptually: the dual lives on the **transverse** carrier — rotated
+/// by π/2 relative to the original. The standing-wave geometry of the
+/// Mandorla means that at the transverse carrier, antinodes become
+/// nodes and vice versa: the resonant relationship between the
+/// original carrier and any data-helix is inverted. The crystal's
+/// **form** (Betti numbers, region, spectral signature, stability) is
+/// preserved exactly; only the carrier from which the form is observed
+/// is rotated.
+///
+/// Implementation: `dual(c)` flips the lowest bit of `carrier_instance_idx`
+/// (XOR with 1), interpreting the phase-ladder convention that adjacent
+/// indices are π/2-offset carriers. Because XOR-with-1 is its own
+/// inverse, `dual` is an **involution**:
+///
+/// ```text
+/// dual(dual(c)).crystal_id == c.crystal_id
+/// ```
+///
+/// — verified by the test `dual_is_involutive`. This is the property
+/// that makes `dual` a real symmetry operation rather than an arbitrary
+/// rewrite.
+///
+/// `created_at` is preserved (the dual is not strictly posterior to
+/// the original — they are dual aspects of the same form). `scale_tag`
+/// is set to `"dual"`. `parent_crystal_ids` carries the original.
+pub fn dual(crystal: &SemanticCrystal) -> SemanticCrystal {
+    let dual_carrier = crystal.carrier_instance_idx ^ 1;
+
+    #[derive(Serialize)]
+    struct CrystalCore<'a> {
+        region: &'a Vec<VertexId>,
+        stability_score: f64,
+        created_at: u64,
+        free_energy: f64,
+        carrier_instance_idx: usize,
+    }
+    let core = CrystalCore {
+        region: &crystal.region,
+        stability_score: crystal.stability_score,
+        created_at: crystal.created_at,
+        free_energy: crystal.free_energy,
+        carrier_instance_idx: dual_carrier,
+    };
+    let crystal_id = content_address(&core);
+
+    let parent = hex_encode(&crystal.crystal_id);
+    let mut commit_proof = crystal.commit_proof.clone();
+    commit_proof.carrier_id = dual_carrier;
+    commit_proof.operator_stack = vec![("dual".to_string(), "1.0.0".to_string())];
+
+    SemanticCrystal {
+        crystal_id,
+        region: crystal.region.clone(),
+        constraint_program: crystal.constraint_program.clone(),
+        stability_score: crystal.stability_score,
+        topology_signature: crystal.topology_signature.clone(),
+        betti_numbers: crystal.betti_numbers.clone(),
+        evidence_chain: crystal.evidence_chain.clone(),
+        commit_proof,
+        operator_versions: crystal.operator_versions.clone(),
+        created_at: crystal.created_at,
+        free_energy: crystal.free_energy,
+        carrier_instance_idx: dual_carrier,
+        // The dual is the same form on the transverse carrier. The
+        // crystal_id (the canonical Inv I3 identity) is preserved
+        // under involution because dual flips one bit of
+        // carrier_instance_idx, which is a CrystalCore field; flipping
+        // the same bit twice restores it. scale_tag is a hint, not
+        // part of identity, so we always tag the dual as "dual".
+        scale_tag: "dual".to_string(),
+        universe_id: crystal.universe_id.clone(),
+        sub_crystal_ids: crystal.sub_crystal_ids.clone(),
+        parent_crystal_ids: vec![parent],
+        genesis_metadata: crystal.genesis_metadata.clone(),
+    }
+}
+
 // ─── Internals ───────────────────────────────────────────────────────────────
 
 fn check_compatibility(
@@ -528,5 +609,109 @@ mod tests {
         let r12 = compose(&[c1.clone(), c2], &ComposeConfig::default()).unwrap();
         let r13 = compose(&[c1, c3], &ComposeConfig::default()).unwrap();
         assert_ne!(r12.crystal_id, r13.crystal_id);
+    }
+
+    // ── M.2: dual ────────────────────────────────────────────────────────
+
+    #[test]
+    fn dual_preserves_form() {
+        let c = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 5);
+        let d = dual(&c);
+        assert_eq!(d.region, c.region);
+        assert_eq!(d.stability_score, c.stability_score);
+        assert_eq!(d.topology_signature, c.topology_signature);
+        assert_eq!(d.created_at, c.created_at);
+        assert_eq!(d.free_energy, c.free_energy);
+        assert_eq!(d.constraint_program.len(), c.constraint_program.len());
+    }
+
+    #[test]
+    fn dual_flips_carrier_instance_idx_lowest_bit() {
+        let c0 = make_crystal(vec![1], 0.5, 1, 0.30, 0.70, 1);
+        let c1 = {
+            let mut x = c0.clone();
+            x.carrier_instance_idx = 1;
+            x
+        };
+        assert_eq!(dual(&c0).carrier_instance_idx, 1);
+        assert_eq!(dual(&c1).carrier_instance_idx, 0);
+        // Higher carriers also flip the lowest bit only:
+        let c2 = {
+            let mut x = c0.clone();
+            x.carrier_instance_idx = 2;
+            x
+        };
+        assert_eq!(dual(&c2).carrier_instance_idx, 3);
+        let c3 = {
+            let mut x = c0.clone();
+            x.carrier_instance_idx = 3;
+            x
+        };
+        assert_eq!(dual(&c3).carrier_instance_idx, 2);
+    }
+
+    #[test]
+    fn dual_changes_crystal_id() {
+        let c = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 5);
+        let d = dual(&c);
+        assert_ne!(d.crystal_id, c.crystal_id,
+                   "dual must produce a distinct crystal_id");
+    }
+
+    #[test]
+    fn dual_is_involutive() {
+        // The defining symmetry of dual: dual(dual(c)) restores c's
+        // canonical identity (crystal_id), even if the scale_tag
+        // hint records that we passed through a dual on the way back.
+        let c = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 5);
+        let dd = dual(&dual(&c));
+        assert_eq!(dd.crystal_id, c.crystal_id);
+        assert_eq!(dd.region, c.region);
+        assert_eq!(dd.stability_score, c.stability_score);
+        assert_eq!(dd.carrier_instance_idx, c.carrier_instance_idx);
+    }
+
+    #[test]
+    fn dual_records_parent() {
+        let c = make_crystal(vec![1], 0.5, 1, 0.30, 0.70, 1);
+        let d = dual(&c);
+        assert_eq!(d.parent_crystal_ids.len(), 1);
+        assert_eq!(d.parent_crystal_ids[0], hex_encode(&c.crystal_id));
+        assert_eq!(d.scale_tag, "dual");
+    }
+
+    #[test]
+    fn dual_commit_proof_carries_dual_operator() {
+        let c = make_crystal(vec![1], 0.5, 1, 0.30, 0.70, 1);
+        let d = dual(&c);
+        assert!(d.commit_proof
+            .operator_stack
+            .iter()
+            .any(|(name, _)| name == "dual"));
+    }
+
+    #[test]
+    fn dual_and_original_are_compose_compatible() {
+        // A crystal and its dual share the same topology signature, so
+        // they must always be compose-compatible. This is the
+        // composability property: dual outputs are first-class
+        // computation inputs.
+        let c = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 5);
+        let d = dual(&c);
+        let composed = compose(&[c, d], &ComposeConfig::default());
+        assert!(composed.is_ok(), "c and dual(c) must be compose-compatible");
+    }
+
+    #[test]
+    fn dual_of_composed_is_dual() {
+        // dual is a real operation on any crystal, including a
+        // composed one (closure under composition).
+        let c1 = make_crystal(vec![1, 2], 0.8, 1, 0.30, 0.70, 1);
+        let c2 = make_crystal(vec![3, 4], 0.7, 1, 0.30, 0.70, 2);
+        let composed = compose(&[c1, c2], &ComposeConfig::default()).unwrap();
+        let d = dual(&composed);
+        assert_eq!(d.region, composed.region);
+        assert_eq!(d.scale_tag, "dual");
+        assert_eq!(d.carrier_instance_idx, composed.carrier_instance_idx ^ 1);
     }
 }
