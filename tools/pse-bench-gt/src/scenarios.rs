@@ -34,6 +34,23 @@ pub const SEISMO_DEFAULT_TOLERANCE: u64 = 5;
 pub const VITALS_DEFAULT_TOLERANCE: u64 = 20;
 pub const BINANCE_DEFAULT_TOLERANCE: u64 = 3;
 
+/// Default sliding-window sizes per scenario.
+///
+/// The window size determines how many recent observations PSE sees in
+/// each macro_step. Larger windows produce richer within-batch graph
+/// topology (more pairwise edges, higher j-density) at the cost of
+/// processing time per tick.
+///
+/// Values are tuned around each scenario's natural temporal locality:
+/// seismo has rare distinct events so a larger window helps the graph
+/// accumulate topology before an anomaly fires; vitals is dense at 10 Hz
+/// so a moderate window captures local rhythm; binance has fast 1-min
+/// bars so a smaller window keeps the regime shift near a single
+/// macro_step's attention.
+pub const SEISMO_DEFAULT_WINDOW: usize = 16;
+pub const VITALS_DEFAULT_WINDOW: usize = 12;
+pub const BINANCE_DEFAULT_WINDOW: usize = 8;
+
 /// Aggregate result of running one scenario end-to-end.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScenarioResult {
@@ -52,36 +69,44 @@ pub struct ScenarioResult {
 }
 
 /// Run the seismo ground-truth scenario end-to-end against a fresh PSE
-/// engine instance plus the registered classical baselines (currently
-/// detrended rolling-z-score on event magnitudes).
+/// engine instance plus the registered classical baselines.
 ///
-/// Uses [`embedded_seismo_data`] as the input stream (200 events, with an
-/// M6.0 mainshock at index 184 and 15 aftershocks at 185..200) and
-/// [`embedded_seismo_ground_truth`] as the labels, both normalized into
-/// `pse-bench-gt`'s canonical [`GroundTruthEvent`] form. The combined
-/// [`ScenarioResult::detections`] vector carries multiple `source` tags
-/// (`pse_crystal`, `pse_memory_hit`, `stl_zscore`); use
-/// [`crate::metrics_by_source`] to split them.
+/// Ingestion mode is **windowed**: the runner uses
+/// [`crate::runner::run_pse_windowed`] with [`SEISMO_DEFAULT_WINDOW`] so
+/// each macro_step sees a sliding window of recent events, every event
+/// becomes its own graph vertex, and PSE's 5D state and resonance
+/// machinery (Strand E) finally have substrate to operate on.
 pub fn run_seismo_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioResult {
+    run_seismo_scenario_with(config, tolerance_ticks, SEISMO_DEFAULT_WINDOW)
+}
+
+/// Variant with explicit window size — used by ablation studies and
+/// the F.2 bench run.
+pub fn run_seismo_scenario_with(
+    config: &Config,
+    tolerance_ticks: u64,
+    window_size: usize,
+) -> ScenarioResult {
     let events = embedded_seismo_data();
-    let adapter = SeismoAdapter::new("pacific_rim");
+    // Underscore-prefixed because the windowed runner constructs its
+    // own EventScopedAdapter; the SeismoAdapter is preserved in the
+    // signature only for backwards reference and validation tests.
+    let _adapter = SeismoAdapter::new("pacific_rim");
     let mut state = GlobalState::new(config);
 
-    // Pre-serialize so the hot loop in the runner only calls macro_step.
     let payloads: Vec<Vec<u8>> = events
         .iter()
         .map(|e| serde_json::to_vec(e).expect("seismo event must serialize"))
         .collect();
 
-    let mut detections = crate::runner::run_pse(&mut state, &payloads, config, &adapter);
+    let mut detections = crate::runner::run_pse_windowed(
+        &mut state, &payloads, config, "seismo", window_size,
+    );
 
-    // Classical baselines on event magnitudes — same tick frame as PSE.
     let features = extract_seismo_features(&events);
     let stl_cfg = stl_zscore::StlZscoreConfig::default();
     detections.extend(stl_zscore::detect(&features, &stl_cfg));
 
-    // Isolation Forest expects a row-per-tick matrix; promote the 1-D
-    // magnitude series into 1-feature vectors.
     let if_samples: Vec<Vec<f64>> = features.iter().map(|m| vec![*m]).collect();
     let if_cfg = isoforest::IsoForestConfig::default();
     detections.extend(isoforest::detect(&if_samples, &if_cfg));
@@ -121,11 +146,18 @@ pub fn extract_seismo_features(events: &[pse_adapter_seismo::SeismoEvent]) -> Ve
 ///
 /// `generate_embedded_data` returns interleaved [A, B, A, B, …] readings.
 /// We **filter to patient B only** before driving PSE and the baselines so
-/// the tick frame is a single homogeneous biological signal. The ground
-/// truth from `embedded_vitals_ground_truth` (which is in interleaved
-/// frame) is converted accordingly: a patient-B reading at interleaved
-/// index `2k+1` lives at filtered index `k`.
+/// the tick frame is a single homogeneous biological signal. Ingestion
+/// is windowed (see [`VITALS_DEFAULT_WINDOW`]).
 pub fn run_vitals_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioResult {
+    run_vitals_scenario_with(config, tolerance_ticks, VITALS_DEFAULT_WINDOW)
+}
+
+/// Variant with explicit window size.
+pub fn run_vitals_scenario_with(
+    config: &Config,
+    tolerance_ticks: u64,
+    window_size: usize,
+) -> ScenarioResult {
     let duration_sec: u32 = 60;
     let raw = generate_embedded_data(42, duration_sec);
     let patient_b: Vec<&pse_adapter_vitals::VitalReading> = raw
@@ -133,7 +165,7 @@ pub fn run_vitals_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioRes
         .filter(|r| r.patient_id == "patient_B")
         .collect();
 
-    let adapter = VitalsAdapter::new("patient_B");
+    let _adapter = VitalsAdapter::new("patient_B");
     let mut state = GlobalState::new(config);
 
     let payloads: Vec<Vec<u8>> = patient_b
@@ -141,7 +173,9 @@ pub fn run_vitals_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioRes
         .map(|r| serde_json::to_vec(r).expect("vital reading must serialize"))
         .collect();
 
-    let mut detections = crate::runner::run_pse(&mut state, &payloads, config, &adapter);
+    let mut detections = crate::runner::run_pse_windowed(
+        &mut state, &payloads, config, "vitals_b", window_size,
+    );
 
     // ECG amplitude is the natural per-tick scalar feature.
     let features: Vec<f64> = patient_b.iter().map(|r| r.value).collect();
@@ -195,12 +229,19 @@ pub fn extract_vitals_features(readings: &[pse_adapter_vitals::VitalReading]) ->
 ///
 /// Uses [`embedded_btc_klines_with_regime_shift`]: 100 candles where
 /// indices `50..70` carry a 5× volatility / -1 % drift regime injection.
-/// Feature for the baselines is the per-candle log return
-/// `ln(close / open)` — the canonical realized-volatility proxy at the
-/// candle level.
+/// Ingestion is windowed (see [`BINANCE_DEFAULT_WINDOW`]).
 pub fn run_binance_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioResult {
+    run_binance_scenario_with(config, tolerance_ticks, BINANCE_DEFAULT_WINDOW)
+}
+
+/// Variant with explicit window size.
+pub fn run_binance_scenario_with(
+    config: &Config,
+    tolerance_ticks: u64,
+    window_size: usize,
+) -> ScenarioResult {
     let ticks = embedded_btc_klines_with_regime_shift();
-    let adapter = BinanceAdapter::new("BTCUSDT");
+    let _adapter = BinanceAdapter::new("BTCUSDT");
     let mut state = GlobalState::new(config);
 
     let payloads: Vec<Vec<u8>> = ticks
@@ -208,7 +249,9 @@ pub fn run_binance_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioRe
         .map(|t| serde_json::to_vec(t).expect("kline must serialize"))
         .collect();
 
-    let mut detections = crate::runner::run_pse(&mut state, &payloads, config, &adapter);
+    let mut detections = crate::runner::run_pse_windowed(
+        &mut state, &payloads, config, "binance_btc", window_size,
+    );
 
     let features = extract_binance_features(&ticks);
     detections.extend(stl_zscore::detect(
