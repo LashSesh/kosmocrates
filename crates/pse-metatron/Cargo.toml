@@ -1,0 +1,14 @@
+[package]
+name = "pse-metatron"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Metatron-scaffold topology scanner and Periodic-Table-of-Graphs library for PSE (vendored from metatron-scan, MIT)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+nalgebra = { workspace = true }
+thiserror = { workspace = true }
+rayon = { workspace = true }
