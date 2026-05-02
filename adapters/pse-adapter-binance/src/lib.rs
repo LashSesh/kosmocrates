@@ -124,14 +124,36 @@ impl ObservationAdapter for BinanceAdapter {
         raw: &[u8],
         context: &MeasurementContext,
     ) -> Result<Observation, ObserveError> {
-        // Validate the tick data if it parses
-        if let Ok(tick) = serde_json::from_slice::<BinanceTick>(raw) {
-            if !tick.is_valid() {
-                return Err(ObserveError::Canonicalize(
-                    "invalid tick data: negative price or NaN".into(),
-                ));
+        // Strand I: derive a *semantic* phase hint from the candle's
+        // log return. Two ticks with similar log returns therefore
+        // land at similar phases on the data-helix; a regime-shift
+        // candle (large |log_return|) lands at a phase that differs
+        // proportionally from the baseline cluster, so PSE's Mandorla
+        // can actually resonate with the regime structure rather than
+        // with avalanche noise.
+        //
+        // Mapping: φ = (log_return * 50.0 + 0.5) mod 1.0 × 2π.
+        // The factor 50 stretches the typical 1-min-candle range
+        // (≈ ±0.005) over roughly a quarter of the unit circle, so
+        // small returns are densely clustered and outliers spread
+        // outward.
+        let phase_hint = match serde_json::from_slice::<BinanceTick>(raw) {
+            Ok(tick) => {
+                if !tick.is_valid() {
+                    return Err(ObserveError::Canonicalize(
+                        "invalid tick data: negative price or NaN".into(),
+                    ));
+                }
+                if tick.open > 0.0 && tick.close > 0.0 {
+                    let log_return = (tick.close / tick.open).ln();
+                    let normalized = (log_return * 50.0 + 0.5).rem_euclid(1.0);
+                    Some(normalized * std::f64::consts::TAU)
+                } else {
+                    None
+                }
             }
-        }
+            Err(_) => None,
+        };
 
         let payload = raw.to_vec();
         let digest: Hash256 = content_address_raw(&payload);
@@ -147,6 +169,7 @@ impl ObservationAdapter for BinanceAdapter {
             context: context.clone(),
             digest,
             schema_version: "1.0.0".to_string(),
+            phase_hint,
         })
     }
 }

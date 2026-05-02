@@ -108,6 +108,7 @@ impl ObservationAdapter for PassthroughAdapter {
             context: context.clone(),
             digest,
             schema_version: self.schema_version.clone(),
+            phase_hint: None,
         })
     }
 }
@@ -154,6 +155,7 @@ impl FastPassthroughAdapter {
             context: MeasurementContext::default(),
             digest,
             schema_version: self.schema_version.clone(),
+            phase_hint: None,
         }
     }
 }
@@ -668,6 +670,7 @@ mod tests {
             context: MeasurementContext::default(),
             digest,
             schema_version: "1.0.0".to_string(),
+            phase_hint: None,
         }
     }
 

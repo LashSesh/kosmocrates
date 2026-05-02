@@ -147,6 +147,7 @@ impl ObservationAdapter for EventScopedAdapter {
             context: context.clone(),
             digest,
             schema_version: self.schema.clone(),
+            phase_hint: None,
         })
     }
 }

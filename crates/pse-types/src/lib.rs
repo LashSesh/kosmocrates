@@ -196,6 +196,25 @@ pub struct Observation {
     pub context: MeasurementContext,
     pub digest: Hash256,
     pub schema_version: String,
+    /// Optional **semantic phase hint** in `[0, 2π)` (Strand I).
+    ///
+    /// When `Some(φ)`, downstream Mandorla computation uses this value
+    /// for the data-helix phase instead of the avalanche-hash derivation
+    /// from the digest. Domain-aware adapters set this to a value that
+    /// preserves *semantic locality* — i.e. similar observations get
+    /// similar phases, so coherent data streams produce coherent
+    /// data-helix phase distributions and PSE can actually resonate.
+    ///
+    /// When `None`, the engine falls back to `phase_from_digest(digest)`,
+    /// which is uncorrelated with semantic similarity by construction
+    /// (SHA-256's avalanche property). The fallback is honest: a
+    /// stream of payloads with no domain-aware adapter receives
+    /// uncorrelated phases and the Mandorla coherence reflects that.
+    ///
+    /// `#[serde(default)]` keeps existing on-disk observations
+    /// loadable without modification.
+    #[serde(default)]
+    pub phase_hint: Option<f64>,
 }
 
 // ─── Constraint Types ─────────────────────────────────────────────────────────

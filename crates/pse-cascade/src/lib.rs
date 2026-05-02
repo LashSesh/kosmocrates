@@ -694,6 +694,22 @@ pub fn shannon_entropy_norm(bytes: &[u8]) -> f64 {
     (h / 8.0).clamp(0.0, 1.0)
 }
 
+/// Choose the data-helix phase for an observation.
+///
+/// Strand I: domain-aware adapters can attach a semantic phase to the
+/// observation via `Observation::phase_hint`; if present, that value
+/// is used directly (after wrapping into `[0, 2π)`). Otherwise we fall
+/// back to the digest-based `phase_from_digest`, which is
+/// avalanche-driven and uncorrelated with semantic similarity. The
+/// fallback is honest: streams without semantic-phase adapters get
+/// uncorrelated phases and the engine's resonance reflects that.
+pub fn observation_phase(obs: &Observation) -> f64 {
+    match obs.phase_hint {
+        Some(phi) => phi.rem_euclid(std::f64::consts::TAU),
+        None => phase_from_digest(&obs.digest),
+    }
+}
+
 /// Project a single observation onto the data-helix at the given
 /// intrinsic engine time. `tau` is provided externally so the engine
 /// stays in control of the time scale (the carrier and data helices
@@ -701,7 +717,7 @@ pub fn shannon_entropy_norm(bytes: &[u8]) -> f64 {
 pub fn observation_data_helix(obs: &Observation, intrinsic_tau: f64) -> DataHelix {
     DataHelix {
         tau: intrinsic_tau,
-        phi: phase_from_digest(&obs.digest),
+        phi: observation_phase(obs),
         r: shannon_entropy_norm(&obs.payload),
     }
 }
@@ -727,7 +743,7 @@ pub fn batch_data_helix(observations: &[Observation], intrinsic_tau: f64) -> Dat
     let mut sum_cos = 0.0_f64;
     let mut sum_r = 0.0_f64;
     for obs in observations {
-        let phi = phase_from_digest(&obs.digest);
+        let phi = observation_phase(obs);
         sum_sin += phi.sin();
         sum_cos += phi.cos();
         sum_r += shannon_entropy_norm(&obs.payload);
@@ -837,6 +853,7 @@ mod tests {
             context: MeasurementContext::default(),
             digest,
             schema_version: "1.0.0".into(),
+            phase_hint: None,
         }
     }
 
@@ -1064,6 +1081,77 @@ mod tests {
         let h = batch_data_helix(&[o1, o2, o3], 0.0);
         assert!(h.phi >= 0.0);
         assert!(h.phi < std::f64::consts::TAU);
+    }
+
+    // ── Strand I: semantic phase hint ────────────────────────────────────
+
+    fn obs_with_phase(payload: Vec<u8>, phi: Option<f64>) -> Observation {
+        let mut o = obs(payload);
+        o.phase_hint = phi;
+        o
+    }
+
+    #[test]
+    fn observation_phase_uses_hint_when_present() {
+        let o = obs_with_phase(b"hello".to_vec(), Some(1.5));
+        let phi = observation_phase(&o);
+        assert!((phi - 1.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn observation_phase_wraps_hint_into_unit_circle() {
+        // 5π/2 = 1.25 × τ; should wrap into [0, τ).
+        let hint = 5.0 * std::f64::consts::FRAC_PI_2;
+        let o = obs_with_phase(b"x".to_vec(), Some(hint));
+        let phi = observation_phase(&o);
+        assert!((0.0..std::f64::consts::TAU).contains(&phi));
+        // Wrapped value should be the original mod τ.
+        let expected = hint.rem_euclid(std::f64::consts::TAU);
+        assert!((phi - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn observation_phase_falls_back_to_digest_when_hint_is_none() {
+        let o = obs_with_phase(b"hello".to_vec(), None);
+        let phi = observation_phase(&o);
+        assert!((phi - phase_from_digest(&o.digest)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn semantic_phase_creates_coherent_batch_phi() {
+        // Two observations with the same phase_hint should produce a
+        // batch data-helix whose phi equals that hint exactly (modulo
+        // floating-point), regardless of the underlying digest. This
+        // is the property that lets a domain-aware adapter create
+        // coherent data streams.
+        let phi_hint = 1.7;
+        let o1 = obs_with_phase(b"alpha".to_vec(), Some(phi_hint));
+        let o2 = obs_with_phase(b"beta".to_vec(), Some(phi_hint));
+        let h = batch_data_helix(&[o1, o2], 0.0);
+        assert!((h.phi - phi_hint).abs() < 1e-9);
+    }
+
+    #[test]
+    fn data_helix_with_hint_resonates_with_aligned_carrier() {
+        // The whole point of Strand I: a stream with a semantic phase
+        // hint near the active carrier's axis produces a high
+        // Mandorla coherence κ — actually resonant, not avalanche-noise.
+        let (a, b) = helix_pair(0.0, 0.0, 0.5);
+        let o = obs_with_phase(b"x".to_vec(), Some(0.0)); // φ_data = α.phi
+        let h = observation_data_helix(&o, 0.0);
+        let m_real = mandorla_real(&a, &b, &h, 0.5, 0.5, 1.0);
+        let m_carrier_only = mandorla(&a, &b, 0.5, 0.5);
+        // Aligned data: phase_lock factor = 1, so κ_real should
+        // equal κ_carrier_only modulo amp_match.
+        let amp_match = (-1.0 * (h.r - a.r).powi(2)).exp();
+        let expected = m_carrier_only.kappa * amp_match;
+        assert!(
+            (m_real.kappa - expected).abs() < 1e-9,
+            "axis-aligned semantic phase should give κ_real ≈ κ_carrier × amp_match: \
+             got {}, expected {}",
+            m_real.kappa,
+            expected
+        );
     }
 }
 
