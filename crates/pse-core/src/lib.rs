@@ -46,8 +46,8 @@ use pse_cascade::{
     PIOperator, PoRFsm, SWOperator, WTOperator,
 };
 use pse_cascade::{
-    batch_data_helix, build_phase_ladder, helix_pair, mandorla, mandorla_real,
-    restore_neutrality,
+    batch_data_helix, build_metatron_phase_ladder, build_phase_ladder, helix_pair, mandorla,
+    mandorla_real, restore_neutrality,
 };
 use pse_evidence::{Archive, build_crystal_with_id};
 use pse_constraint::{intrinsic_step, morphogenic_update, MorphState};
@@ -142,7 +142,14 @@ pub struct GlobalState {
 
 impl GlobalState {
     pub fn new(config: &Config) -> Self {
-        let phase_ladder = build_phase_ladder(config.carrier.num_carriers, 0.0, 1.0);
+        // O.2: optional Metatron / cuboctahedron phase-ladder, selected
+        // via config.carrier.use_metatron_ladder. Default false →
+        // legacy n-evenly-spaced builder.
+        let phase_ladder = if config.carrier.use_metatron_ladder {
+            build_metatron_phase_ladder(0.0)
+        } else {
+            build_phase_ladder(config.carrier.num_carriers, 0.0, 1.0)
+        };
         Self {
             graph: PersistentGraph::new(),
             candidates: Vec::new(),

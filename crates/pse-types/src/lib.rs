@@ -577,6 +577,14 @@ pub struct CarrierConfig {
     /// way the active carrier ever changes.
     #[serde(default)]
     pub adaptive: bool,
+    /// Strand O.2: when `true`, GlobalState constructs the phase-ladder
+    /// from the canonical Metatron-scaffold geometry (1 centre carrier
+    /// + 12 cuboctahedron-vertex carriers, total 13). The
+    /// `num_carriers` field is ignored in that case. When `false`
+    /// (default — backward-compat), `num_carriers` evenly-spaced
+    /// carriers are built via `build_phase_ladder`.
+    #[serde(default)]
+    pub use_metatron_ladder: bool,
 }
 
 fn default_eta_r() -> f64 { 1.0 }
@@ -593,6 +601,7 @@ impl Default for CarrierConfig {
             thresholds: ThresholdConfig::default(),
             eta_r: default_eta_r(),
             adaptive: false,
+            use_metatron_ladder: false,
         }
     }
 }
