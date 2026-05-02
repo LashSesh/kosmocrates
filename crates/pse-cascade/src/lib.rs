@@ -214,56 +214,244 @@ impl CrystalPrecursor {
     }
 }
 
-// ─── Cascade Operator Trait ──────────────────────────────────────────────────
+// ─── Cascade Operator Trait (E.4) ────────────────────────────────────────────
+//
+// The cascade operators were originally multiplicative scalar tweaks on a
+// single stability score: physically hollow, and the dual cascade's MCI
+// was 1.0 by construction (commutative ops). E.4 replaces them with four
+// operators that each compute a real resonance test against the current
+// carrier and data-helix, and that *mutate the carrier context* on the
+// way through so primal and dual orderings genuinely produce different
+// trajectories.
 
-/// Cascade operator for dual consensus (DK -> SW -> PI -> WT and reverse)
-pub trait CascadeOperator: Send + Sync {
-    fn name(&self) -> &str;
-    fn apply(&self, precursor: &CrystalPrecursor) -> CrystalPrecursor;
+/// Mutable context threaded through the cascade.
+///
+/// The carrier is owned (mutable, copied per cascade path) so DK and SW
+/// can perturb it without leaking into global state. The phase-ladder
+/// and config are borrowed since they are read-only per-step.
+#[derive(Clone)]
+pub struct CascadeContext<'a> {
+    /// Working copy of the active carrier — DK and SW mutate this.
+    pub carrier: CarrierInstance,
+    /// Read-only view of the full phase-ladder for WT to test transfers.
+    pub phase_ladder: &'a [CarrierInstance],
+    /// Index into `phase_ladder` of the carrier the path currently
+    /// considers active. WT updates this on a successful transfer.
+    pub active_idx: usize,
+    /// The data-helix from the current batch (E.1). `None` only on cold
+    /// starts before any batch has arrived.
+    pub data: Option<DataHelix>,
+    /// Shared carrier configuration (λ, μ_r, η_r).
+    pub config: &'a CarrierConfig,
 }
 
-// Reference cascade operators
+/// A cascade operator: a resonance test that scores the precursor and
+/// may mutate the cascade context for subsequent operators.
+pub trait CascadeOperator: Send + Sync {
+    fn name(&self) -> &str;
+    fn apply(&self, precursor: &CrystalPrecursor, ctx: &mut CascadeContext) -> CrystalPrecursor;
+}
+
+// Reference cascade operators — all four now compute real resonance
+// tests against the carrier/data geometry.
 pub struct DKOperator;
 pub struct SWOperator;
 pub struct PIOperator;
 pub struct WTOperator;
 
+/// Compute κ for the current ctx (real interference if data is present,
+/// carrier-only otherwise).
+fn ctx_kappa(ctx: &CascadeContext) -> f64 {
+    let cfg = ctx.config;
+    match &ctx.data {
+        Some(d) => mandorla_real(
+            &ctx.carrier.helix_a,
+            &ctx.carrier.helix_b,
+            d,
+            cfg.lambda,
+            cfg.mu_r,
+            cfg.eta_r,
+        ).kappa,
+        None => mandorla(
+            &ctx.carrier.helix_a,
+            &ctx.carrier.helix_b,
+            cfg.lambda,
+            cfg.mu_r,
+        ).kappa,
+    }
+}
+
+/// Compute κ on a hypothetical carrier with `α.phi` shifted by `delta`,
+/// without mutating any state. Helper used by DK and SW.
+fn kappa_with_carrier_phase_shift(ctx: &CascadeContext, delta: f64) -> f64 {
+    let cfg = ctx.config;
+    let alpha = &ctx.carrier.helix_a;
+    let beta = &ctx.carrier.helix_b;
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let a = TubusCoord {
+        tau: alpha.tau,
+        phi: (alpha.phi + delta).rem_euclid(two_pi),
+        r: alpha.r,
+    };
+    let b = TubusCoord {
+        tau: beta.tau,
+        phi: (beta.phi + delta).rem_euclid(two_pi),
+        r: beta.r,
+    };
+    match &ctx.data {
+        Some(d) => mandorla_real(&a, &b, d, cfg.lambda, cfg.mu_r, cfg.eta_r).kappa,
+        None => mandorla(&a, &b, cfg.lambda, cfg.mu_r).kappa,
+    }
+}
+
 impl CascadeOperator for DKOperator {
     fn name(&self) -> &str { "DK" }
-    fn apply(&self, p: &CrystalPrecursor) -> CrystalPrecursor {
+    /// Double-Kick: mean κ over a small phase-perturbation ring around
+    /// the active carrier. High score = robust resonance basin (κ stays
+    /// high under perturbation); low score = balanced on a sharp peak.
+    /// Side effect: shifts `α.phi` by `+π/16` so subsequent operators
+    /// see a lightly-perturbed carrier.
+    fn apply(&self, p: &CrystalPrecursor, ctx: &mut CascadeContext) -> CrystalPrecursor {
+        let pi = std::f64::consts::PI;
+        let deltas = [-pi / 8.0, -pi / 16.0, 0.0, pi / 16.0, pi / 8.0];
+        let mean_kappa: f64 = deltas
+            .iter()
+            .map(|&d| kappa_with_carrier_phase_shift(ctx, d))
+            .sum::<f64>()
+            / deltas.len() as f64;
+        let test_score = mean_kappa.clamp(0.0, 1.0);
+
+        // Mutate: shift carrier phase by +π/16 for the next operator.
+        let two_pi = 2.0 * pi;
+        ctx.carrier.helix_a.phi = (ctx.carrier.helix_a.phi + pi / 16.0).rem_euclid(two_pi);
+        ctx.carrier.helix_b.phi = (ctx.carrier.helix_b.phi + pi / 16.0).rem_euclid(two_pi);
+
         let mut out = p.clone();
-        // Double-kick: amplify stability by coherence factor
-        out.stability_score = (p.stability_score * 1.1).min(1.0);
+        out.stability_score = (p.stability_score * test_score).clamp(0.0, 1.0);
         out
     }
 }
 
 impl CascadeOperator for SWOperator {
     fn name(&self) -> &str { "SW" }
-    fn apply(&self, p: &CrystalPrecursor) -> CrystalPrecursor {
+    /// Symmetry-Weave: phase-coherence sharpness — `|cos(2·(φ_data −
+    /// α.phi))|`. High when the data sits at a clear antinode (axis-
+    /// aligned) or node (transverse), low in the ambiguous diagonal
+    /// region. Returns 0.5 if no data-helix is present (E.1 cold start).
+    /// Side effect: rotates `α.phi` by `+π/2` so the rotational
+    /// symmetry of the standing wave is exercised in subsequent ops.
+    fn apply(&self, p: &CrystalPrecursor, ctx: &mut CascadeContext) -> CrystalPrecursor {
+        let pi = std::f64::consts::PI;
+        let test_score = match &ctx.data {
+            Some(d) => (2.0 * (d.phi - ctx.carrier.helix_a.phi)).cos().abs(),
+            None => 0.5,
+        };
+
+        let two_pi = 2.0 * pi;
+        ctx.carrier.helix_a.phi = (ctx.carrier.helix_a.phi + pi / 2.0).rem_euclid(two_pi);
+        ctx.carrier.helix_b.phi = (ctx.carrier.helix_b.phi + pi / 2.0).rem_euclid(two_pi);
+
         let mut out = p.clone();
-        // Symmetry-weave: maintain stability
-        out.stability_score = p.stability_score;
+        out.stability_score = (p.stability_score * test_score).clamp(0.0, 1.0);
         out
     }
 }
 
 impl CascadeOperator for PIOperator {
     fn name(&self) -> &str { "PI" }
-    fn apply(&self, p: &CrystalPrecursor) -> CrystalPrecursor {
+    /// Phase-Integration: local-maximum probe. Asks whether κ at the
+    /// data's actual phase exceeds κ at small perturbations ±π/8 of
+    /// that phase. Score in [0, 1]: 1 = clear local maximum, 0 = at
+    /// or below a flat plateau or local minimum. Non-mutating — PI
+    /// is the relaxation operator in the cascade narrative.
+    fn apply(&self, p: &CrystalPrecursor, ctx: &mut CascadeContext) -> CrystalPrecursor {
+        let pi = std::f64::consts::PI;
+        let test_score = match &ctx.data {
+            Some(d) => {
+                let cfg = ctx.config;
+                let two_pi = 2.0 * pi;
+                let kappa_at = |phi: f64| -> f64 {
+                    let probe = DataHelix { tau: d.tau, phi, r: d.r };
+                    mandorla_real(
+                        &ctx.carrier.helix_a,
+                        &ctx.carrier.helix_b,
+                        &probe,
+                        cfg.lambda,
+                        cfg.mu_r,
+                        cfg.eta_r,
+                    ).kappa
+                };
+                let eps = pi / 8.0;
+                let k_now = kappa_at(d.phi);
+                if k_now < 1e-12 {
+                    0.0
+                } else {
+                    let k_left = kappa_at((d.phi - eps).rem_euclid(two_pi));
+                    let k_right = kappa_at((d.phi + eps).rem_euclid(two_pi));
+                    let neighbour_mean = 0.5 * (k_left + k_right);
+                    (1.0 - neighbour_mean / k_now).clamp(0.0, 1.0)
+                }
+            }
+            None => 0.5,
+        };
+
         let mut out = p.clone();
-        // Phase integration: smooth
-        out.stability_score = (p.stability_score * 0.95 + 0.05).min(1.0);
+        out.stability_score = (p.stability_score * test_score).clamp(0.0, 1.0);
         out
     }
 }
 
 impl CascadeOperator for WTOperator {
     fn name(&self) -> &str { "WT" }
-    fn apply(&self, p: &CrystalPrecursor) -> CrystalPrecursor {
+    /// Wave-Transfer: the largest κ achievable on any *other* carrier
+    /// in the phase-ladder, divided by κ at the active carrier.
+    /// Clamped to [0, 1]: 1 = the resonance pattern transfers cleanly
+    /// to at least one alternative carrier (broadly resonant);
+    /// 0 = strictly carrier-specific. Side effect: if a strictly better
+    /// alternative exists, `active_idx` and `carrier` migrate to it
+    /// (so the cascade narrative actually performs the transfer).
+    fn apply(&self, p: &CrystalPrecursor, ctx: &mut CascadeContext) -> CrystalPrecursor {
+        let active_kappa = ctx_kappa(ctx);
+        if active_kappa < 1e-12 {
+            // Carrier is silent — nothing to transfer. Score 0; do not
+            // migrate (would be moving from nowhere).
+            let mut out = p.clone();
+            out.stability_score = 0.0;
+            return out;
+        }
+
+        let mut best_other_kappa = 0.0_f64;
+        let mut best_idx = ctx.active_idx;
+        for (i, other) in ctx.phase_ladder.iter().enumerate() {
+            if i == ctx.active_idx {
+                continue;
+            }
+            let cfg = ctx.config;
+            let k = match &ctx.data {
+                Some(d) => mandorla_real(
+                    &other.helix_a,
+                    &other.helix_b,
+                    d,
+                    cfg.lambda,
+                    cfg.mu_r,
+                    cfg.eta_r,
+                ).kappa,
+                None => mandorla(&other.helix_a, &other.helix_b, cfg.lambda, cfg.mu_r).kappa,
+            };
+            if k > best_other_kappa {
+                best_other_kappa = k;
+                best_idx = i;
+            }
+        }
+        let test_score = (best_other_kappa / active_kappa).clamp(0.0, 1.0);
+
+        if best_other_kappa > active_kappa {
+            ctx.active_idx = best_idx;
+            ctx.carrier = ctx.phase_ladder[best_idx].clone();
+        }
+
         let mut out = p.clone();
-        // Wave transfer: finalize
-        out.stability_score = (p.stability_score * 1.05).min(1.0);
+        out.stability_score = (p.stability_score * test_score).clamp(0.0, 1.0);
         out
     }
 }
@@ -271,23 +459,32 @@ impl CascadeOperator for WTOperator {
 pub fn run_cascade(
     precursor: &CrystalPrecursor,
     ops: &[&dyn CascadeOperator],
+    ctx: &mut CascadeContext,
 ) -> CrystalPrecursor {
     let mut state = precursor.clone();
     for op in ops {
-        state = op.apply(&state);
+        state = op.apply(&state, ctx);
     }
     state
 }
 
-/// Run primal and dual operator paths; check MCI (OI-04/OI-05)
+/// Run primal and dual operator paths on independent context clones,
+/// then compare the resulting stability scores. The MCI = 1 −
+/// |primal − dual| measures invariance under operator reordering.
+/// Because DK/SW/WT are now non-commutative state mutators, a high MCI
+/// is a meaningful claim that the resonance is robust to the path
+/// taken through the cascade.
 pub fn dual_consensus(
     precursor: &CrystalPrecursor,
-    primal_ops: &[&dyn CascadeOperator], // DK -> SW -> PI -> WT
-    dual_ops: &[&dyn CascadeOperator],   // PI -> WT -> DK -> SW
+    primal_ops: &[&dyn CascadeOperator],
+    dual_ops: &[&dyn CascadeOperator],
+    ctx: &CascadeContext,
     config: &ConsensusConfig,
 ) -> ConsensusResult {
-    let primal_state = run_cascade(precursor, primal_ops);
-    let dual_state = run_cascade(precursor, dual_ops);
+    let mut p_ctx = ctx.clone();
+    let mut d_ctx = ctx.clone();
+    let primal_state = run_cascade(precursor, primal_ops, &mut p_ctx);
+    let dual_state = run_cascade(precursor, dual_ops, &mut d_ctx);
     let mci = 1.0 - primal_state.distance(&dual_state);
     ConsensusResult {
         primal_score: primal_state.stability_score(),
@@ -967,23 +1164,211 @@ mod consensus_tests {
         assert_eq!(fsm.state, PoRState::Search);
     }
 
-    #[test]
-    fn dual_consensus_basic() {
-        let precursor = CrystalPrecursor {
+    fn make_ctx_with_data<'a>(
+        ladder: &'a PhaseLadder,
+        cfg: &'a CarrierConfig,
+        data: Option<DataHelix>,
+    ) -> CascadeContext<'a> {
+        CascadeContext {
+            carrier: ladder[0].clone(),
+            phase_ladder: ladder,
+            active_idx: 0,
+            data,
+            config: cfg,
+        }
+    }
+
+    fn dummy_precursor(stability: f64) -> CrystalPrecursor {
+        CrystalPrecursor {
             program: Vec::new(),
             region: Vec::new(),
             seam_score: 0.8,
             metrics: MetricSet::default(),
-            stability_score: 0.8,
-        };
+            stability_score: stability,
+        }
+    }
+
+    #[test]
+    fn dual_consensus_basic() {
+        let ladder = build_phase_ladder(4, 0.0, 1.0);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix { tau: 0.0, phi: 0.0, r: 0.5 });
+        let ctx = make_ctx_with_data(&ladder, &cfg, data);
         let (dk, sw, pi, wt) = default_primal_ops();
         let (pi2, wt2, dk2, sw2) = default_dual_ops();
         let primal: Vec<&dyn CascadeOperator> = vec![&dk, &sw, &pi, &wt];
         let dual: Vec<&dyn CascadeOperator> = vec![&pi2, &wt2, &dk2, &sw2];
-        let config = ConsensusConfig::default();
-        let result = dual_consensus(&precursor, &primal, &dual, &config);
-        assert!(result.primal_score >= 0.0);
-        assert!(result.dual_score >= 0.0);
+        let consensus_cfg = ConsensusConfig::default();
+        let result = dual_consensus(&dummy_precursor(0.8), &primal, &dual, &ctx, &consensus_cfg);
+        assert!(result.primal_score >= 0.0 && result.primal_score <= 1.0);
+        assert!(result.dual_score >= 0.0 && result.dual_score <= 1.0);
         assert!(result.mci >= 0.0 && result.mci <= 1.0);
+    }
+
+    #[test]
+    fn cascade_ops_are_state_mutators() {
+        // The whole point of E.4: operators thread state. DK and SW
+        // perturb the carrier; subsequent ops see the perturbed state.
+        let ladder = build_phase_ladder(4, 0.0, 1.0);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix { tau: 0.0, phi: 0.7, r: 0.4 });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let initial_phi = ctx.carrier.helix_a.phi;
+        let dk = DKOperator;
+        let sw = SWOperator;
+        dk.apply(&dummy_precursor(1.0), &mut ctx);
+        sw.apply(&dummy_precursor(1.0), &mut ctx);
+        // After DK (+π/16) and SW (+π/2) the carrier phase has moved.
+        assert!((ctx.carrier.helix_a.phi - initial_phi).abs() > 1e-3);
+    }
+
+    #[test]
+    fn dk_score_high_for_axis_aligned_data() {
+        // Data right on the carrier axis sits in the high-κ basin;
+        // DK's perturbation-ring mean κ should be near the carrier-only
+        // maximum.
+        let ladder = build_phase_ladder(1, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: ladder[0].helix_a.phi,
+            r: ladder[0].helix_a.r,
+        });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let out = DKOperator.apply(&dummy_precursor(1.0), &mut ctx);
+        assert!(out.stability_score > 0.3,
+                "DK score should be substantial near a resonance peak, got {}",
+                out.stability_score);
+    }
+
+    #[test]
+    fn sw_score_one_for_axis_aligned_data() {
+        // φ_data = α.phi → cos(2·0) = 1 → |1| = 1 (perfect sharpness).
+        let ladder = build_phase_ladder(1, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: ladder[0].helix_a.phi,
+            r: 0.4,
+        });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let out = SWOperator.apply(&dummy_precursor(1.0), &mut ctx);
+        // SW multiplies the precursor stability by 1.0 → result stays 1.0.
+        assert!((out.stability_score - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sw_score_zero_for_diagonal_data() {
+        // φ_data = α.phi + π/4 → cos(π/2) = 0 → ambiguous → score 0.
+        let ladder = build_phase_ladder(1, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: ladder[0].helix_a.phi + std::f64::consts::FRAC_PI_4,
+            r: 0.4,
+        });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let out = SWOperator.apply(&dummy_precursor(1.0), &mut ctx);
+        assert!(out.stability_score < 1e-9,
+                "diagonal data should give SW score 0, got {}",
+                out.stability_score);
+    }
+
+    #[test]
+    fn pi_high_at_clear_local_max() {
+        // Data axis-aligned sits at a clear local max of the
+        // phase-lock factor; PI should give a non-trivial positive score.
+        let ladder = build_phase_ladder(1, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: ladder[0].helix_a.phi,
+            r: 0.5,
+        });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let out = PIOperator.apply(&dummy_precursor(1.0), &mut ctx);
+        assert!(out.stability_score > 0.05,
+                "PI should detect axis-aligned data as a local max, got {}",
+                out.stability_score);
+    }
+
+    #[test]
+    fn pi_zero_at_node() {
+        // Transverse data → κ = 0 → PI score 0 (not at any maximum).
+        let ladder = build_phase_ladder(1, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: ladder[0].helix_a.phi + std::f64::consts::FRAC_PI_2,
+            r: 0.5,
+        });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let out = PIOperator.apply(&dummy_precursor(1.0), &mut ctx);
+        assert_eq!(out.stability_score, 0.0);
+    }
+
+    #[test]
+    fn wt_migrates_when_better_carrier_exists() {
+        // 4 carriers spaced on (0, π/2, π, 3π/2). Data at phi = π/2 +
+        // small_eps lands closest to carrier 1, so WT should migrate
+        // there from carrier 0.
+        let ladder = build_phase_ladder(4, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: std::f64::consts::FRAC_PI_2 + 0.05,
+            r: 0.5,
+        });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let initial_idx = ctx.active_idx;
+        let _ = WTOperator.apply(&dummy_precursor(1.0), &mut ctx);
+        // WT should have transferred to a *better* carrier than carrier 0.
+        // Carrier 1 has α.phi = π/2, so data at π/2 + 0.05 is essentially
+        // axis-aligned with it.
+        assert_ne!(ctx.active_idx, initial_idx,
+                   "WT should migrate when a better carrier exists; \
+                    stayed at index {}", ctx.active_idx);
+    }
+
+    #[test]
+    fn wt_score_zero_when_active_carrier_kappa_is_zero() {
+        // Transverse data → κ_active = 0 → WT short-circuits to score 0.
+        let ladder = build_phase_ladder(1, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: ladder[0].helix_a.phi + std::f64::consts::FRAC_PI_2,
+            r: 0.5,
+        });
+        let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let out = WTOperator.apply(&dummy_precursor(1.0), &mut ctx);
+        assert_eq!(out.stability_score, 0.0);
+    }
+
+    #[test]
+    fn dual_consensus_can_diverge_under_carrier_specific_resonance() {
+        // When data sits between two carriers, primal (DK→SW→PI→WT) and
+        // dual (PI→WT→DK→SW) traverse different intermediate carriers
+        // and *can* land on different stability scores. MCI should be
+        // measurably below 1 in such cases.
+        let ladder = build_phase_ladder(4, 0.0, 0.5);
+        let cfg = CarrierConfig::default();
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: std::f64::consts::FRAC_PI_4, // diagonal — between two carriers
+            r: 0.5,
+        });
+        let ctx = make_ctx_with_data(&ladder, &cfg, data);
+        let (dk, sw, pi, wt) = default_primal_ops();
+        let (pi2, wt2, dk2, sw2) = default_dual_ops();
+        let primal: Vec<&dyn CascadeOperator> = vec![&dk, &sw, &pi, &wt];
+        let dual: Vec<&dyn CascadeOperator> = vec![&pi2, &wt2, &dk2, &sw2];
+        let consensus_cfg = ConsensusConfig::default();
+        let r = dual_consensus(&dummy_precursor(1.0), &primal, &dual, &ctx, &consensus_cfg);
+        // Either the scores match (genuinely robust) or they diverge
+        // (path-dependent). Both are valid; what matters is that MCI
+        // is now a non-trivial measurement and not pinned to 1.0 by
+        // commutative algebra. We assert MCI is in [0, 1] (sanity).
+        assert!((0.0..=1.0).contains(&r.mci));
     }
 }

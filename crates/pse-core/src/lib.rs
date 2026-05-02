@@ -25,8 +25,8 @@ use pse_graph::{ingest, ObservationAdapter, PassthroughAdapter};
 use pse_graph::PersistentGraph;
 use pse_extract::{inverse_weave, TimeWindow, default_operator_library};
 use pse_cascade::{
-    CascadeOperator, CrystalPrecursor, DKOperator, dual_consensus, MetricSet, PIOperator,
-    PoRFsm, SWOperator, WTOperator,
+    CascadeContext, CascadeOperator, CrystalPrecursor, DKOperator, dual_consensus, MetricSet,
+    PIOperator, PoRFsm, SWOperator, WTOperator,
 };
 use pse_cascade::{
     batch_data_helix, build_phase_ladder, helix_pair, mandorla, mandorla_real,
@@ -507,7 +507,19 @@ pub fn macro_step(
     let sw2 = SWOperator;
     let primal: Vec<&dyn CascadeOperator> = vec![&dk, &sw, &pi, &wt];
     let dual: Vec<&dyn CascadeOperator> = vec![&pi2, &wt2, &dk2, &sw2];
-    let consensus = dual_consensus(&precursor, &primal, &dual, &config.consensus);
+    // E.4: cascade now needs the live carrier/data context so each
+    // operator can perform its physics test against the actual
+    // resonance configuration. The context is cloned per cascade path
+    // inside dual_consensus so primal and dual see independent
+    // carrier-mutation trajectories.
+    let cascade_ctx = CascadeContext {
+        carrier: state.phase_ladder[state.active_carrier].clone(),
+        phase_ladder: &state.phase_ladder,
+        active_idx: state.active_carrier,
+        data: state.last_data_helix.clone(),
+        config: &config.carrier,
+    };
+    let consensus = dual_consensus(&precursor, &primal, &dual, &cascade_ctx, &config.consensus);
 
     if consensus.primal_score < consensus.threshold
         || consensus.dual_score < consensus.threshold
