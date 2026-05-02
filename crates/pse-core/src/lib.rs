@@ -13,8 +13,8 @@ pub use crystal_adapter::CrystalAdapter;
 pub use explore::{resonance_landscape_explorer, ResonanceExplorationResult, ResonanceProbe};
 pub use query::{resonance_fingerprint, ResonanceFingerprint};
 pub use topology_ops::{
-    bridge, compose, crystal_similarity, dual, query, BridgeConfig, BridgeError,
-    ComposeConfig, ComposeError, QueryConfig,
+    bridge, compose, crystal_similarity, dual, interpolate, query, BridgeConfig,
+    BridgeError, ComposeConfig, ComposeError, QueryConfig,
 };
 
 /// The trait that domain plugins implement to use the PSE engine.

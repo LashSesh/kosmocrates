@@ -682,6 +682,205 @@ fn region_jaccard(a: &[VertexId], b: &[VertexId]) -> f64 {
     intersection as f64 / union as f64
 }
 
+// ─── N — generative interpolation ────────────────────────────────────────────
+
+/// Synthesise a **new** crystal at position `alpha ∈ [0, 1]` along the
+/// topological line between `a` and `b`.
+///
+/// `alpha = 0` reproduces a crystal congruent with `a`; `alpha = 1`
+/// with `b`; intermediate values produce crystals that **were never
+/// observed** but whose topology, stability, and free energy lie
+/// between the two inputs by linear interpolation.
+///
+/// This is the engine's first **generative** operator: the output is
+/// a fully-formed `SemanticCrystal`, content-addressed via the same
+/// CrystalCore subset as everything else, but with a topology
+/// signature that exists in neither input nor in any prior crystal —
+/// it is **imagined** consistent with the topological history.
+///
+/// Region semantics under interpolation:
+/// - vertices present in both `a` and `b`: always included
+/// - vertices only in `a`: included iff `alpha ≤ 0.5`
+/// - vertices only in `b`: included iff `alpha ≥ 0.5`
+///
+/// The threshold at `0.5` produces a discontinuity in region
+/// membership (a vertex flips from "include" to "exclude" as alpha
+/// crosses 0.5). This is the cleanest deterministic rule and makes
+/// `interpolate(a, b, 0.0).region == a.region` exactly, but at
+/// `alpha = 0.5` the union is taken (both halves still in).
+///
+/// `created_at = max(a, b) + 1` — strict posterity, like the other
+/// M-operators. `scale_tag = "interpolated"`.
+/// `parent_crystal_ids = [a.id, b.id]` sorted by crystal_id for
+/// canonical ordering.
+pub fn interpolate(
+    a: &SemanticCrystal,
+    b: &SemanticCrystal,
+    alpha: f64,
+) -> SemanticCrystal {
+    let alpha = alpha.clamp(0.0, 1.0);
+    let inv_alpha = 1.0 - alpha;
+
+    // Sort by crystal_id for canonical (lo, hi) → deterministic output.
+    let (lo, hi) = if a.crystal_id <= b.crystal_id {
+        (a, b)
+    } else {
+        (b, a)
+    };
+
+    // Region: see semantics in the docstring.
+    let lo_set: BTreeSet<VertexId> = lo.region.iter().copied().collect();
+    let hi_set: BTreeSet<VertexId> = hi.region.iter().copied().collect();
+    let mut region: Vec<VertexId> = Vec::new();
+    for v in lo_set.union(&hi_set) {
+        let in_lo = lo_set.contains(v);
+        let in_hi = hi_set.contains(v);
+        let include = if in_lo && in_hi {
+            true
+        } else if in_lo {
+            // interp.alpha refers to "how much like the b-input"; if
+            // a.id < b.id then lo == a, so vertices only-in-lo
+            // correspond to "alpha-near-0" inputs.
+            // To preserve "alpha=0 → exactly a.region" regardless of
+            // sort order, we rebind the membership rule to the
+            // *original* a vs b semantic.
+            let alpha_for_lo = if std::ptr::eq(lo, a) { alpha } else { 1.0 - alpha };
+            alpha_for_lo <= 0.5
+        } else {
+            let alpha_for_hi = if std::ptr::eq(hi, b) { alpha } else { 1.0 - alpha };
+            alpha_for_hi >= 0.5
+        };
+        if include {
+            region.push(*v);
+        }
+    }
+    region.sort_unstable();
+
+    // Stability: linear interpolation in the original a/b frame.
+    let stability_score =
+        (inv_alpha * a.stability_score + alpha * b.stability_score).clamp(0.0, 1.0);
+
+    // Topology signature: per-axis linear interpolation. Betti
+    // numbers and Euler char are integer; we round the interpolated
+    // value to the nearest integer to keep them well-typed.
+    let lerp = |x: f64, y: f64| inv_alpha * x + alpha * y;
+    let lerp_u64 = |x: u64, y: u64| -> u64 {
+        (inv_alpha * x as f64 + alpha * y as f64).round() as u64
+    };
+    let lerp_i64 = |x: i64, y: i64| -> i64 {
+        (inv_alpha * x as f64 + alpha * y as f64).round() as i64
+    };
+    let topology_signature = TopologySignature {
+        betti_0: lerp_u64(a.topology_signature.betti_0, b.topology_signature.betti_0),
+        betti_1: lerp_u64(a.topology_signature.betti_1, b.topology_signature.betti_1),
+        betti_2: lerp_u64(a.topology_signature.betti_2, b.topology_signature.betti_2),
+        spectral_gap: lerp(
+            a.topology_signature.spectral_gap,
+            b.topology_signature.spectral_gap,
+        ),
+        euler_char: lerp_i64(
+            a.topology_signature.euler_char,
+            b.topology_signature.euler_char,
+        ),
+        cheeger_estimate: lerp(
+            a.topology_signature.cheeger_estimate,
+            b.topology_signature.cheeger_estimate,
+        ),
+        kuramoto_coherence: lerp(
+            a.topology_signature.kuramoto_coherence,
+            b.topology_signature.kuramoto_coherence,
+        ),
+        mean_propagation_time: lerp(
+            a.topology_signature.mean_propagation_time,
+            b.topology_signature.mean_propagation_time,
+        ),
+        dtl_connected: a.topology_signature.dtl_connected
+            && b.topology_signature.dtl_connected,
+    };
+
+    let free_energy = inv_alpha * a.free_energy + alpha * b.free_energy;
+    let created_at = a.created_at.max(b.created_at) + 1;
+    let parent_crystal_ids =
+        vec![hex_encode(&lo.crystal_id), hex_encode(&hi.crystal_id)];
+    let carrier_instance_idx = a.carrier_instance_idx.min(b.carrier_instance_idx);
+
+    let commit_proof = CommitProof {
+        evidence_digests: a
+            .commit_proof
+            .evidence_digests
+            .iter()
+            .copied()
+            .chain(b.commit_proof.evidence_digests.iter().copied())
+            .collect(),
+        operator_stack: vec![("interpolate".to_string(), "1.0.0".to_string())],
+        gate_values: GateSnapshot {
+            d: 1.0,
+            q: 1.0,
+            r: 1.0,
+            g: stability_score,
+            j: 1.0,
+            p: 1.0,
+            n: 1.0,
+            k: stability_score,
+            kairos: true,
+        },
+        structural_result: true,
+        consensus_result: ConsensusResult {
+            primal_score: stability_score,
+            dual_score: stability_score,
+            mci: 1.0,
+            threshold: 0.6,
+        },
+        por_trace: PoRTrace::default(),
+        carrier_id: carrier_instance_idx,
+        carrier_offset: 0.0,
+        falsification_p_value: None,
+        surrogate_count: None,
+    };
+
+    #[derive(Serialize)]
+    struct CrystalCore<'a> {
+        region: &'a Vec<VertexId>,
+        stability_score: f64,
+        created_at: u64,
+        free_energy: f64,
+        carrier_instance_idx: usize,
+    }
+    let core = CrystalCore {
+        region: &region,
+        stability_score,
+        created_at,
+        free_energy,
+        carrier_instance_idx,
+    };
+    let crystal_id = content_address(&core);
+
+    SemanticCrystal {
+        crystal_id,
+        region,
+        constraint_program: ConstraintProgram::new(),
+        stability_score,
+        topology_signature,
+        betti_numbers: vec![1, 0, 0],
+        evidence_chain: a
+            .evidence_chain
+            .iter()
+            .cloned()
+            .chain(b.evidence_chain.iter().cloned())
+            .collect(),
+        commit_proof,
+        operator_versions: BTreeMap::new(),
+        created_at,
+        free_energy,
+        carrier_instance_idx,
+        scale_tag: "interpolated".into(),
+        universe_id: String::new(),
+        sub_crystal_ids: Vec::new(),
+        parent_crystal_ids,
+        genesis_metadata: None,
+    }
+}
+
 // ─── Internals ───────────────────────────────────────────────────────────────
 
 fn check_compatibility(
@@ -1353,5 +1552,105 @@ mod tests {
         for (_, score) in &result {
             assert!((0.0..=1.0).contains(score));
         }
+    }
+
+    // ── N: generative interpolation ──────────────────────────────────────
+
+    #[test]
+    fn interpolate_at_alpha_zero_reproduces_a() {
+        let a = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![4, 5, 6], 0.5, 2, 0.50, 0.40, 2);
+        let r = interpolate(&a, &b, 0.0);
+        assert_eq!(r.region, a.region);
+        assert!((r.stability_score - a.stability_score).abs() < 1e-12);
+        assert_eq!(r.topology_signature.betti_0, a.topology_signature.betti_0);
+        assert!((r.topology_signature.spectral_gap - a.topology_signature.spectral_gap).abs() < 1e-12);
+    }
+
+    #[test]
+    fn interpolate_at_alpha_one_reproduces_b() {
+        let a = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![4, 5, 6], 0.5, 2, 0.50, 0.40, 2);
+        let r = interpolate(&a, &b, 1.0);
+        assert_eq!(r.region, b.region);
+        assert!((r.stability_score - b.stability_score).abs() < 1e-12);
+        assert_eq!(r.topology_signature.betti_0, b.topology_signature.betti_0);
+        assert!((r.topology_signature.spectral_gap - b.topology_signature.spectral_gap).abs() < 1e-12);
+    }
+
+    #[test]
+    fn interpolate_topology_lies_between_endpoints() {
+        // For α ∈ (0, 1), every continuous topology axis must be
+        // strictly between the two endpoint values.
+        let a = make_crystal(vec![1], 0.9, 1, 0.10, 0.30, 1);
+        let b = make_crystal(vec![1], 0.1, 1, 0.50, 0.90, 2);
+        let r = interpolate(&a, &b, 0.5);
+        let lo = a.stability_score.min(b.stability_score);
+        let hi = a.stability_score.max(b.stability_score);
+        assert!(
+            r.stability_score > lo + 1e-9 && r.stability_score < hi - 1e-9,
+            "stability {} not strictly between [{}, {}]",
+            r.stability_score, lo, hi
+        );
+        let g_lo = a.topology_signature.spectral_gap.min(b.topology_signature.spectral_gap);
+        let g_hi = a.topology_signature.spectral_gap.max(b.topology_signature.spectral_gap);
+        assert!(
+            r.topology_signature.spectral_gap > g_lo + 1e-9
+                && r.topology_signature.spectral_gap < g_hi - 1e-9,
+            "spectral_gap not strictly between"
+        );
+    }
+
+    #[test]
+    fn interpolate_creates_a_new_crystal_id() {
+        // Generativity: at α = 0.5 the result is **not** either input.
+        let a = make_crystal(vec![1, 2, 3], 0.9, 1, 0.10, 0.30, 1);
+        let b = make_crystal(vec![1, 2, 3], 0.1, 1, 0.50, 0.90, 2);
+        let r = interpolate(&a, &b, 0.5);
+        assert_ne!(r.crystal_id, a.crystal_id);
+        assert_ne!(r.crystal_id, b.crystal_id);
+    }
+
+    #[test]
+    fn interpolate_records_both_parents() {
+        let a = make_crystal(vec![1], 0.5, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![2], 0.5, 1, 0.30, 0.70, 2);
+        let r = interpolate(&a, &b, 0.5);
+        assert_eq!(r.parent_crystal_ids.len(), 2);
+        assert_eq!(r.scale_tag, "interpolated");
+    }
+
+    #[test]
+    fn interpolate_is_compose_input_closure() {
+        // The output of interpolate is itself a SemanticCrystal that
+        // can flow into compose / dual / bridge / query — full
+        // closure of the post-symbolic operator algebra.
+        let a = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![4, 5, 6], 0.7, 1, 0.30, 0.70, 2);
+        let interp = interpolate(&a, &b, 0.3);
+        let composed = compose(&[interp.clone(), a.clone()], &ComposeConfig::default());
+        assert!(composed.is_ok(), "interpolated crystal must be compose-compatible");
+        let d = dual(&interp);
+        assert_eq!(d.region, interp.region);
+    }
+
+    #[test]
+    fn interpolate_clamps_alpha_outside_unit_interval() {
+        let a = make_crystal(vec![1], 0.5, 1, 0.30, 0.70, 1);
+        let b = make_crystal(vec![2], 0.5, 1, 0.30, 0.70, 2);
+        let r_neg = interpolate(&a, &b, -0.5);
+        let r_zero = interpolate(&a, &b, 0.0);
+        assert_eq!(r_neg.crystal_id, r_zero.crystal_id);
+        let r_two = interpolate(&a, &b, 2.0);
+        let r_one = interpolate(&a, &b, 1.0);
+        assert_eq!(r_two.crystal_id, r_one.crystal_id);
+    }
+
+    #[test]
+    fn interpolate_created_at_is_strictly_posterior() {
+        let a = make_crystal(vec![1], 0.5, 1, 0.30, 0.70, 7);
+        let b = make_crystal(vec![2], 0.5, 1, 0.30, 0.70, 12);
+        let r = interpolate(&a, &b, 0.5);
+        assert_eq!(r.created_at, 13); // max(7, 12) + 1
     }
 }
