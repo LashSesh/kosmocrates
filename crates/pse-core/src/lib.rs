@@ -6,6 +6,7 @@
 pub mod crystal_adapter;
 pub mod explore;
 pub mod falsify;
+pub mod metatron_attach;
 pub mod query;
 pub mod topology_ops;
 
@@ -15,6 +16,10 @@ pub use query::{resonance_fingerprint, ResonanceFingerprint};
 pub use topology_ops::{
     bridge, compose, crystal_similarity, dual, interpolate, query, BridgeConfig,
     BridgeError, ComposeConfig, ComposeError, QueryConfig,
+};
+pub use metatron_attach::{
+    attach_signature, attach_signature_global, induced_adjacency, signature_for_region,
+    signature_for_region_global, METATRON_REGION_CAP,
 };
 
 /// The trait that domain plugins implement to use the PSE engine.
@@ -41,8 +46,8 @@ use pse_cascade::{
     PIOperator, PoRFsm, SWOperator, WTOperator,
 };
 use pse_cascade::{
-    batch_data_helix, build_phase_ladder, helix_pair, mandorla, mandorla_real,
-    restore_neutrality,
+    batch_data_helix, build_metatron_phase_ladder, build_phase_ladder, helix_pair, mandorla,
+    mandorla_real, restore_neutrality,
 };
 use pse_evidence::{Archive, build_crystal_with_id};
 use pse_constraint::{intrinsic_step, morphogenic_update, MorphState};
@@ -137,7 +142,14 @@ pub struct GlobalState {
 
 impl GlobalState {
     pub fn new(config: &Config) -> Self {
-        let phase_ladder = build_phase_ladder(config.carrier.num_carriers, 0.0, 1.0);
+        // O.2: optional Metatron / cuboctahedron phase-ladder, selected
+        // via config.carrier.use_metatron_ladder. Default false →
+        // legacy n-evenly-spaced builder.
+        let phase_ladder = if config.carrier.use_metatron_ladder {
+            build_metatron_phase_ladder(0.0)
+        } else {
+            build_phase_ladder(config.carrier.num_carriers, 0.0, 1.0)
+        };
         Self {
             graph: PersistentGraph::new(),
             candidates: Vec::new(),
@@ -326,8 +338,10 @@ pub fn macro_step(
     if let Some(ref node) = state.swarm_node {
         for envelope in node.drain_accepted() {
             state.archive.append(envelope.crystal.clone());
-            let sig = pse_memory::PatternMemory::extract_signature(&envelope.crystal);
-            state.memory.insert(sig);
+            // O.4: insert_crystal populates both the cosine-similarity
+            // index AND the canonical-class index (when the swarm-
+            // received crystal carries a Metatron signature).
+            state.memory.insert_crystal(&envelope.crystal);
         }
     }
 
@@ -695,12 +709,22 @@ pub fn macro_step(
 
     state.engine_state = EngineState::Monolithizing;
 
+    // Strand O.3: attach the canonical Metatron-scaffold signature to
+    // the crystal if its region is small enough for the S₇ orbit
+    // scan. Done in-place before archive.append so the immutable
+    // record carries the canonical identity. Uses the process-global
+    // S₇ cache (lazy-initialised on first call).
+    metatron_attach::attach_signature_global(&mut crystal, &state.graph);
+
     // Commit (append to immutable archive, Inv I10)
     state.archive.append(crystal.clone());
 
-    // Add new crystal to pattern memory for future lookups (cross-session capable)
-    let new_sig = pse_memory::PatternMemory::extract_signature(&crystal);
-    state.memory.insert(new_sig);
+    // Add new crystal to pattern memory (cross-session capable).
+    // O.4: insert_crystal populates both the cosine-similarity index
+    // AND the canonical-class index (when the crystal carries a
+    // Metatron signature from O.3). Future lookups via lookup_crystal
+    // will prefer canonical-class identity over fuzzy similarity.
+    state.memory.insert_crystal(&crystal);
 
     // Propagate crystal to swarm peers (if swarm is active)
     #[cfg(feature = "swarm")]

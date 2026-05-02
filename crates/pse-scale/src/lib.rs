@@ -980,6 +980,7 @@ fn build_scale_crystal(
             .map(|id| id.iter().map(|b| format!("{:02x}", b)).collect())
             .collect(),
         genesis_metadata: None,
+        metatron_signature: None,
     };
 
     // Content-address the crystal

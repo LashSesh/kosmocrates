@@ -8,5 +8,6 @@ description = "Adversarial validation cascade, consensus, carrier geometry for P
 
 [dependencies]
 pse-types = { path = "../pse-types" }
+pse-metatron = { path = "../pse-metatron" }
 serde = { workspace = true }
 thiserror = { workspace = true }

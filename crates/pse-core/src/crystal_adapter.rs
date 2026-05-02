@@ -136,6 +136,7 @@ mod tests {
             sub_crystal_ids: Vec::new(),
             parent_crystal_ids: Vec::new(),
             genesis_metadata: None,
+            metatron_signature: None,
         };
         // crystal_id = SHA-256(JCS(CrystalCore subset)) — for the test we
         // just want *deterministic* but distinct ids per region.

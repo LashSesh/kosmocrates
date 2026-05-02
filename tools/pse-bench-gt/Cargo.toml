@@ -15,6 +15,9 @@ pse-graph = { path = "../../crates/pse-graph" }
 pse-adapter-seismo = { path = "../../adapters/pse-adapter-seismo" }
 pse-adapter-vitals = { path = "../../adapters/pse-adapter-vitals" }
 pse-adapter-binance = { path = "../../adapters/pse-adapter-binance" }
+pse-cascade = { path = "../../crates/pse-cascade" }
+pse-memory = { path = "../../crates/pse-memory" }
+pse-metatron = { path = "../../crates/pse-metatron" }
 
 [[bin]]
 name = "bench_gt"
@@ -23,3 +26,7 @@ path = "src/bin/bench_gt.rs"
 [[bin]]
 name = "window_ablation"
 path = "src/bin/window_ablation.rs"
+
+[[bin]]
+name = "bench_metatron"
+path = "src/bin/bench_metatron.rs"

@@ -1156,6 +1156,7 @@ fn bench_b24_swarm_propagate() -> BenchResult {
         sub_crystal_ids: Vec::new(),
         parent_crystal_ids: Vec::new(),
         genesis_metadata: None,
+        metatron_signature: None,
     };
 
     let n = 100;
@@ -1205,6 +1206,7 @@ fn bench_b25_swarm_accept() -> BenchResult {
             sub_crystal_ids: Vec::new(),
             parent_crystal_ids: Vec::new(),
             genesis_metadata: None,
+            metatron_signature: None,
         }
     };
 
