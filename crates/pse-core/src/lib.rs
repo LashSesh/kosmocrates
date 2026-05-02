@@ -331,8 +331,10 @@ pub fn macro_step(
     if let Some(ref node) = state.swarm_node {
         for envelope in node.drain_accepted() {
             state.archive.append(envelope.crystal.clone());
-            let sig = pse_memory::PatternMemory::extract_signature(&envelope.crystal);
-            state.memory.insert(sig);
+            // O.4: insert_crystal populates both the cosine-similarity
+            // index AND the canonical-class index (when the swarm-
+            // received crystal carries a Metatron signature).
+            state.memory.insert_crystal(&envelope.crystal);
         }
     }
 
@@ -710,9 +712,12 @@ pub fn macro_step(
     // Commit (append to immutable archive, Inv I10)
     state.archive.append(crystal.clone());
 
-    // Add new crystal to pattern memory for future lookups (cross-session capable)
-    let new_sig = pse_memory::PatternMemory::extract_signature(&crystal);
-    state.memory.insert(new_sig);
+    // Add new crystal to pattern memory (cross-session capable).
+    // O.4: insert_crystal populates both the cosine-similarity index
+    // AND the canonical-class index (when the crystal carries a
+    // Metatron signature from O.3). Future lookups via lookup_crystal
+    // will prefer canonical-class identity over fuzzy similarity.
+    state.memory.insert_crystal(&crystal);
 
     // Propagate crystal to swarm peers (if swarm is active)
     #[cfg(feature = "swarm")]

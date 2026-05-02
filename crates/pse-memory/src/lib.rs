@@ -8,6 +8,8 @@
 //! crystal's `TopologySignature` and computes cosine similarity weighted
 //! with resonance and confidence proximity.
 
+use std::collections::BTreeMap;
+
 use pse_types::{Hash256, SemanticCrystal};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -73,6 +75,17 @@ pub struct MemoryStats {
     pub estimated_time_saved_ms: f64,
     /// Number of signatures currently in index.
     pub index_size: usize,
+    /// Strand O.4: hits resolved by canonical-class identity (Metatron
+    /// canonical_hash match) — proof of graph isomorphism, not just
+    /// similarity. Counted alongside `hits`; this field reports the
+    /// subset of hits that came from the canonical index rather than
+    /// from cosine similarity.
+    #[serde(default)]
+    pub canonical_hits: u64,
+    /// Number of distinct canonical classes currently in the canonical
+    /// index.
+    #[serde(default)]
+    pub canonical_index_size: usize,
 }
 
 /// The pattern memory index.
@@ -80,8 +93,21 @@ pub struct MemoryStats {
 /// Built from persisted crystals on startup.
 /// Updated incrementally as new crystals are created during a session.
 pub struct PatternMemory {
-    /// Topological signatures of known crystals, indexed for fast lookup.
+    /// Topological signatures of known crystals, indexed for fast lookup
+    /// (cosine-similarity index — the legacy soft-matching channel).
     index: Vec<CrystalSignature>,
+    /// Strand O.4: Metatron canonical-hash → list of crystal_ids that
+    /// share that canonical class. A hit here is **proof of graph
+    /// isomorphism**, not just similarity, so it bypasses the
+    /// expensive cosine sweep entirely.
+    canonical_index: BTreeMap<String, Vec<Hash256>>,
+    /// Strand O.4: optional periodic-table reference. When loaded
+    /// (via [`PatternMemory::load_periodic_table`]), every canonical
+    /// hit can be enriched with the corresponding catalog entry —
+    /// what mendelian *element* this graph belongs to. Optional
+    /// because building the table for n ≤ 7 is fast (~1 s) and for
+    /// n = 8 is heavy (12 K graphs).
+    catalog: Option<pse_metatron::PeriodicTable>,
     /// Configuration.
     config: MemoryConfig,
     /// Statistics.
@@ -95,6 +121,8 @@ impl PatternMemory {
     pub fn new(config: MemoryConfig) -> Self {
         Self {
             index: Vec::new(),
+            canonical_index: BTreeMap::new(),
+            catalog: None,
             config,
             stats: MemoryStats::default(),
             avg_cascade_ms: 1.0,
@@ -114,8 +142,19 @@ impl PatternMemory {
             if self.index.len() > self.config.max_signatures {
                 self.index.remove(0); // LRU: remove oldest
             }
+            // Strand O.4: also populate the canonical index from any
+            // crystal that carries a Metatron signature.
+            if let Some(metatron) = &crystal.metatron_signature {
+                if !metatron.canonical_hash.is_empty() {
+                    self.canonical_index
+                        .entry(metatron.canonical_hash.clone())
+                        .or_insert_with(Vec::new)
+                        .push(crystal.crystal_id);
+                }
+            }
         }
         self.stats.index_size = self.index.len();
+        self.stats.canonical_index_size = self.canonical_index.len();
         loaded
     }
 
@@ -209,6 +248,94 @@ impl PatternMemory {
     /// Get current statistics.
     pub fn stats(&self) -> &MemoryStats {
         &self.stats
+    }
+
+    // ── O.4: canonical-class lookup ──────────────────────────────────────
+
+    /// Strand O.4: insert a crystal into both the cosine-similarity
+    /// index AND the canonical-class index (when the crystal carries a
+    /// Metatron signature). The right call from macro_step in place of
+    /// the legacy `insert(extract_signature(crystal))` chain.
+    pub fn insert_crystal(&mut self, crystal: &SemanticCrystal) {
+        let sig = Self::extract_signature(crystal);
+        self.insert(sig);
+        if let Some(metatron) = &crystal.metatron_signature {
+            if !metatron.canonical_hash.is_empty() {
+                self.canonical_index
+                    .entry(metatron.canonical_hash.clone())
+                    .or_insert_with(Vec::new)
+                    .push(crystal.crystal_id);
+                self.stats.canonical_index_size = self.canonical_index.len();
+            }
+        }
+    }
+
+    /// Strand O.4: enhanced lookup that prefers canonical-class
+    /// identity over cosine similarity.
+    ///
+    /// Logic:
+    ///  1. If the crystal carries a Metatron signature AND the
+    ///     canonical-hash index has at least one stored crystal with
+    ///     the same hash → **canonical hit**, return one of those
+    ///     crystal ids. This is graph-isomorphism by proof.
+    ///  2. Otherwise fall back to the cosine-similarity index — the
+    ///     legacy soft-matching path. The fallback is essential because
+    ///     crystals whose region exceeds METATRON_REGION_CAP carry no
+    ///     canonical signature.
+    ///
+    /// Updates `stats.canonical_hits` on canonical matches; the broader
+    /// `stats.hits/misses/total_lookups` remain consistent with the
+    /// legacy `lookup` method.
+    pub fn lookup_crystal(&mut self, crystal: &SemanticCrystal) -> Option<Hash256> {
+        // Resolve the canonical hit first, releasing the borrow before
+        // touching mutable stats.
+        let canonical_hit: Option<Hash256> = crystal
+            .metatron_signature
+            .as_ref()
+            .filter(|m| !m.canonical_hash.is_empty())
+            .and_then(|m| self.canonical_index.get(&m.canonical_hash))
+            .and_then(|stored| stored.first().copied());
+
+        if let Some(id) = canonical_hit {
+            self.stats.total_lookups += 1;
+            self.stats.hits += 1;
+            self.stats.canonical_hits += 1;
+            self.stats.estimated_time_saved_ms += self.avg_cascade_ms;
+            self.update_hit_rate();
+            return Some(id);
+        }
+
+        let sig = Self::extract_signature(crystal);
+        self.lookup(&sig)
+    }
+
+    /// Strand O.4: load the Periodic-Table-of-Graphs catalog up to the
+    /// given vertex count. The catalog is *informational* — it lets
+    /// canonical-hash hits be enriched with their mendelian class
+    /// label (e.g. "G7-11-107"). Lookup itself does not require the
+    /// catalog; the canonical_index alone is sufficient for proof-of-
+    /// isomorphism matching.
+    ///
+    /// Cost: building for n ≤ 7 takes ~1 s and produces 1044 entries;
+    /// n = 8 takes ~30 s and produces 12346 entries. PSE crystals
+    /// typically have small regions (≤ 7 vertices), so n_max = 7 is
+    /// the recommended call.
+    pub fn load_periodic_table(&mut self, n_max: u8) -> Result<(), String> {
+        let table = pse_metatron::build_catalog(n_max as usize)
+            .map_err(|e| format!("build_catalog failed: {}", e))?;
+        self.catalog = Some(table);
+        Ok(())
+    }
+
+    /// Strand O.4: number of distinct canonical classes currently
+    /// indexed. Diagnostic counterpart to `stats.canonical_index_size`.
+    pub fn canonical_classes_known(&self) -> usize {
+        self.canonical_index.len()
+    }
+
+    /// Strand O.4: borrow the loaded periodic table, if any.
+    pub fn periodic_table(&self) -> Option<&pse_metatron::PeriodicTable> {
+        self.catalog.as_ref()
     }
 
     /// Number of signatures in the index.
@@ -600,5 +727,144 @@ mod tests {
     fn signature_for_unknown_returns_none() {
         let mem = PatternMemory::new(MemoryConfig::default());
         assert!(mem.signature_for(&[0x99; 32]).is_none());
+    }
+
+    // ── O.4: canonical-class lookup ──────────────────────────────────────
+
+    fn make_crystal_with_metatron(
+        crystal_id_byte: u8,
+        canonical_hash: &str,
+        spectral: Vec<f64>,
+    ) -> SemanticCrystal {
+        SemanticCrystal {
+            crystal_id: [crystal_id_byte; 32],
+            region: vec![1, 2, 3],
+            constraint_program: Vec::new(),
+            stability_score: 0.5,
+            topology_signature: pse_types::TopologySignature {
+                spectral_gap: spectral.first().copied().unwrap_or(0.0),
+                ..Default::default()
+            },
+            betti_numbers: vec![1, 0, 0],
+            evidence_chain: Vec::new(),
+            commit_proof: pse_types::CommitProof::default(),
+            operator_versions: BTreeMap::new(),
+            created_at: 1,
+            free_energy: -0.5,
+            carrier_instance_idx: 0,
+            scale_tag: "test".into(),
+            universe_id: String::new(),
+            sub_crystal_ids: Vec::new(),
+            parent_crystal_ids: Vec::new(),
+            genesis_metadata: None,
+            metatron_signature: Some(pse_types::MetatronTopologySignature {
+                canonical_hash: canonical_hash.to_string(),
+                n: 3,
+                m: 3,
+                orbit_size: 0,
+                stabilizer_order: 0,
+                spectrum: spectral,
+                spectral_radius: 0.0,
+                algebraic_connectivity: 0.0,
+                graph_energy: 0.0,
+                spanning_tree_count: 0,
+                triangle_count: 1,
+                contains_tetrahedron: false,
+                contains_octahedron: false,
+                contains_cube: false,
+            }),
+        }
+    }
+
+    #[test]
+    fn insert_crystal_populates_canonical_index() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        let c = make_crystal_with_metatron(0xA1, "deadbeef0000cafe", vec![1.0, 0.0]);
+        mem.insert_crystal(&c);
+        assert_eq!(mem.canonical_classes_known(), 1);
+        assert_eq!(mem.stats().canonical_index_size, 1);
+    }
+
+    #[test]
+    fn lookup_crystal_canonical_hit_returns_stored_id() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        let stored = make_crystal_with_metatron(0xA1, "matching_hash", vec![1.0, 0.0]);
+        mem.insert_crystal(&stored);
+
+        // A new crystal with the SAME canonical_hash but a different
+        // crystal_id and a different cosine-spectral vector should
+        // hit on canonical, not on cosine.
+        let probe = make_crystal_with_metatron(0xB2, "matching_hash", vec![0.0, 1.0]);
+        let hit = mem.lookup_crystal(&probe);
+        assert_eq!(hit, Some([0xA1; 32]));
+        assert_eq!(mem.stats().canonical_hits, 1);
+        assert_eq!(mem.stats().hits, 1);
+    }
+
+    #[test]
+    fn lookup_crystal_falls_back_to_cosine_when_no_canonical_hash() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        // Stored with metatron, probe without — fallback path triggers.
+        let mut stored = make_crystal_with_metatron(
+            0xA1,
+            "h1",
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        );
+        // Make stored's spectral distinctive enough that cosine matches.
+        stored.topology_signature.spectral_gap = 1.0;
+        mem.insert_crystal(&stored);
+
+        let mut probe = stored.clone();
+        probe.crystal_id = [0xB2; 32];
+        probe.metatron_signature = None; // strip canonical signature
+        let hit = mem.lookup_crystal(&probe);
+        // Fallback to cosine — the spectra match, so a hit is expected.
+        assert!(hit.is_some());
+        // No canonical hit should be recorded.
+        assert_eq!(mem.stats().canonical_hits, 0);
+    }
+
+    #[test]
+    fn lookup_crystal_no_match_returns_none() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        let probe = make_crystal_with_metatron(0xCC, "nonexistent_hash", vec![1.0]);
+        let hit = mem.lookup_crystal(&probe);
+        assert_eq!(hit, None);
+    }
+
+    #[test]
+    fn canonical_index_supports_multiple_crystals_per_class() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        let c1 = make_crystal_with_metatron(0xA1, "shared", vec![1.0]);
+        let c2 = make_crystal_with_metatron(0xA2, "shared", vec![1.0]);
+        let c3 = make_crystal_with_metatron(0xB1, "different", vec![0.0]);
+        mem.insert_crystal(&c1);
+        mem.insert_crystal(&c2);
+        mem.insert_crystal(&c3);
+        assert_eq!(mem.canonical_classes_known(), 2);
+    }
+
+    #[test]
+    fn load_periodic_table_populates_catalog() {
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        assert!(mem.periodic_table().is_none());
+        // n_max = 4 is fast (~12 graphs) and exercises the load path.
+        let res = mem.load_periodic_table(4);
+        assert!(res.is_ok());
+        assert!(mem.periodic_table().is_some());
+    }
+
+    #[test]
+    fn load_from_crystals_populates_canonical_index() {
+        // Mirror behaviour for the cross-session loading path.
+        let crystals = vec![
+            make_crystal_with_metatron(0x01, "first", vec![1.0]),
+            make_crystal_with_metatron(0x02, "second", vec![2.0]),
+            make_crystal_with_metatron(0x03, "first", vec![1.0]), // shares class
+        ];
+        let mut mem = PatternMemory::new(MemoryConfig::default());
+        let loaded = mem.load_from_crystals(&crystals);
+        assert_eq!(loaded, 3);
+        assert_eq!(mem.canonical_classes_known(), 2);
     }
 }
