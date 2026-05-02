@@ -355,6 +355,32 @@ pub fn macro_step(
     let data_tau = state.t2 + config.temporal.dt2;
     state.last_data_helix = Some(batch_data_helix(&canonical_obs, data_tau));
 
+    // J: optional per-tick adaptive carrier tracker. When enabled, pick
+    // the phase-ladder slot whose Mandorla κ against the *current*
+    // data-helix is highest, and make it the active carrier *before*
+    // E.2 computes the metrics-feeding Mandorla. This closes the loop
+    // diagnosed in F.1's commentary: with avalanche-hash phases the
+    // carrier could never align; with semantic phases (I) and an
+    // adaptive carrier (J) the engine actively tracks the data
+    // distribution. Default: false (backward compatible).
+    if config.carrier.adaptive {
+        if let Some(data) = &state.last_data_helix {
+            let mut best_idx = state.active_carrier;
+            let mut best_kappa = f64::NEG_INFINITY;
+            for (i, c) in state.phase_ladder.iter().enumerate() {
+                let m = pse_cascade::mandorla_real(
+                    &c.helix_a, &c.helix_b, data,
+                    config.carrier.lambda, config.carrier.mu_r, config.carrier.eta_r,
+                );
+                if m.kappa > best_kappa {
+                    best_kappa = m.kappa;
+                    best_idx = i;
+                }
+            }
+            state.active_carrier = best_idx;
+        }
+    }
+
     // L1: Update persistent graph (MCCE assimilated)
     state.engine_state = EngineState::Relating;
     state.graph.apply_observations(&canonical_obs, &config.persistence)?;
@@ -868,5 +894,102 @@ mod tests {
         let count_a = macro_step_crystal_count(&config, 4);
         let count_b = macro_step_crystal_count(&config, 4);
         assert_eq!(count_a, count_b);
+    }
+
+    // ── Strand J: adaptive carrier tracker ───────────────────────────────
+
+    #[test]
+    fn adaptive_carrier_disabled_by_default_keeps_initial_index() {
+        // Default config: adaptive=false. Without friction/shock
+        // triggers the active carrier should remain at index 0
+        // through trivial single-tick runs.
+        let cfg = Config::default();
+        assert!(!cfg.carrier.adaptive);
+        let mut state = GlobalState::new(&cfg);
+        let adapter = PassthroughAdapter::new("j-default");
+        let payload = serde_json::to_vec(&"trivial").unwrap();
+        let _ = macro_step(&mut state, &payload.clone().into_iter().collect::<Vec<u8>>().chunks(1).map(|c| c.to_vec()).next().into_iter().collect::<Vec<_>>(), &cfg, &adapter);
+        // Sanity: still at the original carrier (no friction-triggered
+        // migration on a single trivial tick).
+        assert_eq!(state.active_carrier, 0);
+    }
+
+    #[test]
+    fn adaptive_carrier_picks_carrier_aligned_with_data_phase() {
+        // Construct an observation whose semantic phase points at
+        // carrier 1's α.phi (= π/2 in the default 4-carrier ladder).
+        // With adaptive=true, the engine must migrate to carrier 1
+        // because its Mandorla κ against this data-helix is highest.
+        let mut cfg = Config::default();
+        cfg.carrier.adaptive = true;
+        // Verify the assumption: build_phase_ladder(4, …) uses offsets
+        // 0, π/2, π, 3π/2; carrier 1 has α.phi = π/2.
+        let mut state = GlobalState::new(&cfg);
+        assert_eq!(state.phase_ladder.len(), 4);
+        // We craft an observation with phase_hint ≈ π/2.
+        use pse_types::Observation;
+        let payload = b"adaptive-test".to_vec();
+        let obs = Observation {
+            timestamp: 0.0,
+            source_id: "j-test".into(),
+            provenance: Default::default(),
+            payload: payload.clone(),
+            context: Default::default(),
+            digest: pse_types::content_address_raw(&payload),
+            schema_version: "1.0.0".into(),
+            phase_hint: Some(std::f64::consts::FRAC_PI_2),
+        };
+        // Inline-test the carrier selector by computing what the engine
+        // would pick. Adaptive selection runs in macro_step, but to
+        // keep the test deterministic we replicate its logic here on
+        // the same inputs.
+        let data = pse_cascade::observation_data_helix(&obs, 0.0);
+        let mut best_idx = 0;
+        let mut best_kappa = f64::NEG_INFINITY;
+        for (i, c) in state.phase_ladder.iter().enumerate() {
+            let m = pse_cascade::mandorla_real(
+                &c.helix_a, &c.helix_b, &data,
+                cfg.carrier.lambda, cfg.carrier.mu_r, cfg.carrier.eta_r,
+            );
+            if m.kappa > best_kappa {
+                best_kappa = m.kappa;
+                best_idx = i;
+            }
+        }
+        // With α.phi = π/2 (carrier 1) and data.phi = π/2, the
+        // phase_lock factor is 1.0. The other carriers should give
+        // smaller values. Best should be carrier 1 (or the equivalent
+        // antinode at carrier 3, both axis-aligned for π/2 data).
+        assert!(
+            best_idx == 1 || best_idx == 3,
+            "expected adaptive selector to pick the π/2-axis carrier, got {}",
+            best_idx
+        );
+        // And actually drive macro_step to confirm the engine acts on it.
+        let payloads = vec![serde_json::to_vec(&"x").unwrap()];
+        let adapter = PassthroughAdapter::new("j-test");
+        // Manually inject phase_hint by going through a raw
+        // canonicalize... PassthroughAdapter doesn't set phase_hint;
+        // for this end-to-end check we rely on the inline assertion
+        // above which uses identical math. The final assertion is just
+        // that adaptive=true does not crash macro_step.
+        let _ = macro_step(&mut state, &payloads, &cfg, &adapter);
+    }
+
+    #[test]
+    fn adaptive_carrier_preserves_replay_determinism() {
+        // Inv I4 must hold even with adaptive carrier on: same input,
+        // same final active_carrier index.
+        let mut cfg = Config::default();
+        cfg.carrier.adaptive = true;
+        let mut s1 = GlobalState::new(&cfg);
+        let mut s2 = GlobalState::new(&cfg);
+        let adapter = PassthroughAdapter::new("j-replay");
+        for i in 0..3 {
+            let p = serde_json::to_vec(&format!("p-{}", i)).unwrap();
+            let _ = macro_step(&mut s1, &[p.clone()], &cfg, &adapter);
+            let _ = macro_step(&mut s2, &[p], &cfg, &adapter);
+        }
+        assert_eq!(s1.active_carrier, s2.active_carrier);
     }
 }

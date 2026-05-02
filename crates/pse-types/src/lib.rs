@@ -506,6 +506,14 @@ pub struct CarrierConfig {
     /// the value used when E.2 was wired).
     #[serde(default = "default_eta_r")]
     pub eta_r: f64,
+    /// Strand J: per-tick adaptive carrier tracker. When `true`, the
+    /// active carrier is re-selected at the start of each macro_step to
+    /// the phase-ladder slot whose Mandorla κ against the current
+    /// data-helix is highest. When `false` (default — backward-compat),
+    /// the existing friction/shock-triggered migration path is the only
+    /// way the active carrier ever changes.
+    #[serde(default)]
+    pub adaptive: bool,
 }
 
 fn default_eta_r() -> f64 { 1.0 }
@@ -521,6 +529,7 @@ impl Default for CarrierConfig {
             num_carriers: 4,
             thresholds: ThresholdConfig::default(),
             eta_r: default_eta_r(),
+            adaptive: false,
         }
     }
 }

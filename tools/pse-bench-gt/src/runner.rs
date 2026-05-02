@@ -96,6 +96,11 @@ pub struct EventScopedAdapter {
     /// Read-only from outside; useful for asserting that the adapter
     /// was actually exercised.
     canonicalized: AtomicUsize,
+    /// Optional Strand-I phase extractor: given the raw payload bytes,
+    /// return a semantic phase in `[0, 2π)` or `None` to fall back to
+    /// the avalanche-hash phase from the digest. Set via
+    /// [`EventScopedAdapter::with_phase_fn`].
+    phase_fn: Option<Box<dyn Fn(&[u8]) -> Option<f64> + Send + Sync>>,
 }
 
 impl EventScopedAdapter {
@@ -106,7 +111,20 @@ impl EventScopedAdapter {
             base: base.into(),
             schema: "1.0.0".into(),
             canonicalized: AtomicUsize::new(0),
+            phase_fn: None,
         }
+    }
+
+    /// Attach a Strand-I semantic phase extractor. The closure is called
+    /// on every raw payload during `canonicalize`; its return value is
+    /// stored in `Observation::phase_hint`. Returning `None` falls back
+    /// to the avalanche-hash phase from the digest (legacy behaviour).
+    pub fn with_phase_fn<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&[u8]) -> Option<f64> + Send + Sync + 'static,
+    {
+        self.phase_fn = Some(Box::new(f));
+        self
     }
 
     /// Number of canonicalize calls this adapter has serviced
@@ -134,6 +152,7 @@ impl ObservationAdapter for EventScopedAdapter {
         let payload = raw.to_vec();
         let digest: Hash256 = content_address_raw(&payload);
         let source_id = self.event_source_id(&digest);
+        let phase_hint = self.phase_fn.as_ref().and_then(|f| f(raw));
         self.canonicalized.fetch_add(1, Ordering::SeqCst);
         Ok(Observation {
             timestamp: 0.0,
@@ -147,7 +166,7 @@ impl ObservationAdapter for EventScopedAdapter {
             context: context.clone(),
             digest,
             schema_version: self.schema.clone(),
-            phase_hint: None,
+            phase_hint,
         })
     }
 }
@@ -174,10 +193,44 @@ pub fn run_pse_windowed(
     base_source: &str,
     window_size: usize,
 ) -> Vec<Detection> {
-    let adapter = EventScopedAdapter::new(base_source);
+    run_pse_windowed_inner(
+        state,
+        observations,
+        config,
+        EventScopedAdapter::new(base_source),
+        window_size,
+    )
+}
+
+/// Variant of [`run_pse_windowed`] that attaches a Strand-I semantic
+/// phase extractor to the adapter. The `phase_fn` closure is invoked
+/// on every raw payload; its return value populates
+/// `Observation::phase_hint`, so domain-aware bench scenarios can
+/// drive PSE's Mandorla coherence with the data's semantic phase.
+pub fn run_pse_windowed_with_phase<F>(
+    state: &mut GlobalState,
+    observations: &[Vec<u8>],
+    config: &Config,
+    base_source: &str,
+    window_size: usize,
+    phase_fn: F,
+) -> Vec<Detection>
+where
+    F: Fn(&[u8]) -> Option<f64> + Send + Sync + 'static,
+{
+    let adapter = EventScopedAdapter::new(base_source).with_phase_fn(phase_fn);
+    run_pse_windowed_inner(state, observations, config, adapter, window_size)
+}
+
+fn run_pse_windowed_inner(
+    state: &mut GlobalState,
+    observations: &[Vec<u8>],
+    config: &Config,
+    adapter: EventScopedAdapter,
+    window_size: usize,
+) -> Vec<Detection> {
     let window = window_size.max(1);
     let mut detections = Vec::new();
-
     for k in 0..observations.len() {
         let lo = (k + 1).saturating_sub(window);
         let batch: Vec<Vec<u8>> = observations[lo..=k].to_vec();

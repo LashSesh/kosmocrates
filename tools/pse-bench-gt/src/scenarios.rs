@@ -235,22 +235,50 @@ pub fn run_binance_scenario(config: &Config, tolerance_ticks: u64) -> ScenarioRe
 }
 
 /// Variant with explicit window size.
+///
+/// **Strand I + J active.** This scenario exercises the semantic
+/// phase derivation in the binance adapter (I) and the adaptive
+/// carrier tracker in the engine (J). The bench config is cloned
+/// from the caller's config but with `carrier.adaptive = true`
+/// forced on, so the bench measures the engine's *intended* end-state
+/// rather than the legacy non-adaptive default.
 pub fn run_binance_scenario_with(
     config: &Config,
     tolerance_ticks: u64,
     window_size: usize,
 ) -> ScenarioResult {
+    let mut adaptive_config = config.clone();
+    adaptive_config.carrier.adaptive = true;
+
     let ticks = embedded_btc_klines_with_regime_shift();
     let _adapter = BinanceAdapter::new("BTCUSDT");
-    let mut state = GlobalState::new(config);
+    let mut state = GlobalState::new(&adaptive_config);
 
     let payloads: Vec<Vec<u8>> = ticks
         .iter()
         .map(|t| serde_json::to_vec(t).expect("kline must serialize"))
         .collect();
 
-    let mut detections = crate::runner::run_pse_windowed(
-        &mut state, &payloads, config, "binance_btc", window_size,
+    // Strand I phase extractor: log-return → phase, mirroring the
+    // BinanceAdapter's own canonicalize logic.
+    let phase_fn = |raw: &[u8]| -> Option<f64> {
+        let tick: pse_adapter_binance::BinanceTick =
+            serde_json::from_slice(raw).ok()?;
+        if tick.open > 0.0 && tick.close > 0.0 {
+            let log_return = (tick.close / tick.open).ln();
+            let normalized = (log_return * 50.0 + 0.5).rem_euclid(1.0);
+            Some(normalized * std::f64::consts::TAU)
+        } else {
+            None
+        }
+    };
+    let mut detections = crate::runner::run_pse_windowed_with_phase(
+        &mut state,
+        &payloads,
+        &adaptive_config,
+        "binance_btc",
+        window_size,
+        phase_fn,
     );
 
     let features = extract_binance_features(&ticks);
