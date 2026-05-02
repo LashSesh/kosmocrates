@@ -479,7 +479,17 @@ pub struct CarrierConfig {
     pub lambda_m: f64,
     pub num_carriers: usize,
     pub thresholds: ThresholdConfig,
+    /// Data-helix amplitude-match sharpness (E.2). The Mandorla's data
+    /// interference factor is `exp(-eta_r · (r_data − r_carrier)²)`;
+    /// small values tolerate amplitude mismatch, large values insist on
+    /// equal radii. `#[serde(default)]` so legacy configs without this
+    /// field still load and behave identically (the field's default is
+    /// the value used when E.2 was wired).
+    #[serde(default = "default_eta_r")]
+    pub eta_r: f64,
 }
+
+fn default_eta_r() -> f64 { 1.0 }
 
 impl Default for CarrierConfig {
     fn default() -> Self {
@@ -491,6 +501,7 @@ impl Default for CarrierConfig {
             lambda_m: 0.34,
             num_carriers: 4,
             thresholds: ThresholdConfig::default(),
+            eta_r: default_eta_r(),
         }
     }
 }

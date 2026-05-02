@@ -29,7 +29,8 @@ use pse_cascade::{
     PoRFsm, SWOperator, WTOperator,
 };
 use pse_cascade::{
-    batch_data_helix, build_phase_ladder, helix_pair, mandorla, restore_neutrality,
+    batch_data_helix, build_phase_ladder, helix_pair, mandorla, mandorla_real,
+    restore_neutrality,
 };
 use pse_evidence::{Archive, build_crystal_with_id};
 use pse_constraint::{intrinsic_step, morphogenic_update, MorphState};
@@ -360,7 +361,22 @@ pub fn macro_step(
             carrier.helix_a.r,
         )
     };
-    let mand = mandorla(&ha, &hb, config.carrier.lambda, config.carrier.mu_r);
+    // E.2: if a data-helix exists from this batch, compute the **real**
+    // Mandorla as the interference of the carrier pair with the data
+    // stream. Otherwise (empty batch, very first tick before E.1
+    // populates the helix) fall back to the carrier-only mandorla so the
+    // engine still has a well-defined coherence to gate on.
+    let mand = match &state.last_data_helix {
+        Some(data) => mandorla_real(
+            &ha,
+            &hb,
+            data,
+            config.carrier.lambda,
+            config.carrier.mu_r,
+            config.carrier.eta_r,
+        ),
+        None => mandorla(&ha, &hb, config.carrier.lambda, config.carrier.mu_r),
+    };
 
     // Write the new helix positions and mandorla back into the phase ladder so
     // the next tick picks up from where this one left off.

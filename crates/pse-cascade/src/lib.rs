@@ -331,8 +331,16 @@ pub fn helix_pair(tau: f64, phi: f64, r: f64) -> (TubusCoord, TubusCoord) {
 
 // ─── Mandorla Formation ───────────────────────────────────────────────────────
 
-/// Mandorla formation (PSE Def 7.3, OI-07 resolved)
-/// `kappa(t) = exp(-lambda * delta_phi(t)) * exp(-mu_r * r(t)^2)` in `[0,1]`
+/// Mandorla formation from the carrier helix-pair alone (PSE Def 7.3,
+/// OI-07 resolved).
+///
+/// `kappa(t) = exp(-lambda * delta_phi(t)) * exp(-mu_r * r(t)^2)` in `[0,1]`.
+///
+/// This is the **carrier-only** coherence: how well the helix-pair forms
+/// its own standing-wave figure, with no reference to any input. For the
+/// real interference with the data stream, use [`mandorla_real`] which
+/// modulates this base kappa with the data-helix phase- and
+/// amplitude-locks.
 pub fn mandorla(
     alpha: &TubusCoord,
     beta: &TubusCoord,
@@ -348,6 +356,45 @@ pub fn mandorla(
         delta_phi,
         kappa,
     }
+}
+
+/// Mandorla as the **actual interference** of carrier helix-pair and
+/// data-helix (E.2).
+///
+/// The carrier pair (`α`, `β` with `Δφ = π`) forms a standing wave with
+/// its axis along `α.phi`. A data-helix at phase `φ_data` resonates with
+/// the standing wave when it sits on this axis (`φ_data ∈ {α.phi,
+/// α.phi + π}`, the antinodes) and is orthogonal to it when transverse
+/// (`φ_data ∈ {α.phi ± π/2}`, the nodes). The data also resonates more
+/// cleanly when its amplitude `r_data` matches the carrier radius
+/// `α.r`.
+///
+/// Formula:
+/// ```text
+///   κ_real = κ_carrier
+///          × (1 + cos(2·(φ_data − α.phi))) / 2
+///          × exp(−η_r · (r_data − α.r)²)
+/// ```
+///
+/// Each factor lies in `[0, 1]`. The product is monotonically `≤
+/// κ_carrier`, expressing the physical fact that an off-axis data
+/// stream can only *decohere* the standing wave, never amplify it.
+///
+/// `eta_r` controls the amplitude-match sharpness: small values
+/// tolerate amplitude mismatch, large values insist on equal radii.
+pub fn mandorla_real(
+    alpha: &TubusCoord,
+    beta: &TubusCoord,
+    data: &DataHelix,
+    lambda: f64,
+    mu_r: f64,
+    eta_r: f64,
+) -> MandorlaState {
+    let mut state = mandorla(alpha, beta, lambda, mu_r);
+    let phase_lock = 0.5 * (1.0 + (2.0 * (data.phi - alpha.phi)).cos());
+    let amp_match = (-eta_r * (data.r - alpha.r).powi(2)).exp();
+    state.kappa *= phase_lock * amp_match;
+    state
 }
 
 // ─── Carrier Migration ────────────────────────────────────────────────────────
@@ -692,6 +739,124 @@ mod tests {
         assert_eq!(batch.r, single.r);
         // Circular mean of a single phase equals the phase itself.
         assert!((batch.phi - single.phi).abs() < 1e-9);
+    }
+
+    // ── Mandorla real interference (E.2) ─────────────────────────────────
+
+    fn carrier_pair() -> (TubusCoord, TubusCoord) {
+        // φ_α = 0, r = 0.5 — a clean reference frame for axis tests.
+        helix_pair(0.0, 0.0, 0.5)
+    }
+
+    fn data_at(phi: f64, r: f64) -> DataHelix {
+        DataHelix { tau: 0.0, phi, r }
+    }
+
+    #[test]
+    fn mandorla_real_axis_aligned_data_matches_carrier_only() {
+        // Data at φ_data = α.phi (= 0) is on the carrier axis. Phase-lock
+        // factor = (1 + cos 0) / 2 = 1. Amplitude match perfect (r_data = r_α).
+        // So κ_real should equal κ_carrier exactly.
+        let (a, b) = carrier_pair();
+        let data = data_at(0.0, a.r);
+        let carrier_only = mandorla(&a, &b, 0.5, 0.5);
+        let real = mandorla_real(&a, &b, &data, 0.5, 0.5, 1.0);
+        assert!(
+            (real.kappa - carrier_only.kappa).abs() < 1e-12,
+            "axis-aligned data should preserve κ exactly: real={} carrier={}",
+            real.kappa,
+            carrier_only.kappa
+        );
+    }
+
+    #[test]
+    fn mandorla_real_anti_aligned_data_also_resonant() {
+        // Data at φ_data = α.phi + π is at the *other* antinode. Phase-lock
+        // = (1 + cos(2π)) / 2 = 1. Same κ as axis-aligned.
+        let (a, b) = carrier_pair();
+        let data = data_at(std::f64::consts::PI, a.r);
+        let carrier_only = mandorla(&a, &b, 0.5, 0.5);
+        let real = mandorla_real(&a, &b, &data, 0.5, 0.5, 1.0);
+        assert!((real.kappa - carrier_only.kappa).abs() < 1e-12);
+    }
+
+    #[test]
+    fn mandorla_real_transverse_data_kills_kappa() {
+        // Data at φ_data = α.phi + π/2 is at a node of the standing wave.
+        // Phase-lock = (1 + cos π) / 2 = 0. κ_real must be exactly 0
+        // regardless of carrier-only κ.
+        let (a, b) = carrier_pair();
+        let data = data_at(std::f64::consts::FRAC_PI_2, a.r);
+        let real = mandorla_real(&a, &b, &data, 0.5, 0.5, 1.0);
+        assert_eq!(real.kappa, 0.0);
+    }
+
+    #[test]
+    fn mandorla_real_three_quarter_node_also_kills_kappa() {
+        // Data at φ_data = α.phi + 3π/2 is also a node. Phase-lock = 0.
+        let (a, b) = carrier_pair();
+        let data = data_at(3.0 * std::f64::consts::FRAC_PI_2, a.r);
+        let real = mandorla_real(&a, &b, &data, 0.5, 0.5, 1.0);
+        assert_eq!(real.kappa, 0.0);
+    }
+
+    #[test]
+    fn mandorla_real_amplitude_mismatch_attenuates_kappa() {
+        // Data on-axis but with mismatched radius. Phase-lock = 1, but
+        // amp_match < 1, so κ_real < κ_carrier.
+        let (a, b) = carrier_pair();
+        let data = data_at(0.0, a.r + 1.0); // r_data = 1.5 vs r_α = 0.5
+        let carrier_only = mandorla(&a, &b, 0.5, 0.5);
+        let real = mandorla_real(&a, &b, &data, 0.5, 0.5, 1.0);
+        assert!(real.kappa < carrier_only.kappa);
+        // exp(-1.0 · 1²) = exp(-1) ≈ 0.3679
+        let expected = carrier_only.kappa * (-1.0f64).exp();
+        assert!((real.kappa - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn mandorla_real_kappa_in_unit_interval() {
+        // Sweep φ_data and r_data; κ must always lie in [0, 1].
+        let (a, b) = carrier_pair();
+        for k in 0..32 {
+            let phi = (k as f64) * std::f64::consts::TAU / 32.0;
+            for r_steps in 0..8 {
+                let r_data = (r_steps as f64) * 0.25;
+                let data = data_at(phi, r_data);
+                let real = mandorla_real(&a, &b, &data, 0.5, 0.5, 1.0);
+                assert!(
+                    (0.0..=1.0).contains(&real.kappa),
+                    "κ out of range at φ={}, r={}: {}",
+                    phi,
+                    r_data,
+                    real.kappa
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mandorla_real_is_dominated_by_carrier_only() {
+        // For *any* data helix, κ_real ≤ κ_carrier — the data interference
+        // can only decohere the standing wave, never amplify it.
+        let (a, b) = carrier_pair();
+        let carrier_only = mandorla(&a, &b, 0.5, 0.5);
+        for k in 0..32 {
+            let phi = (k as f64) * std::f64::consts::TAU / 32.0;
+            for r_steps in 0..8 {
+                let r_data = (r_steps as f64) * 0.25;
+                let data = data_at(phi, r_data);
+                let real = mandorla_real(&a, &b, &data, 0.5, 0.5, 1.0);
+                assert!(
+                    real.kappa <= carrier_only.kappa + 1e-12,
+                    "κ_real={} exceeded κ_carrier={} at φ={}, r={}",
+                    real.kappa,
+                    carrier_only.kappa,
+                    phi,
+                    r_data
+                );
+            }
+        }
     }
 
     #[test]
