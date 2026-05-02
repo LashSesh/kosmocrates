@@ -17,7 +17,7 @@ pub trait DomainAdapter: Send + Sync + 'static {
 
 use std::collections::BTreeMap;
 use pse_types::{
-    CommitIndex, CommitProof, Config, FiveDState,
+    CommitIndex, CommitProof, Config, DataHelix, FiveDState,
     MandorlaState, MeasurementContext, NullCenter, Observation, PhaseLadder,
     RunDescriptor, SemanticCrystal, VertexId,
 };
@@ -28,7 +28,9 @@ use pse_cascade::{
     CascadeOperator, CrystalPrecursor, DKOperator, dual_consensus, MetricSet, PIOperator,
     PoRFsm, SWOperator, WTOperator,
 };
-use pse_cascade::{build_phase_ladder, helix_pair, mandorla, restore_neutrality};
+use pse_cascade::{
+    batch_data_helix, build_phase_ladder, helix_pair, mandorla, restore_neutrality,
+};
 use pse_evidence::{Archive, build_crystal_with_id};
 use pse_constraint::{intrinsic_step, morphogenic_update, MorphState};
 use pse_memory::{PatternMemory, MemoryConfig};
@@ -106,6 +108,13 @@ pub struct GlobalState {
     pub pattern_hits: u64,
     /// Persistent pattern memory — topological similarity index for cross-session learning.
     pub memory: PatternMemory,
+    /// Most recent batch projection onto the data-helix (E.1).
+    ///
+    /// `None` until the first observation batch has been ingested. Once
+    /// populated, it lives at the same intrinsic time as the active
+    /// carrier helix-pair, so the two are commensurable inputs to the
+    /// E.2 Mandorla-as-real-interference computation.
+    pub last_data_helix: Option<DataHelix>,
     /// Optional navigator state for TRITON exploration persistence.
     pub navigator_state: Option<pse_navigator::NavigatorState>,
     /// Optional swarm node for distributed crystal propagation (requires `swarm` feature).
@@ -136,6 +145,7 @@ impl GlobalState {
             scale_state: pse_scale::MultiScaleState::default(),
             pattern_hits: 0,
             memory: PatternMemory::new(MemoryConfig::default()),
+            last_data_helix: None,
             navigator_state: None,
             #[cfg(feature = "swarm")]
             swarm_node: None,
@@ -324,6 +334,13 @@ pub fn macro_step(
         let obs = ingest(adapter, raw, &ctx)?;
         canonical_obs.push(obs);
     }
+
+    // E.1: Project this batch onto the data-helix at the current intrinsic
+    // time. The helix lives at the same τ-scale as the active carrier
+    // (`state.t2 + dt2`, anticipating the carrier advance below) so the
+    // two are commensurable when E.2 wires them into a real interference.
+    let data_tau = state.t2 + config.temporal.dt2;
+    state.last_data_helix = Some(batch_data_helix(&canonical_obs, data_tau));
 
     // L1: Update persistent graph (MCCE assimilated)
     state.engine_state = EngineState::Relating;

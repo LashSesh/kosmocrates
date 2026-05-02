@@ -83,6 +83,27 @@ pub struct TubusCoord {
     pub r: f64,
 }
 
+/// A data-helix coordinate.
+///
+/// Conceptually the *partner* of the carrier helix-pair in the Mandorla
+/// interference computation. Each observation (or batch of observations)
+/// projects onto a single point on its data-helix:
+///
+///  - `tau` is the intrinsic engine time at the moment of arrival
+///    (same time scale as the carrier helix, so the two are
+///    commensurable in interference);
+///  - `phi` is a phase derived from the observation digest — the data
+///    stream's own phase signature;
+///  - `r` is the data's *amplitude* in the resonance sense — its
+///    Shannon entropy density, so an information-rich observation
+///    pushes the helix outward and an information-poor one keeps it
+///    near the axis.
+///
+/// `DataHelix` is a type alias for [`TubusCoord`] because they share
+/// the same geometric structure; the alias exists to make the role
+/// of each helix explicit at call sites.
+pub type DataHelix = TubusCoord;
+
 /// Mandorla state: interference of helix pair.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct MandorlaState {
