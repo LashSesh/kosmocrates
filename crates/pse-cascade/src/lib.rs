@@ -613,7 +613,12 @@ pub fn migration_admissible(
 
 // ─── Phase Ladder ─────────────────────────────────────────────────────────────
 
-/// Build a phase ladder with `n` evenly spaced carrier instances
+/// Build a phase ladder with `n` evenly spaced carrier instances.
+///
+/// This is the legacy "arbitrary even spacing" builder: `n` carriers
+/// at phase offsets `k · 2π / n` for `k ∈ 0..n`. Useful for testing
+/// and as a baseline against the geometrically-canonical
+/// [`build_metatron_phase_ladder`] (Strand O.2).
 pub fn build_phase_ladder(n: usize, tau: f64, r: f64) -> PhaseLadder {
     assert!(n > 0, "phase ladder must have at least 1 carrier");
     let step = 2.0 * std::f64::consts::PI / n as f64;
@@ -629,6 +634,38 @@ pub fn build_phase_ladder(n: usize, tau: f64, r: f64) -> PhaseLadder {
                 mandorla: m,
                 resonance: 0.0,
                 offset,
+            }
+        })
+        .collect()
+}
+
+/// Strand O.2: build a 13-carrier phase ladder from the canonical
+/// Metatron-scaffold geometry (1 centre + 12 cuboctahedron vertices,
+/// all projected along the (1, 1, 1) body diagonal).
+///
+/// The resulting ladder has the **vector-equilibrium** property: the
+/// sum of the 12 outer carriers' phasors is exactly zero, so the
+/// configuration has no directional bias. This is the property that
+/// distinguishes the cuboctahedron from any other 12-direction
+/// sampling of the unit sphere — proven by the
+/// `cuboctahedron_phases_are_balanced` test in `pse_metatron::phase_layout`.
+///
+/// Carrier 0 is the centre (radius 0); carriers 1..=12 are the outer
+/// cuboctahedron vertices (radius 1) at the projected azimuths.
+/// Carriers' `tau` is uniform across the ladder.
+pub fn build_metatron_phase_ladder(tau: f64) -> PhaseLadder {
+    let layout = pse_metatron::metatron_phase_layout();
+    layout
+        .iter()
+        .map(|&(phi, r)| {
+            let (ha, hb) = helix_pair(tau, phi, r);
+            let m = mandorla(&ha, &hb, 1.0, 1.0);
+            CarrierInstance {
+                helix_a: ha,
+                helix_b: hb,
+                mandorla: m,
+                resonance: 0.0,
+                offset: phi,
             }
         })
         .collect()
@@ -819,6 +856,96 @@ mod tests {
     fn build_phase_ladder_size() {
         let ladder = build_phase_ladder(4, 0.0, 1.0);
         assert_eq!(ladder.len(), 4);
+    }
+
+    // ── O.2: Metatron / cuboctahedron phase-ladder ──────────────────────
+
+    #[test]
+    fn metatron_ladder_has_thirteen_carriers() {
+        let ladder = build_metatron_phase_ladder(0.0);
+        assert_eq!(ladder.len(), 13);
+    }
+
+    #[test]
+    fn metatron_ladder_first_is_center() {
+        // Carrier 0 is the centre — radius 0, phase 0.
+        let ladder = build_metatron_phase_ladder(0.0);
+        assert_eq!(ladder[0].helix_a.r, 0.0);
+        assert_eq!(ladder[0].helix_a.phi, 0.0);
+    }
+
+    #[test]
+    fn metatron_ladder_outer_vertices_unit_radius() {
+        let ladder = build_metatron_phase_ladder(0.0);
+        for (i, c) in ladder.iter().enumerate().skip(1) {
+            assert!(
+                (c.helix_a.r - 1.0).abs() < 1e-12,
+                "carrier {} radius = {} (expected 1.0)",
+                i,
+                c.helix_a.r
+            );
+        }
+    }
+
+    #[test]
+    fn metatron_ladder_outer_phases_distinct() {
+        let ladder = build_metatron_phase_ladder(0.0);
+        for i in 1..ladder.len() {
+            for j in (i + 1)..ladder.len() {
+                let d = (ladder[i].helix_a.phi - ladder[j].helix_a.phi).abs();
+                assert!(
+                    d > 1e-9,
+                    "carriers {} and {} share phase {}",
+                    i,
+                    j,
+                    ladder[i].helix_a.phi
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn metatron_ladder_helix_pair_pi_offset_invariant() {
+        // Inv I15 must hold for the Metatron ladder too: every helix
+        // pair preserves the π-offset between α and β.
+        let ladder = build_metatron_phase_ladder(0.5);
+        for c in &ladder {
+            let raw_diff = (c.helix_a.phi - c.helix_b.phi).abs();
+            let diff_mod = raw_diff.min(2.0 * std::f64::consts::PI - raw_diff);
+            assert!(
+                (diff_mod - std::f64::consts::PI).abs() < 1e-9,
+                "carrier helix-pair π-offset broken: |Δφ| = {}",
+                diff_mod
+            );
+        }
+    }
+
+    #[test]
+    fn metatron_ladder_is_vector_equilibrium() {
+        // The defining empirical property of the Metatron carrier
+        // configuration: the 12 outer carrier phasors sum to zero.
+        // This is the cuboctahedron's "vector equilibrium" property
+        // (Buckminster Fuller) — a 13-carrier sampling of 3-D space
+        // with no directional bias. No other 12-direction
+        // configuration has this property at this regularity.
+        let ladder = build_metatron_phase_ladder(0.0);
+        let mut sx = 0.0_f64;
+        let mut sy = 0.0_f64;
+        for c in ladder.iter().skip(1) {
+            sx += c.helix_a.phi.cos();
+            sy += c.helix_a.phi.sin();
+        }
+        assert!(sx.abs() < 1e-9, "Σ cos φ = {} (expected ~0)", sx);
+        assert!(sy.abs() < 1e-9, "Σ sin φ = {} (expected ~0)", sy);
+    }
+
+    #[test]
+    fn metatron_ladder_tau_propagates_to_all_carriers() {
+        let ladder = build_metatron_phase_ladder(0.7);
+        for c in &ladder {
+            assert!((c.helix_a.tau - 0.7).abs() < 1e-12);
+            assert!((c.helix_b.tau - 0.7).abs() < 1e-12);
+        }
     }
 
     #[test]
