@@ -198,22 +198,31 @@ pub fn compute_all_metrics(
 ) -> MetricSet {
     let norm = &config.normalization;
 
-    // D: deformation metric — mean relative embedding change since the last tick.
-    // On the first tick prev_embeddings is empty; treat that as maximum novelty (0.75).
-    // Zero-embedding vertices (split/replicated) are excluded from both numerator
-    // and denominator so morphogenic growth does not dilute the signal.
+    // D: deformation metric — *combined* signal of in-place embedding change
+    // and vertex-set churn (added/removed vertices since the last tick).
+    //
+    // Pre-Strand-E this was just the mean relative embedding change. That
+    // works for batch scenarios where the whole graph evolves between ticks,
+    // but in a sliding-window streaming scenario most vertices are stable
+    // between ticks and only a few enter/leave at the boundary — the mean
+    // collapses to ~0 and d never registers genuine novelty.
+    //
+    // Fix: take the *max* of three signals, all in [0,1]:
+    //   1. mean relative embedding change over vertices present in both ticks
+    //   2. p90 relative embedding change (a single moving region still counts)
+    //   3. vertex-set churn = 1 − |V_curr ∩ V_prev| / max(|V_curr|, |V_prev|)
+    //
+    // First tick still treated as maximum novelty (0.75).
     let d_raw: f64 = if prev_embeddings.is_empty() {
-        // First tick: no prior state → maximum novelty
         0.75
     } else {
-        let samples: Vec<f64> = graph.embedding.iter()
+        let mut diffs: Vec<f64> = graph.embedding.iter()
             .filter_map(|(vid, curr)| {
                 let curr_norm = curr.norm_sq().sqrt();
                 if curr_norm < 1e-9 { return None; }
                 let prev = prev_embeddings.get(vid)?;
                 let prev_norm = prev.norm_sq().sqrt();
                 if prev_norm < 1e-9 { return None; }
-                // Euclidean distance in 5-D embedding space
                 let dp = curr.p   - prev.p;
                 let dr = curr.rho - prev.rho;
                 let dw = curr.omega - prev.omega;
@@ -223,12 +232,37 @@ pub fn compute_all_metrics(
                 Some(diff / (curr_norm + 1e-9))
             })
             .collect();
-        if samples.is_empty() {
-            // No vertices matched previous tick → treat as highly novel
-            0.75
+
+        let mean = if diffs.is_empty() {
+            0.0
         } else {
-            samples.iter().sum::<f64>() / samples.len() as f64
-        }
+            diffs.iter().sum::<f64>() / diffs.len() as f64
+        };
+
+        // p90: nice-to-have robustness. For small samples just take the max.
+        let p90 = if diffs.is_empty() {
+            0.0
+        } else {
+            diffs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let idx = ((diffs.len() as f64 * 0.90).ceil() as usize).saturating_sub(1)
+                .min(diffs.len() - 1);
+            diffs[idx]
+        };
+
+        let n_curr = graph.embedding.len();
+        let n_prev = prev_embeddings.len();
+        let n_intersect = graph.embedding.keys()
+            .filter(|vid| prev_embeddings.contains_key(vid))
+            .count();
+        let denom = n_curr.max(n_prev);
+        let churn = if denom > 0 {
+            1.0 - (n_intersect as f64 / denom as f64)
+        } else {
+            0.0
+        };
+
+        let candidate = mean.max(p90).max(churn);
+        if candidate.is_finite() && candidate > 0.0 { candidate } else { 0.75 }
     };
     let d = pse_cascade::norm_saturate(d_raw, norm.mu_d);
 
