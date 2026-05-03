@@ -1,0 +1,20 @@
+[package]
+name = "pse-demo"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "30-second showcase: streaming workload, crystal formation rate, gate diagnostics"
+
+[dependencies]
+pse-core = { path = "../../crates/pse-core" }
+pse-types = { path = "../../crates/pse-types" }
+pse-graph = { path = "../../crates/pse-graph" }
+pse-bench-gt = { path = "../pse-bench-gt" }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "pse-demo"
+path = "src/main.rs"

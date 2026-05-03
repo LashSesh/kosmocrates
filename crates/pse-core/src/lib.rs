@@ -29,7 +29,7 @@ pub trait DomainAdapter: Send + Sync + 'static {
 
 use std::collections::BTreeMap;
 use pse_types::{
-    CommitIndex, CommitProof, Config, DataHelix, FiveDState,
+    CommitIndex, CommitProof, Config, DataHelix, FiveDState, GateSnapshot,
     MandorlaState, MeasurementContext, NullCenter, Observation, PhaseLadder,
     RunDescriptor, SemanticCrystal, VertexId,
 };
@@ -115,6 +115,10 @@ pub struct GlobalState {
     pub last_constraint_count: usize,
     /// Whether the Kairos gate passed on the last macro-step (for M9).
     pub last_gate_passed: bool,
+    /// Full gate snapshot from the last macro-step (None until first tick).
+    /// Populated unconditionally — readable whether the gate passed or not.
+    /// Used for diagnostics, calibration, and adaptive thresholds.
+    pub last_gate: Option<GateSnapshot>,
     /// C18 multi-scale state (Micro/Meso/Macro universes and bridges).
     pub scale_state: pse_scale::MultiScaleState,
     /// Count of pattern-memory hits (regions that matched existing crystals).
@@ -155,6 +159,7 @@ impl GlobalState {
             prev_embeddings: BTreeMap::new(),
             last_constraint_count: 0,
             last_gate_passed: false,
+            last_gate: None,
             scale_state: pse_scale::MultiScaleState::default(),
             pattern_hits: 0,
             memory: PatternMemory::new(MemoryConfig::default()),
@@ -227,8 +232,22 @@ pub fn compute_all_metrics(
     };
     let d = pse_cascade::norm_saturate(d_raw, norm.mu_d);
 
-    // Q: coherence (from mandorla kappa)
-    let q = mandorla.kappa;
+    // Q: coherence — *fraction* of intrinsic carrier coherence preserved by
+    // the current data helix. The raw `mandorla.kappa` already folds in the
+    // carrier's own κ ceiling (`exp(-λ·Δφ_pair) · exp(-μ_r·r²)`), which for
+    // default λ=0.1, μ_r=0.3, r=1 caps the absolute κ at ~0.54 — making a
+    // 0.5 gate threshold structurally unreachable on real data. We normalize
+    // by that ceiling so q ∈ [0,1] and threshold 0.5 means "data preserves
+    // at least half the carrier's intrinsic coherence", which is the
+    // physically sensible reading.
+    let carrier_pair_dphi = std::f64::consts::PI; // helix-pair is antiphase by construction
+    let kappa_carrier_max = (-config.carrier.lambda * carrier_pair_dphi).exp()
+        * (-config.carrier.mu_r * mandorla.r * mandorla.r).exp();
+    let q = if kappa_carrier_max > 1e-9 {
+        (mandorla.kappa / kappa_carrier_max).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
 
     // R: resonance (exp(-d_R(H, ref)))
     let r = pse_cascade::norm_exp(h5.norm_sq().sqrt(), norm.lambda_r);
@@ -444,6 +463,7 @@ pub fn macro_step(
     // Kairos gate check (Inv I9, Inv I18)
     let gate = metrics.gate_snapshot(&config.thresholds);
     state.last_gate_passed = gate.kairos;
+    state.last_gate = Some(gate.clone());
     if !gate.kairos {
         tracing::debug!(
             tick = state.commit_index,
