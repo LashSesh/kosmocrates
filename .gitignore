@@ -10,3 +10,4 @@ bench_results.json
 Thumbs.db
 *.zip
 bench_window_ablation.json
+pse-demo.json

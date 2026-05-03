@@ -279,8 +279,13 @@ pub fn inverse_weave(
         for op in library {
             if let Some(candidate) = evaluate_candidate(op.as_ref(), state, config) {
                 let pass = candidate.coverage >= config.alpha_min;
-                eprintln!("  candidate {}: coverage={:.4}, alpha_min={:.4}, pass={}",
-                          op.id(), candidate.coverage, config.alpha_min, pass);
+                tracing::trace!(
+                    op = op.id(),
+                    coverage = candidate.coverage,
+                    alpha_min = config.alpha_min,
+                    pass,
+                    "extract candidate"
+                );
                 if pass {
                     active.push(candidate);
                 }
@@ -328,8 +333,11 @@ pub fn inverse_weave(
         }
     }
 
-    eprintln!("  inverse_weave result: {} active constraints, region size={}",
-              program.len(), region.len());
+    tracing::debug!(
+        active_constraints = program.len(),
+        region_size = region.len(),
+        "inverse_weave result"
+    );
     let vertex_ids: Vec<VertexId> = region.iter().map(|(vid, _)| *vid).collect();
     (program, vertex_ids)
 }

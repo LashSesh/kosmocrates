@@ -39,6 +39,7 @@ members = [
     "tools/pse-audit",
     "tools/pse-bench-bbo",
     "tools/pse-bench-gt",
+    "tools/pse-demo",
 ]
 
 [workspace.package]
@@ -59,6 +60,7 @@ nalgebra = "0.33"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 thiserror = "2"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
 aes-gcm = "0.10"
 hkdf = "0.12"

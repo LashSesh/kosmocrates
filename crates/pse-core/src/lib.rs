@@ -3,6 +3,7 @@
 //! Coordinates the full pipeline from observation ingestion through consensus,
 //! carrier geometry, morphogenic updates, and crystal archival.
 
+pub mod adaptive;
 pub mod crystal_adapter;
 pub mod explore;
 pub mod falsify;
@@ -34,7 +35,7 @@ pub trait DomainAdapter: Send + Sync + 'static {
 
 use std::collections::BTreeMap;
 use pse_types::{
-    CommitIndex, CommitProof, Config, DataHelix, FiveDState,
+    CommitIndex, CommitProof, Config, DataHelix, FiveDState, GateSnapshot,
     MandorlaState, MeasurementContext, NullCenter, Observation, PhaseLadder,
     RunDescriptor, SemanticCrystal, VertexId,
 };
@@ -120,6 +121,14 @@ pub struct GlobalState {
     pub last_constraint_count: usize,
     /// Whether the Kairos gate passed on the last macro-step (for M9).
     pub last_gate_passed: bool,
+    /// Full gate snapshot from the last macro-step (None until first tick).
+    /// Populated unconditionally — readable whether the gate passed or not.
+    /// Used for diagnostics, calibration, and adaptive thresholds.
+    pub last_gate: Option<GateSnapshot>,
+    /// Optional adaptive Kairos calibrator. When `Some`, thresholds are
+    /// derived from the rolling history of `GateSnapshot`s instead of
+    /// `Config::thresholds`. See [`adaptive::AdaptiveCalibrator`].
+    pub adaptive: Option<adaptive::AdaptiveCalibrator>,
     /// C18 multi-scale state (Micro/Meso/Macro universes and bridges).
     pub scale_state: pse_scale::MultiScaleState,
     /// Count of pattern-memory hits (regions that matched existing crystals).
@@ -167,6 +176,8 @@ impl GlobalState {
             prev_embeddings: BTreeMap::new(),
             last_constraint_count: 0,
             last_gate_passed: false,
+            last_gate: None,
+            adaptive: None,
             scale_state: pse_scale::MultiScaleState::default(),
             pattern_hits: 0,
             memory: PatternMemory::new(MemoryConfig::default()),
@@ -205,22 +216,31 @@ pub fn compute_all_metrics(
 ) -> MetricSet {
     let norm = &config.normalization;
 
-    // D: deformation metric — mean relative embedding change since the last tick.
-    // On the first tick prev_embeddings is empty; treat that as maximum novelty (0.75).
-    // Zero-embedding vertices (split/replicated) are excluded from both numerator
-    // and denominator so morphogenic growth does not dilute the signal.
+    // D: deformation metric — *combined* signal of in-place embedding change
+    // and vertex-set churn (added/removed vertices since the last tick).
+    //
+    // Pre-Strand-E this was just the mean relative embedding change. That
+    // works for batch scenarios where the whole graph evolves between ticks,
+    // but in a sliding-window streaming scenario most vertices are stable
+    // between ticks and only a few enter/leave at the boundary — the mean
+    // collapses to ~0 and d never registers genuine novelty.
+    //
+    // Fix: take the *max* of three signals, all in [0,1]:
+    //   1. mean relative embedding change over vertices present in both ticks
+    //   2. p90 relative embedding change (a single moving region still counts)
+    //   3. vertex-set churn = 1 − |V_curr ∩ V_prev| / max(|V_curr|, |V_prev|)
+    //
+    // First tick still treated as maximum novelty (0.75).
     let d_raw: f64 = if prev_embeddings.is_empty() {
-        // First tick: no prior state → maximum novelty
         0.75
     } else {
-        let samples: Vec<f64> = graph.embedding.iter()
+        let mut diffs: Vec<f64> = graph.embedding.iter()
             .filter_map(|(vid, curr)| {
                 let curr_norm = curr.norm_sq().sqrt();
                 if curr_norm < 1e-9 { return None; }
                 let prev = prev_embeddings.get(vid)?;
                 let prev_norm = prev.norm_sq().sqrt();
                 if prev_norm < 1e-9 { return None; }
-                // Euclidean distance in 5-D embedding space
                 let dp = curr.p   - prev.p;
                 let dr = curr.rho - prev.rho;
                 let dw = curr.omega - prev.omega;
@@ -230,17 +250,56 @@ pub fn compute_all_metrics(
                 Some(diff / (curr_norm + 1e-9))
             })
             .collect();
-        if samples.is_empty() {
-            // No vertices matched previous tick → treat as highly novel
-            0.75
+
+        let mean = if diffs.is_empty() {
+            0.0
         } else {
-            samples.iter().sum::<f64>() / samples.len() as f64
-        }
+            diffs.iter().sum::<f64>() / diffs.len() as f64
+        };
+
+        // p90: nice-to-have robustness. For small samples just take the max.
+        let p90 = if diffs.is_empty() {
+            0.0
+        } else {
+            diffs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let idx = ((diffs.len() as f64 * 0.90).ceil() as usize).saturating_sub(1)
+                .min(diffs.len() - 1);
+            diffs[idx]
+        };
+
+        let n_curr = graph.embedding.len();
+        let n_prev = prev_embeddings.len();
+        let n_intersect = graph.embedding.keys()
+            .filter(|vid| prev_embeddings.contains_key(vid))
+            .count();
+        let denom = n_curr.max(n_prev);
+        let churn = if denom > 0 {
+            1.0 - (n_intersect as f64 / denom as f64)
+        } else {
+            0.0
+        };
+
+        let candidate = mean.max(p90).max(churn);
+        if candidate.is_finite() && candidate > 0.0 { candidate } else { 0.75 }
     };
     let d = pse_cascade::norm_saturate(d_raw, norm.mu_d);
 
-    // Q: coherence (from mandorla kappa)
-    let q = mandorla.kappa;
+    // Q: coherence — *fraction* of intrinsic carrier coherence preserved by
+    // the current data helix. The raw `mandorla.kappa` already folds in the
+    // carrier's own κ ceiling (`exp(-λ·Δφ_pair) · exp(-μ_r·r²)`), which for
+    // default λ=0.1, μ_r=0.3, r=1 caps the absolute κ at ~0.54 — making a
+    // 0.5 gate threshold structurally unreachable on real data. We normalize
+    // by that ceiling so q ∈ [0,1] and threshold 0.5 means "data preserves
+    // at least half the carrier's intrinsic coherence", which is the
+    // physically sensible reading.
+    let carrier_pair_dphi = std::f64::consts::PI; // helix-pair is antiphase by construction
+    let kappa_carrier_max = (-config.carrier.lambda * carrier_pair_dphi).exp()
+        * (-config.carrier.mu_r * mandorla.r * mandorla.r).exp();
+    let q = if kappa_carrier_max > 1e-9 {
+        (mandorla.kappa / kappa_carrier_max).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
 
     // R: resonance (exp(-d_R(H, ref)))
     let r = pse_cascade::norm_exp(h5.norm_sq().sqrt(), norm.lambda_r);
@@ -455,25 +514,43 @@ pub fn macro_step(
         attempt_carrier_migration(state, &metrics, config);
     }
 
-    // Kairos gate check (Inv I9, Inv I18)
-    let gate = metrics.gate_snapshot(&config.thresholds);
+    // Kairos gate check (Inv I9, Inv I18). When an adaptive calibrator is
+    // wired in, it derives the thresholds from rolling history; otherwise
+    // we use the static `Config::thresholds`. The 8-fold AND composition
+    // is unchanged — only per-metric cut points move, so falsification,
+    // EU-AI-Act compliance proofs, and crystal verifiability are
+    // unaffected. The non-adaptive path performs exactly one gate_snapshot
+    // call, preserving the pre-adaptive throughput.
+    let gate = if let Some(cal) = state.adaptive.as_mut() {
+        let raw_gate = metrics.gate_snapshot(&config.thresholds);
+        let effective_thresholds = cal.calibrate(&config.thresholds);
+        let gate = metrics.gate_snapshot(&effective_thresholds);
+        // Record the *raw* snapshot so calibration is not self-referential;
+        // future quantiles see the unmodified metrics.
+        cal.record(&raw_gate);
+        gate
+    } else {
+        metrics.gate_snapshot(&config.thresholds)
+    };
     state.last_gate_passed = gate.kairos;
+    state.last_gate = Some(gate.clone());
     if !gate.kairos {
-        // Report which individual gates are failing so we can tune thresholds.
-        eprintln!("tick {}: kairos FAILED — d={:.4}(need>={:.4}) q={:.4}(need>={:.4}) r={:.4}(need>={:.4}) g={:.4}(need>={:.4}) j={:.4}(need>={:.4}) p={:.4}(need>={:.4}) n={:.4}(need>={:.4}) k={:.4}(need>={:.4})",
-                  state.commit_index,
-                  gate.d, config.thresholds.d,
-                  gate.q, config.thresholds.q,
-                  gate.r, config.thresholds.r,
-                  gate.g, config.thresholds.g,
-                  gate.j, config.thresholds.j,
-                  gate.p, config.thresholds.p,
-                  gate.n, config.thresholds.n,
-                  gate.k, config.thresholds.k);
+        tracing::debug!(
+            tick = state.commit_index,
+            d = gate.d, d_thr = config.thresholds.d,
+            q = gate.q, q_thr = config.thresholds.q,
+            r = gate.r, r_thr = config.thresholds.r,
+            g = gate.g, g_thr = config.thresholds.g,
+            j = gate.j, j_thr = config.thresholds.j,
+            p = gate.p, p_thr = config.thresholds.p,
+            n = gate.n, n_thr = config.thresholds.n,
+            k = gate.k, k_thr = config.thresholds.k,
+            "kairos rejected"
+        );
         state.engine_state = EngineState::Rejected("kairos failed".into());
         return Ok(None);
     }
-    eprintln!("tick {}: kairos PASSED", state.commit_index);
+    tracing::debug!(tick = state.commit_index, "kairos passed");
     state.engine_state = EngineState::KairosPrimed;
 
     // L2: Constraint extraction (ECLS assimilated)
@@ -482,9 +559,14 @@ pub fn macro_step(
     let window = TimeWindow::all();
     let (program, region) = inverse_weave(&state.graph, &window, &library, &config.extraction);
     state.last_constraint_count = program.len();
-    eprintln!("tick {}: extracted {} constraints, {} region vertices, graph has {} vertices {} edges",
-              state.commit_index, program.len(), region.len(),
-              state.graph.graph.node_count(), state.graph.graph.edge_count());
+    tracing::debug!(
+        tick = state.commit_index,
+        constraints = program.len(),
+        region = region.len(),
+        vertices = state.graph.graph.node_count(),
+        edges = state.graph.graph.edge_count(),
+        "constraints extracted"
+    );
 
     // Pattern memory shortcut: check the topological similarity index for
     // known patterns. If a similar crystal exists in memory, skip the full

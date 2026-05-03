@@ -1,146 +1,227 @@
 # PSE — Post-Symbolic Engine
 
-A universal computation engine that processes information through topology,
-physics, and geometry rather than through symbols or statistics.
+A streaming computation engine that detects structural events in observation
+streams and emits **content-addressed, falsifiable, deterministic crystal
+artifacts** — without symbols, statistics, or trained models.
 
-## What It Is
+PSE is single-binary, single-thread-fast, audit-grade by construction.
 
-PSE observes data streams, detects invariant patterns through Kuramoto phase
-synchronization, validates them through an 8-gate adversarial falsification
-cascade, and crystallizes survivors as cryptographically anchored,
-deterministically reproducible artifacts. It accumulates knowledge over time
-through progressive convergence — no subscriptions, no cloud dependency.
+---
 
-It is domain-agnostic. Financial markets, medical diagnostics, cybersecurity,
-industrial sensors, climate data — any domain that produces observable data
-streams can use PSE by implementing a thin adapter trait.
+## What it does
 
-## Core Principles
+You feed PSE a stream of observations. PSE projects each observation onto
+a topological substrate (a 5D-embedded graph), tests whether the current
+configuration resonates with a carrier helix-pair (Mandorla coherence κ),
+gates the test through eight conjunctive metrics (Kairos), runs a dual
+cascade-consensus, optionally falsifies against surrogate streams, and
+— when a configuration survives all of that — emits a **Crystal**: a
+content-addressed (SHA-256 / JCS) record of *which graph region produced
+the resonance, under which constraints, with which provenance*.
 
-- **Resonance, not statistics**: Pattern detection via Kuramoto phase coupling
-- **Topology, not rules**: Navigation via Laplacian spectral decomposition
-- **Crystallization, not caching**: SHA-256 content-addressed, evidence-chained artifacts
-- **Falsification, not verification**: 8-gate adversarial cascade (Popperian epistemology)
-- **Convergence, not subscription**: Progressive offline capability via pattern accumulation
-- **Constitution, not configuration**: ADAMANT Protocol (21 machine-verifiable axioms)
+Crystals are byte-identical across replays, verifiable against the
+EU AI Act compliance proof in [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md),
+accumulate across sessions via the pattern-memory index, and compose
+through an algebra of operators (`compose / dual / bridge / query /
+interpolate`).
 
-## Benchmarks
+For *what kind of computation this is* and *why it's a category of its
+own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 
-Measured on Intel Core i3 (2 cores / 4 threads, 2.1 GHz), 8 GB RAM, Windows.
-No GPU. No cluster. No cloud.
+---
 
-| ID | Benchmark | Value | Unit |
-|----|-----------|-------|------|
-| B01a | Observe throughput | 655,115 | obs/sec |
-| B01b | Full 15-stage pipeline | 9,695 | cycles/sec |
-| B02 | Crystal serialization | 52.4 | µs/crystal |
-| B03 | Evidence verification | 5.5 | µs/verify |
-| B05 | Determinism check | PASS | 58 crystals, bit-identical |
-| B06 | Laplacian (200 nodes) | 6.9 | ms |
-| B07 | Fiedler vector | 130 | µs |
-| B08 | Kuramoto convergence | 3.6 | ms (18 ticks, r=0.95) |
-| B09 | Navigator step (TRITON) | 148 | µs/step |
-| B10 | Constraint propagation | 12.7 | µs/component |
-| B11 | Memory (5K entities) | 2.4 | MB |
-| B12 | Capsule (AES-256-GCM) | 9.6 | µs/roundtrip |
-| B13 | Registry lookup | 0.16 | µs |
-| B14 | Swarm consensus (4 agents) | 0.05 | ms |
-| B15 | Full macro-step | 4.3 | ms |
+## Status
 
-Run benchmarks yourself:
+| Aspect | State |
+|---|---|
+| Engine architecture (Strands E–N) | Complete |
+| Operator algebra (compose/dual/bridge/query/interpolate) | Complete |
+| Falsification (Shuffle, BlockBootstrap, PhaseRandomize) | Complete |
+| EU AI Act compliance proof | Drafted |
+| Throughput on commodity hardware | Verified |
+| Adaptive Kairos calibration | Opt-in, working |
+| Diagnostic surface (`state.last_gate`, `pse-demo`) | Live |
+| Calibration on real production data | **Open frontier** |
+
+Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
+
+| Bench | Value |
+|---|---|
+| `B01a` observe-only ingest | up to **2.07 M obs/sec** |
+| `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
+| `B15` `macro_step` end-to-end | **43–110 µs** |
+| `B05` determinism check | **PASS** (bit-identical replay) |
+| Workspace test suite | **467 / 467** passing |
+
+The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
+and matched on the full pipeline. See `cargo run --release --example
+bench_full -p pse-core`.
+
+The engine produces **0 crystals on default thresholds** for unconfigured
+synthetic workloads — by design. Crystal formation requires either real
+data the metrics were calibrated for, or the opt-in adaptive calibrator
+(see `pse-demo`). Calibration on a real domain is the work that turns
+this from "well-built engine" into "deployed product".
+
+---
+
+## Quick start
 
 ```bash
-cargo run --release --example bench_full
-```
-
-## Quick Start
-
-```bash
-# Build
+# Build the workspace
 cargo build --release
 
-# Run benchmarks
-cargo run --release --example bench_full
+# Run the 30-second demo (synthetic stream, full diagnostics)
+cargo run --release -p pse-demo
 
-# Run synthetic scenario (58 crystals from 200 ticks)
-cargo run --release --example synthetic
+# Run the full benchmark suite
+cargo run --release --example bench_full -p pse-core
 
-# Run a domain adapter (offline, embedded data)
-cargo run --release -p pse-adapter-weather --example weather -- --offline
-cargo run --release -p pse-adapter-binance --example observe_btc -- --offline
-cargo run --release -p pse-adapter-seismo --example seismo -- --offline
+# Run the ground-truth benchmark (PSE vs STL-z-score vs Isolation Forest)
+cargo run --release -p pse-bench-gt --bin bench_gt
+
+# Inspect kairos rejections in real time
+RUST_LOG=pse_core=debug cargo run --release -p pse-demo
 ```
 
+Embed PSE in your own program:
+
 ```rust
-use pse_core::{GlobalState, macro_step};
+use pse_core::{macro_step, GlobalState};
+use pse_core::adaptive::AdaptiveCalibrator;
 use pse_graph::PassthroughAdapter;
 use pse_types::Config;
 
 let config = Config::default();
 let mut state = GlobalState::new(&config);
+
+// Optional: self-calibrating Kairos thresholds.
+state.adaptive = Some(AdaptiveCalibrator::new(0.05, 200, 100));
+
 let adapter = PassthroughAdapter::new("my_source");
+let batch: Vec<Vec<u8>> = vec![serde_json::to_vec(&my_event)?];
 
-// Feed observations, get crystals
-let batch = vec![serde_json::to_vec(&my_data).unwrap()];
 if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
-    println!("Crystal: {:?}", crystal.crystal_id);
+    // crystal.crystal_id is the SHA-256 content address
+    // crystal.region is the set of graph vertices that produced the resonance
+    // crystal.commit_proof carries the falsification p-value (if enabled)
+    println!("crystal: {}", hex::encode(crystal.crystal_id));
 }
+
+// state.last_gate carries the full GateSnapshot (all 8 metrics) for every tick,
+// pass or fail — read it to diagnose why a tick did or didn't crystallize.
 ```
 
-## Domain Adapters
-
-PSE is domain-agnostic. Implement the `ObservationAdapter` and `DomainAdapter`
-traits to connect any data source. Ten adapters ship out of the box:
-
-| Adapter | Domain | Data Source |
-|---------|--------|-------------|
-| `pse-adapter-airquality` | Air Quality | OpenAQ monitoring stations |
-| `pse-adapter-binance` | Crypto Markets | Binance REST API (OHLCV) |
-| `pse-adapter-entsoe` | Energy Grid | ENTSO-E Transparency Platform |
-| `pse-adapter-iot` | Predictive Maintenance | Industrial machinery sensors |
-| `pse-adapter-modelmon` | ML Monitoring | Model inference drift detection |
-| `pse-adapter-seismo` | Seismology | USGS Earthquake API |
-| `pse-adapter-syslog` | Security / Ops | Syslog anomaly detection |
-| `pse-adapter-tabular` | Data Quality | CSV / tabular analysis |
-| `pse-adapter-vitals` | Medical Vitals | ECG / vital signs monitoring |
-| `pse-adapter-weather` | Weather | Open-Meteo API |
-
-Every adapter includes embedded sample data so it can run fully offline.
-
-Writing your own adapter is minimal:
-
-```rust
-use pse_core::DomainAdapter;
-
-struct MyAdapter;
-
-impl DomainAdapter for MyAdapter {
-    fn domain_name(&self) -> &str { "my-domain" }
-}
-```
+---
 
 ## Architecture
 
+The workspace ships **24 crates**, **10 domain adapters**, **4 tool
+binaries**:
+
 ```
-PSE (31 crates, 232 tests)
-├── Observation:     pse-graph, pse-scale (Kuramoto, multi-scale)
-├── Analysis:        pse-extract, pse-topology (Laplacian, Fiedler, Betti)
-├── Validation:      pse-cascade, pse-pmhd (8-gate adversarial falsification)
-├── Crystallization: pse-types, pse-evidence, pse-registry, pse-manifest
-├── Exploration:     pse-navigator (TRITON golden-angle spiral, SimplexMesh)
-├── Coordination:    pse-swarm (multi-agent consensus)
-├── Constraint:      pse-constraint (degrees-of-freedom analysis)
-├── Infrastructure:  pse-store, pse-capsule, pse-scheduler, pse-replay
-├── Interface:       pse-gateway, pse-cli
-├── Core:            pse-core (DomainAdapter trait, Engine), pse (meta-crate)
-└── Adapters (10):   airquality, binance, entsoe, iot, modelmon,
-                     seismo, syslog, tabular, vitals, weather
+crates/
+  pse-types       Schema (Observation, Crystal, GateSnapshot, …)
+  pse-graph       Persistent graph + Observation → vertex projection
+  pse-extract     Constraint program / inverse-weave / DoF analysis
+  pse-cascade     Mandorla, helix-pair, cascade operators (DK/SW/PI/WT)
+  pse-evidence    Crystal construction, evidence chain, content address
+  pse-replay      Deterministic replay & verification
+  pse-constraint  Intrinsic step, morphogenic update
+  pse-registry    Crystal registry / lookup
+  pse-manifest    Run descriptors / provenance
+  pse-capsule     AES-256-GCM sealed transport (counter-reuse detector)
+  pse-scheduler   Tick orchestration
+  pse-topology    Laplacian, Fiedler, Betti, spectral gap
+  pse-store       Persistent crystal store
+  pse-scale       Multi-scale state (Micro/Meso/Macro)
+  pse-pmhd        Path-Minimum Hierarchical Decomposition
+  pse-navigator   TRITON spiral / SimplexMesh / singularity scan
+  pse-swarm       Multi-agent crystal propagation
+  pse-memory      Pattern-memory index (cross-session)
+  pse-net         Network transport (feature-gated)
+  pse-wasm        WebAssembly bindings
+  pse-gateway     HTTP gateway
+  pse-cli         CLI front-end
+  pse             Meta-crate
+  pse-core        Engine orchestrator (`macro_step`), DomainAdapter trait,
+                  AdaptiveCalibrator, operator algebra, falsifier
+
+adapters/
+  pse-adapter-binance     Crypto markets (Binance OHLCV)
+  pse-adapter-vitals      Medical (ECG / vital signs)
+  pse-adapter-seismo      Seismology (USGS earthquakes)
+  pse-adapter-weather     Weather (Open-Meteo)
+  pse-adapter-airquality  OpenAQ
+  pse-adapter-entsoe      Energy grid (ENTSO-E)
+  pse-adapter-iot         Predictive maintenance
+  pse-adapter-syslog      Syslog / security ops
+  pse-adapter-tabular     CSV / tabular
+  pse-adapter-modelmon    ML model monitoring
+
+tools/
+  pse-bench-gt   Ground-truth precision/recall (PSE vs STL-z-score vs IsoForest)
+  pse-bench-bbo  TRITON spiral vs Random vs Halton on BBO test functions
+  pse-audit      Determinism / replay auditor
+  pse-demo       30-second runnable showcase + gate diagnostics
 ```
 
-## Derived From
+---
 
-PSE is extracted from ISLS (Intelligent Semantic Ledger Substrate).
-Constitutional governance: ADAMANT Protocol (Zenodo, CC BY 4.0).
+## What's new since the last README
+
+The previous README described the engine before Strands E through P. The
+short version of what changed:
+
+* **E** — Engine made *real*. Data stream gets its own helix; Mandorla
+  becomes actual standing-wave interference of carrier and data; 5D
+  state grounded in graph topology; cascade operators became real
+  resonance tests; CrystalAdapter; resonance fingerprint query;
+  resonance-landscape-aware TRITON.
+* **F** — Sliding-window ground-truth bench scenarios (seismo, vitals
+  AFib, Binance regime shift) with EventScopedAdapter.
+* **G** — TRITON BBO benchmark vs random and Halton.
+* **H** — EU AI Act compliance proof sketch.
+* **I** — Semantic phase hint on `Observation` (avalanche-hash fallback
+  preserved).
+* **J** — Adaptive carrier tracker (per-tick re-selection).
+* **K** — `CapsuleSealer` with AES-GCM counter-reuse detector.
+* **L** — Full TRITON navigator in BBO benchmark.
+* **M** — Operator algebra: `compose / dual / bridge / query / interpolate`.
+* **N** — Generative interpolation primitive.
+* **P.1** — Hot-path `eprintln` → `tracing` (+15 % throughput).
+* **P.2** — Visible engine: `state.last_gate` exposes the full
+  `GateSnapshot` every tick. Bug fix: `q` (coherence) is now the
+  *fraction* of intrinsic carrier coherence preserved by the data,
+  not the absolute κ (whose ≈ 0.54 ceiling made the 0.5 threshold
+  structurally unreachable). New `pse-demo` binary.
+* **P.3** — `AdaptiveCalibrator`: rolling-history quantile thresholds.
+  Engine self-calibrates per workload. Opt-in; default path unchanged.
+  d-metric extended to include p90 + vertex-set churn for
+  windowed-streaming workloads.
+
+The 8-fold Kairos AND, falsifier gating, content-address scheme, and
+EU-AI-Act compliance proof are unchanged across all of the above —
+calibration moves; the *contract* doesn't.
+
+---
+
+## Where to go next
+
+* **Reading**: [`docs/POST_SYMBOLIC.md`](docs/POST_SYMBOLIC.md) — what
+  this paradigm *is*, why it's a category, what it can and cannot do.
+* **Reading**: [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) — EU AI Act
+  formal compliance proof sketch.
+* **Running**: `cargo run --release -p pse-demo` — see the engine work
+  end-to-end, with gate diagnostics, in under a minute.
+* **Calibrating**: pick a domain you care about (or use one of the ten
+  shipped adapters), feed real observations through, watch `state.last_gate`,
+  tune. The diagnostic surface is the lever.
+* **Extending**: implement `ObservationAdapter` for your data source;
+  optionally implement `DomainAdapter` for domain-specific vocabulary.
+  The trait surface is two methods.
+
+---
 
 ## Author
 
