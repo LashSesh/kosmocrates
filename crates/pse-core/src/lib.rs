@@ -3,6 +3,7 @@
 //! Coordinates the full pipeline from observation ingestion through consensus,
 //! carrier geometry, morphogenic updates, and crystal archival.
 
+pub mod adaptive;
 pub mod crystal_adapter;
 pub mod explore;
 pub mod falsify;
@@ -119,6 +120,10 @@ pub struct GlobalState {
     /// Populated unconditionally — readable whether the gate passed or not.
     /// Used for diagnostics, calibration, and adaptive thresholds.
     pub last_gate: Option<GateSnapshot>,
+    /// Optional adaptive Kairos calibrator. When `Some`, thresholds are
+    /// derived from the rolling history of `GateSnapshot`s instead of
+    /// `Config::thresholds`. See [`adaptive::AdaptiveCalibrator`].
+    pub adaptive: Option<adaptive::AdaptiveCalibrator>,
     /// C18 multi-scale state (Micro/Meso/Macro universes and bridges).
     pub scale_state: pse_scale::MultiScaleState,
     /// Count of pattern-memory hits (regions that matched existing crystals).
@@ -160,6 +165,7 @@ impl GlobalState {
             last_constraint_count: 0,
             last_gate_passed: false,
             last_gate: None,
+            adaptive: None,
             scale_state: pse_scale::MultiScaleState::default(),
             pattern_hits: 0,
             memory: PatternMemory::new(MemoryConfig::default()),
@@ -494,8 +500,24 @@ pub fn macro_step(
         attempt_carrier_migration(state, &metrics, config);
     }
 
-    // Kairos gate check (Inv I9, Inv I18)
-    let gate = metrics.gate_snapshot(&config.thresholds);
+    // Kairos gate check (Inv I9, Inv I18). When an adaptive calibrator is
+    // wired in, it derives the thresholds from rolling history; otherwise
+    // we use the static `Config::thresholds`. The 8-fold AND composition
+    // is unchanged — only per-metric cut points move, so falsification,
+    // EU-AI-Act compliance proofs, and crystal verifiability are
+    // unaffected. The non-adaptive path performs exactly one gate_snapshot
+    // call, preserving the pre-adaptive throughput.
+    let gate = if let Some(cal) = state.adaptive.as_mut() {
+        let raw_gate = metrics.gate_snapshot(&config.thresholds);
+        let effective_thresholds = cal.calibrate(&config.thresholds);
+        let gate = metrics.gate_snapshot(&effective_thresholds);
+        // Record the *raw* snapshot so calibration is not self-referential;
+        // future quantiles see the unmodified metrics.
+        cal.record(&raw_gate);
+        gate
+    } else {
+        metrics.gate_snapshot(&config.thresholds)
+    };
     state.last_gate_passed = gate.kairos;
     state.last_gate = Some(gate.clone());
     if !gate.kairos {
