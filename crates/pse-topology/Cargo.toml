@@ -11,3 +11,4 @@ pse-types = { path = "../pse-types" }
 pse-graph = { path = "../pse-graph" }
 nalgebra = { workspace = true }
 serde = { workspace = true }
+tracing = { workspace = true }

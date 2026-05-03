@@ -732,7 +732,7 @@ pub fn compute_topological_signature(
 
     if budget_exceeded || n > 500 {
         // Budget fallback: skip full decomposition
-        eprintln!("[isls-topology] budget fallback: n={}", n);
+        tracing::debug!(n, "isls-topology budget fallback");
         spectral_gap = 0.0;
         cheeger_estimate = 0.0;
         dtl_predicates = {
