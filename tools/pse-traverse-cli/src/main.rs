@@ -8,6 +8,7 @@
 //!
 //! Manual flag parsing — no `clap` dependency is added at this stage.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -19,9 +20,10 @@ use pse_traverse::{
     dof::DoFGraph,
     excision::detect_path_excision,
     field_cube::{DefaultFieldCubeBuilder, FieldCubeBuilder},
-    gate::{Candidate, GateEngine},
+    gate::GateEngine,
     plan::{CollapsePlanner, DefaultCollapsePlanner, OrderingPolicy},
     report::{TraversalRunDescriptor, TraversalRunReport},
+    solver::{Solver, SolverContext, TemplateSolver},
     spec::ProblemSpec,
 };
 
@@ -89,6 +91,19 @@ fn load_spec(path: &str) -> CliResult<ProblemSpec> {
     serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {}", path, e))
 }
 
+fn write_output(bytes: &[u8], opt_out: Option<String>, label: &str) -> CliResult<()> {
+    if let Some(out) = opt_out {
+        if let Some(parent) = PathBuf::from(&out).parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir {:?}: {}", parent, e))?;
+        }
+        fs::write(&out, bytes).map_err(|e| format!("write {}: {}", out, e))?;
+        eprintln!("wrote {} {} ({} bytes)", label, out, bytes.len());
+    } else {
+        println!("{}", String::from_utf8_lossy(bytes));
+    }
+    Ok(())
+}
+
 fn cmd_inspect(args: &[String]) -> CliResult<()> {
     let path = flag_value(args, "--problem")?;
     let spec = load_spec(&path)?;
@@ -137,84 +152,65 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
     let excisions = detect_path_excision(&cube);
     let plan = DefaultCollapsePlanner.plan(&cube, &graph, &excisions);
 
-    // MVP "run" = construct one trivial candidate per required dimension's
-    // first formal value, gate it, and (if gate passes and the spec allows
-    // PSE commit) try a PSE commit. This is the smallest end-to-end
-    // exercise the spec asks for; richer solvers come in Phase 5.
+    // Build a SolverContext from the run descriptor fields.
+    let solver_ctx = SolverContext {
+        run_id: format!("run.{}.0", &problem_hash[..16]),
+        problem_spec_hash: problem_hash.clone(),
+        seed: spec.replay.seed,
+        allowed_oracle: spec.risk_policy.allow_oracle,
+        metadata: BTreeMap::new(),
+    };
+
+    // TemplateSolver: deterministic, assigns first admissible value per
+    // required dimension. Replace with a richer solver in Phase 5+.
+    let candidates = TemplateSolver
+        .solve(&cube, &plan, &solver_ctx)
+        .map_err(|e| e.to_string())?;
+
     let mut gate_reports = Vec::new();
     let mut commit_outcomes = Vec::new();
+    let gate = GateEngine::default();
     let mut committer = PseMacroStepCommitter::new(
         pse_types::Config::default(),
         pse_graph::PassthroughAdapter::new("traverse_run"),
     );
-    let gate = GateEngine::default();
 
-    for (dim_id, dim) in &cube.dimensions {
-        if !dim.required { continue; }
-        let value = match &dim.values {
-            pse_traverse::spec::ValueDomain::Boolean => "true".to_string(),
-            pse_traverse::spec::ValueDomain::Enum(v) => v.first().cloned().unwrap_or_default(),
-            pse_traverse::spec::ValueDomain::Range { min, .. } => format!("{}", min),
-            pse_traverse::spec::ValueDomain::Tree(t) =>
-                t.first().map(|v| v.label.clone()).unwrap_or_default(),
-            pse_traverse::spec::ValueDomain::External { resolver } => format!("ext:{}", resolver),
-        };
-        let claimed: Vec<String> = cube.constraints.values()
-            .filter(|c| c.dimensions.contains(dim_id))
-            .map(|c| c.id.clone())
-            .collect();
-        let candidate = Candidate {
-            id: format!("cand.{}", dim_id),
-            field_cube_id: cube.id.clone(),
-            assignments: {
-                let mut m = std::collections::BTreeMap::new();
-                m.insert(dim_id.clone(), value);
-                m
-            },
-            claimed_satisfies: claimed,
-            payloads: vec![dim_id.as_bytes().to_vec()],
-            provenance: "default-template-solver".into(),
-        }.assign_id("cand")
-        .map_err(|e| e.to_string())?;
-
-        let report = gate.check(&cube, &candidate);
-        if !spec.risk_policy.fail_closed && !report.passed {
-            // Spec explicitly disabled fail-closed → record but proceed.
-        }
+    for candidate in &candidates {
+        let report = gate.check(&cube, candidate);
         if !report.passed {
-            let outcome = pse_traverse::bridge::gate_failed(&candidate, &report)
+            let outcome = pse_traverse::bridge::gate_failed(candidate, &report)
                 .map_err(|e| e.to_string())?;
             gate_reports.push(report);
             commit_outcomes.push(outcome);
             continue;
         }
         gate_reports.push(report);
-        let outcome = committer.commit_candidate(&candidate, &[])
+        let outcome = committer
+            .commit_candidate(candidate, &[])
             .map_err(|e| e.to_string())?;
         commit_outcomes.push(outcome);
     }
 
     let descriptor = TraversalRunDescriptor {
-        run_id: format!("run.{}.0", &problem_hash[..16]),
+        run_id: solver_ctx.run_id.clone(),
         problem_spec_hash: problem_hash,
         operator_versions: {
-            let mut m = std::collections::BTreeMap::new();
-            m.insert("FieldCubeBuilder".to_string(), "default-1".to_string());
-            m.insert("CollapsePlanner".to_string(), "default-1".to_string());
-            m.insert("GateEngine".to_string(), "default-1".to_string());
-            m.insert("CrystalCommitter".to_string(), "pse-macro-step-1".to_string());
+            let mut m = BTreeMap::new();
+            m.insert("FieldCubeBuilder".to_string(),  "default-1".to_string());
+            m.insert("CollapsePlanner".to_string(),   "default-1".to_string());
+            m.insert("GateEngine".to_string(),        "default-1".to_string());
+            m.insert("Solver".to_string(),            "template-solver-v1".to_string());
+            m.insert("CrystalCommitter".to_string(),  "pse-macro-step-1".to_string());
             m
         },
         seed: spec.replay.seed,
         ordering_policy: OrderingPolicy::DeterministicLexCoupling,
-        // PSE config hash deliberately omitted in MVP — left None.
         pse_config_hash: None,
-        // Logical clock; deterministic for replay.
         started_at_logical: 0,
     };
-    let report = TraversalRunReport {
+    let run_report = TraversalRunReport {
         descriptor,
-        problem_spec: spec.clone(),
+        problem_spec: spec,
         field_cube: cube,
         dof_graph: graph,
         collapse_plan: plan,
@@ -222,19 +218,8 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
         gate_reports,
         commit_outcomes,
     };
-    let bytes = canonical_bytes(&report).map_err(|e| e.to_string())?;
-    if let Some(out) = opt_flag_value(args, "--out") {
-        if let Some(parent) = PathBuf::from(&out).parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("mkdir {:?}: {}", parent, e))?;
-        }
-        fs::write(&out, &bytes).map_err(|e| format!("write {}: {}", out, e))?;
-        eprintln!("wrote {} ({} bytes, address={})",
-                  out, bytes.len(),
-                  hex_address(&report).map_err(|e| e.to_string())?);
-    } else {
-        println!("{}", String::from_utf8_lossy(&bytes));
-    }
-    Ok(())
+    let bytes = canonical_bytes(&run_report).map_err(|e| e.to_string())?;
+    write_output(&bytes, opt_flag_value(args, "--out"), "run report")
 }
 
 fn cmd_replay(args: &[String]) -> CliResult<()> {
@@ -245,12 +230,10 @@ fn cmd_replay(args: &[String]) -> CliResult<()> {
 
     // Reconstruct from the embedded ProblemSpec. Replay is self-contained:
     // the report carries everything a verifier needs.
-    let cube_again = DefaultFieldCubeBuilder
-        .build(&report.problem_spec)
-        .map_err(|e| e.to_string())?;
-    let graph_again = DoFGraph::from_field_cube(&cube_again);
-    let exc_again = detect_path_excision(&cube_again);
-    let plan_again = DefaultCollapsePlanner.plan(&cube_again, &graph_again, &exc_again);
+    let cube_again   = DefaultFieldCubeBuilder.build(&report.problem_spec).map_err(|e| e.to_string())?;
+    let graph_again  = DoFGraph::from_field_cube(&cube_again);
+    let exc_again    = detect_path_excision(&cube_again);
+    let plan_again   = DefaultCollapsePlanner.plan(&cube_again, &graph_again, &exc_again);
 
     let plan_orig = canonical_bytes(&report.collapse_plan).map_err(|e| e.to_string())?;
     let plan_repl = canonical_bytes(&plan_again).map_err(|e| e.to_string())?;
@@ -270,4 +253,3 @@ fn cmd_replay(args: &[String]) -> CliResult<()> {
     println!("replay ok: cube, plan, excisions byte-identical");
     Ok(())
 }
-

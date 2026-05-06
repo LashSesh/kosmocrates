@@ -28,6 +28,8 @@ pub mod plan;
 pub mod excision;
 pub mod gate;
 pub mod report;
+pub mod solver;
+pub mod norms;
 
 #[cfg(feature = "pse-commit")]
 pub mod bridge;
@@ -53,6 +55,12 @@ pub use gate::{
 pub use report::{
     CarrierMigrationReport, CommitOutcome, MigrationTrigger, RefinementRequest,
     TraversalRunDescriptor, TraversalRunReport,
+};
+pub use solver::{
+    NullSolver, OracleSolver, ProjectedContext, Solver, SolverContext, TemplateSolver,
+};
+pub use norms::{
+    CollapseCertificate, ConstraintLattice, NormFitness, NormKind, NormSpec,
 };
 
 #[cfg(feature = "pse-commit")]
