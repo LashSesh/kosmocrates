@@ -1,0 +1,24 @@
+[package]
+name = "pse-traverse"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PSE Traversal Agent v0.1 — post-symbolic traversal layer over PSE (FieldCube, DoFGraph, CollapsePlan, fail-closed gating)"
+
+[dependencies]
+pse-types = { path = "../pse-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+# pse-core / pse-graph are pulled in only when the PSE bridge (`pse-commit`
+# feature) is enabled, so the traversal kernel compiles standalone and stays
+# fast to iterate on.
+pse-core = { path = "../pse-core", optional = true }
+pse-graph = { path = "../pse-graph", optional = true }
+
+[features]
+default = ["pse-commit"]
+pse-commit = ["dep:pse-core", "dep:pse-graph"]
