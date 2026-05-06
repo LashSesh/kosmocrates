@@ -36,10 +36,12 @@ members = [
     "adapters/pse-adapter-vitals",
     "adapters/pse-adapter-tabular",
     "adapters/pse-adapter-modelmon",
+    "crates/pse-traverse",
     "tools/pse-audit",
     "tools/pse-bench-bbo",
     "tools/pse-bench-gt",
     "tools/pse-demo",
+    "tools/pse-traverse-cli",
 ]
 
 [workspace.package]

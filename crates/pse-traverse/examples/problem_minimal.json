@@ -1,0 +1,42 @@
+{
+  "id": "example.software.module.v1",
+  "title": "Minimaler Modulplan",
+  "objective": "Erzeuge einen replaybaren Plan fuer eine Rust-Crate mit klarer API.",
+  "domain": "software_synthesis",
+  "inputs": [
+    { "id": "readme", "kind": "text", "path": "README.md" }
+  ],
+  "constraints": [
+    {
+      "id": "c.determinism",
+      "kind": "hard",
+      "predicate": "canonical_outputs_must_be_sorted",
+      "weight": 1.0,
+      "dimensions": ["d.crate_layout"]
+    },
+    {
+      "id": "c.no_network_core",
+      "kind": "hard",
+      "predicate": "core_has_no_network_dependency",
+      "weight": 1.0,
+      "dimensions": ["d.crate_layout"]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "d.crate_layout",
+      "label": "Crate Layout",
+      "kind": "Enum",
+      "values": { "Enum": ["single_crate", "split_crates_later"] },
+      "required": true,
+      "source": "user"
+    }
+  ],
+  "desired_outputs": [
+    { "id": "o.plan", "kind": "collapse_plan" },
+    { "id": "o.report", "kind": "fail_closed_report" }
+  ],
+  "risk_policy": { "fail_closed": true, "allow_oracle": false },
+  "replay": { "seed": 42, "canonical": true },
+  "metadata": {}
+}

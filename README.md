@@ -41,6 +41,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | Throughput on commodity hardware | Verified |
 | Adaptive Kairos calibration | Opt-in, working |
 | Diagnostic surface (`state.last_gate`, `pse-demo`) | Live |
+| **PSE Traversal Agent v0.1** (post-symbolic agent layer) | **MVP shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -51,7 +52,7 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
 | `B15` `macro_step` end-to-end | **43–110 µs** |
 | `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **467 / 467** passing |
+| Workspace test suite | **627 / 627** passing |
 
 The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
 and matched on the full pipeline. See `cargo run --release --example
@@ -114,6 +115,84 @@ if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
 
 ---
 
+## PSE Traversal Agent v0.1
+
+PSE is the **Commit-/Evidence-/Falsifier-Kern**. The new
+[`pse-traverse`](crates/pse-traverse) crate ships the **agent layer**
+on top: a deterministic controller that turns a *structured problem
+space* into a *fail-closed traversal of degrees of freedom*, then
+binds successful candidates to PSE crystals via the bridge — never
+fabricating crystals on its own.
+
+> *Ein post-symbolischer Traversierungsagent ist ein Agent, der nicht
+> nur Antworten produziert, sondern Problemräume topologisch erschließt,
+> Lösungspfade kontrolliert kollabiert und jeden stabilen Erkenntnis-
+> oder Implementierungsschritt überprüfbar historisiert.*
+
+The pipeline:
+
+```text
+ProblemSpec  →  FieldCube       (dimensions, constraints, couplings, paths,
+                                 carriers, evidence, topology summary)
+            →  DoFGraph         (degree-of-freedom graph)
+            →  PathExcision[]   (formal options without admissible paths)
+            →  CollapsePlan     (deterministic step ordering: detect → hard
+                                 → soft → resolve → verify → commit)
+            →  Candidate        (solver-emitted, with assignments + payloads)
+            →  GateReport       (Dual-Fabric: primal + mirror + MCI)
+            →  CommitOutcome    (Crystal | NoCrystal | EvidenceOnly | GateFailed)
+```
+
+Spec compliance highlights:
+
+* **Determinism.** Every keyed collection is `BTreeMap`, every list
+  sorted, every output round-tripped through JCS (RFC 8785). Two runs
+  on the same `ProblemSpec` produce **byte-identical** reports
+  (verified by `tests/replay_byte_identity.rs`).
+* **Fail-closed.** A gate failure NEVER produces a commit. It produces
+  a `GateReport` with a `FailurePolicy` (Refine / Excise / Boundary /
+  Abort). The PSE bridge is the *only* path to a `SemanticCrystal`.
+* **PSE-anchored.** `PseMacroStepCommitter` calls `pse_core::macro_step`
+  and inspects `state.last_gate`. If PSE rejects, the traversal report
+  carries a `NoCrystal { reason, gate_snapshot_json }` — never a
+  fabricated crystal.
+* **Replayable.** `TraversalRunReport` embeds the full `ProblemSpec` so
+  `pse-traverse-cli replay` can re-derive cube/graph/plan/excisions
+  without external context and assert canonical-byte identity.
+
+Run it:
+
+```bash
+# Inspect the structured problem space
+cargo run --release -p pse-traverse-cli -- inspect \
+    --problem crates/pse-traverse/examples/problem_minimal.json
+
+# Generate a deterministic CollapsePlan
+cargo run --release -p pse-traverse-cli -- plan \
+    --problem crates/pse-traverse/examples/problem_minimal.json \
+    --out target/traverse/plan.json
+
+# Full run including a PSE-bridge commit attempt per required dimension
+cargo run --release -p pse-traverse-cli -- run \
+    --problem crates/pse-traverse/examples/problem_minimal.json \
+    --out target/traverse/run.json
+
+# Verify byte-identical replay
+cargo run --release -p pse-traverse-cli -- replay \
+    --run target/traverse/run.json
+```
+
+The MVP solver in `run` is a one-value-per-dimension template — by
+design. Real solvers (template / LLM / tool / human) plug in via the
+`Candidate`-producing surface; the gating, fail-closed conversion and
+PSE binding are the same regardless.
+
+See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf` for the full spec
+this layer realises and `topologisches_traversierungsframework_v3.pdf`
+for the underlying topological framework.
+
+---
+
 ## Architecture
 
 The workspace ships **24 crates**, **10 domain adapters**, **4 tool
@@ -146,6 +225,9 @@ crates/
   pse             Meta-crate
   pse-core        Engine orchestrator (`macro_step`), DomainAdapter trait,
                   AdaptiveCalibrator, operator algebra, falsifier
+  pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8)
+  pse-traverse    PSE Traversal Agent v0.1: ProblemSpec → FieldCube →
+                  DoFGraph → CollapsePlan → Gate → PSE-bridge (fail-closed)
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -160,10 +242,11 @@ adapters/
   pse-adapter-modelmon    ML model monitoring
 
 tools/
-  pse-bench-gt   Ground-truth precision/recall (PSE vs STL-z-score vs IsoForest)
-  pse-bench-bbo  TRITON spiral vs Random vs Halton on BBO test functions
-  pse-audit      Determinism / replay auditor
-  pse-demo       30-second runnable showcase + gate diagnostics
+  pse-bench-gt        Ground-truth precision/recall (PSE vs STL-z-score vs IsoForest)
+  pse-bench-bbo       TRITON spiral vs Random vs Halton on BBO test functions
+  pse-audit           Determinism / replay auditor
+  pse-demo            30-second runnable showcase + gate diagnostics
+  pse-traverse-cli    Traversal Agent CLI: inspect / plan / run / replay
 ```
 
 ---
