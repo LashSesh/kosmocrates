@@ -37,6 +37,15 @@ pub mod signature_gate;
 pub mod blueprint_search;
 pub mod search_ledger;
 pub mod search_autopilot;
+pub mod dynamic_state;
+pub mod dynamic_policy;
+pub mod field;
+pub mod guidance_field;
+pub mod compressor;
+pub mod transition_proof;
+pub mod plan_delta;
+pub mod dynamic_report;
+pub mod dynamic_tick;
 
 #[cfg(feature = "pse-commit")]
 pub mod bridge;

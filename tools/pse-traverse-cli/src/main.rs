@@ -43,11 +43,12 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     let result = match args[1].as_str() {
-        "inspect" => cmd_inspect(&args[2..]),
-        "plan"    => cmd_plan(&args[2..]),
-        "run"     => cmd_run(&args[2..]),
-        "replay"  => cmd_replay(&args[2..]),
-        "search"  => cmd_search(&args[2..]),
+        "inspect"  => cmd_inspect(&args[2..]),
+        "plan"     => cmd_plan(&args[2..]),
+        "run"      => cmd_run(&args[2..]),
+        "replay"   => cmd_replay(&args[2..]),
+        "search"   => cmd_search(&args[2..]),
+        "dynamics" => cmd_dynamics(&args[2..]),
         "--help" | "-h" | "help" => {
             println!("{}", USAGE);
             return ExitCode::SUCCESS;
@@ -67,11 +68,16 @@ fn main() -> ExitCode {
 }
 
 const USAGE: &str = "Usage:
-  pse-traverse-cli inspect  --problem <PATH>
-  pse-traverse-cli plan     --problem <PATH> [--out <FILE>] [--signature]
-  pse-traverse-cli run      --problem <PATH> [--out <FILE>] [--signature-gate]
-  pse-traverse-cli replay   --run <FILE>
-  pse-traverse-cli search   --problem <PATH> [--n <NUM>] [--out <FILE>]
+  pse-traverse-cli inspect           --problem <PATH>
+  pse-traverse-cli plan              --problem <PATH> [--out <FILE>] [--signature]
+  pse-traverse-cli run               --problem <PATH> [--out <FILE>] [--signature-gate]
+  pse-traverse-cli replay            --run <FILE>
+  pse-traverse-cli search            --problem <PATH> [--n <NUM>] [--out <FILE>]
+  pse-traverse-cli dynamics init     --problem <PATH> [--out <FILE>]
+  pse-traverse-cli dynamics tick     --state <FILE> [--out <FILE>]
+  pse-traverse-cli dynamics run      --problem <PATH> [--ticks <N>] [--out <FILE>]
+  pse-traverse-cli dynamics replay   --report <FILE>
+  pse-traverse-cli dynamics inspect  --report <FILE>
 ";
 
 type CliResult<T> = std::result::Result<T, String>;
@@ -293,6 +299,7 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
         gate_reports,
         commit_outcomes,
         signature_extension,
+        dynamic_run: None,
     };
     let bytes = canonical_bytes(&run_report).map_err(|e| e.to_string())?;
     write_output(&bytes, opt_flag_value(args, "--out"), "run report")
@@ -351,4 +358,177 @@ fn cmd_search(args: &[String]) -> CliResult<()> {
     let bytes = serde_jcs::to_vec(&payload)
         .map_err(|e| format!("canonical encode: {}", e))?;
     write_output(&bytes, opt_flag_value(args, "--out"), "search blueprints")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// dynamics subcommand dispatcher
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn cmd_dynamics(args: &[String]) -> CliResult<()> {
+    if args.is_empty() {
+        return Err(format!("dynamics requires a subcommand (init|tick|run|replay|inspect)\n\n{}", USAGE));
+    }
+    match args[0].as_str() {
+        "init"    => cmd_dynamics_init(&args[1..]),
+        "tick"    => cmd_dynamics_tick(&args[1..]),
+        "run"     => cmd_dynamics_run(&args[1..]),
+        "replay"  => cmd_dynamics_replay(&args[1..]),
+        "inspect" => cmd_dynamics_inspect(&args[1..]),
+        other => Err(format!("unknown dynamics subcommand: {}", other)),
+    }
+}
+
+/// `dynamics init --problem <PATH> [--out <FILE>]`
+/// Load ProblemSpec, build empty DynamicTraversalState, write JSON.
+fn cmd_dynamics_init(args: &[String]) -> CliResult<()> {
+    use pse_traverse::{
+        dynamic_policy::DynamicPolicy,
+        dynamic_report::DynamicRunDescriptor,
+        dynamic_tick::DynamicTraversalState,
+    };
+
+    let path = flag_value(args, "--problem")?;
+    let spec = load_spec(&path)?;
+
+    let policy = DynamicPolicy::default();
+    let descriptor = DynamicRunDescriptor::default();
+    let state = DynamicTraversalState::init(vec![], policy, descriptor)
+        .map_err(|e| e.to_string())?;
+
+    let bytes = serde_json::to_vec_pretty(&state)
+        .map_err(|e| format!("serialize state: {}", e))?;
+    let _ = spec; // loaded for future use (dimension extraction)
+    write_output(&bytes, opt_flag_value(args, "--out"), "dynamics state")
+}
+
+/// `dynamics tick --state <FILE> [--out <FILE>]`
+/// Load DynamicTraversalState, run one dynamic_tick with empty base_states, write updated state.
+fn cmd_dynamics_tick(args: &[String]) -> CliResult<()> {
+    use pse_traverse::dynamic_tick::{DynamicTickInput, DynamicTraversalState, dynamic_tick};
+
+    let state_path = flag_value(args, "--state")?;
+    let bytes = fs::read(&state_path).map_err(|e| format!("read {}: {}", state_path, e))?;
+    let mut state: DynamicTraversalState = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("parse state {}: {}", state_path, e))?;
+
+    let next_tick = state.tick + 1;
+    let policy = state.policy.clone();
+    let gate_config = state.descriptor.gate_config.clone();
+
+    let input = DynamicTickInput {
+        tick: next_tick,
+        base_states: vec![],
+        policy,
+        gate_config,
+        compute_proof: true,
+    };
+
+    let tick_report = dynamic_tick(&input, &mut state)
+        .map_err(|e| e.to_string())?;
+
+    let out_val = serde_json::json!({
+        "updated_state": state,
+        "tick_report": tick_report,
+    });
+    let out_bytes = serde_json::to_vec_pretty(&out_val)
+        .map_err(|e| format!("serialize: {}", e))?;
+    write_output(&out_bytes, opt_flag_value(args, "--out"), "dynamics tick")
+}
+
+/// `dynamics run --problem <PATH> [--ticks <N>] [--out <FILE>]`
+/// Load ProblemSpec, run dynamic_run for N ticks, write DynamicRunReport.
+fn cmd_dynamics_run(args: &[String]) -> CliResult<()> {
+    use pse_traverse::{
+        dynamic_policy::DynamicPolicy,
+        dynamic_report::{DynamicRunDescriptor, DynamicStopCondition},
+        dynamic_tick::dynamic_run,
+    };
+
+    let path = flag_value(args, "--problem")?;
+    let ticks: u64 = opt_flag_value(args, "--ticks")
+        .map(|s| s.parse::<u64>().map_err(|e| format!("--ticks: {}", e)))
+        .transpose()?
+        .unwrap_or(10);
+
+    let spec = load_spec(&path)?;
+    let _ = spec; // loaded to validate; for MVP we run with empty initial states
+
+    let policy = DynamicPolicy::default();
+    let descriptor = DynamicRunDescriptor {
+        max_ticks: ticks,
+        stop_conditions: vec![DynamicStopCondition::MaxTicks(ticks)],
+        ..DynamicRunDescriptor::default()
+    };
+    let descriptor = descriptor.with_id().map_err(|e| e.to_string())?;
+
+    let report = dynamic_run(&descriptor, vec![], policy)
+        .map_err(|e| e.to_string())?;
+
+    let bytes = serde_json::to_vec_pretty(&report)
+        .map_err(|e| format!("serialize: {}", e))?;
+    write_output(&bytes, opt_flag_value(args, "--out"), "dynamics run report")
+}
+
+/// `dynamics replay --report <FILE>`
+/// Load DynamicRunReport, re-run ticks, compare report_ids byte-for-byte.
+fn cmd_dynamics_replay(args: &[String]) -> CliResult<()> {
+    use pse_traverse::{
+        dynamic_policy::DynamicPolicy,
+        dynamic_report::DynamicRunReport,
+        dynamic_tick::dynamic_run,
+    };
+
+    let path = flag_value(args, "--report")?;
+    let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path, e))?;
+    let original: DynamicRunReport = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("parse report: {}", e))?;
+
+    // Re-run with same descriptor and empty initial states
+    let policy = DynamicPolicy::default();
+    let replayed = dynamic_run(&original.descriptor, vec![], policy)
+        .map_err(|e| e.to_string())?;
+
+    if original.run_id != replayed.run_id {
+        return Err(format!(
+            "replay mismatch: original run_id={}, replayed run_id={}",
+            original.run_id.hex(),
+            replayed.run_id.hex()
+        ));
+    }
+    println!("dynamics replay ok: run_id byte-identical ({})", original.run_id.hex());
+    Ok(())
+}
+
+/// `dynamics inspect --report <FILE>`
+/// Load DynamicRunReport, print human-readable summary (NOT canonical JSON).
+fn cmd_dynamics_inspect(args: &[String]) -> CliResult<()> {
+    use pse_traverse::dynamic_report::DynamicRunReport;
+
+    let path = flag_value(args, "--report")?;
+    let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path, e))?;
+    let report: DynamicRunReport = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("parse report: {}", e))?;
+
+    println!("=== Dynamic Run Report ===");
+    println!("run_id:              {}", report.run_id.hex());
+    println!("schema_version:      {}", report.descriptor.schema_version);
+    println!("max_ticks:           {}", report.descriptor.max_ticks);
+    println!("ticks_executed:      {}", report.ticks.len());
+    println!("final_state_id:      {}", report.final_state_id.hex());
+    println!("final_gate_decision: {:?}", report.final_gate_decision);
+    println!("replay_address:      {}", report.replay_address.hex());
+
+    if !report.ticks.is_empty() {
+        println!("\n--- Tick Summary ---");
+        for tick_r in &report.ticks {
+            println!(
+                "  tick {:3}: gate={:?} states={} density={}",
+                tick_r.tick,
+                tick_r.gate_report.decision,
+                tick_r.field_signal.state_count,
+                tick_r.compressor_stats.density.to_f64(),
+            );
+        }
+    }
+    Ok(())
 }

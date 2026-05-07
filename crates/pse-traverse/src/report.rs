@@ -44,6 +44,9 @@ pub struct TraversalRunReport {
     /// signature extension was not activated for this run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature_extension: Option<TraversalRunReportSignatureExtension>,
+    /// Optional dynamics run report. Absent unless the `dynamics run` subcommand was used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_run: Option<crate::dynamic_report::DynamicRunReport>,
 }
 
 /// Result of attempting to commit a candidate.
