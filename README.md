@@ -43,6 +43,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | Diagnostic surface (`state.last_gate`, `pse-demo`) | Live |
 | **PSE Traversal Agent v0.1** (post-symbolic agent layer) | **Complete** |
 | **Signature layer** (PSE-TRAVERSE-SIGNATURE-01) | **Shipped** |
+| **Dynamics layer** (PSE-TRAVERSE-DYNAMICS-01) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -150,7 +151,7 @@ ProblemSpec  →  FieldCube         (dimensions, constraints, couplings, paths,
              →  CommitOutcome      (Crystal | NoCrystal | EvidenceOnly | GateFailed)
 ```
 
-The **signature layer** also exposes a blueprint search surface for
+The **signature layer** exposes a blueprint search surface for
 multi-cycle traversal optimisation:
 
 ```text
@@ -162,6 +163,25 @@ SearchLedger                               (append-only hash-chained evaluation 
 SearchAutopilot                            (Exploration → Exploitation → Refinement
                                            → Validation → Complete)
 ```
+
+The optional **dynamics layer** (PSE-TRAVERSE-DYNAMICS-01) stabilises problem
+spaces over ticked state transitions before final candidate generation:
+
+```text
+BaseState[]  →  LiftedState[]    (N → N+1 lift, auxiliary = logical tick)
+             →  FieldSignal      (alignment / dispersion / pressure, quantized)
+             →  GuidanceField    (relax nodes, prune low-weight transitions)
+             →  MorphodynamicCompressor (Hebbian update, Split, Merge, Prune)
+             →  TransitionProof  (path_delta, energy_delta, density_delta)
+             →  DynamicGateReport (Fire / Hold, fail-closed, GATE-01)
+             →  DynamicTickReport (content-addressed, replay-identical)
+```
+
+`dynamic_run()` executes ticks until a `DynamicStopCondition` is met and
+embeds the `DynamicRunReport` as an optional field in `TraversalRunReport`.
+`DynamicPolicy` supports `Explore / Exploit / Homeostasis` with deterministic
+density-based adaption (POLICY-01). No SemanticCrystals are produced by the
+dynamics layer — PSE-bridge remains the sole commit path.
 
 Spec compliance highlights:
 
@@ -263,12 +283,15 @@ crates/
   pse-core        Engine orchestrator (`macro_step`), DomainAdapter trait,
                   AdaptiveCalibrator, operator algebra, falsifier
   pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8)
-  pse-traverse    PSE Traversal Agent v0.1 + Signature Layer
-                  (PSE-TRAVERSE-SIGNATURE-01): ProblemSpec → FieldCube →
-                  DoFGraph → CollapsePlan → StructuralOperator → Signature →
-                  SignatureDiagnostics → SignatureGate → Candidate → Gate →
-                  PSE-bridge (fail-closed); BlueprintSearch, SearchLedger,
-                  SearchAutopilot for multi-cycle traversal optimisation
+  pse-traverse    PSE Traversal Agent v0.1 + Signature Layer + Dynamics Layer
+                  (PSE-TRAVERSE-SIGNATURE-01, PSE-TRAVERSE-DYNAMICS-01):
+                  ProblemSpec → FieldCube → DoFGraph → CollapsePlan →
+                  StructuralOperator → Signature → SignatureDiagnostics →
+                  SignatureGate → [optional: BaseState→LiftedState→FieldSignal→
+                  GuidanceField→Compressor→TransitionProof→DynamicGate] →
+                  Candidate → GateReport → PSE-bridge (fail-closed);
+                  BlueprintSearch, SearchLedger, SearchAutopilot,
+                  dynamic_tick / dynamic_run for multi-cycle stabilisation
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -288,7 +311,8 @@ tools/
   pse-audit           Determinism / replay auditor
   pse-demo            30-second runnable showcase + gate diagnostics
   pse-traverse-cli    Traversal Agent CLI: inspect / plan [--signature] /
-                      run [--signature-gate] / replay / search
+                      run [--signature-gate] / replay / search /
+                      dynamics (init | tick | run | replay | inspect)
 ```
 
 ---
@@ -325,7 +349,7 @@ short version of what changed:
   d-metric extended to include p90 + vertex-set churn for
   windowed-streaming workloads.
 * **Signature layer (PSE-TRAVERSE-SIGNATURE-01)** — full spectral
-  operator layer on top of the Traversal Agent:
+  operator/diagnostics/gate/blueprint-search layer on top of the Traversal Agent:
   `StructuralOperator` (Laplacian matrix profile from `DoFGraph`) →
   `Signature` (sorted fixed-point spectral values, Jacobi eigensolver
   for n ≤ 8, `MatrixProfileApprox` for larger graphs) →
@@ -336,6 +360,18 @@ short version of what changed:
   (Pareto tracker), `SearchLedger` (hash-chained evaluation log),
   `SearchAutopilot` (5-phase state machine). CLI extended with
   `--signature`, `--signature-gate`, and `search` subcommand.
+
+* **Dynamics layer (PSE-TRAVERSE-DYNAMICS-01)** — optional morphodynamic
+  tick engine extracted from neutral DioniceOS mechanics:
+  `CanonicalNumber` (scale-9 banker's-rounding fixed-point), `Hash256`/`StableId`
+  content addresses, `BaseState`/`LiftedState` (N→N+1 lift/projection),
+  `FieldAbsorber` (alignment/dispersion/pressure), `GuidanceField` (relax +
+  gradient), `MorphodynamicCompressor` (Hebbian/Split/Merge/Prune),
+  `TransitionProof` (path_delta/energy_delta), `DynamicGate` (fail-closed
+  Fire/Hold), `dynamic_tick` (total — valid on empty input, TICK-01),
+  `dynamic_run` (tick loop with configurable stop conditions).
+  `DynamicRunReport` embedded optionally in `TraversalRunReport`.
+  CLI: `dynamics init|tick|run|replay|inspect`. 87 pse-traverse tests pass.
 
 The 8-fold Kairos AND, falsifier gating, content-address scheme, and
 EU-AI-Act compliance proof are unchanged across all of the above —
