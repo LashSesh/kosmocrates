@@ -40,6 +40,10 @@ pub struct TraversalRunReport {
     pub path_excisions: Vec<PathExcision>,
     pub gate_reports: Vec<GateReport>,
     pub commit_outcomes: Vec<CommitOutcome>,
+    /// Optional signature-layer artefact references. Absent when the
+    /// signature extension was not activated for this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_extension: Option<TraversalRunReportSignatureExtension>,
 }
 
 /// Result of attempting to commit a candidate.
@@ -93,6 +97,25 @@ pub enum MigrationTrigger {
     Shock,
     Drift,
     Manual,
+}
+
+/// Optional signature-layer extension for `TraversalRunReport`.
+/// All fields are content-addressed IDs; the full artefacts are in
+/// the pse-traverse artefact store or the SearchLedger.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+pub struct TraversalRunReportSignatureExtension {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blueprint_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_gate_outcome_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_ledger_entry_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

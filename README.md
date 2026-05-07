@@ -41,7 +41,8 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | Throughput on commodity hardware | Verified |
 | Adaptive Kairos calibration | Opt-in, working |
 | Diagnostic surface (`state.last_gate`, `pse-demo`) | Live |
-| **PSE Traversal Agent v0.1** (post-symbolic agent layer) | **MVP shipped** |
+| **PSE Traversal Agent v0.1** (post-symbolic agent layer) | **Complete** |
+| **Signature layer** (PSE-TRAVERSE-SIGNATURE-01) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -132,15 +133,34 @@ fabricating crystals on its own.
 The pipeline:
 
 ```text
-ProblemSpec  →  FieldCube       (dimensions, constraints, couplings, paths,
-                                 carriers, evidence, topology summary)
-            →  DoFGraph         (degree-of-freedom graph)
-            →  PathExcision[]   (formal options without admissible paths)
-            →  CollapsePlan     (deterministic step ordering: detect → hard
-                                 → soft → resolve → verify → commit)
-            →  Candidate        (solver-emitted, with assignments + payloads)
-            →  GateReport       (Dual-Fabric: primal + mirror + MCI)
-            →  CommitOutcome    (Crystal | NoCrystal | EvidenceOnly | GateFailed)
+ProblemSpec  →  FieldCube         (dimensions, constraints, couplings, paths,
+                                   carriers, evidence, topology summary)
+             →  DoFGraph           (degree-of-freedom graph)
+             →  PathExcision[]     (formal options without admissible paths)
+             →  CollapsePlan       (deterministic step ordering: detect → hard
+                                   → soft → resolve → verify → commit)
+             →  StructuralOperator (Laplacian/matrix profile from DoFGraph)
+             →  Signature          (sorted spectral values, content-addressed)
+             →  SignatureDiagnostics (gap / degeneracy / rigidity /
+                                   asymmetry / fragmentation ∈ [0,1], RegimeHint)
+             →  SignatureGateOutcome (advisory or fail-closed gate check)
+             →  Candidate          (solver-emitted, with assignments + payloads)
+             →  GateReport         (Dual-Fabric: primal + mirror + MCI;
+                                   + SignatureGate diagnostic channel)
+             →  CommitOutcome      (Crystal | NoCrystal | EvidenceOnly | GateFailed)
+```
+
+The **signature layer** also exposes a blueprint search surface for
+multi-cycle traversal optimisation:
+
+```text
+BlueprintSearch  →  TraversalBlueprint[]  (DeterministicGrid: quantization_scale
+                                           × lambda_hard combos, content-addressed)
+NonDominatedFrontier                       (Pareto tracker: gap↑, fragmentation↓,
+                                           degeneracy↓)
+SearchLedger                               (append-only hash-chained evaluation log)
+SearchAutopilot                            (Exploration → Exploitation → Refinement
+                                           → Validation → Complete)
 ```
 
 Spec compliance highlights:
@@ -172,14 +192,29 @@ cargo run --release -p pse-traverse-cli -- plan \
     --problem crates/pse-traverse/examples/problem_minimal.json \
     --out target/traverse/plan.json
 
+# Plan + full signature layer (operator → signature → diagnostics → gate)
+cargo run --release -p pse-traverse-cli -- plan \
+    --problem crates/pse-traverse/examples/problem_minimal.json \
+    --signature
+
 # Full run including a PSE-bridge commit attempt per required dimension
 cargo run --release -p pse-traverse-cli -- run \
     --problem crates/pse-traverse/examples/problem_minimal.json \
     --out target/traverse/run.json
 
+# Run with SignatureGate as a diagnostic channel on every GateReport
+cargo run --release -p pse-traverse-cli -- run \
+    --problem crates/pse-traverse/examples/problem_minimal.json \
+    --signature-gate --out target/traverse/run_sig.json
+
 # Verify byte-identical replay
 cargo run --release -p pse-traverse-cli -- replay \
     --run target/traverse/run.json
+
+# Generate traversal blueprints (DeterministicGrid search)
+cargo run --release -p pse-traverse-cli -- search \
+    --problem crates/pse-traverse/examples/problem_minimal.json \
+    --n 8 --out target/traverse/blueprints.json
 ```
 
 The MVP solver in `run` is a one-value-per-dimension template — by
@@ -187,9 +222,11 @@ design. Real solvers (template / LLM / tool / human) plug in via the
 `Candidate`-producing surface; the gating, fail-closed conversion and
 PSE binding are the same regardless.
 
-See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf` for the full spec
-this layer realises and `topologisches_traversierungsframework_v3.pdf`
-for the underlying topological framework.
+See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf` and
+`pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01) for the
+specs this layer realises, and
+`topologisches_traversierungsframework_v3.pdf` for the underlying
+topological framework.
 
 ---
 
@@ -226,8 +263,12 @@ crates/
   pse-core        Engine orchestrator (`macro_step`), DomainAdapter trait,
                   AdaptiveCalibrator, operator algebra, falsifier
   pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8)
-  pse-traverse    PSE Traversal Agent v0.1: ProblemSpec → FieldCube →
-                  DoFGraph → CollapsePlan → Gate → PSE-bridge (fail-closed)
+  pse-traverse    PSE Traversal Agent v0.1 + Signature Layer
+                  (PSE-TRAVERSE-SIGNATURE-01): ProblemSpec → FieldCube →
+                  DoFGraph → CollapsePlan → StructuralOperator → Signature →
+                  SignatureDiagnostics → SignatureGate → Candidate → Gate →
+                  PSE-bridge (fail-closed); BlueprintSearch, SearchLedger,
+                  SearchAutopilot for multi-cycle traversal optimisation
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -246,7 +287,8 @@ tools/
   pse-bench-bbo       TRITON spiral vs Random vs Halton on BBO test functions
   pse-audit           Determinism / replay auditor
   pse-demo            30-second runnable showcase + gate diagnostics
-  pse-traverse-cli    Traversal Agent CLI: inspect / plan / run / replay
+  pse-traverse-cli    Traversal Agent CLI: inspect / plan [--signature] /
+                      run [--signature-gate] / replay / search
 ```
 
 ---
@@ -282,6 +324,18 @@ short version of what changed:
   Engine self-calibrates per workload. Opt-in; default path unchanged.
   d-metric extended to include p90 + vertex-set churn for
   windowed-streaming workloads.
+* **Signature layer (PSE-TRAVERSE-SIGNATURE-01)** — full spectral
+  operator layer on top of the Traversal Agent:
+  `StructuralOperator` (Laplacian matrix profile from `DoFGraph`) →
+  `Signature` (sorted fixed-point spectral values, Jacobi eigensolver
+  for n ≤ 8, `MatrixProfileApprox` for larger graphs) →
+  `SignatureDiagnostics` (five scores in [0,1] + advisory `RegimeHint`) →
+  `SignatureGate` (configurable thresholds, fail-closed or diagnostic-only).
+  Blueprint search: `BlueprintSearch` with `DeterministicGrid` policy
+  (quantization_scale × lambda_hard grid), `NonDominatedFrontier`
+  (Pareto tracker), `SearchLedger` (hash-chained evaluation log),
+  `SearchAutopilot` (5-phase state machine). CLI extended with
+  `--signature`, `--signature-gate`, and `search` subcommand.
 
 The 8-fold Kairos AND, falsifier gating, content-address scheme, and
 EU-AI-Act compliance proof are unchanged across all of the above —

@@ -75,6 +75,19 @@ pub enum GateSeverity {
     Critical,
 }
 
+/// An additional diagnostic channel carried inside a `GateReport`.
+/// Used by the Signature Gate to surface its verdict without replacing
+/// the primary fail-closed gate (spec §15.3).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GateDiagnosticChannel {
+    pub channel_name: String,
+    pub passed: bool,
+    /// Content address of the artefact that produced this channel
+    /// (e.g. the `SignatureGateOutcome`).
+    pub address: String,
+    pub reasons: Vec<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GateReport {
     pub candidate_id: String,
@@ -86,6 +99,11 @@ pub struct GateReport {
     pub pse_commit_ready: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_policy: Option<FailurePolicy>,
+    /// Additional diagnostic channels (e.g. Signature Gate). Does not
+    /// replace the primary fail-closed gate; callers decide whether to
+    /// act on these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostic_channels: Vec<GateDiagnosticChannel>,
 }
 
 /// Minimum-viable gate engine.
@@ -216,6 +234,7 @@ impl GateEngine {
             mci,
             pse_commit_ready: passed,
             failure_policy: if passed { None } else { Some(FailurePolicy::Refine) },
+            diagnostic_channels: Vec::new(),
         }
     }
 }

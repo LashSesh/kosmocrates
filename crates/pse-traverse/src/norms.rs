@@ -193,6 +193,22 @@ impl CollapseCertificate {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CollapseCertificateSignatureEvidence
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Signature-layer evidence that can be attached to a `CollapseCertificate`
+/// to prove that the collapse was evaluated against a structural operator
+/// and signature gate (spec §15.2).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CollapseCertificateSignatureEvidence {
+    pub operator_id: String,
+    pub signature_id: String,
+    pub diagnostics_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_outcome_id: Option<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
