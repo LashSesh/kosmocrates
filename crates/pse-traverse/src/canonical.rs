@@ -65,6 +65,8 @@ mod tests {
     fn hex_address_length_64() {
         let s = hex_address(&"hello").unwrap();
         assert_eq!(s.len(), 64);
-        assert!(s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(s
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
     }
 }

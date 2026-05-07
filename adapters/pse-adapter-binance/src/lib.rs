@@ -250,7 +250,9 @@ pub fn embedded_btc_klines() -> Vec<BinanceTick> {
     let base_price = 65000.0_f64;
     let mut rng: u64 = 42;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         // Map to [-1.0, 1.0]
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
@@ -327,7 +329,9 @@ pub fn embedded_btc_klines_with_regime_shift() -> Vec<BinanceTick> {
     let base_price = 65000.0_f64;
     let mut rng: u64 = 42;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
 
@@ -386,7 +390,9 @@ pub fn embedded_eth_klines() -> Vec<BinanceTick> {
     let base_price = 3500.0_f64;
     let mut rng: u64 = 137;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
 
@@ -423,11 +429,7 @@ pub fn embedded_eth_klines() -> Vec<BinanceTick> {
 }
 
 /// Describe a crystal in human-readable form based on market context.
-pub fn describe_crystal(
-    crystal: &pse_types::SemanticCrystal,
-    symbol: &str,
-    tick: u64,
-) -> String {
+pub fn describe_crystal(crystal: &pse_types::SemanticCrystal, symbol: &str, tick: u64) -> String {
     format!(
         "{}: pattern detected at tick {}, stability={:.4}, region={} vertices, confidence={:.2}",
         symbol,
@@ -482,23 +484,32 @@ mod tests {
     fn test_binance_tick_validation() {
         let valid = BinanceTick {
             symbol: "BTCUSDT".into(),
-            open: 100.0, high: 110.0, low: 90.0, close: 105.0,
-            volume: 50.0, quote_volume: 5000.0, num_trades: 100,
+            open: 100.0,
+            high: 110.0,
+            low: 90.0,
+            close: 105.0,
+            volume: 50.0,
+            quote_volume: 5000.0,
+            num_trades: 100,
         };
         assert!(valid.is_valid());
 
         let neg_price = BinanceTick {
-            open: -1.0, ..valid.clone()
+            open: -1.0,
+            ..valid.clone()
         };
         assert!(!neg_price.is_valid());
 
         let bad_hl = BinanceTick {
-            high: 80.0, low: 90.0, ..valid.clone()
+            high: 80.0,
+            low: 90.0,
+            ..valid.clone()
         };
         assert!(!bad_hl.is_valid());
 
         let nan_price = BinanceTick {
-            open: f64::NAN, ..valid.clone()
+            open: f64::NAN,
+            ..valid.clone()
         };
         assert!(!nan_price.is_valid());
     }
@@ -508,8 +519,13 @@ mod tests {
         let adapter = BinanceAdapter::new("BTCUSDT");
         let bad_tick = BinanceTick {
             symbol: "BTCUSDT".into(),
-            open: -100.0, high: 50.0, low: 40.0, close: 45.0,
-            volume: 10.0, quote_volume: 450.0, num_trades: 5,
+            open: -100.0,
+            high: 50.0,
+            low: 40.0,
+            close: 45.0,
+            volume: 10.0,
+            quote_volume: 450.0,
+            num_trades: 5,
         };
         let raw = serde_json::to_vec(&bad_tick).unwrap();
         let ctx = MeasurementContext::default();
@@ -547,20 +563,14 @@ mod tests {
         let adapter = BinanceAdapter::new("BTCUSDT");
         let klines = embedded_btc_klines();
 
-        let mut crystal_count = 0;
         for tick in &klines {
             let batch = vec![serde_json::to_vec(tick).unwrap()];
-            if let Ok(Some(_)) = macro_step(&mut state, &batch, &config, &adapter) {
-                crystal_count += 1;
-            }
+            let _ = macro_step(&mut state, &batch, &config, &adapter);
         }
 
         // The engine should produce at least some crystals from 100 ticks
         // (exact count depends on thresholds, but the pipeline should work)
-        assert!(
-            state.commit_index > 0,
-            "Engine should have processed ticks"
-        );
+        assert!(state.commit_index > 0, "Engine should have processed ticks");
     }
 
     #[test]
@@ -601,10 +611,14 @@ mod tests {
         let baseline = embedded_btc_klines();
         let shifted = embedded_btc_klines_with_regime_shift();
         for i in 0..50 {
-            assert_eq!(baseline[i].open,  shifted[i].open,  "open mismatch at {}", i);
-            assert_eq!(baseline[i].high,  shifted[i].high,  "high mismatch at {}", i);
-            assert_eq!(baseline[i].low,   shifted[i].low,   "low mismatch at {}", i);
-            assert_eq!(baseline[i].close, shifted[i].close, "close mismatch at {}", i);
+            assert_eq!(baseline[i].open, shifted[i].open, "open mismatch at {}", i);
+            assert_eq!(baseline[i].high, shifted[i].high, "high mismatch at {}", i);
+            assert_eq!(baseline[i].low, shifted[i].low, "low mismatch at {}", i);
+            assert_eq!(
+                baseline[i].close, shifted[i].close,
+                "close mismatch at {}",
+                i
+            );
             assert_eq!(baseline[i].volume, shifted[i].volume);
             assert_eq!(baseline[i].num_trades, shifted[i].num_trades);
         }

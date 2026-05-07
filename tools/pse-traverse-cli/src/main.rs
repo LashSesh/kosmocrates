@@ -1,14 +1,17 @@
 //! `pse-traverse-cli` — minimal CLI for the PSE Traversal Agent.
 //!
 //! Subcommands:
-//!   inspect  --problem <PATH>                       → JSON dump of FieldCube + DoFGraph + excisions
-//!   plan     --problem <PATH> [--out <FILE>]        → CollapsePlan as canonical JSON
-//!            [--signature]                          → also derive operator + signature + diagnostics
-//!   run      --problem <PATH> [--out <FILE>]        → TraversalRunReport (incl. PSE bridge attempt)
-//!            [--signature-gate]                     → attach SignatureGate diagnostic channel
-//!   replay   --run <FILE>                           → re-derive plan + assert byte-identity
-//!   search   --problem <PATH> [--n <NUM>] [--out <FILE>]
-//!                                                   → generate traversal blueprints
+//!
+//! ```text
+//! inspect  --problem PATH                       → JSON dump of FieldCube + DoFGraph + excisions
+//! plan     --problem PATH [--out FILE]          → CollapsePlan as canonical JSON
+//!          [--signature]                        → also derive operator + signature + diagnostics
+//! run      --problem PATH [--out FILE]          → TraversalRunReport (incl. PSE bridge attempt)
+//!          [--signature-gate]                   → attach SignatureGate diagnostic channel
+//! replay   --run FILE                           → re-derive plan + assert byte-identity
+//! search   --problem PATH [--n NUM] [--out FILE]
+//!                                               → generate traversal blueprints
+//! ```
 //!
 //! Manual flag parsing — no `clap` dependency is added at this stage.
 
@@ -43,11 +46,11 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     let result = match args[1].as_str() {
-        "inspect"  => cmd_inspect(&args[2..]),
-        "plan"     => cmd_plan(&args[2..]),
-        "run"      => cmd_run(&args[2..]),
-        "replay"   => cmd_replay(&args[2..]),
-        "search"   => cmd_search(&args[2..]),
+        "inspect" => cmd_inspect(&args[2..]),
+        "plan" => cmd_plan(&args[2..]),
+        "run" => cmd_run(&args[2..]),
+        "replay" => cmd_replay(&args[2..]),
+        "search" => cmd_search(&args[2..]),
         "dynamics" => cmd_dynamics(&args[2..]),
         "--help" | "-h" | "help" => {
             println!("{}", USAGE);
@@ -86,7 +89,10 @@ fn flag_value(args: &[String], flag: &str) -> CliResult<String> {
     let mut iter = args.iter();
     while let Some(a) = iter.next() {
         if a == flag {
-            return iter.next().cloned().ok_or_else(|| format!("missing value for {}", flag));
+            return iter
+                .next()
+                .cloned()
+                .ok_or_else(|| format!("missing value for {}", flag));
         }
     }
     Err(format!("missing flag {}", flag))
@@ -107,8 +113,7 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 }
 
 fn load_spec(path: &str) -> CliResult<ProblemSpec> {
-    let bytes = fs::read(PathBuf::from(path))
-        .map_err(|e| format!("read {}: {}", path, e))?;
+    let bytes = fs::read(PathBuf::from(path)).map_err(|e| format!("read {}: {}", path, e))?;
     serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {}", path, e))
 }
 
@@ -128,7 +133,9 @@ fn write_output(bytes: &[u8], opt_out: Option<String>, label: &str) -> CliResult
 fn cmd_inspect(args: &[String]) -> CliResult<()> {
     let path = flag_value(args, "--problem")?;
     let spec = load_spec(&path)?;
-    let cube = DefaultFieldCubeBuilder.build(&spec).map_err(|e| e.to_string())?;
+    let cube = DefaultFieldCubeBuilder
+        .build(&spec)
+        .map_err(|e| e.to_string())?;
     let graph = DoFGraph::from_field_cube(&cube);
     let excisions = detect_path_excision(&cube);
     let payload = serde_json::json!({
@@ -136,8 +143,7 @@ fn cmd_inspect(args: &[String]) -> CliResult<()> {
         "dof_graph": graph,
         "path_excisions": excisions,
     });
-    let bytes = serde_jcs::to_vec(&payload)
-        .map_err(|e| format!("canonical encode: {}", e))?;
+    let bytes = serde_jcs::to_vec(&payload).map_err(|e| format!("canonical encode: {}", e))?;
     println!("{}", String::from_utf8_lossy(&bytes));
     Ok(())
 }
@@ -146,15 +152,16 @@ fn cmd_plan(args: &[String]) -> CliResult<()> {
     let path = flag_value(args, "--problem")?;
     let with_signature = has_flag(args, "--signature");
     let spec = load_spec(&path)?;
-    let cube = DefaultFieldCubeBuilder.build(&spec).map_err(|e| e.to_string())?;
+    let cube = DefaultFieldCubeBuilder
+        .build(&spec)
+        .map_err(|e| e.to_string())?;
     let graph = DoFGraph::from_field_cube(&cube);
     let excisions = detect_path_excision(&cube);
     let plan = DefaultCollapsePlanner.plan(&cube, &graph, &excisions);
 
     if with_signature {
         let op_cfg = OperatorBuildConfig::default();
-        let op = build_operator_from_dof_graph(&graph, &op_cfg)
-            .map_err(|e| e.to_string())?;
+        let op = build_operator_from_dof_graph(&graph, &op_cfg).map_err(|e| e.to_string())?;
         let sig_cfg = SignatureConfig::default();
         let sig = derive_signature(&op, &sig_cfg).map_err(|e| e.to_string())?;
         let diag_cfg = DiagnosticConfig::default();
@@ -168,8 +175,7 @@ fn cmd_plan(args: &[String]) -> CliResult<()> {
             "diagnostics": diag,
             "signature_gate_outcome": gate_outcome,
         });
-        let bytes = serde_jcs::to_vec(&payload)
-            .map_err(|e| format!("canonical encode: {}", e))?;
+        let bytes = serde_jcs::to_vec(&payload).map_err(|e| format!("canonical encode: {}", e))?;
         write_output(&bytes, opt_flag_value(args, "--out"), "plan+signature")
     } else {
         let bytes = canonical_bytes(&plan).map_err(|e| e.to_string())?;
@@ -178,9 +184,12 @@ fn cmd_plan(args: &[String]) -> CliResult<()> {
                 fs::create_dir_all(parent).map_err(|e| format!("mkdir {:?}: {}", parent, e))?;
             }
             fs::write(&out, &bytes).map_err(|e| format!("write {}: {}", out, e))?;
-            eprintln!("wrote {} ({} bytes, address={})",
-                      out, bytes.len(),
-                      hex_address(&plan).map_err(|e| e.to_string())?);
+            eprintln!(
+                "wrote {} ({} bytes, address={})",
+                out,
+                bytes.len(),
+                hex_address(&plan).map_err(|e| e.to_string())?
+            );
         } else {
             println!("{}", String::from_utf8_lossy(&bytes));
         }
@@ -193,7 +202,9 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
     let with_sig_gate = has_flag(args, "--signature-gate");
     let spec = load_spec(&path)?;
     let problem_hash = hex_address(&spec).map_err(|e| e.to_string())?;
-    let cube = DefaultFieldCubeBuilder.build(&spec).map_err(|e| e.to_string())?;
+    let cube = DefaultFieldCubeBuilder
+        .build(&spec)
+        .map_err(|e| e.to_string())?;
     let graph = DoFGraph::from_field_cube(&cube);
     let excisions = detect_path_excision(&cube);
     let plan = DefaultCollapsePlanner.plan(&cube, &graph, &excisions);
@@ -201,8 +212,7 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
     // Build signature artefacts when --signature-gate is requested.
     let sig_extension = if with_sig_gate {
         let op_cfg = OperatorBuildConfig::default();
-        let op = build_operator_from_dof_graph(&graph, &op_cfg)
-            .map_err(|e| e.to_string())?;
+        let op = build_operator_from_dof_graph(&graph, &op_cfg).map_err(|e| e.to_string())?;
         let sig_cfg = SignatureConfig::default();
         let sig = derive_signature(&op, &sig_cfg).map_err(|e| e.to_string())?;
         let diag_cfg = DiagnosticConfig::default();
@@ -248,8 +258,8 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
         }
 
         if !report.passed {
-            let outcome = pse_traverse::bridge::gate_failed(candidate, &report)
-                .map_err(|e| e.to_string())?;
+            let outcome =
+                pse_traverse::bridge::gate_failed(candidate, &report).map_err(|e| e.to_string())?;
             gate_reports.push(report);
             commit_outcomes.push(outcome);
             continue;
@@ -261,27 +271,31 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
         commit_outcomes.push(outcome);
     }
 
-    let signature_extension = sig_extension.map(|(op, sig, diag, gate_outcome)| {
-        TraversalRunReportSignatureExtension {
-            blueprint_id: None,
-            operator_id: Some(op.operator_id),
-            signature_id: Some(sig.signature_id),
-            diagnostics_id: Some(diag.diagnostics_id),
-            signature_gate_outcome_id: Some(gate_outcome.outcome_id),
-            search_ledger_entry_id: None,
-        }
-    });
+    let signature_extension =
+        sig_extension.map(
+            |(op, sig, diag, gate_outcome)| TraversalRunReportSignatureExtension {
+                blueprint_id: None,
+                operator_id: Some(op.operator_id),
+                signature_id: Some(sig.signature_id),
+                diagnostics_id: Some(diag.diagnostics_id),
+                signature_gate_outcome_id: Some(gate_outcome.outcome_id),
+                search_ledger_entry_id: None,
+            },
+        );
 
     let descriptor = TraversalRunDescriptor {
         run_id: solver_ctx.run_id.clone(),
         problem_spec_hash: problem_hash,
         operator_versions: {
             let mut m = BTreeMap::new();
-            m.insert("FieldCubeBuilder".to_string(),  "default-1".to_string());
-            m.insert("CollapsePlanner".to_string(),   "default-1".to_string());
-            m.insert("GateEngine".to_string(),        "default-1".to_string());
-            m.insert("Solver".to_string(),            "template-solver-v1".to_string());
-            m.insert("CrystalCommitter".to_string(),  "pse-macro-step-1".to_string());
+            m.insert("FieldCubeBuilder".to_string(), "default-1".to_string());
+            m.insert("CollapsePlanner".to_string(), "default-1".to_string());
+            m.insert("GateEngine".to_string(), "default-1".to_string());
+            m.insert("Solver".to_string(), "template-solver-v1".to_string());
+            m.insert(
+                "CrystalCommitter".to_string(),
+                "pse-macro-step-1".to_string(),
+            );
             m
         },
         seed: spec.replay.seed,
@@ -308,14 +322,16 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
 fn cmd_replay(args: &[String]) -> CliResult<()> {
     let path = flag_value(args, "--run")?;
     let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path, e))?;
-    let report: TraversalRunReport = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("parse {}: {}", path, e))?;
+    let report: TraversalRunReport =
+        serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {}", path, e))?;
 
     // Reconstruct from the embedded ProblemSpec.
-    let cube_again   = DefaultFieldCubeBuilder.build(&report.problem_spec).map_err(|e| e.to_string())?;
-    let graph_again  = DoFGraph::from_field_cube(&cube_again);
-    let exc_again    = detect_path_excision(&cube_again);
-    let plan_again   = DefaultCollapsePlanner.plan(&cube_again, &graph_again, &exc_again);
+    let cube_again = DefaultFieldCubeBuilder
+        .build(&report.problem_spec)
+        .map_err(|e| e.to_string())?;
+    let graph_again = DoFGraph::from_field_cube(&cube_again);
+    let exc_again = detect_path_excision(&cube_again);
+    let plan_again = DefaultCollapsePlanner.plan(&cube_again, &graph_again, &exc_again);
 
     let plan_orig = canonical_bytes(&report.collapse_plan).map_err(|e| e.to_string())?;
     let plan_repl = canonical_bytes(&plan_again).map_err(|e| e.to_string())?;
@@ -355,8 +371,7 @@ fn cmd_search(args: &[String]) -> CliResult<()> {
         "n_generated": blueprints.len(),
         "blueprints": blueprints,
     });
-    let bytes = serde_jcs::to_vec(&payload)
-        .map_err(|e| format!("canonical encode: {}", e))?;
+    let bytes = serde_jcs::to_vec(&payload).map_err(|e| format!("canonical encode: {}", e))?;
     write_output(&bytes, opt_flag_value(args, "--out"), "search blueprints")
 }
 
@@ -366,13 +381,16 @@ fn cmd_search(args: &[String]) -> CliResult<()> {
 
 fn cmd_dynamics(args: &[String]) -> CliResult<()> {
     if args.is_empty() {
-        return Err(format!("dynamics requires a subcommand (init|tick|run|replay|inspect)\n\n{}", USAGE));
+        return Err(format!(
+            "dynamics requires a subcommand (init|tick|run|replay|inspect)\n\n{}",
+            USAGE
+        ));
     }
     match args[0].as_str() {
-        "init"    => cmd_dynamics_init(&args[1..]),
-        "tick"    => cmd_dynamics_tick(&args[1..]),
-        "run"     => cmd_dynamics_run(&args[1..]),
-        "replay"  => cmd_dynamics_replay(&args[1..]),
+        "init" => cmd_dynamics_init(&args[1..]),
+        "tick" => cmd_dynamics_tick(&args[1..]),
+        "run" => cmd_dynamics_run(&args[1..]),
+        "replay" => cmd_dynamics_replay(&args[1..]),
         "inspect" => cmd_dynamics_inspect(&args[1..]),
         other => Err(format!("unknown dynamics subcommand: {}", other)),
     }
@@ -382,8 +400,7 @@ fn cmd_dynamics(args: &[String]) -> CliResult<()> {
 /// Load ProblemSpec, build empty DynamicTraversalState, write JSON.
 fn cmd_dynamics_init(args: &[String]) -> CliResult<()> {
     use pse_traverse::{
-        dynamic_policy::DynamicPolicy,
-        dynamic_report::DynamicRunDescriptor,
+        dynamic_policy::DynamicPolicy, dynamic_report::DynamicRunDescriptor,
         dynamic_tick::DynamicTraversalState,
     };
 
@@ -392,11 +409,10 @@ fn cmd_dynamics_init(args: &[String]) -> CliResult<()> {
 
     let policy = DynamicPolicy::default();
     let descriptor = DynamicRunDescriptor::default();
-    let state = DynamicTraversalState::init(vec![], policy, descriptor)
-        .map_err(|e| e.to_string())?;
+    let state =
+        DynamicTraversalState::init(vec![], policy, descriptor).map_err(|e| e.to_string())?;
 
-    let bytes = serde_json::to_vec_pretty(&state)
-        .map_err(|e| format!("serialize state: {}", e))?;
+    let bytes = serde_json::to_vec_pretty(&state).map_err(|e| format!("serialize state: {}", e))?;
     let _ = spec; // loaded for future use (dimension extraction)
     write_output(&bytes, opt_flag_value(args, "--out"), "dynamics state")
 }
@@ -404,12 +420,12 @@ fn cmd_dynamics_init(args: &[String]) -> CliResult<()> {
 /// `dynamics tick --state <FILE> [--out <FILE>]`
 /// Load DynamicTraversalState, run one dynamic_tick with empty base_states, write updated state.
 fn cmd_dynamics_tick(args: &[String]) -> CliResult<()> {
-    use pse_traverse::dynamic_tick::{DynamicTickInput, DynamicTraversalState, dynamic_tick};
+    use pse_traverse::dynamic_tick::{dynamic_tick, DynamicTickInput, DynamicTraversalState};
 
     let state_path = flag_value(args, "--state")?;
     let bytes = fs::read(&state_path).map_err(|e| format!("read {}: {}", state_path, e))?;
-    let mut state: DynamicTraversalState = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("parse state {}: {}", state_path, e))?;
+    let mut state: DynamicTraversalState =
+        serde_json::from_slice(&bytes).map_err(|e| format!("parse state {}: {}", state_path, e))?;
 
     let next_tick = state.tick + 1;
     let policy = state.policy.clone();
@@ -423,15 +439,13 @@ fn cmd_dynamics_tick(args: &[String]) -> CliResult<()> {
         compute_proof: true,
     };
 
-    let tick_report = dynamic_tick(&input, &mut state)
-        .map_err(|e| e.to_string())?;
+    let tick_report = dynamic_tick(&input, &mut state).map_err(|e| e.to_string())?;
 
     let out_val = serde_json::json!({
         "updated_state": state,
         "tick_report": tick_report,
     });
-    let out_bytes = serde_json::to_vec_pretty(&out_val)
-        .map_err(|e| format!("serialize: {}", e))?;
+    let out_bytes = serde_json::to_vec_pretty(&out_val).map_err(|e| format!("serialize: {}", e))?;
     write_output(&out_bytes, opt_flag_value(args, "--out"), "dynamics tick")
 }
 
@@ -461,11 +475,9 @@ fn cmd_dynamics_run(args: &[String]) -> CliResult<()> {
     };
     let descriptor = descriptor.with_id().map_err(|e| e.to_string())?;
 
-    let report = dynamic_run(&descriptor, vec![], policy)
-        .map_err(|e| e.to_string())?;
+    let report = dynamic_run(&descriptor, vec![], policy).map_err(|e| e.to_string())?;
 
-    let bytes = serde_json::to_vec_pretty(&report)
-        .map_err(|e| format!("serialize: {}", e))?;
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|e| format!("serialize: {}", e))?;
     write_output(&bytes, opt_flag_value(args, "--out"), "dynamics run report")
 }
 
@@ -473,20 +485,17 @@ fn cmd_dynamics_run(args: &[String]) -> CliResult<()> {
 /// Load DynamicRunReport, re-run ticks, compare report_ids byte-for-byte.
 fn cmd_dynamics_replay(args: &[String]) -> CliResult<()> {
     use pse_traverse::{
-        dynamic_policy::DynamicPolicy,
-        dynamic_report::DynamicRunReport,
-        dynamic_tick::dynamic_run,
+        dynamic_policy::DynamicPolicy, dynamic_report::DynamicRunReport, dynamic_tick::dynamic_run,
     };
 
     let path = flag_value(args, "--report")?;
     let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path, e))?;
-    let original: DynamicRunReport = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("parse report: {}", e))?;
+    let original: DynamicRunReport =
+        serde_json::from_slice(&bytes).map_err(|e| format!("parse report: {}", e))?;
 
     // Re-run with same descriptor and empty initial states
     let policy = DynamicPolicy::default();
-    let replayed = dynamic_run(&original.descriptor, vec![], policy)
-        .map_err(|e| e.to_string())?;
+    let replayed = dynamic_run(&original.descriptor, vec![], policy).map_err(|e| e.to_string())?;
 
     if original.run_id != replayed.run_id {
         return Err(format!(
@@ -495,7 +504,10 @@ fn cmd_dynamics_replay(args: &[String]) -> CliResult<()> {
             replayed.run_id.hex()
         ));
     }
-    println!("dynamics replay ok: run_id byte-identical ({})", original.run_id.hex());
+    println!(
+        "dynamics replay ok: run_id byte-identical ({})",
+        original.run_id.hex()
+    );
     Ok(())
 }
 
@@ -506,8 +518,8 @@ fn cmd_dynamics_inspect(args: &[String]) -> CliResult<()> {
 
     let path = flag_value(args, "--report")?;
     let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path, e))?;
-    let report: DynamicRunReport = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("parse report: {}", e))?;
+    let report: DynamicRunReport =
+        serde_json::from_slice(&bytes).map_err(|e| format!("parse report: {}", e))?;
 
     println!("=== Dynamic Run Report ===");
     println!("run_id:              {}", report.run_id.hex());

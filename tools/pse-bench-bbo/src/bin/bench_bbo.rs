@@ -8,7 +8,7 @@ use pse_bench_bbo::{
     functions::{Ackley, DriftRastrigin, Rastrigin, Sphere},
     navigator_runner::run_navigator_optimization,
     optimizers::{HaltonSearch, RandomSearch, TritonSpiralBBO},
-    run_optimization, Optimizer, TestFunction, Trajectory,
+    run_optimization, TestFunction, Trajectory,
 };
 
 const BUDGET: usize = 200;
@@ -34,8 +34,12 @@ fn main() {
     for f in &functions {
         println!("## Function: `{}`", f.name());
         println!();
-        println!("| Optimizer | Final simple regret | Cumulative regret | Best value | Best point |");
-        println!("|-----------|---------------------|-------------------|------------|------------|");
+        println!(
+            "| Optimizer | Final simple regret | Cumulative regret | Best value | Best point |"
+        );
+        println!(
+            "|-----------|---------------------|-------------------|------------|------------|"
+        );
         let trajectories = vec![
             run_with_random(f.as_ref()),
             run_with_halton(f.as_ref()),

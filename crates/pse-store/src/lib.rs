@@ -7,13 +7,13 @@
 //! Both backends implement the `CrystalStore` trait for crystal persistence.
 
 #[cfg(feature = "sqlite")]
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "sqlite")]
 use std::path::Path;
 #[cfg(feature = "sqlite")]
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
-#[cfg(feature = "sqlite")]
-use rusqlite::{Connection, params};
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -77,7 +77,7 @@ pub struct CrystalRow {
     pub region_size: u64,
     pub topology_signature: String, // JSON
     pub validation_status: String,
-    pub data: String,               // full crystal JSON
+    pub data: String, // full crystal JSON
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -87,7 +87,7 @@ pub struct TraceRow {
     pub input_digest: String,
     pub state_digest: String,
     pub crystal_id: Option<String>,
-    pub gate_snapshot: String,  // JSON
+    pub gate_snapshot: String, // JSON
     pub metrics_digest: String,
 }
 
@@ -134,14 +134,13 @@ pub struct ConstitutionRow {
     pub crystal_id: String,
     pub is_genesis: bool,
     pub is_amendment: bool,
-    pub conformance: String,   // 'C0'..'C4'
-    pub constraints: String,   // JSON array of ConstitutionalConstraint
+    pub conformance: String, // 'C0'..'C4'
+    pub constraints: String, // JSON array of ConstitutionalConstraint
     pub created_at: String,
 }
 
 #[cfg(feature = "sqlite")]
 // ─── Schema Migration SQL ─────────────────────────────────────────────────────
-
 #[cfg(feature = "sqlite")]
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS _migrations (
@@ -263,7 +262,6 @@ CREATE TABLE IF NOT EXISTS constitution (
 
 #[cfg(feature = "sqlite")]
 // ─── IslandStore ─────────────────────────────────────────────────────────────
-
 #[cfg(feature = "sqlite")]
 pub struct IslandStore {
     conn: Mutex<Connection>,
@@ -275,7 +273,9 @@ impl IslandStore {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
-        let store = Self { conn: Mutex::new(conn) };
+        let store = Self {
+            conn: Mutex::new(conn),
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -284,7 +284,9 @@ impl IslandStore {
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-        let store = Self { conn: Mutex::new(conn) };
+        let store = Self {
+            conn: Mutex::new(conn),
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -294,11 +296,14 @@ impl IslandStore {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch(SCHEMA_V1)?;
         // Record migration v1 if not already done
-        let already: bool = conn.query_row(
-            "SELECT COUNT(*) FROM _migrations WHERE version = 1",
-            [],
-            |row| row.get::<_, i64>(0),
-        ).unwrap_or(0) > 0;
+        let already: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE version = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
         if !already {
             conn.execute(
                 "INSERT INTO _migrations (version, applied_at) VALUES (1, ?1)",
@@ -323,7 +328,7 @@ impl IslandStore {
     pub fn list_projects(&self) -> Result<Vec<Project>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, created_at, description FROM projects ORDER BY created_at"
+            "SELECT id, name, created_at, description FROM projects ORDER BY created_at",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Project {
@@ -334,7 +339,9 @@ impl IslandStore {
             })
         })?;
         let mut projects = Vec::new();
-        for r in rows { projects.push(r?); }
+        for r in rows {
+            projects.push(r?);
+        }
         Ok(projects)
     }
 
@@ -343,21 +350,31 @@ impl IslandStore {
         conn.query_row(
             "SELECT id, name, created_at, description FROM projects WHERE id = ?1",
             params![id],
-            |row| Ok(Project {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                created_at: row.get(2)?,
-                description: row.get(3)?,
-            }),
-        ).map_err(|_| StoreError::NotFound(id.to_string()))
+            |row| {
+                Ok(Project {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    created_at: row.get(2)?,
+                    description: row.get(3)?,
+                })
+            },
+        )
+        .map_err(|_| StoreError::NotFound(id.to_string()))
     }
 
     // ── Runs ──────────────────────────────────────────────────────────────────
 
     pub fn create_run(
-        &self, project_id: &str, mode: &str, rd_digest: &str, ticks: u64,
+        &self,
+        project_id: &str,
+        mode: &str,
+        rd_digest: &str,
+        ticks: u64,
     ) -> Result<String> {
-        let id = content_id(&format!("{project_id}{mode}{rd_digest}{ticks}{}", now_iso()));
+        let id = content_id(&format!(
+            "{project_id}{mode}{rd_digest}{ticks}{}",
+            now_iso()
+        ));
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO runs (id, project_id, mode, rd_digest, started_at, ticks, status) \
@@ -383,7 +400,32 @@ impl IslandStore {
             "SELECT id, project_id, mode, rd_digest, started_at, finished_at, \
                      ticks, crystal_count, status FROM runs WHERE id = ?1",
             params![run_id],
-            |row| Ok(Run {
+            |row| {
+                Ok(Run {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    mode: row.get(2)?,
+                    rd_digest: row.get(3)?,
+                    started_at: row.get(4)?,
+                    finished_at: row.get(5)?,
+                    ticks: row.get::<_, i64>(6)? as u64,
+                    crystal_count: row.get::<_, i64>(7)? as u64,
+                    status: row.get(8)?,
+                })
+            },
+        )
+        .map_err(|_| StoreError::NotFound(run_id.to_string()))
+    }
+
+    pub fn list_runs(&self, project_id: &str) -> Result<Vec<Run>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, project_id, mode, rd_digest, started_at, finished_at, \
+                    ticks, crystal_count, status FROM runs \
+             WHERE project_id = ?1 ORDER BY started_at",
+        )?;
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok(Run {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 mode: row.get(2)?,
@@ -393,30 +435,12 @@ impl IslandStore {
                 ticks: row.get::<_, i64>(6)? as u64,
                 crystal_count: row.get::<_, i64>(7)? as u64,
                 status: row.get(8)?,
-            }),
-        ).map_err(|_| StoreError::NotFound(run_id.to_string()))
-    }
-
-    pub fn list_runs(&self, project_id: &str) -> Result<Vec<Run>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, project_id, mode, rd_digest, started_at, finished_at, \
-                    ticks, crystal_count, status FROM runs \
-             WHERE project_id = ?1 ORDER BY started_at"
-        )?;
-        let rows = stmt.query_map(params![project_id], |row| Ok(Run {
-            id: row.get(0)?,
-            project_id: row.get(1)?,
-            mode: row.get(2)?,
-            rd_digest: row.get(3)?,
-            started_at: row.get(4)?,
-            finished_at: row.get(5)?,
-            ticks: row.get::<_, i64>(6)? as u64,
-            crystal_count: row.get::<_, i64>(7)? as u64,
-            status: row.get(8)?,
-        }))?;
+            })
+        })?;
         let mut runs = Vec::new();
-        for r in rows { runs.push(r?); }
+        for r in rows {
+            runs.push(r?);
+        }
         Ok(runs)
     }
 
@@ -430,11 +454,17 @@ impl IslandStore {
              topology_signature, validation_status, data) \
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
             params![
-                crystal.crystal_id, crystal.run_id, crystal.stability_score,
-                crystal.free_energy, crystal.created_at_tick as i64,
-                crystal.carrier_instance as i64, crystal.constraint_count as i64,
-                crystal.region_size as i64, crystal.topology_signature,
-                crystal.validation_status, crystal.data
+                crystal.crystal_id,
+                crystal.run_id,
+                crystal.stability_score,
+                crystal.free_energy,
+                crystal.created_at_tick as i64,
+                crystal.carrier_instance as i64,
+                crystal.constraint_count as i64,
+                crystal.region_size as i64,
+                crystal.topology_signature,
+                crystal.validation_status,
+                crystal.data
             ],
         )?;
         Ok(())
@@ -447,7 +477,35 @@ impl IslandStore {
              carrier_instance, constraint_count, region_size, topology_signature, \
              validation_status, data FROM crystals WHERE crystal_id = ?1",
             params![crystal_id],
-            |row| Ok(CrystalRow {
+            |row| {
+                Ok(CrystalRow {
+                    crystal_id: row.get(0)?,
+                    run_id: row.get(1)?,
+                    stability_score: row.get(2)?,
+                    free_energy: row.get(3)?,
+                    created_at_tick: row.get::<_, i64>(4)? as u64,
+                    carrier_instance: row.get::<_, i64>(5)? as u64,
+                    constraint_count: row.get::<_, i64>(6)? as u64,
+                    region_size: row.get::<_, i64>(7)? as u64,
+                    topology_signature: row.get(8)?,
+                    validation_status: row.get(9)?,
+                    data: row.get(10)?,
+                })
+            },
+        )
+        .map_err(|_| StoreError::NotFound(crystal_id.to_string()))
+    }
+
+    pub fn list_crystals(&self, run_id: &str) -> Result<Vec<CrystalRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT crystal_id, run_id, stability_score, free_energy, created_at_tick, \
+             carrier_instance, constraint_count, region_size, topology_signature, \
+             validation_status, data FROM crystals WHERE run_id = ?1 \
+             ORDER BY crystal_id",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok(CrystalRow {
                 crystal_id: row.get(0)?,
                 run_id: row.get(1)?,
                 stability_score: row.get(2)?,
@@ -459,42 +517,21 @@ impl IslandStore {
                 topology_signature: row.get(8)?,
                 validation_status: row.get(9)?,
                 data: row.get(10)?,
-            }),
-        ).map_err(|_| StoreError::NotFound(crystal_id.to_string()))
-    }
-
-    pub fn list_crystals(&self, run_id: &str) -> Result<Vec<CrystalRow>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT crystal_id, run_id, stability_score, free_energy, created_at_tick, \
-             carrier_instance, constraint_count, region_size, topology_signature, \
-             validation_status, data FROM crystals WHERE run_id = ?1 \
-             ORDER BY crystal_id"
-        )?;
-        let rows = stmt.query_map(params![run_id], |row| Ok(CrystalRow {
-            crystal_id: row.get(0)?,
-            run_id: row.get(1)?,
-            stability_score: row.get(2)?,
-            free_energy: row.get(3)?,
-            created_at_tick: row.get::<_, i64>(4)? as u64,
-            carrier_instance: row.get::<_, i64>(5)? as u64,
-            constraint_count: row.get::<_, i64>(6)? as u64,
-            region_size: row.get::<_, i64>(7)? as u64,
-            topology_signature: row.get(8)?,
-            validation_status: row.get(9)?,
-            data: row.get(10)?,
-        }))?;
+            })
+        })?;
         let mut crystals = Vec::new();
-        for r in rows { crystals.push(r?); }
+        for r in rows {
+            crystals.push(r?);
+        }
         Ok(crystals)
     }
 
     /// Update validation status only (crystals are otherwise append-only).
     pub fn update_validation(&self, crystal_id: &str, status: &str) -> Result<()> {
         if !["pending", "passed", "failed"].contains(&status) {
-            return Err(StoreError::IntegrityViolation(
-                format!("invalid validation status: {status}")
-            ));
+            return Err(StoreError::IntegrityViolation(format!(
+                "invalid validation status: {status}"
+            )));
         }
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -512,9 +549,13 @@ impl IslandStore {
             "INSERT OR IGNORE INTO traces (run_id, tick, input_digest, state_digest, \
              crystal_id, gate_snapshot, metrics_digest) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             params![
-                trace.run_id, trace.tick as i64, trace.input_digest,
-                trace.state_digest, trace.crystal_id,
-                trace.gate_snapshot, trace.metrics_digest
+                trace.run_id,
+                trace.tick as i64,
+                trace.input_digest,
+                trace.state_digest,
+                trace.crystal_id,
+                trace.gate_snapshot,
+                trace.metrics_digest
             ],
         )?;
         Ok(())
@@ -524,19 +565,23 @@ impl IslandStore {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT run_id, tick, input_digest, state_digest, crystal_id, \
-             gate_snapshot, metrics_digest FROM traces WHERE run_id = ?1 ORDER BY tick"
+             gate_snapshot, metrics_digest FROM traces WHERE run_id = ?1 ORDER BY tick",
         )?;
-        let rows = stmt.query_map(params![run_id], |row| Ok(TraceRow {
-            run_id: row.get(0)?,
-            tick: row.get::<_, i64>(1)? as u64,
-            input_digest: row.get(2)?,
-            state_digest: row.get(3)?,
-            crystal_id: row.get(4)?,
-            gate_snapshot: row.get(5)?,
-            metrics_digest: row.get(6)?,
-        }))?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok(TraceRow {
+                run_id: row.get(0)?,
+                tick: row.get::<_, i64>(1)? as u64,
+                input_digest: row.get(2)?,
+                state_digest: row.get(3)?,
+                crystal_id: row.get(4)?,
+                gate_snapshot: row.get(5)?,
+                metrics_digest: row.get(6)?,
+            })
+        })?;
         let mut traces = Vec::new();
-        for r in rows { traces.push(r?); }
+        for r in rows {
+            traces.push(r?);
+        }
         Ok(traces)
     }
 
@@ -557,7 +602,8 @@ impl IslandStore {
             "SELECT manifest_json FROM manifests WHERE run_id = ?1",
             params![run_id],
             |row| row.get(0),
-        ).map_err(|_| StoreError::NotFound(run_id.to_string()))
+        )
+        .map_err(|_| StoreError::NotFound(run_id.to_string()))
     }
 
     // ── Capsules ─────────────────────────────────────────────────────────────
@@ -568,7 +614,10 @@ impl IslandStore {
             "INSERT OR IGNORE INTO capsules (id, run_id, policy_json, created_at, \
              opened_count, max_uses, expires_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             params![
-                capsule.id, capsule.run_id, capsule.policy_json, capsule.created_at,
+                capsule.id,
+                capsule.run_id,
+                capsule.policy_json,
+                capsule.created_at,
                 capsule.opened_count as i64,
                 capsule.max_uses.map(|v| v as i64),
                 capsule.expires_at
@@ -600,15 +649,19 @@ impl IslandStore {
     pub fn get_metrics(&self, run_id: &str) -> Result<Vec<MetricRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT run_id, tick, snapshot_json FROM metrics WHERE run_id = ?1 ORDER BY tick"
+            "SELECT run_id, tick, snapshot_json FROM metrics WHERE run_id = ?1 ORDER BY tick",
         )?;
-        let rows = stmt.query_map(params![run_id], |row| Ok(MetricRow {
-            run_id: row.get(0)?,
-            tick: row.get::<_, i64>(1)? as u64,
-            snapshot_json: row.get(2)?,
-        }))?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok(MetricRow {
+                run_id: row.get(0)?,
+                tick: row.get::<_, i64>(1)? as u64,
+                snapshot_json: row.get(2)?,
+            })
+        })?;
         let mut metrics = Vec::new();
-        for r in rows { metrics.push(r?); }
+        for r in rows {
+            metrics.push(r?);
+        }
         Ok(metrics)
     }
 
@@ -618,12 +671,15 @@ impl IslandStore {
             "SELECT run_id, tick, snapshot_json FROM metrics \
              WHERE run_id = ?1 ORDER BY tick DESC LIMIT 1",
             params![run_id],
-            |row| Ok(MetricRow {
-                run_id: row.get(0)?,
-                tick: row.get::<_, i64>(1)? as u64,
-                snapshot_json: row.get(2)?,
-            }),
-        ).map_err(|_| StoreError::NotFound(run_id.to_string()))
+            |row| {
+                Ok(MetricRow {
+                    run_id: row.get(0)?,
+                    tick: row.get::<_, i64>(1)? as u64,
+                    snapshot_json: row.get(2)?,
+                })
+            },
+        )
+        .map_err(|_| StoreError::NotFound(run_id.to_string()))
     }
 
     // ── Alerts ────────────────────────────────────────────────────────────────
@@ -633,7 +689,13 @@ impl IslandStore {
         conn.execute(
             "INSERT INTO alerts (run_id, tick, metric_id, level, message) \
              VALUES (?1,?2,?3,?4,?5)",
-            params![alert.run_id, alert.tick as i64, alert.metric_id, alert.level, alert.message],
+            params![
+                alert.run_id,
+                alert.tick as i64,
+                alert.metric_id,
+                alert.level,
+                alert.message
+            ],
         )?;
         Ok(())
     }
@@ -642,17 +704,21 @@ impl IslandStore {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT run_id, tick, metric_id, level, message FROM alerts \
-             WHERE run_id = ?1 ORDER BY tick"
+             WHERE run_id = ?1 ORDER BY tick",
         )?;
-        let rows = stmt.query_map(params![run_id], |row| Ok(AlertRow {
-            run_id: row.get(0)?,
-            tick: row.get::<_, i64>(1)? as u64,
-            metric_id: row.get(2)?,
-            level: row.get(3)?,
-            message: row.get(4)?,
-        }))?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok(AlertRow {
+                run_id: row.get(0)?,
+                tick: row.get::<_, i64>(1)? as u64,
+                metric_id: row.get(2)?,
+                level: row.get(3)?,
+                message: row.get(4)?,
+            })
+        })?;
         let mut alerts = Vec::new();
-        for r in rows { alerts.push(r?); }
+        for r in rows {
+            alerts.push(r?);
+        }
         Ok(alerts)
     }
 
@@ -688,38 +754,51 @@ impl IslandStore {
             "INSERT OR IGNORE INTO patterns \
              (id, monolith_id, domain, quality_json, signature_json, component_kinds, timestamp) \
              VALUES (?1,?2,?3,?4,?5,?6,?7)",
-            params![p.id, p.monolith_id, p.domain, p.quality_json,
-                    p.signature_json, p.component_kinds, p.timestamp],
+            params![
+                p.id,
+                p.monolith_id,
+                p.domain,
+                p.quality_json,
+                p.signature_json,
+                p.component_kinds,
+                p.timestamp
+            ],
         )?;
         Ok(())
     }
 
     pub fn list_patterns(&self, domain: Option<&str>) -> Result<Vec<PatternRow>> {
         let conn = self.conn.lock().unwrap();
-        let map_row = |row: &rusqlite::Row<'_>| Ok(PatternRow {
-            id: row.get(0)?,
-            monolith_id: row.get(1)?,
-            domain: row.get(2)?,
-            quality_json: row.get(3)?,
-            signature_json: row.get(4)?,
-            component_kinds: row.get(5)?,
-            timestamp: row.get(6)?,
-        });
+        let map_row = |row: &rusqlite::Row<'_>| {
+            Ok(PatternRow {
+                id: row.get(0)?,
+                monolith_id: row.get(1)?,
+                domain: row.get(2)?,
+                quality_json: row.get(3)?,
+                signature_json: row.get(4)?,
+                component_kinds: row.get(5)?,
+                timestamp: row.get(6)?,
+            })
+        };
         let rows: Vec<PatternRow> = match domain {
             Some(d) => {
                 let mut stmt = conn.prepare(
                     "SELECT id,monolith_id,domain,quality_json,signature_json,\
-                     component_kinds,timestamp FROM patterns WHERE domain=?1 ORDER BY timestamp"
+                     component_kinds,timestamp FROM patterns WHERE domain=?1 ORDER BY timestamp",
                 )?;
-                let v = stmt.query_map(params![d], map_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+                let v = stmt
+                    .query_map(params![d], map_row)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
                 v
             }
             None => {
                 let mut stmt = conn.prepare(
                     "SELECT id,monolith_id,domain,quality_json,signature_json,\
-                     component_kinds,timestamp FROM patterns ORDER BY timestamp"
+                     component_kinds,timestamp FROM patterns ORDER BY timestamp",
                 )?;
-                let v = stmt.query_map([], map_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+                let v = stmt
+                    .query_map([], map_row)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
                 v
             }
         };
@@ -776,11 +855,7 @@ impl IslandStore {
 
     pub fn integrity_check(&self) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let result: String = conn.query_row(
-            "PRAGMA integrity_check",
-            [],
-            |row| row.get(0),
-        )?;
+        let result: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
         Ok(result == "ok")
     }
 
@@ -795,11 +870,13 @@ impl IslandStore {
         // a zip dependency just for this. Instead, produce a tar-like flat file.
         // For the acceptance test we just write three JSON files to a directory.
         // If path ends in .zip, write a simple concatenation file.
-        let crystals_jsonl: String = crystals.iter()
+        let crystals_jsonl: String = crystals
+            .iter()
             .map(|c| serde_json::to_string(c).unwrap_or_default())
             .collect::<Vec<_>>()
             .join("\n");
-        let traces_jsonl: String = traces.iter()
+        let traces_jsonl: String = traces
+            .iter()
             .map(|t| serde_json::to_string(t).unwrap_or_default())
             .collect::<Vec<_>>()
             .join("\n");
@@ -812,8 +889,11 @@ impl IslandStore {
             "crystals.jsonl": crystals_jsonl,
             "traces.jsonl": traces_jsonl,
         });
-        std::fs::write(path, serde_json::to_string_pretty(&export).unwrap_or_default())
-            .map_err(|e| StoreError::IntegrityViolation(e.to_string()))?;
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(&export).unwrap_or_default(),
+        )
+        .map_err(|e| StoreError::IntegrityViolation(e.to_string()))?;
         Ok(())
     }
 }
@@ -832,34 +912,42 @@ impl CrystalStore for IslandStore {
 
     fn list_all_crystals(&self) -> Result<Vec<CrystalRow>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT crystal_id, run_id, stability_score, free_energy, created_at_tick, \
+        let mut stmt = conn
+            .prepare(
+                "SELECT crystal_id, run_id, stability_score, free_energy, created_at_tick, \
              carrier_instance, constraint_count, region_size, topology_signature, \
-             validation_status, data FROM crystals ORDER BY crystal_id"
-        ).map_err(StoreError::Sqlite)?;
-        let rows = stmt.query_map([], |row| Ok(CrystalRow {
-            crystal_id: row.get(0)?,
-            run_id: row.get(1)?,
-            stability_score: row.get(2)?,
-            free_energy: row.get(3)?,
-            created_at_tick: row.get::<_, i64>(4)? as u64,
-            carrier_instance: row.get::<_, i64>(5)? as u64,
-            constraint_count: row.get::<_, i64>(6)? as u64,
-            region_size: row.get::<_, i64>(7)? as u64,
-            topology_signature: row.get(8)?,
-            validation_status: row.get(9)?,
-            data: row.get(10)?,
-        })).map_err(StoreError::Sqlite)?;
+             validation_status, data FROM crystals ORDER BY crystal_id",
+            )
+            .map_err(StoreError::Sqlite)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(CrystalRow {
+                    crystal_id: row.get(0)?,
+                    run_id: row.get(1)?,
+                    stability_score: row.get(2)?,
+                    free_energy: row.get(3)?,
+                    created_at_tick: row.get::<_, i64>(4)? as u64,
+                    carrier_instance: row.get::<_, i64>(5)? as u64,
+                    constraint_count: row.get::<_, i64>(6)? as u64,
+                    region_size: row.get::<_, i64>(7)? as u64,
+                    topology_signature: row.get(8)?,
+                    validation_status: row.get(9)?,
+                    data: row.get(10)?,
+                })
+            })
+            .map_err(StoreError::Sqlite)?;
         let mut crystals = Vec::new();
-        for r in rows { crystals.push(r.map_err(StoreError::Sqlite)?); }
+        for r in rows {
+            crystals.push(r.map_err(StoreError::Sqlite)?);
+        }
         Ok(crystals)
     }
 
     fn crystal_count(&self) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM crystals", [], |row| row.get(0),
-        ).map_err(StoreError::Sqlite)?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM crystals", [], |row| row.get(0))
+            .map_err(StoreError::Sqlite)?;
         Ok(count as usize)
     }
 }
@@ -889,14 +977,18 @@ impl Default for MemoryStore {
 
 impl CrystalStore for MemoryStore {
     fn store_crystal(&self, crystal: &CrystalRow) -> Result<()> {
-        let mut map = self.crystals.write()
+        let mut map = self
+            .crystals
+            .write()
             .map_err(|e| StoreError::IntegrityViolation(e.to_string()))?;
         map.insert(crystal.crystal_id.clone(), crystal.clone());
         Ok(())
     }
 
     fn fetch_crystal(&self, crystal_id: &str) -> Result<CrystalRow> {
-        let map = self.crystals.read()
+        let map = self
+            .crystals
+            .read()
             .map_err(|e| StoreError::IntegrityViolation(e.to_string()))?;
         map.get(crystal_id)
             .cloned()
@@ -904,7 +996,9 @@ impl CrystalStore for MemoryStore {
     }
 
     fn list_all_crystals(&self) -> Result<Vec<CrystalRow>> {
-        let map = self.crystals.read()
+        let map = self
+            .crystals
+            .read()
             .map_err(|e| StoreError::IntegrityViolation(e.to_string()))?;
         let mut crystals: Vec<CrystalRow> = map.values().cloned().collect();
         crystals.sort_by(|a, b| a.crystal_id.cmp(&b.crystal_id));
@@ -912,7 +1006,9 @@ impl CrystalStore for MemoryStore {
     }
 
     fn crystal_count(&self) -> Result<usize> {
-        let map = self.crystals.read()
+        let map = self
+            .crystals
+            .read()
             .map_err(|e| StoreError::IntegrityViolation(e.to_string()))?;
         Ok(map.len())
     }
@@ -983,7 +1079,9 @@ mod tests {
     fn at_d2_crystal_append_only() {
         let store = mk_store();
         let proj_id = store.create_project("p", "").unwrap();
-        let run_id = store.create_run(&proj_id, "discover", "rd123", 100).unwrap();
+        let run_id = store
+            .create_run(&proj_id, "discover", "rd123", 100)
+            .unwrap();
         let crystal = mk_crystal(&run_id, "crystal-1", 5);
         store.insert_crystal(&crystal).unwrap();
 
@@ -1008,7 +1106,9 @@ mod tests {
 
         // Insert 3 crystals
         for i in 0u64..3 {
-            store.insert_crystal(&mk_crystal(&run_id, &format!("c{i}"), i)).unwrap();
+            store
+                .insert_crystal(&mk_crystal(&run_id, &format!("c{i}"), i))
+                .unwrap();
         }
 
         store.finish_run(&run_id, 3).unwrap();
@@ -1022,7 +1122,9 @@ mod tests {
     fn at_d4_manifest_round_trip() {
         let store = mk_store();
         let proj_id = store.create_project("manifest-proj", "").unwrap();
-        let run_id = store.create_run(&proj_id, "discover", "rd789", 100).unwrap();
+        let run_id = store
+            .create_run(&proj_id, "discover", "rd789", 100)
+            .unwrap();
         let json = r#"{"run_id":[1,2,3],"program_id":"test"}"#;
         store.insert_manifest(&run_id, json).unwrap();
         let retrieved = store.get_manifest(&run_id).unwrap();
@@ -1038,15 +1140,17 @@ mod tests {
 
         // Insert out of order
         for tick in [5u64, 1, 3, 2, 4].iter() {
-            store.insert_trace(&TraceRow {
-                run_id: run_id.clone(),
-                tick: *tick,
-                input_digest: format!("d{tick}"),
-                state_digest: format!("s{tick}"),
-                crystal_id: None,
-                gate_snapshot: "{}".to_string(),
-                metrics_digest: format!("m{tick}"),
-            }).unwrap();
+            store
+                .insert_trace(&TraceRow {
+                    run_id: run_id.clone(),
+                    tick: *tick,
+                    input_digest: format!("d{tick}"),
+                    state_digest: format!("s{tick}"),
+                    crystal_id: None,
+                    gate_snapshot: "{}".to_string(),
+                    metrics_digest: format!("m{tick}"),
+                })
+                .unwrap();
         }
 
         let traces = store.get_traces(&run_id).unwrap();
@@ -1070,9 +1174,14 @@ mod tests {
         let store = mk_store();
         let proj_id = store.create_project("integrity-proj", "").unwrap();
         let run_id = store.create_run(&proj_id, "discover", "rda", 10).unwrap();
-        store.insert_crystal(&mk_crystal(&run_id, "cint", 1)).unwrap();
+        store
+            .insert_crystal(&mk_crystal(&run_id, "cint", 1))
+            .unwrap();
         let ok = store.integrity_check().unwrap();
-        assert!(ok, "integrity_check must return true for a healthy database");
+        assert!(
+            ok,
+            "integrity_check must return true for a healthy database"
+        );
     }
 
     // AT-D8: Export ZIP
@@ -1081,17 +1190,23 @@ mod tests {
         let store = mk_store();
         let proj_id = store.create_project("export-proj", "").unwrap();
         let run_id = store.create_run(&proj_id, "discover", "rdb", 100).unwrap();
-        store.insert_crystal(&mk_crystal(&run_id, "cexp1", 1)).unwrap();
-        store.insert_crystal(&mk_crystal(&run_id, "cexp2", 2)).unwrap();
-        store.insert_trace(&TraceRow {
-            run_id: run_id.clone(),
-            tick: 1,
-            input_digest: "d1".to_string(),
-            state_digest: "s1".to_string(),
-            crystal_id: Some("cexp1".to_string()),
-            gate_snapshot: "{}".to_string(),
-            metrics_digest: "m1".to_string(),
-        }).unwrap();
+        store
+            .insert_crystal(&mk_crystal(&run_id, "cexp1", 1))
+            .unwrap();
+        store
+            .insert_crystal(&mk_crystal(&run_id, "cexp2", 2))
+            .unwrap();
+        store
+            .insert_trace(&TraceRow {
+                run_id: run_id.clone(),
+                tick: 1,
+                input_digest: "d1".to_string(),
+                state_digest: "s1".to_string(),
+                crystal_id: Some("cexp1".to_string()),
+                gate_snapshot: "{}".to_string(),
+                metrics_digest: "m1".to_string(),
+            })
+            .unwrap();
         store.insert_manifest(&run_id, r#"{"run_id":[]}"#).unwrap();
 
         let tmp = std::env::temp_dir().join(format!("pse-export-test-{}.json", run_id));
@@ -1099,9 +1214,18 @@ mod tests {
 
         let content = std::fs::read_to_string(&tmp).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert!(val.get("manifest.json").is_some(), "export must contain manifest.json");
-        assert!(val.get("crystals.jsonl").is_some(), "export must contain crystals.jsonl");
-        assert!(val.get("traces.jsonl").is_some(), "export must contain traces.jsonl");
+        assert!(
+            val.get("manifest.json").is_some(),
+            "export must contain manifest.json"
+        );
+        assert!(
+            val.get("crystals.jsonl").is_some(),
+            "export must contain crystals.jsonl"
+        );
+        assert!(
+            val.get("traces.jsonl").is_some(),
+            "export must contain traces.jsonl"
+        );
         let _ = std::fs::remove_file(&tmp);
     }
 }

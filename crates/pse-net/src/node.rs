@@ -99,9 +99,8 @@ impl SwarmNode {
             while running.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, peer_addr)) => {
-                        let _ = stream.set_read_timeout(Some(Duration::from_millis(
-                            config.read_timeout_ms,
-                        )));
+                        let _ = stream
+                            .set_read_timeout(Some(Duration::from_millis(config.read_timeout_ms)));
                         let _ = stream.set_write_timeout(Some(Duration::from_millis(
                             config.connect_timeout_ms,
                         )));
@@ -276,10 +275,8 @@ impl SwarmNode {
                     } else {
                         Vec::new()
                     };
-                    let _ = send_message(
-                        &mut stream,
-                        &SwarmMessage::CrystalSyncResponse { crystals },
-                    );
+                    let _ =
+                        send_message(&mut stream, &SwarmMessage::CrystalSyncResponse { crystals });
                 }
 
                 SwarmMessage::PeerRequest => {
@@ -325,10 +322,7 @@ impl SwarmNode {
         let hello = SwarmMessage::Hello {
             node_id: self.node_id,
             version: "0.1.0".to_string(),
-            listen_port: self
-                .local_addr
-                .map(|a| a.port())
-                .unwrap_or(0),
+            listen_port: self.local_addr.map(|a| a.port()).unwrap_or(0),
         };
         send_message(&mut stream, &hello)?;
 
@@ -468,7 +462,7 @@ mod tests {
             sub_crystal_ids: Vec::new(),
             parent_crystal_ids: Vec::new(),
             genesis_metadata: None,
-        metatron_signature: None,
+            metatron_signature: None,
         }
     }
 
@@ -488,9 +482,7 @@ mod tests {
         node2.start().expect("node2 start");
 
         // Connect node2 -> node1
-        node2
-            .connect_peer(&addr1.to_string())
-            .expect("connect");
+        node2.connect_peer(&addr1.to_string()).expect("connect");
 
         // Give connection time to establish
         std::thread::sleep(Duration::from_millis(100));
@@ -553,7 +545,10 @@ mod tests {
 
         // Node1 should have received it via forward from node2
         let acc1 = node1.accepted_crystals();
-        assert!(!acc1.is_empty(), "node1 should have received crystal via gossip");
+        assert!(
+            !acc1.is_empty(),
+            "node1 should have received crystal via gossip"
+        );
 
         node1.stop();
         node2.stop();

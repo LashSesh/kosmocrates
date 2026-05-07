@@ -107,12 +107,12 @@ pub enum ActionType {
 impl ActionType {
     pub fn label(&self) -> &'static str {
         match self {
-            ActionType::Explore            => "explore",
-            ActionType::ForgeAtom          => "forge_atom",
+            ActionType::Explore => "explore",
+            ActionType::ForgeAtom => "forge_atom",
             ActionType::ValidateConstraint => "validate_constraint",
-            ActionType::Synthesize         => "synthesize",
-            ActionType::Adapt              => "adapt",
-            ActionType::Complete           => "complete",
+            ActionType::Synthesize => "synthesize",
+            ActionType::Adapt => "adapt",
+            ActionType::Complete => "complete",
         }
     }
 }
@@ -143,17 +143,17 @@ impl AgentAction {
 /// Result of executing one action.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentStep {
-    pub step_id:   usize,
-    pub action:    AgentAction,
-    pub outcome:   String,
-    pub score:     f64,
+    pub step_id: usize,
+    pub action: AgentAction,
+    pub outcome: String,
+    pub score: f64,
     pub timestamp: u64,
 }
 
 /// Ordered sequence of actions.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct AgentPlan {
-    pub actions:     Vec<AgentAction>,
+    pub actions: Vec<AgentAction>,
     pub current_idx: usize,
 }
 
@@ -189,21 +189,27 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            max_steps:         100,
+            max_steps: 100,
             confidence_target: 0.75,
-            seed:              0,
-            dim:               5,
+            seed: 0,
+            dim: 5,
         }
     }
 }
 
 /// Deterministic plan generator: same goal + same seed → same plan.
 fn plan_from_goal(goal: &AgentGoal, config: &AgentConfig) -> AgentPlan {
-    let seed = if config.seed == 0 { goal.intent_hash() } else { config.seed };
+    let seed = if config.seed == 0 {
+        goal.intent_hash()
+    } else {
+        config.seed
+    };
 
     let mut rng = seed;
     let next = |r: &mut u64| -> u64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *r
     };
 
@@ -213,16 +219,22 @@ fn plan_from_goal(goal: &AgentGoal, config: &AgentConfig) -> AgentPlan {
     let mut actions: Vec<AgentAction> = Vec::new();
 
     actions.push(
-        AgentAction::new(ActionType::Explore, "Map the configuration space with spectral spiral")
-            .with_param("steps", explore_steps.to_string())
-            .with_param("mode", "config"),
+        AgentAction::new(
+            ActionType::Explore,
+            "Map the configuration space with spectral spiral",
+        )
+        .with_param("steps", explore_steps.to_string())
+        .with_param("mode", "config"),
     );
 
     let atom_name = format!("{}-core", domain);
     actions.push(
-        AgentAction::new(ActionType::ForgeAtom, format!("Synthesise atom '{}'", atom_name))
-            .with_param("atom_name", &atom_name)
-            .with_param("source", &goal.intent),
+        AgentAction::new(
+            ActionType::ForgeAtom,
+            format!("Synthesise atom '{}'", atom_name),
+        )
+        .with_param("atom_name", &atom_name)
+        .with_param("source", &goal.intent),
     );
 
     for (i, constraint) in goal.constraints.iter().enumerate().take(3) {
@@ -237,26 +249,41 @@ fn plan_from_goal(goal: &AgentGoal, config: &AgentConfig) -> AgentPlan {
     }
     if goal.constraints.is_empty() {
         actions.push(
-            AgentAction::new(ActionType::ValidateConstraint, "Validate core quality constraint")
-                .with_param("constraint_id", "C-01")
-                .with_param("constraint", "resonance >= confidence_target"),
+            AgentAction::new(
+                ActionType::ValidateConstraint,
+                "Validate core quality constraint",
+            )
+            .with_param("constraint_id", "C-01")
+            .with_param("constraint", "resonance >= confidence_target"),
         );
     }
 
     actions.push(
-        AgentAction::new(ActionType::Adapt, "Adapt synthesis parameters based on resonance feedback")
-            .with_param("threshold", goal.confidence_target.to_string()),
+        AgentAction::new(
+            ActionType::Adapt,
+            "Adapt synthesis parameters based on resonance feedback",
+        )
+        .with_param("threshold", goal.confidence_target.to_string()),
     );
 
     actions.push(
-        AgentAction::new(ActionType::Synthesize, format!("Compose final output for '{}'", domain))
-            .with_param("target", &domain)
-            .with_param("atom", &atom_name),
+        AgentAction::new(
+            ActionType::Synthesize,
+            format!("Compose final output for '{}'", domain),
+        )
+        .with_param("target", &domain)
+        .with_param("atom", &atom_name),
     );
 
-    actions.push(AgentAction::new(ActionType::Complete, "Goal complete — record crystal signature"));
+    actions.push(AgentAction::new(
+        ActionType::Complete,
+        "Goal complete — record crystal signature",
+    ));
 
-    AgentPlan { actions, current_idx: 0 }
+    AgentPlan {
+        actions,
+        current_idx: 0,
+    }
 }
 
 /// Deterministic mock resonance per action type.
@@ -288,10 +315,17 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(config: AgentConfig, goal: AgentGoal) -> Self {
-        let effective_seed = if config.seed == 0 { goal.intent_hash() } else { config.seed };
+        let effective_seed = if config.seed == 0 {
+            goal.intent_hash()
+        } else {
+            config.seed
+        };
         let plan = plan_from_goal(&goal, &config);
         Self {
-            config: AgentConfig { seed: effective_seed, ..config },
+            config: AgentConfig {
+                seed: effective_seed,
+                ..config
+            },
             goal,
             plan,
             history: Vec::new(),
@@ -322,25 +356,44 @@ impl Agent {
 
         let outcome = match &action.action_type {
             ActionType::Explore => {
-                let steps = action.parameters.get("steps")
+                let steps = action
+                    .parameters
+                    .get("steps")
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(10);
                 format!("Explored {} points; resonance={:.4}", steps, score)
             }
             ActionType::ForgeAtom => {
-                let atom = action.parameters.get("atom_name").map(|s| s.as_str()).unwrap_or("atom");
+                let atom = action
+                    .parameters
+                    .get("atom_name")
+                    .map(|s| s.as_str())
+                    .unwrap_or("atom");
                 format!("Atom '{}' synthesised; score={:.4}", atom, score)
             }
             ActionType::ValidateConstraint => {
-                let cid = action.parameters.get("constraint_id").map(|s| s.as_str()).unwrap_or("?");
+                let cid = action
+                    .parameters
+                    .get("constraint_id")
+                    .map(|s| s.as_str())
+                    .unwrap_or("?");
                 let pass = score >= self.goal.confidence_target;
-                format!("{} {} (score={:.4})", cid, if pass { "PASS" } else { "WARN" }, score)
+                format!(
+                    "{} {} (score={:.4})",
+                    cid,
+                    if pass { "PASS" } else { "WARN" },
+                    score
+                )
             }
             ActionType::Adapt => {
                 format!("Parameters adapted; new_score_est={:.4}", score)
             }
             ActionType::Synthesize => {
-                let target = action.parameters.get("target").map(|s| s.as_str()).unwrap_or("output");
+                let target = action
+                    .parameters
+                    .get("target")
+                    .map(|s| s.as_str())
+                    .unwrap_or("output");
                 format!("Synthesis complete for '{}'; quality={:.4}", target, score)
             }
             ActionType::Complete => {
@@ -383,7 +436,10 @@ pub struct SwarmMember {
 
 impl SwarmMember {
     fn new(member_id: usize, config: AgentConfig, goal: AgentGoal) -> Self {
-        Self { member_id, agent: Agent::new(config, goal) }
+        Self {
+            member_id,
+            agent: Agent::new(config, goal),
+        }
     }
 
     fn step(&mut self) -> Option<AgentStep> {
@@ -442,7 +498,13 @@ impl Swarm {
             })
             .collect();
 
-        Self { policy, goal, members, rounds_run: 0, complete: false }
+        Self {
+            policy,
+            goal,
+            members,
+            rounds_run: 0,
+            complete: false,
+        }
     }
 
     /// Execute one round:
@@ -492,7 +554,12 @@ impl Swarm {
             self.complete = true;
         }
 
-        SwarmRound { round_id, member_steps, consensus: vote, drill_summary }
+        SwarmRound {
+            round_id,
+            member_steps,
+            consensus: vote,
+            drill_summary,
+        }
     }
 
     /// Run until consensus is reached or `max_rounds` is exhausted.
@@ -711,7 +778,10 @@ mod tests {
     // AT-SW15: Zero-size swarm produces empty report without panic
     #[test]
     fn at_sw15_zero_size_swarm() {
-        let policy = SwarmPolicy { size: 0, ..default_policy() };
+        let policy = SwarmPolicy {
+            size: 0,
+            ..default_policy()
+        };
         let mut swarm = Swarm::new(policy, default_goal());
         let report = swarm.run();
         assert_eq!(report.swarm_size, 0);
@@ -721,7 +791,10 @@ mod tests {
     // AT-SW16: Single-member swarm behaves like a solo agent
     #[test]
     fn at_sw16_single_member_swarm() {
-        let policy = SwarmPolicy { size: 1, ..default_policy() };
+        let policy = SwarmPolicy {
+            size: 1,
+            ..default_policy()
+        };
         let mut swarm = Swarm::new(policy, default_goal());
         let report = swarm.run();
         assert_eq!(report.swarm_size, 1);
@@ -753,8 +826,10 @@ mod tests {
     fn at_sw19_no_drill_config_no_summary() {
         let mut swarm = Swarm::new(default_policy(), default_goal());
         let round = swarm.round();
-        assert!(round.drill_summary.is_none(),
-            "drill_summary should be None when drill_config is not set");
+        assert!(
+            round.drill_summary.is_none(),
+            "drill_summary should be None when drill_config is not set"
+        );
     }
 
     // AT-SW20: With drill_config set, drill_summary is Some in every round
@@ -766,8 +841,10 @@ mod tests {
         };
         let mut swarm = Swarm::new(policy, default_goal());
         let round = swarm.round();
-        assert!(round.drill_summary.is_some(),
-            "drill_summary should be Some when drill_config is set");
+        assert!(
+            round.drill_summary.is_some(),
+            "drill_summary should be Some when drill_config is set"
+        );
     }
 
     // AT-SW21: DrillSummary ticks_executed > 0
@@ -780,7 +857,10 @@ mod tests {
         let mut swarm = Swarm::new(policy, default_goal());
         let round = swarm.round();
         let ds = round.drill_summary.unwrap();
-        assert!(ds.ticks_executed > 0, "drill must execute at least one tick");
+        assert!(
+            ds.ticks_executed > 0,
+            "drill must execute at least one tick"
+        );
     }
 
     // AT-SW22: DrillSummary mean_quality is in [0, 1]
@@ -792,17 +872,24 @@ mod tests {
         };
         let mut swarm = Swarm::new(policy, default_goal());
         swarm.run(); // run all rounds
-        // Check every round's drill summary
-        // (re-run for inspection since run() consumes rounds internally)
+                     // Check every round's drill summary
+                     // (re-run for inspection since run() consumes rounds internally)
         let mut swarm2 = Swarm::new(
-            SwarmPolicy { drill_config: Some(drill_config()), ..default_policy() },
+            SwarmPolicy {
+                drill_config: Some(drill_config()),
+                ..default_policy()
+            },
             default_goal(),
         );
         let report = swarm2.run();
         for r in &report.rounds {
             if let Some(ds) = &r.drill_summary {
-                assert!(ds.mean_quality >= 0.0 && ds.mean_quality <= 1.0,
-                    "round {}: mean_quality {} out of [0,1]", r.round_id, ds.mean_quality);
+                assert!(
+                    ds.mean_quality >= 0.0 && ds.mean_quality <= 1.0,
+                    "round {}: mean_quality {} out of [0,1]",
+                    r.round_id,
+                    ds.mean_quality
+                );
             }
         }
     }
@@ -827,8 +914,10 @@ mod tests {
         let mut swarm = Swarm::new(policy, default_goal());
         let report = swarm.run();
         // With threshold=0.0 and non-trivial drill, consensus should be reached
-        assert!(report.consensus_reached,
-            "DrillBacked with threshold=0.0 should reach consensus");
+        assert!(
+            report.consensus_reached,
+            "DrillBacked with threshold=0.0 should reach consensus"
+        );
     }
 
     // AT-SW24: Drill determinism — same policy + goal → same DrillSummary each round
@@ -845,7 +934,10 @@ mod tests {
         let r2 = s2.round();
         let ds1 = r1.drill_summary.unwrap();
         let ds2 = r2.drill_summary.unwrap();
-        assert_eq!(ds1, ds2, "drill summary must be deterministic for same inputs");
+        assert_eq!(
+            ds1, ds2,
+            "drill summary must be deterministic for same inputs"
+        );
     }
 
     // AT-SW25: SwarmRound with drill serialises cleanly

@@ -19,9 +19,7 @@ use pse_core::GlobalState;
 use pse_graph::PassthroughAdapter;
 use pse_memory::{MemoryConfig, PatternMemory};
 use pse_metatron::build_catalog;
-use pse_types::{
-    ConstraintProgram, MetatronTopologySignature, SemanticCrystal, TopologySignature,
-};
+use pse_types::{ConstraintProgram, MetatronTopologySignature, SemanticCrystal, TopologySignature};
 
 fn main() {
     println!("# PSE Strand-O Empirical Evaluation");
@@ -84,8 +82,14 @@ fn h1_carrier_ladder_comparison() {
 
     println!("| Ladder | n carriers | Mean κ | Max κ | Std κ |");
     println!("|--------|-----------|--------|-------|-------|");
-    println!("| **arbitrary 4-ladder** | 4 | {:.4} | {:.4} | {:.4} |", m_l, max_l, sd_l);
-    println!("| **Metatron 13-ladder** | 13 | {:.4} | {:.4} | {:.4} |", m_m, max_m, sd_m);
+    println!(
+        "| **arbitrary 4-ladder** | 4 | {:.4} | {:.4} | {:.4} |",
+        m_l, max_l, sd_l
+    );
+    println!(
+        "| **Metatron 13-ladder** | 13 | {:.4} | {:.4} | {:.4} |",
+        m_m, max_m, sd_m
+    );
     println!();
     if m_m > m_l + 1e-9 {
         println!(
@@ -93,7 +97,9 @@ fn h1_carrier_ladder_comparison() {
              Mandorla coherence ({:.4} vs {:.4}, Δ = {:+.4}). The 13-direction \
              vector-equilibrium coverage finds higher-resonance carriers more \
              often than an arbitrary 4-direction setup.",
-            m_m, m_l, m_m - m_l
+            m_m,
+            m_l,
+            m_m - m_l
         );
     } else if (m_m - m_l).abs() < 1e-9 {
         println!(
@@ -161,7 +167,10 @@ fn h2_canonical_vs_cosine_recognition() {
 
     println!("| Recognition channel | Hits / 3 probes |");
     println!("|--------------------|-----------------|");
-    println!("| **canonical (Metatron canonical_hash)** | {} |", canonical_hits);
+    println!(
+        "| **canonical (Metatron canonical_hash)** | {} |",
+        canonical_hits
+    );
     println!("| **cosine-similarity fallback** | {} |", cosine_hits);
     println!();
     if canonical_hits > cosine_hits {
@@ -300,7 +309,11 @@ fn h3_platonic_symmetry_correlation() {
     let report = |name: &str, with: &[u64], without: &[u64]| -> f64 {
         let gm_with = geo_mean(with);
         let gm_without = geo_mean(without);
-        let ratio = if gm_without > 0.0 { gm_with / gm_without } else { 0.0 };
+        let ratio = if gm_without > 0.0 {
+            gm_with / gm_without
+        } else {
+            0.0
+        };
         println!(
             "| **{}** | {} | {:.3} | {:.3} | {:.3}× |",
             name,

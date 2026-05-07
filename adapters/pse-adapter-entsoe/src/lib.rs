@@ -304,7 +304,9 @@ pub fn embedded_grid_data() -> Vec<GridObservation> {
     let mut observations = Vec::with_capacity(96 * 4);
     let mut rng: u64 = 73;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
 
@@ -370,11 +372,7 @@ pub fn embedded_grid_data() -> Vec<GridObservation> {
 }
 
 /// Describe a crystal in human-readable form based on grid context.
-pub fn describe_crystal(
-    crystal: &pse_types::SemanticCrystal,
-    area: &str,
-    tick: u64,
-) -> String {
+pub fn describe_crystal(crystal: &pse_types::SemanticCrystal, area: &str, tick: u64) -> String {
     format!(
         "{}: grid pattern at tick {}, stability={:.4}, region={} vertices, coherence={:.2}",
         area,

@@ -74,8 +74,11 @@ pub struct ComplianceMapping {
 
 /// Verify a single crystal's evidence chain integrity.
 pub fn verify_crystal(crystal: &SemanticCrystal) -> AuditedCrystal {
-    let crystal_id: String = crystal.crystal_id.iter()
-        .map(|b| format!("{:02x}", b)).collect();
+    let crystal_id: String = crystal
+        .crystal_id
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
 
     // Verify evidence chain linkage
     let evidence_verified = if crystal.evidence_chain.is_empty() {
@@ -135,19 +138,23 @@ pub fn generate_audit_report(crystals: &[SemanticCrystal], total_observations: u
     let compliance = ComplianceMapping {
         eu_ai_act_article_9: format!(
             "COMPLIANT: PSE provides severity classification on all detected patterns. \
-             {} crystals with adversarial cascade validation.", crystals.len()
+             {} crystals with adversarial cascade validation.",
+            crystals.len()
         ),
         eu_ai_act_article_12: format!(
             "COMPLIANT: Evidence chains provide automatic logging for all {} crystals. \
-             Each crystal contains SHA-256 hash-linked evidence entries.", crystals.len()
+             Each crystal contains SHA-256 hash-linked evidence entries.",
+            crystals.len()
         ),
         eu_ai_act_article_14: format!(
             "COMPLIANT: All crystal descriptions are human-readable. \
-             {} crystals can be inspected and understood by domain experts.", crystals.len()
+             {} crystals can be inspected and understood by domain experts.",
+            crystals.len()
         ),
         eu_ai_act_article_17: format!(
             "COMPLIANT: Adversarial dual-consensus cascade provides quality gates. \
-             All {} crystals passed primal and dual validation paths.", crystals.len()
+             All {} crystals passed primal and dual validation paths.",
+            crystals.len()
         ),
     };
 
@@ -171,10 +178,19 @@ pub fn print_summary(report: &AuditReport) {
     println!("Total Crystals: {}", report.total_crystals);
     println!();
     println!("--- Integrity ---");
-    println!("  Evidence chains valid: {}", report.integrity_check.all_chains_valid);
-    println!("  Content hashes match: {}", report.integrity_check.all_hashes_match);
+    println!(
+        "  Evidence chains valid: {}",
+        report.integrity_check.all_chains_valid
+    );
+    println!(
+        "  Content hashes match: {}",
+        report.integrity_check.all_hashes_match
+    );
     if !report.integrity_check.broken_chains.is_empty() {
-        println!("  BROKEN CHAINS: {:?}", report.integrity_check.broken_chains);
+        println!(
+            "  BROKEN CHAINS: {:?}",
+            report.integrity_check.broken_chains
+        );
     }
     if !report.integrity_check.tampered_crystals.is_empty() {
         println!("  TAMPERED: {:?}", report.integrity_check.tampered_crystals);
@@ -182,16 +198,37 @@ pub fn print_summary(report: &AuditReport) {
     println!();
     println!("--- Crystals ---");
     for c in &report.crystals {
-        println!("  {} tick={} evidence={} stability={:.4} region={}",
-            &c.crystal_id[..16.min(c.crystal_id.len())], c.created_at,
-            c.evidence_chain_length, c.stability_score, c.region_size);
+        println!(
+            "  {} tick={} evidence={} stability={:.4} region={}",
+            &c.crystal_id[..16.min(c.crystal_id.len())],
+            c.created_at,
+            c.evidence_chain_length,
+            c.stability_score,
+            c.region_size
+        );
     }
     println!();
     println!("--- EU AI Act Compliance ---");
-    println!("  Art. 9  (Risk):    {}", &report.compliance.eu_ai_act_article_9[..60.min(report.compliance.eu_ai_act_article_9.len())]);
-    println!("  Art. 12 (Logging): {}", &report.compliance.eu_ai_act_article_12[..60.min(report.compliance.eu_ai_act_article_12.len())]);
-    println!("  Art. 14 (Human):   {}", &report.compliance.eu_ai_act_article_14[..60.min(report.compliance.eu_ai_act_article_14.len())]);
-    println!("  Art. 17 (Quality): {}", &report.compliance.eu_ai_act_article_17[..60.min(report.compliance.eu_ai_act_article_17.len())]);
+    println!(
+        "  Art. 9  (Risk):    {}",
+        &report.compliance.eu_ai_act_article_9
+            [..60.min(report.compliance.eu_ai_act_article_9.len())]
+    );
+    println!(
+        "  Art. 12 (Logging): {}",
+        &report.compliance.eu_ai_act_article_12
+            [..60.min(report.compliance.eu_ai_act_article_12.len())]
+    );
+    println!(
+        "  Art. 14 (Human):   {}",
+        &report.compliance.eu_ai_act_article_14
+            [..60.min(report.compliance.eu_ai_act_article_14.len())]
+    );
+    println!(
+        "  Art. 17 (Quality): {}",
+        &report.compliance.eu_ai_act_article_17
+            [..60.min(report.compliance.eu_ai_act_article_17.len())]
+    );
 }
 
 #[cfg(test)]

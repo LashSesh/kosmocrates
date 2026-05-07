@@ -71,7 +71,11 @@ pub fn detect(values: &[f64], config: &StlZscoreConfig) -> Vec<Detection> {
     }
 
     let trend = trailing_moving_average(values, config.trend_window);
-    let residuals: Vec<f64> = values.iter().zip(trend.iter()).map(|(v, t)| v - t).collect();
+    let residuals: Vec<f64> = values
+        .iter()
+        .zip(trend.iter())
+        .map(|(v, t)| v - t)
+        .collect();
 
     // Detection loop starts past the warm-up. Earlier indices either have
     // a truncated trend window or insufficient residual history for the
@@ -142,7 +146,11 @@ mod tests {
         };
         let v = vec![1.0_f64; 100];
         let det = detect(&v, &cfg);
-        assert!(det.is_empty(), "flat signal must not trigger; got {:?}", det);
+        assert!(
+            det.is_empty(),
+            "flat signal must not trigger; got {:?}",
+            det
+        );
     }
 
     #[test]
@@ -179,7 +187,11 @@ mod tests {
         };
         let v: Vec<f64> = (0..200).map(|i| 0.5 * i as f64).collect();
         let det = detect(&v, &cfg);
-        assert!(det.is_empty(), "pure linear trend leaked detections: {:?}", det);
+        assert!(
+            det.is_empty(),
+            "pure linear trend leaked detections: {:?}",
+            det
+        );
     }
 
     #[test]
@@ -195,7 +207,11 @@ mod tests {
         v[60] = 1.0e6;
         let det = detect(&v, &cfg);
         for d in &det {
-            assert!((0.0..=1.0).contains(&d.score), "score out of range: {:?}", d);
+            assert!(
+                (0.0..=1.0).contains(&d.score),
+                "score out of range: {:?}",
+                d
+            );
         }
     }
 }

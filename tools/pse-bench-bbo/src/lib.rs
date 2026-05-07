@@ -95,8 +95,7 @@ pub fn run_optimization<'f, O: Optimizer<'f>>(
     }
 
     let final_t = budget.saturating_sub(1);
-    let final_simple_regret =
-        (best_value - function.f_min_at(final_t)).max(0.0);
+    let final_simple_regret = (best_value - function.f_min_at(final_t)).max(0.0);
     Trajectory {
         optimizer: optimizer.name().to_string(),
         function: function.name().to_string(),

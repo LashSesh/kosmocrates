@@ -246,17 +246,25 @@ pub fn build_operator_from_dof_graph(
     let mut directed_edges: Vec<WeightedDirectedEdge> = Vec::new();
     for i in 0..n {
         for j in (i + 1)..n {
-            let fwd = graph.edges.iter().filter(|e| {
-                node_idx.get(&e.from) == Some(&i) && node_idx.get(&e.to) == Some(&j)
-            }).count();
-            let bwd = graph.edges.iter().filter(|e| {
-                node_idx.get(&e.from) == Some(&j) && node_idx.get(&e.to) == Some(&i)
-            }).count();
+            let fwd = graph
+                .edges
+                .iter()
+                .filter(|e| node_idx.get(&e.from) == Some(&i) && node_idx.get(&e.to) == Some(&j))
+                .count();
+            let bwd = graph
+                .edges
+                .iter()
+                .filter(|e| node_idx.get(&e.from) == Some(&j) && node_idx.get(&e.to) == Some(&i))
+                .count();
             if fwd != bwd {
                 let net = fwd as f64 - bwd as f64;
                 let weight = SignatureValue::quantize(net, scale)
                     .unwrap_or_else(|_| SignatureValue::zero(scale));
-                directed_edges.push(WeightedDirectedEdge { from: i, to: j, weight });
+                directed_edges.push(WeightedDirectedEdge {
+                    from: i,
+                    to: j,
+                    weight,
+                });
             }
         }
     }
@@ -303,7 +311,10 @@ pub fn build_operator_from_dof_graph(
     );
     parameters.insert(
         "quantization_scale".into(),
-        SignatureValue { mantissa: config.quantization_scale as i64, scale: 0 },
+        SignatureValue {
+            mantissa: config.quantization_scale as i64,
+            scale: 0,
+        },
     );
 
     // Collect evidence refs from all nodes.
@@ -347,8 +358,8 @@ mod tests {
     use crate::dof::DoFGraph;
     use crate::field_cube::{DefaultFieldCubeBuilder, FieldCubeBuilder};
     use crate::spec::{
-        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec,
-        OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
+        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec, OutputSpec,
+        ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
     };
 
     fn minimal_spec() -> ProblemSpec {
@@ -373,7 +384,10 @@ mod tests {
                 required: true,
                 source: DimensionSource::User,
             }],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "y".into() }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "y".into(),
+            }],
             risk_policy: RiskPolicy::default(),
             replay: ReplayPolicy::default(),
             metadata: BTreeMap::new(),
@@ -425,7 +439,8 @@ mod tests {
         for w in sym.windows(2) {
             assert!(
                 (w[0].u, w[0].v) <= (w[1].u, w[1].v),
-                "symmetric_edges not sorted: {:?}", sym
+                "symmetric_edges not sorted: {:?}",
+                sym
             );
         }
 
@@ -434,14 +449,19 @@ mod tests {
         for w in dir.windows(2) {
             assert!(
                 (w[0].from, w[0].to) <= (w[1].from, w[1].to),
-                "directed_edges not sorted: {:?}", dir
+                "directed_edges not sorted: {:?}",
+                dir
             );
         }
 
         // constraint_weights: sorted by node
         let cw = &op.matrix_profile.constraint_weights;
         for w in cw.windows(2) {
-            assert!(w[0].node <= w[1].node, "constraint_weights not sorted: {:?}", cw);
+            assert!(
+                w[0].node <= w[1].node,
+                "constraint_weights not sorted: {:?}",
+                cw
+            );
         }
     }
 }

@@ -90,7 +90,14 @@ fn has_subgraph_iso(
     }
     let mut mapping = vec![usize::MAX; platonic_n];
     let mut used = vec![false; input_n];
-    search(input_adj, platonic_edges, 0, platonic_n, &mut mapping, &mut used)
+    search(
+        input_adj,
+        platonic_edges,
+        0,
+        platonic_n,
+        &mut mapping,
+        &mut used,
+    )
 }
 
 fn search(
@@ -168,13 +175,12 @@ pub fn classify_platonic(embedded: &[Vec<f64>], n: usize) -> Vec<PlatonicClass> 
 
     let row = |name: &str, p_edges: &[(usize, usize)], p_n: usize| -> PlatonicClass {
         let is_sub = has_subgraph_iso(embedded, n, p_edges, p_n);
-        let is_iso =
-            is_sub && is_isomorphic_to_platonic(embedded, n, m, p_edges, p_n);
+        let is_iso = is_sub && is_isomorphic_to_platonic(embedded, n, m, p_edges, p_n);
         PlatonicClass {
             solid: name.into(),
             is_subgraph: is_sub,
             is_isomorphic: is_iso,
-            edge_coverage: if is_iso { 1.0 } else if is_sub { 1.0 } else { 0.0 },
+            edge_coverage: if is_sub { 1.0 } else { 0.0 },
         }
     };
 
@@ -246,8 +252,7 @@ mod tests {
     #[test]
     fn k4_is_tetrahedron() {
         let g =
-            InputGraph::from_edges(4, &[(1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)])
-                .unwrap();
+            InputGraph::from_edges(4, &[(1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)]).unwrap();
         let e = embed(&g);
         let classes = classify_platonic(&e, 4);
         let tet = classes.iter().find(|c| c.solid == "tetrahedron").unwrap();
@@ -257,8 +262,9 @@ mod tests {
 
     #[test]
     fn k5_contains_tetrahedron_but_is_not() {
-        let edges: Vec<(usize, usize)> =
-            (1..=5).flat_map(|i| ((i + 1)..=5).map(move |j| (i, j))).collect();
+        let edges: Vec<(usize, usize)> = (1..=5)
+            .flat_map(|i| ((i + 1)..=5).map(move |j| (i, j)))
+            .collect();
         let g = InputGraph::from_edges(5, &edges).unwrap();
         let e = embed(&g);
         let classes = classify_platonic(&e, 5);
@@ -270,9 +276,8 @@ mod tests {
     #[test]
     fn k333_is_not_octahedron() {
         // K_{3,3}: 3-3-bipartite, 9 edges — NOT the octahedron (K_{2,2,2}).
-        let edges: Vec<(usize, usize)> = (1..=3)
-            .flat_map(|i| (4..=6).map(move |j| (i, j)))
-            .collect();
+        let edges: Vec<(usize, usize)> =
+            (1..=3).flat_map(|i| (4..=6).map(move |j| (i, j))).collect();
         let g = InputGraph::from_edges(6, &edges).unwrap();
         let e = embed(&g);
         let classes = classify_platonic(&e, 6);

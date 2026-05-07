@@ -94,9 +94,15 @@ pub enum DimensionSource {
 pub enum ValueDomain {
     Boolean,
     Enum(Vec<String>),
-    Range { min: f64, max: f64, step: Option<f64> },
+    Range {
+        min: f64,
+        max: f64,
+        step: Option<f64>,
+    },
     Tree(Vec<TreeValue>),
-    External { resolver: String },
+    External {
+        resolver: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -128,13 +134,19 @@ pub struct ReplayPolicy {
 impl Default for RiskPolicy {
     fn default() -> Self {
         // Conservative defaults: fail-closed, no oracles.
-        Self { fail_closed: true, allow_oracle: false }
+        Self {
+            fail_closed: true,
+            allow_oracle: false,
+        }
     }
 }
 
 impl Default for ReplayPolicy {
     fn default() -> Self {
-        Self { seed: None, canonical: true }
+        Self {
+            seed: None,
+            canonical: true,
+        }
     }
 }
 
@@ -170,7 +182,10 @@ mod tests {
                 kind: "collapse_plan".into(),
             }],
             risk_policy: RiskPolicy::default(),
-            replay: ReplayPolicy { seed: Some(42), canonical: true },
+            replay: ReplayPolicy {
+                seed: Some(42),
+                canonical: true,
+            },
             metadata: BTreeMap::new(),
         }
     }

@@ -72,7 +72,14 @@ fn print_scenario_report(result: &ScenarioResult) {
     for (src, m) in &per_source {
         println!(
             "| `{}` | {} | {} | {} | {:.4} | {:.4} | {:.4} | {} |",
-            src, m.tp, m.fp, m.fn_, m.precision, m.recall, m.f1, fmt_auprc(m)
+            src,
+            m.tp,
+            m.fp,
+            m.fn_,
+            m.precision,
+            m.recall,
+            m.f1,
+            fmt_auprc(m)
         );
     }
     println!();

@@ -1,7 +1,8 @@
 //! Spectral signature derivation — PSE-TRAVERSE-SIGNATURE-01.
 //!
 //! Derives a [`Signature`] from a [`StructuralOperator`].  The default path
-//! (`MatrixProfileApprox`) uses the operator's pre-computed [`MatrixProfile`]
+//! (`MatrixProfileApprox`) uses the operator's pre-computed
+//! [`MatrixProfile`](crate::operator::MatrixProfile)
 //! diagonal and directed-edge weights directly.  For small graphs
 //! (n ≤ `n_exact_max`) the `ExactSmallMatrix` algorithm builds an explicit
 //! n×n Laplacian and runs an in-process Jacobi eigensolver.
@@ -177,8 +178,8 @@ pub fn derive_signature(
     }
 
     // ── Determine effective algorithm ─────────────────────────────────────────
-    let use_exact = matches!(config.algorithm, SignatureAlgorithm::ExactSmallMatrix)
-        && n <= config.n_exact_max;
+    let use_exact =
+        matches!(config.algorithm, SignatureAlgorithm::ExactSmallMatrix) && n <= config.n_exact_max;
 
     let values: Vec<SignatureValue> = if use_exact {
         // ── ExactSmallMatrix: build explicit Laplacian, run Jacobi ───────────
@@ -236,8 +237,8 @@ pub fn derive_signature(
     // Mean: sum of to_f64(), divided by count, quantised.
     let sum_f64: f64 = values.iter().map(|v| v.to_f64()).sum();
     let mean_f64 = if len > 0 { sum_f64 / len as f64 } else { 0.0 };
-    let mean_value = SignatureValue::quantize(mean_f64, scale)
-        .unwrap_or_else(|_| SignatureValue::zero(scale));
+    let mean_value =
+        SignatureValue::quantize(mean_f64, scale).unwrap_or_else(|_| SignatureValue::zero(scale));
 
     // Consecutive differences.
     let diffs: Vec<f64> = values
@@ -303,8 +304,8 @@ mod tests {
     use crate::field_cube::{DefaultFieldCubeBuilder, FieldCubeBuilder};
     use crate::operator::{build_operator_from_dof_graph, OperatorBuildConfig};
     use crate::spec::{
-        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec,
-        OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
+        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec, OutputSpec,
+        ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
     };
 
     fn minimal_spec() -> ProblemSpec {
@@ -329,7 +330,10 @@ mod tests {
                 required: true,
                 source: DimensionSource::User,
             }],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "y".into() }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "y".into(),
+            }],
             risk_policy: RiskPolicy::default(),
             replay: ReplayPolicy::default(),
             metadata: BTreeMap::new(),
@@ -361,7 +365,11 @@ mod tests {
     fn signature_quantization_is_stable() {
         // quantize(1.23456, 4) should give mantissa=12346.
         let sv = SignatureValue::quantize(1.23456, 4).unwrap();
-        assert_eq!(sv.mantissa, 12346, "expected mantissa 12346, got {}", sv.mantissa);
+        assert_eq!(
+            sv.mantissa, 12346,
+            "expected mantissa 12346, got {}",
+            sv.mantissa
+        );
         assert_eq!(sv.scale, 4);
     }
 

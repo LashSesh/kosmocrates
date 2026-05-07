@@ -3,8 +3,8 @@
 //! Provides replay verification by re-executing observation sequences
 //! and comparing crystal outputs against recorded manifests.
 
-use pse_types::{RunDescriptor, SemanticCrystal, Hash256, content_address};
-use serde::{Serialize, Deserialize};
+use pse_types::{content_address, Hash256, RunDescriptor, SemanticCrystal};
+use serde::{Deserialize, Serialize};
 
 /// Replay verification result.
 #[derive(Clone, Debug)]
@@ -23,7 +23,9 @@ pub fn verify_determinism(rd: &RunDescriptor) -> bool {
 
 /// Compare two crystal sequences for equality.
 pub fn compare_crystal_sequences(a: &[SemanticCrystal], b: &[SemanticCrystal]) -> ReplayResult {
-    let matches: Vec<bool> = a.iter().zip(b.iter())
+    let matches: Vec<bool> = a
+        .iter()
+        .zip(b.iter())
         .map(|(ca, cb)| ca.crystal_id == cb.crystal_id)
         .collect();
     let all_match = matches.iter().all(|m| *m) && a.len() == b.len();
@@ -45,8 +47,8 @@ pub struct ReplayPack {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use pse_types::Config;
+    use std::collections::BTreeMap;
 
     fn make_rd() -> RunDescriptor {
         RunDescriptor {

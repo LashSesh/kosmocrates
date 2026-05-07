@@ -60,7 +60,11 @@ pub fn run_navigator_optimization(
         SpectralSignature::new(psi, 1.0, 1.0)
     };
 
-    let nav_config = NavigatorConfig { dim: 2, seed, ..Default::default() };
+    let nav_config = NavigatorConfig {
+        dim: 2,
+        seed,
+        ..Default::default()
+    };
     let mut navigator = Navigator::new(nav_config, evaluator);
 
     let mut steps = Vec::with_capacity(budget);

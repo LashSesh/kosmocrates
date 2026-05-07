@@ -68,7 +68,9 @@ fn main() {
     );
     println!();
 
-    let mut report = AblationReport { scenarios: Vec::new() };
+    let mut report = AblationReport {
+        scenarios: Vec::new(),
+    };
 
     for (name, runner) in scenarios() {
         println!("## Scenario: `{}`", name);
@@ -85,11 +87,7 @@ fn main() {
         // First pass: collect rows and observe the source set.
         for &w in WINDOW_SIZES {
             let result = runner(&cfg, tolerance, w);
-            let by_source = metrics_by_source(
-                &result.ground_truth,
-                &result.detections,
-                tolerance,
-            );
+            let by_source = metrics_by_source(&result.ground_truth, &result.detections, tolerance);
             for src in by_source.keys() {
                 all_sources.insert(src.clone());
             }

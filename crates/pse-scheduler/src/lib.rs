@@ -46,9 +46,7 @@ pub fn compute_substeps(d: f64, f_friction: f64, s_shock: f64, config: &Schedule
     let range = (n_max - n_min) as f64;
 
     let pressure = match ScheduleStrategy::from_config(config) {
-        ScheduleStrategy::MaxPressure => {
-            d.max(f_friction).max(s_shock).clamp(0.0, 1.0)
-        }
+        ScheduleStrategy::MaxPressure => d.max(f_friction).max(s_shock).clamp(0.0, 1.0),
         ScheduleStrategy::Weighted { w_d, w_f, w_s } => {
             let total_w = w_d + w_f + w_s;
             if total_w <= 0.0 {
@@ -70,7 +68,12 @@ mod tests {
     use pse_types::SchedulerConfig;
 
     fn config_disabled() -> SchedulerConfig {
-        SchedulerConfig { enabled: false, n_min: 1, n_max: 10, ..SchedulerConfig::default() }
+        SchedulerConfig {
+            enabled: false,
+            n_min: 1,
+            n_max: 10,
+            ..SchedulerConfig::default()
+        }
     }
 
     fn config_max_pressure() -> SchedulerConfig {
@@ -117,7 +120,13 @@ mod tests {
         let cfg = config_max_pressure();
         for (d, f, s) in [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (0.5, 0.8, 0.2)] {
             let n = compute_substeps(d, f, s, &cfg);
-            assert!(n >= cfg.n_min && n <= cfg.n_max, "n={} out of [{}, {}]", n, cfg.n_min, cfg.n_max);
+            assert!(
+                n >= cfg.n_min && n <= cfg.n_max,
+                "n={} out of [{}, {}]",
+                n,
+                cfg.n_min,
+                cfg.n_max
+            );
         }
     }
 

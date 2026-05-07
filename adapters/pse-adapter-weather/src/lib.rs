@@ -231,7 +231,9 @@ pub async fn fetch_weather(
         let wind_speed_kmh = winds.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0);
         let pressure_hpa = pressures.get(i).and_then(|v| v.as_f64()).unwrap_or(1013.25);
         let precipitation_mm = precips.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let humidity_pct = humidities.and_then(|arr| arr.get(i)).and_then(|v| v.as_f64());
+        let humidity_pct = humidities
+            .and_then(|arr| arr.get(i))
+            .and_then(|v| v.as_f64());
 
         let reading = WeatherReading {
             station_id: station_id.to_string(),
@@ -408,11 +410,7 @@ pub fn embedded_weather_data() -> Vec<WeatherReading> {
 ///
 /// Formats crystal metadata including stability score, region size, and
 /// coherence into a single descriptive string.
-pub fn describe_crystal(
-    crystal: &pse_types::SemanticCrystal,
-    station: &str,
-    hour: u64,
-) -> String {
+pub fn describe_crystal(crystal: &pse_types::SemanticCrystal, station: &str, hour: u64) -> String {
     format!(
         "{}: pattern detected at hour {}, stability={:.4}, region={} vertices, confidence={:.2}",
         station,

@@ -5,12 +5,12 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use pse_capsule::{seal, open, CapsulePolicy};
-use pse_core::{macro_step, GlobalState, load_memory_from_crystals};
-use pse_memory::{PatternMemory, MemoryConfig, CrystalSignature};
+use pse_capsule::{open, seal, CapsulePolicy};
+use pse_core::{load_memory_from_crystals, macro_step, GlobalState};
 use pse_evidence::{verify_crystal, Archive};
 use pse_graph::{FastPassthroughAdapter, PassthroughAdapter, PersistentGraph};
 use pse_manifest::build_manifest;
+use pse_memory::{CrystalSignature, MemoryConfig, PatternMemory};
 use pse_navigator::{Navigator, NavigatorConfig, SpectralSignature};
 use pse_registry::{RegistryEntry, RegistryKind, RegistrySet};
 use pse_replay::compare_crystal_sequences;
@@ -18,9 +18,7 @@ use pse_swarm::{AgentGoal, ConsensusMode, Swarm, SwarmPolicy};
 use pse_topology::{
     compute_laplacian, init_kuramoto_state, kuramoto_step, spectral_decompose, TopologyConfig,
 };
-use pse_types::{
-    Config, FiveDState, RunDescriptor, SchedulerConfig, SemanticCrystal,
-};
+use pse_types::{Config, FiveDState, RunDescriptor, SchedulerConfig, SemanticCrystal};
 
 /// Collected benchmark result for JSON output.
 struct BenchResult {
@@ -205,7 +203,9 @@ fn build_topo_graph(n_nodes: usize, n_edges: usize) -> PersistentGraph {
 
     let mut rng: u64 = 42;
     let next = |r: &mut u64| -> u64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *r
     };
 
@@ -268,7 +268,11 @@ fn bench_b01a_observe_only() -> BenchResult {
         key: "B01a_observe_only",
         value: obs_per_sec,
         unit: "obs/sec",
-        detail: format!("{} obs, {} vertices", total_obs as u64, graph.graph.node_count()),
+        detail: format!(
+            "{} obs, {} vertices",
+            total_obs as u64,
+            graph.graph.node_count()
+        ),
     }
 }
 
@@ -305,8 +309,10 @@ fn bench_b02_crystal_serialization(crystals: &[SemanticCrystal]) -> BenchResult 
     if crystals.is_empty() {
         println!("B02 crystal_serialization: SKIPPED (no crystals produced)");
         return BenchResult {
-            key: "B02_crystal_serialization", value: 0.0,
-            unit: "µs/crystal", detail: "SKIPPED".into(),
+            key: "B02_crystal_serialization",
+            value: 0.0,
+            unit: "µs/crystal",
+            detail: "SKIPPED".into(),
         };
     }
 
@@ -324,8 +330,10 @@ fn bench_b02_crystal_serialization(crystals: &[SemanticCrystal]) -> BenchResult 
     println!("B02 crystal_serialization: {:.1} µs/crystal", us);
 
     BenchResult {
-        key: "B02_crystal_serialization", value: us,
-        unit: "µs/crystal", detail: format!("{} iterations", iterations),
+        key: "B02_crystal_serialization",
+        value: us,
+        unit: "µs/crystal",
+        detail: format!("{} iterations", iterations),
     }
 }
 
@@ -333,8 +341,10 @@ fn bench_b03_evidence_verification(crystals: &[SemanticCrystal]) -> BenchResult 
     if crystals.is_empty() {
         println!("B03 evidence_verification: SKIPPED (no crystals produced)");
         return BenchResult {
-            key: "B03_evidence_verification", value: 0.0,
-            unit: "µs/verify", detail: "SKIPPED".into(),
+            key: "B03_evidence_verification",
+            value: 0.0,
+            unit: "µs/verify",
+            detail: "SKIPPED".into(),
         };
     }
 
@@ -352,8 +362,10 @@ fn bench_b03_evidence_verification(crystals: &[SemanticCrystal]) -> BenchResult 
     println!("B03 evidence_verification: {:.1} µs/verify", us);
 
     BenchResult {
-        key: "B03_evidence_verification", value: us,
-        unit: "µs/verify", detail: format!("{} iterations", iterations),
+        key: "B03_evidence_verification",
+        value: us,
+        unit: "µs/verify",
+        detail: format!("{} iterations", iterations),
     }
 }
 
@@ -382,12 +394,16 @@ fn bench_b04_replay_speed() -> BenchResult {
 
     println!(
         "B04 replay_speed: {:.0} steps/sec ({} crystals in {:.2}s)",
-        steps_per_sec, crystal_count, elapsed.as_secs_f64()
+        steps_per_sec,
+        crystal_count,
+        elapsed.as_secs_f64()
     );
 
     BenchResult {
-        key: "B04_replay_speed", value: steps_per_sec,
-        unit: "steps/sec", detail: format!("{} crystals", crystal_count),
+        key: "B04_replay_speed",
+        value: steps_per_sec,
+        unit: "steps/sec",
+        detail: format!("{} crystals", crystal_count),
     }
 }
 
@@ -415,8 +431,11 @@ fn bench_b05_determinism() -> BenchResult {
         key: "B05_determinism_check",
         value: if result.deterministic { 1.0 } else { 0.0 },
         unit: "pass",
-        detail: format!("{} crystals, {}", result.crystal_count,
-            if result.deterministic { "PASS" } else { "FAIL" }),
+        detail: format!(
+            "{} crystals, {}",
+            result.crystal_count,
+            if result.deterministic { "PASS" } else { "FAIL" }
+        ),
     }
 }
 
@@ -438,8 +457,10 @@ fn bench_b06_laplacian(graph: &PersistentGraph) -> BenchResult {
     );
 
     BenchResult {
-        key: "B06_laplacian_computation", value: ms,
-        unit: "ms", detail: format!("n={}, rank={}", laplacian.n, decomp.truncation_rank),
+        key: "B06_laplacian_computation",
+        value: ms,
+        unit: "ms",
+        detail: format!("n={}, rank={}", laplacian.n, decomp.truncation_rank),
     }
 }
 
@@ -453,8 +474,16 @@ fn bench_b07_fiedler(graph: &PersistentGraph) -> BenchResult {
 
     let fiedler_len = decomp.fiedler_vector.len();
     let fiedler_range = if !decomp.fiedler_vector.is_empty() {
-        let min = decomp.fiedler_vector.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = decomp.fiedler_vector.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = decomp
+            .fiedler_vector
+            .iter()
+            .cloned()
+            .fold(f64::INFINITY, f64::min);
+        let max = decomp
+            .fiedler_vector
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
         max - min
     } else {
         0.0
@@ -466,8 +495,10 @@ fn bench_b07_fiedler(graph: &PersistentGraph) -> BenchResult {
     );
 
     BenchResult {
-        key: "B07_fiedler_vector", value: us,
-        unit: "µs", detail: format!("dim={}, range={:.4}", fiedler_len, fiedler_range),
+        key: "B07_fiedler_vector",
+        value: us,
+        unit: "µs",
+        detail: format!("dim={}, range={:.4}", fiedler_len, fiedler_range),
     }
 }
 
@@ -475,8 +506,10 @@ fn bench_b08_kuramoto(graph: &PersistentGraph) -> BenchResult {
     if graph.graph.node_count() < 2 {
         println!("B08 kuramoto_convergence: SKIPPED (graph too small)");
         return BenchResult {
-            key: "B08_kuramoto_convergence", value: 0.0,
-            unit: "ms", detail: "SKIPPED".into(),
+            key: "B08_kuramoto_convergence",
+            value: 0.0,
+            unit: "ms",
+            detail: "SKIPPED".into(),
         };
     }
 
@@ -491,11 +524,16 @@ fn bench_b08_kuramoto(graph: &PersistentGraph) -> BenchResult {
         kgraph.upsert_vertex(vid, 0.0);
         // ω ∈ [-1.0, 1.0], linearly spaced.  κ_c = 2b/π ≈ 0.64 for b=1.0.
         let omega = -1.0 + 2.0 * (i as f64 / n_nodes.max(1) as f64);
-        kgraph.embedding.insert(vid, FiveDState {
-            p: 0.0, rho: 0.0,
-            omega,
-            chi: 0.0, eta: 0.0,
-        });
+        kgraph.embedding.insert(
+            vid,
+            FiveDState {
+                p: 0.0,
+                rho: 0.0,
+                omega,
+                chi: 0.0,
+                eta: 0.0,
+            },
+        );
     }
     // Copy edges from the original graph
     for edge in graph.graph.raw_edges() {
@@ -538,10 +576,14 @@ fn bench_b08_kuramoto(graph: &PersistentGraph) -> BenchResult {
     }
 
     BenchResult {
-        key: "B08_kuramoto_convergence", value: ms,
+        key: "B08_kuramoto_convergence",
+        value: ms,
         unit: "ms",
-        detail: format!("{} ticks, r={:.4}",
-            converged_tick.unwrap_or(topo_config.kuramoto_steps), kstate.order_parameter),
+        detail: format!(
+            "{} ticks, r={:.4}",
+            converged_tick.unwrap_or(topo_config.kuramoto_steps),
+            kstate.order_parameter
+        ),
     }
 }
 
@@ -571,12 +613,16 @@ fn bench_b09_navigator_step() -> BenchResult {
 
     println!(
         "B09 navigator_step: {:.1} µs/step ({} steps, best_res={:.4})",
-        us_per_step, n_steps, navigator.spiral.best_resonance(),
+        us_per_step,
+        n_steps,
+        navigator.spiral.best_resonance(),
     );
 
     BenchResult {
-        key: "B09_navigator_step", value: us_per_step,
-        unit: "µs/step", detail: format!("{} steps", n_steps),
+        key: "B09_navigator_step",
+        value: us_per_step,
+        unit: "µs/step",
+        detail: format!("{} steps", n_steps),
     }
 }
 
@@ -596,13 +642,16 @@ fn bench_b10_constraint_propagation() -> BenchResult {
             let vid = (comp * vertices_per_component + v) as u64 + 1;
             graph.upsert_vertex(vid, 0.0);
             let phase = (comp as f64 * 0.3 + v as f64 * 0.1) % std::f64::consts::TAU;
-            graph.embedding.insert(vid, FiveDState {
-                p: comp as f64 / n_components as f64,
-                rho: 0.5 + 0.2 * phase.sin(),
-                omega: phase,
-                chi: v as f64 / vertices_per_component as f64,
-                eta: 0.1,
-            });
+            graph.embedding.insert(
+                vid,
+                FiveDState {
+                    p: comp as f64 / n_components as f64,
+                    rho: 0.5 + 0.2 * phase.sin(),
+                    omega: phase,
+                    chi: v as f64 / vertices_per_component as f64,
+                    eta: 0.1,
+                },
+            );
         }
         // Connect vertices within each component
         for v in 0..(vertices_per_component - 1) {
@@ -620,7 +669,7 @@ fn bench_b10_constraint_propagation() -> BenchResult {
         let mutations = pse_constraint::morphogenic_update(
             &mut graph,
             &mut morph,
-            &[],  // no crystals needed for pressure computation
+            &[], // no crystals needed for pressure computation
             &config.adaptation,
         );
         total_mutations += mutations.len();
@@ -639,8 +688,10 @@ fn bench_b10_constraint_propagation() -> BenchResult {
     );
 
     BenchResult {
-        key: "B10_constraint_propagation", value: us_per_comp,
-        unit: "µs/component", detail: format!("{:.0}% DoF=0, {} mutations", pct_zero, total_mutations),
+        key: "B10_constraint_propagation",
+        value: us_per_comp,
+        unit: "µs/component",
+        detail: format!("{:.0}% DoF=0, {} mutations", pct_zero, total_mutations),
     }
 }
 
@@ -683,8 +734,13 @@ fn bench_b11_memory_scaling() -> BenchResult {
     );
 
     BenchResult {
-        key: "B11_memory_scaling", value: ms,
-        unit: "ms", detail: format!("{} entities, {} obs, ~{} bytes", n_entities, total_obs, graph_mem),
+        key: "B11_memory_scaling",
+        value: ms,
+        unit: "ms",
+        detail: format!(
+            "{} entities, {} obs, ~{} bytes",
+            n_entities, total_obs, graph_mem
+        ),
     }
 }
 
@@ -739,8 +795,10 @@ fn bench_b12_capsule_roundtrip() -> BenchResult {
     println!("B12 capsule_roundtrip: {:.1} µs/roundtrip", us);
 
     BenchResult {
-        key: "B12_capsule_roundtrip", value: us,
-        unit: "µs/roundtrip", detail: format!("{} iterations", iterations),
+        key: "B12_capsule_roundtrip",
+        value: us,
+        unit: "µs/roundtrip",
+        detail: format!("{} iterations", iterations),
     }
 }
 
@@ -774,8 +832,10 @@ fn bench_b13_registry_lookup() -> BenchResult {
     println!("B13 registry_lookup: {:.1} µs/lookup ({} entries)", us, 100);
 
     BenchResult {
-        key: "B13_registry_lookup", value: us,
-        unit: "µs/lookup", detail: format!("100 entries, {} lookups", iterations),
+        key: "B13_registry_lookup",
+        value: us,
+        unit: "µs/lookup",
+        detail: format!("100 entries, {} lookups", iterations),
     }
 }
 
@@ -800,15 +860,17 @@ fn bench_b14_swarm_consensus() -> BenchResult {
     let ms = elapsed.as_secs_f64() * 1000.0;
     println!(
         "B14 swarm_consensus: {} members, {} rounds, {:.1} ms (consensus={}, resonance={:.4})",
-        report.swarm_size, report.rounds_run, ms,
-        report.consensus_reached, report.final_resonance,
+        report.swarm_size, report.rounds_run, ms, report.consensus_reached, report.final_resonance,
     );
 
     BenchResult {
-        key: "B14_swarm_consensus", value: ms,
+        key: "B14_swarm_consensus",
+        value: ms,
         unit: "ms",
-        detail: format!("{} members, {} rounds, consensus={}",
-            report.swarm_size, report.rounds_run, report.consensus_reached),
+        detail: format!(
+            "{} members, {} rounds, consensus={}",
+            report.swarm_size, report.rounds_run, report.consensus_reached
+        ),
     }
 }
 
@@ -872,39 +934,49 @@ fn bench_b15_full_macro_step() -> BenchResult {
     );
 
     BenchResult {
-        key: "B15_full_macro_step", value: us,
-        unit: "µs", detail: format!("{}, {} obs", crystal_str, n_entities),
+        key: "B15_full_macro_step",
+        value: us,
+        unit: "µs",
+        detail: format!("{}, {} obs", crystal_str, n_entities),
     }
 }
 
 // ─── Phase 4: Pattern Memory ────────────────────────────────────────────────
 
 fn build_test_signatures(n: usize) -> Vec<CrystalSignature> {
-    (0..n).map(|i| {
-        let f = i as f64 / n as f64;
-        CrystalSignature {
-            crystal_id: {
-                let mut id = [0u8; 32];
-                id[0] = (i & 0xff) as u8;
-                id[1] = ((i >> 8) & 0xff) as u8;
-                id
-            },
-            spectral: vec![
-                f * 2.0, (f * 3.0).sin(), f * 0.5 + 0.1, (f * 7.0).cos(),
-                (i % 5) as f64, (i % 3) as f64, 0.0, (i as f64 * 0.1).sin(),
-            ],
-            resonance: 0.3 + f * 0.4,
-            confidence: 0.5 + f * 0.3,
-            content_hash: {
-                let mut h = [0u8; 32];
-                h[0] = (i & 0xff) as u8;
-                h[1] = ((i >> 8) & 0xff) as u8;
-                h
-            },
-            tick_range: (i as u64, i as u64),
-            observation_count: 10 + i % 20,
-        }
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let f = i as f64 / n as f64;
+            CrystalSignature {
+                crystal_id: {
+                    let mut id = [0u8; 32];
+                    id[0] = (i & 0xff) as u8;
+                    id[1] = ((i >> 8) & 0xff) as u8;
+                    id
+                },
+                spectral: vec![
+                    f * 2.0,
+                    (f * 3.0).sin(),
+                    f * 0.5 + 0.1,
+                    (f * 7.0).cos(),
+                    (i % 5) as f64,
+                    (i % 3) as f64,
+                    0.0,
+                    (i as f64 * 0.1).sin(),
+                ],
+                resonance: 0.3 + f * 0.4,
+                confidence: 0.5 + f * 0.3,
+                content_hash: {
+                    let mut h = [0u8; 32];
+                    h[0] = (i & 0xff) as u8;
+                    h[1] = ((i >> 8) & 0xff) as u8;
+                    h
+                },
+                tick_range: (i as u64, i as u64),
+                observation_count: 10 + i % 20,
+            }
+        })
+        .collect()
 }
 
 fn bench_b16_memory_load() -> BenchResult {
@@ -925,8 +997,10 @@ fn bench_b16_memory_load() -> BenchResult {
     let ms = elapsed.as_millis() as f64;
     println!("B16 memory_load: {:.1} ms ({} signatures)", ms, mem.len());
     BenchResult {
-        key: "B16_memory_load", value: ms,
-        unit: "ms", detail: format!("{} signatures", mem.len()),
+        key: "B16_memory_load",
+        value: ms,
+        unit: "ms",
+        detail: format!("{} signatures", mem.len()),
     }
 }
 
@@ -946,11 +1020,15 @@ fn bench_b17_memory_lookup() -> BenchResult {
     }
     let elapsed = start.elapsed();
     let us_per = elapsed.as_micros() as f64 / lookups as f64;
-    println!("B17 memory_lookup: {:.2} µs/lookup ({} lookups vs {} signatures)",
-        us_per, lookups, n);
+    println!(
+        "B17 memory_lookup: {:.2} µs/lookup ({} lookups vs {} signatures)",
+        us_per, lookups, n
+    );
     BenchResult {
-        key: "B17_memory_lookup", value: us_per,
-        unit: "µs/lookup", detail: format!("{} lookups vs {} sigs", lookups, n),
+        key: "B17_memory_lookup",
+        value: us_per,
+        unit: "µs/lookup",
+        detail: format!("{} lookups vs {} sigs", lookups, n),
     }
 }
 
@@ -963,10 +1041,15 @@ fn bench_b18_memory_insert() -> BenchResult {
     }
     let elapsed = start.elapsed();
     let us_per = elapsed.as_micros() as f64 / 1000.0;
-    println!("B18 memory_insert: {:.2} µs/insert ({} inserts)", us_per, 1000);
+    println!(
+        "B18 memory_insert: {:.2} µs/insert ({} inserts)",
+        us_per, 1000
+    );
     BenchResult {
-        key: "B18_memory_insert", value: us_per,
-        unit: "µs/insert", detail: format!("{} inserts", 1000),
+        key: "B18_memory_insert",
+        value: us_per,
+        unit: "µs/insert",
+        detail: format!("{} inserts", 1000),
     }
 }
 
@@ -980,13 +1063,16 @@ fn bench_b19_cross_session() -> BenchResult {
     let mut state1 = GlobalState::new(&config);
     let start1 = Instant::now();
     for tick in 0..n_ticks {
-        let batch = (0..n_entities).map(|e| {
-            serde_json::to_vec(&serde_json::json!({
-                "entity": format!("s_{:03}", e),
-                "value": ((tick as f64 * 0.1) + (e as f64 * 0.2)).sin(),
-                "tick": tick,
-            })).unwrap()
-        }).collect::<Vec<_>>();
+        let batch = (0..n_entities)
+            .map(|e| {
+                serde_json::to_vec(&serde_json::json!({
+                    "entity": format!("s_{:03}", e),
+                    "value": ((tick as f64 * 0.1) + (e as f64 * 0.2)).sin(),
+                    "tick": tick,
+                }))
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
         let _ = macro_step(&mut state1, &batch, &config, &adapter);
     }
     let time1 = start1.elapsed();
@@ -997,26 +1083,44 @@ fn bench_b19_cross_session() -> BenchResult {
     load_memory_from_crystals(&mut state2, &crystals1);
     let start2 = Instant::now();
     for tick in 0..n_ticks {
-        let batch = (0..n_entities).map(|e| {
-            serde_json::to_vec(&serde_json::json!({
-                "entity": format!("s_{:03}", e),
-                "value": ((tick as f64 * 0.1) + (e as f64 * 0.2)).sin(),
-                "tick": tick,
-            })).unwrap()
-        }).collect::<Vec<_>>();
+        let batch = (0..n_entities)
+            .map(|e| {
+                serde_json::to_vec(&serde_json::json!({
+                    "entity": format!("s_{:03}", e),
+                    "value": ((tick as f64 * 0.1) + (e as f64 * 0.2)).sin(),
+                    "tick": tick,
+                }))
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
         let _ = macro_step(&mut state2, &batch, &config, &adapter);
     }
     let time2 = start2.elapsed();
 
     let speedup = if time1.as_nanos() > 0 {
-        ((time1.as_nanos() as f64 - time2.as_nanos() as f64) / time1.as_nanos() as f64 * 100.0).max(0.0)
-    } else { 0.0 };
+        ((time1.as_nanos() as f64 - time2.as_nanos() as f64) / time1.as_nanos() as f64 * 100.0)
+            .max(0.0)
+    } else {
+        0.0
+    };
 
-    println!("B19 cross_session: {:.0}% faster (session1={:.0}ms, session2={:.0}ms, mem={})",
-        speedup, time1.as_millis(), time2.as_millis(), crystals1.len());
+    println!(
+        "B19 cross_session: {:.0}% faster (session1={:.0}ms, session2={:.0}ms, mem={})",
+        speedup,
+        time1.as_millis(),
+        time2.as_millis(),
+        crystals1.len()
+    );
     BenchResult {
-        key: "B19_cross_session", value: speedup,
-        unit: "%_faster", detail: format!("s1={:.0}ms s2={:.0}ms mem={}", time1.as_millis(), time2.as_millis(), crystals1.len()),
+        key: "B19_cross_session",
+        value: speedup,
+        unit: "%_faster",
+        detail: format!(
+            "s1={:.0}ms s2={:.0}ms mem={}",
+            time1.as_millis(),
+            time2.as_millis(),
+            crystals1.len()
+        ),
     }
 }
 
@@ -1026,7 +1130,12 @@ fn bench_b19_cross_session() -> BenchResult {
 
 fn bench_b20_triton_step() -> BenchResult {
     use pse_navigator::{NavigatorConfig, TritonNavigator};
-    let config = NavigatorConfig { dim: 3, k: 3, seed: 42, ..Default::default() };
+    let config = NavigatorConfig {
+        dim: 3,
+        k: 3,
+        seed: 42,
+        ..Default::default()
+    };
     let mut nav = TritonNavigator::new(config, |params: &[f64]| {
         let r = params.iter().sum::<f64>() / params.len() as f64;
         SpectralSignature::new(r, r, r)
@@ -1039,32 +1148,46 @@ fn bench_b20_triton_step() -> BenchResult {
     }
     let elapsed = start.elapsed();
     let us_per = elapsed.as_micros() as f64 / n as f64;
-    println!("B20 triton_step:         {:.1} µs/step ({} steps)", us_per, n);
+    println!(
+        "B20 triton_step:         {:.1} µs/step ({} steps)",
+        us_per, n
+    );
     BenchResult {
-        key: "B20_triton_step", value: us_per,
-        unit: "µs/step", detail: format!("{} steps, {} singularities", n, nav.singularity_count()),
+        key: "B20_triton_step",
+        value: us_per,
+        unit: "µs/step",
+        detail: format!("{} steps, {} singularities", n, nav.singularity_count()),
     }
 }
 
 fn bench_b21_simplex_triangulate() -> BenchResult {
-    use pse_navigator::{SimplexMesh};
+    use pse_navigator::SimplexMesh;
     let mut mesh = SimplexMesh::new();
     let sig = SpectralSignature::new(0.5, 0.5, 0.5);
     let n = 500;
     let start = Instant::now();
     for i in 0..n {
-        let v = mesh.add_vertex(&[
-            (i as f64 * 0.1).sin(),
-            (i as f64 * 0.15).cos(),
-        ], &sig);
+        let v = mesh.add_vertex(&[(i as f64 * 0.1).sin(), (i as f64 * 0.15).cos()], &sig);
         mesh.incremental_triangulate(v, 4);
     }
     let elapsed = start.elapsed();
     let us = elapsed.as_micros() as f64;
-    println!("B21 simplex_triangulate: {:.1} µs ({} vertices, {} edges)", us, mesh.vertex_count(), mesh.edges.len());
+    println!(
+        "B21 simplex_triangulate: {:.1} µs ({} vertices, {} edges)",
+        us,
+        mesh.vertex_count(),
+        mesh.edges.len()
+    );
     BenchResult {
-        key: "B21_simplex_triangulate", value: us,
-        unit: "µs", detail: format!("{} vertices, {} edges, {} simplices", n, mesh.edges.len(), mesh.simplices.len()),
+        key: "B21_simplex_triangulate",
+        value: us,
+        unit: "µs",
+        detail: format!(
+            "{} vertices, {} edges, {} simplices",
+            n,
+            mesh.edges.len(),
+            mesh.simplices.len()
+        ),
     }
 }
 
@@ -1084,10 +1207,15 @@ fn bench_b22_betti_computation() -> BenchResult {
     }
     let elapsed = start.elapsed();
     let us_per = elapsed.as_micros() as f64 / n as f64;
-    println!("B22 betti_computation:   {:.1} µs/call (500-vertex mesh)", us_per);
+    println!(
+        "B22 betti_computation:   {:.1} µs/call (500-vertex mesh)",
+        us_per
+    );
     BenchResult {
-        key: "B22_betti_computation", value: us_per,
-        unit: "µs/call", detail: format!("500 vertices, {} calls", n),
+        key: "B22_betti_computation",
+        value: us_per,
+        unit: "µs/call",
+        detail: format!("500 vertices, {} calls", n),
     }
 }
 
@@ -1107,10 +1235,15 @@ fn bench_b23_singularity_scan() -> BenchResult {
     }
     let elapsed = start.elapsed();
     let us_per = elapsed.as_micros() as f64 / n as f64;
-    println!("B23 singularity_scan:    {:.1} µs/call (100-vertex mesh)", us_per);
+    println!(
+        "B23 singularity_scan:    {:.1} µs/call (100-vertex mesh)",
+        us_per
+    );
     BenchResult {
-        key: "B23_singularity_scan", value: us_per,
-        unit: "µs/call", detail: format!("100 vertices, {} calls", n),
+        key: "B23_singularity_scan",
+        value: us_per,
+        unit: "µs/call",
+        detail: format!("100 vertices, {} calls", n),
     }
 }
 
@@ -1139,10 +1272,15 @@ fn bench_b24_swarm_propagate() -> BenchResult {
         constraint_program: Vec::new(),
         stability_score: 0.9,
         topology_signature: pse_types::TopologySignature {
-            betti_0: 1, betti_1: 0, betti_2: 0,
-            spectral_gap: 0.5, euler_char: 1,
-            cheeger_estimate: 0.3, kuramoto_coherence: 0.8,
-            mean_propagation_time: 1.0, dtl_connected: true,
+            betti_0: 1,
+            betti_1: 0,
+            betti_2: 0,
+            spectral_gap: 0.5,
+            euler_char: 1,
+            cheeger_estimate: 0.3,
+            kuramoto_coherence: 0.8,
+            mean_propagation_time: 1.0,
+            dtl_connected: true,
         },
         betti_numbers: vec![1, 0, 0],
         evidence_chain: Vec::new(),
@@ -1170,10 +1308,15 @@ fn bench_b24_swarm_propagate() -> BenchResult {
     node1.stop();
     node2.stop();
 
-    println!("B24 swarm_propagate:     {:.1} µs/propagation ({} iterations)", us_per, n);
+    println!(
+        "B24 swarm_propagate:     {:.1} µs/propagation ({} iterations)",
+        us_per, n
+    );
     BenchResult {
-        key: "B24_swarm_propagate", value: us_per,
-        unit: "µs/propagation", detail: format!("{} propagations to 1 peer", n),
+        key: "B24_swarm_propagate",
+        value: us_per,
+        unit: "µs/propagation",
+        detail: format!("{} propagations to 1 peer", n),
     }
 }
 
@@ -1189,10 +1332,15 @@ fn bench_b25_swarm_accept() -> BenchResult {
             constraint_program: Vec::new(),
             stability_score: 0.9,
             topology_signature: pse_types::TopologySignature {
-                betti_0: 1, betti_1: 0, betti_2: 0,
-                spectral_gap: gap, euler_char: 1,
-                cheeger_estimate: 0.3, kuramoto_coherence: 0.8,
-                mean_propagation_time: 1.0, dtl_connected: true,
+                betti_0: 1,
+                betti_1: 0,
+                betti_2: 0,
+                spectral_gap: gap,
+                euler_char: 1,
+                cheeger_estimate: 0.3,
+                kuramoto_coherence: 0.8,
+                mean_propagation_time: 1.0,
+                dtl_connected: true,
             },
             betti_numbers: vec![1, 0, 0],
             evidence_chain: Vec::new(),
@@ -1210,7 +1358,9 @@ fn bench_b25_swarm_accept() -> BenchResult {
         }
     };
 
-    let locals: Vec<pse_types::SemanticCrystal> = (0..100).map(|i| build_crystal(0.4 + i as f64 * 0.001)).collect();
+    let locals: Vec<pse_types::SemanticCrystal> = (0..100)
+        .map(|i| build_crystal(0.4 + i as f64 * 0.001))
+        .collect();
     let local_refs: Vec<&pse_types::SemanticCrystal> = locals.iter().collect();
     let incoming = build_crystal(0.45);
 
@@ -1222,10 +1372,15 @@ fn bench_b25_swarm_accept() -> BenchResult {
     let elapsed = start.elapsed();
     let us_per = elapsed.as_micros() as f64 / n as f64;
 
-    println!("B25 swarm_accept:        {:.1} µs/check (100 local crystals)", us_per);
+    println!(
+        "B25 swarm_accept:        {:.1} µs/check (100 local crystals)",
+        us_per
+    );
     BenchResult {
-        key: "B25_swarm_accept", value: us_per,
-        unit: "µs/check", detail: format!("{} checks against 100 locals", n),
+        key: "B25_swarm_accept",
+        value: us_per,
+        unit: "µs/check",
+        detail: format!("{} checks against 100 locals", n),
     }
 }
 

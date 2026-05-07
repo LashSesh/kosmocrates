@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dynamic_state::{CanonicalNumber, DynamicError, Hash256, stable_id_of};
+use crate::dynamic_state::{stable_id_of, CanonicalNumber, DynamicError, Hash256};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // DynamicPolicyKind
@@ -50,10 +50,14 @@ impl DynamicPolicy {
         target_density: f64,
     ) -> Result<Self, DynamicError> {
         if !current_density.is_finite() {
-            return Err(DynamicError::NonFiniteNumber { field: "current_density".into() });
+            return Err(DynamicError::NonFiniteNumber {
+                field: "current_density".into(),
+            });
         }
         if !target_density.is_finite() || target_density == 0.0 {
-            return Err(DynamicError::NonFiniteNumber { field: "target_density".into() });
+            return Err(DynamicError::NonFiniteNumber {
+                field: "target_density".into(),
+            });
         }
         let rho_ratio = current_density / target_density;
 
@@ -157,13 +161,28 @@ mod tests {
         let adapted = policy.adapt_homeostasis(2.0, 1.0).unwrap();
         // learning_rate decreases by 10%
         let diff_lr = (adapted.learning_rate.to_f64() - orig_lr * 0.9).abs();
-        assert!(diff_lr < 1e-6, "learning_rate should decrease: {} vs {}", adapted.learning_rate.to_f64(), orig_lr * 0.9);
+        assert!(
+            diff_lr < 1e-6,
+            "learning_rate should decrease: {} vs {}",
+            adapted.learning_rate.to_f64(),
+            orig_lr * 0.9
+        );
         // decay increases by 10%
         let diff_decay = (adapted.decay.to_f64() - orig_decay * 1.1).abs();
-        assert!(diff_decay < 1e-6, "decay should increase: {} vs {}", adapted.decay.to_f64(), orig_decay * 1.1);
+        assert!(
+            diff_decay < 1e-6,
+            "decay should increase: {} vs {}",
+            adapted.decay.to_f64(),
+            orig_decay * 1.1
+        );
         // prune_threshold increases by 10%
         let diff_prune = (adapted.prune_threshold.to_f64() - orig_prune * 1.1).abs();
-        assert!(diff_prune < 1e-6, "prune_threshold should increase: {} vs {}", adapted.prune_threshold.to_f64(), orig_prune * 1.1);
+        assert!(
+            diff_prune < 1e-6,
+            "prune_threshold should increase: {} vs {}",
+            adapted.prune_threshold.to_f64(),
+            orig_prune * 1.1
+        );
         // policy_id should be recomputed (different from original)
         assert_ne!(adapted.policy_id, policy.policy_id);
     }
@@ -178,13 +197,28 @@ mod tests {
         let adapted = policy.adapt_homeostasis(0.5, 1.0).unwrap();
         // learning_rate increases by 10%
         let diff_lr = (adapted.learning_rate.to_f64() - orig_lr * 1.1).abs();
-        assert!(diff_lr < 1e-6, "learning_rate should increase: {} vs {}", adapted.learning_rate.to_f64(), orig_lr * 1.1);
+        assert!(
+            diff_lr < 1e-6,
+            "learning_rate should increase: {} vs {}",
+            adapted.learning_rate.to_f64(),
+            orig_lr * 1.1
+        );
         // decay decreases by 10%
         let diff_decay = (adapted.decay.to_f64() - orig_decay * 0.9).abs();
-        assert!(diff_decay < 1e-6, "decay should decrease: {} vs {}", adapted.decay.to_f64(), orig_decay * 0.9);
+        assert!(
+            diff_decay < 1e-6,
+            "decay should decrease: {} vs {}",
+            adapted.decay.to_f64(),
+            orig_decay * 0.9
+        );
         // prune_threshold decreases by 10%
         let diff_prune = (adapted.prune_threshold.to_f64() - orig_prune * 0.9).abs();
-        assert!(diff_prune < 1e-6, "prune_threshold should decrease: {} vs {}", adapted.prune_threshold.to_f64(), orig_prune * 0.9);
+        assert!(
+            diff_prune < 1e-6,
+            "prune_threshold should decrease: {} vs {}",
+            adapted.prune_threshold.to_f64(),
+            orig_prune * 0.9
+        );
     }
 
     #[test]

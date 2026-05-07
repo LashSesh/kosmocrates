@@ -28,7 +28,10 @@ fn main() {
                 readings
             }
             Err(e) => {
-                eprintln!("Failed to fetch live data: {}. Falling back to embedded.", e);
+                eprintln!(
+                    "Failed to fetch live data: {}. Falling back to embedded.",
+                    e
+                );
                 embedded_weather_data()
             }
         }

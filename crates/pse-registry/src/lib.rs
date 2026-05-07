@@ -3,10 +3,10 @@
 //! Provides content-addressed catalogs for operators, profiles, obligations,
 //! and macros, with integrity verification via SHA-256 digests.
 
-use std::collections::BTreeMap;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use pse_types::{content_address, Hash256};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum RegistryError {
@@ -82,7 +82,14 @@ impl RegistryEntry {
             metadata: metadata.clone(),
         };
         let id = content_address(&core);
-        Self { id, name, version, digest, kind, metadata }
+        Self {
+            id,
+            name,
+            version,
+            digest,
+            kind,
+            metadata,
+        }
     }
 }
 
@@ -103,7 +110,12 @@ impl Registry {
         let entries: BTreeMap<String, RegistryEntry> = BTreeMap::new();
         let digest = content_address(&entries);
         let registry_id = digest;
-        Self { registry_id, kind, entries, digest }
+        Self {
+            registry_id,
+            kind,
+            entries,
+            digest,
+        }
     }
 
     /// Register a new entry (append-only: returns error if name already exists)
@@ -123,7 +135,9 @@ impl Registry {
 
     /// Verify that a named entry matches the expected digest
     pub fn verify_digest(&self, name: &str, expected: &Hash256) -> bool {
-        self.entries.get(name).is_some_and(|e| &e.digest == expected)
+        self.entries
+            .get(name)
+            .is_some_and(|e| &e.digest == expected)
     }
 
     /// Recompute and return the registry digest

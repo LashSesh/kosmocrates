@@ -1,4 +1,4 @@
-/// Complement graph: Ā[i][j] = 1 - A[i][j] for i ≠ j, Ā[i][i] = 0
+/// Complement graph: `Ā[i][j] = 1 - A[i][j]` for `i ≠ j`, `Ā[i][i] = 0`.
 /// Only operates on the n×n active zone within the 13×13 matrix.
 pub fn complement(a: &[Vec<f64>], n: usize) -> Vec<Vec<f64>> {
     let mut result = vec![vec![0.0; 13]; 13];

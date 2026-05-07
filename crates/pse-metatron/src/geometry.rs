@@ -52,25 +52,89 @@ impl Node {
 pub fn canonical_nodes() -> Vec<Node> {
     vec![
         // Center.
-        Node { index: 1, label: "C", node_type: "center", coords: [0.0, 0.0, 0.0] },
-
+        Node {
+            index: 1,
+            label: "C",
+            node_type: "center",
+            coords: [0.0, 0.0, 0.0],
+        },
         // 12 cuboctahedron vertices: all permutations of (±1, ±1, 0).
         // Grouped by the zero-coordinate plane for readability.
         //   xy-plane (z = 0)
-        Node { index: 2,  label: "V1",  node_type: "vertex", coords: [ 1.0,  1.0, 0.0] },
-        Node { index: 3,  label: "V2",  node_type: "vertex", coords: [ 1.0, -1.0, 0.0] },
-        Node { index: 4,  label: "V3",  node_type: "vertex", coords: [-1.0,  1.0, 0.0] },
-        Node { index: 5,  label: "V4",  node_type: "vertex", coords: [-1.0, -1.0, 0.0] },
+        Node {
+            index: 2,
+            label: "V1",
+            node_type: "vertex",
+            coords: [1.0, 1.0, 0.0],
+        },
+        Node {
+            index: 3,
+            label: "V2",
+            node_type: "vertex",
+            coords: [1.0, -1.0, 0.0],
+        },
+        Node {
+            index: 4,
+            label: "V3",
+            node_type: "vertex",
+            coords: [-1.0, 1.0, 0.0],
+        },
+        Node {
+            index: 5,
+            label: "V4",
+            node_type: "vertex",
+            coords: [-1.0, -1.0, 0.0],
+        },
         //   xz-plane (y = 0)
-        Node { index: 6,  label: "V5",  node_type: "vertex", coords: [ 1.0,  0.0,  1.0] },
-        Node { index: 7,  label: "V6",  node_type: "vertex", coords: [ 1.0,  0.0, -1.0] },
-        Node { index: 8,  label: "V7",  node_type: "vertex", coords: [-1.0,  0.0,  1.0] },
-        Node { index: 9,  label: "V8",  node_type: "vertex", coords: [-1.0,  0.0, -1.0] },
+        Node {
+            index: 6,
+            label: "V5",
+            node_type: "vertex",
+            coords: [1.0, 0.0, 1.0],
+        },
+        Node {
+            index: 7,
+            label: "V6",
+            node_type: "vertex",
+            coords: [1.0, 0.0, -1.0],
+        },
+        Node {
+            index: 8,
+            label: "V7",
+            node_type: "vertex",
+            coords: [-1.0, 0.0, 1.0],
+        },
+        Node {
+            index: 9,
+            label: "V8",
+            node_type: "vertex",
+            coords: [-1.0, 0.0, -1.0],
+        },
         //   yz-plane (x = 0)
-        Node { index: 10, label: "V9",  node_type: "vertex", coords: [ 0.0,  1.0,  1.0] },
-        Node { index: 11, label: "V10", node_type: "vertex", coords: [ 0.0,  1.0, -1.0] },
-        Node { index: 12, label: "V11", node_type: "vertex", coords: [ 0.0, -1.0,  1.0] },
-        Node { index: 13, label: "V12", node_type: "vertex", coords: [ 0.0, -1.0, -1.0] },
+        Node {
+            index: 10,
+            label: "V9",
+            node_type: "vertex",
+            coords: [0.0, 1.0, 1.0],
+        },
+        Node {
+            index: 11,
+            label: "V10",
+            node_type: "vertex",
+            coords: [0.0, 1.0, -1.0],
+        },
+        Node {
+            index: 12,
+            label: "V11",
+            node_type: "vertex",
+            coords: [0.0, -1.0, 1.0],
+        },
+        Node {
+            index: 13,
+            label: "V12",
+            node_type: "vertex",
+            coords: [0.0, -1.0, -1.0],
+        },
     ]
 }
 
@@ -143,10 +207,7 @@ mod tests {
     #[test]
     fn cuboctahedron_vertex_count() {
         let nodes = canonical_nodes();
-        let vertices: Vec<_> = nodes
-            .iter()
-            .filter(|n| n.node_type == "vertex")
-            .collect();
+        let vertices: Vec<_> = nodes.iter().filter(|n| n.node_type == "vertex").collect();
         assert_eq!(vertices.len(), 12);
     }
 

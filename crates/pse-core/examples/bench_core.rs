@@ -104,7 +104,10 @@ fn bench_b01a_diag() {
             }
         }
         let bare = start.elapsed();
-        println!("  bare SHA-256:        {:>6.0} ns/obs", bare.as_nanos() as f64 / total_obs);
+        println!(
+            "  bare SHA-256:        {:>6.0} ns/obs",
+            bare.as_nanos() as f64 / total_obs
+        );
     }
 
     let mut graph = pse_graph::PersistentGraph::new();
@@ -133,9 +136,18 @@ fn bench_b01a_diag() {
     let t_overhead = t_total.saturating_sub(t_ingest + t_graph);
 
     println!("B01a diagnostic ({} obs):", total_obs as u64);
-    println!("  ingest (canon+SHA):  {:>6.0} ns/obs", t_ingest as f64 / total_obs);
-    println!("  graph persist:       {:>6.0} ns/obs", t_graph as f64 / total_obs);
-    println!("  overhead:            {:>6.0} ns/obs", t_overhead as f64 / total_obs);
+    println!(
+        "  ingest (canon+SHA):  {:>6.0} ns/obs",
+        t_ingest as f64 / total_obs
+    );
+    println!(
+        "  graph persist:       {:>6.0} ns/obs",
+        t_graph as f64 / total_obs
+    );
+    println!(
+        "  overhead:            {:>6.0} ns/obs",
+        t_overhead as f64 / total_obs
+    );
     println!(
         "  total:               {:>6.0} ns/obs  ({:.0} obs/sec)",
         t_total as f64 / total_obs,
@@ -282,7 +294,10 @@ fn bench_b02_crystal_serialization(crystals: &[SemanticCrystal]) {
     let elapsed = start.elapsed();
 
     let us_per_crystal = elapsed.as_micros() as f64 / iterations as f64;
-    println!("B02 crystal_serialization: {:.1} µs/crystal", us_per_crystal);
+    println!(
+        "B02 crystal_serialization: {:.1} µs/crystal",
+        us_per_crystal
+    );
 }
 
 // ─── B03: Evidence Verification ──────────────────────────────────────────────
@@ -334,7 +349,9 @@ fn bench_b04_replay_speed() {
 
     println!(
         "B04 replay_speed: {:.0} steps/sec ({} crystals in {:.2}s)",
-        steps_per_sec, crystal_count, elapsed.as_secs_f64()
+        steps_per_sec,
+        crystal_count,
+        elapsed.as_secs_f64()
     );
 }
 
@@ -359,15 +376,10 @@ fn bench_b05_determinism() {
             result.crystal_count
         );
     } else {
-        let mismatches = result
-            .digest_matches
-            .iter()
-            .filter(|m| !**m)
-            .count();
+        let mismatches = result.digest_matches.iter().filter(|m| !**m).count();
         println!(
             "B05 determinism_check: FAIL ({} mismatches out of {} crystals)",
-            mismatches,
-            result.crystal_count
+            mismatches, result.crystal_count
         );
     }
 }

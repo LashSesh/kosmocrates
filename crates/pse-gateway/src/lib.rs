@@ -2,15 +2,10 @@
 //!
 //! Exposes: /health, /crystals, /observe, /navigate, /constitution, /benchmarks, /accumulation.
 
+use axum::{extract::State, response::Json, routing::get, Router};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use axum::{
-    extract::State,
-    response::Json,
-    routing::get,
-    Router,
-};
-use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
 /// Shared application state for the gateway.
@@ -22,7 +17,11 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
-        Self { crystal_count: 0, tick_count: 0, healthy: true }
+        Self {
+            crystal_count: 0,
+            tick_count: 0,
+            healthy: true,
+        }
     }
 }
 
@@ -66,7 +65,11 @@ pub fn build_router(state: SharedState) -> Router {
 async fn health_handler(State(state): State<SharedState>) -> Json<HealthResponse> {
     let s = state.read().await;
     Json(HealthResponse {
-        status: if s.healthy { "ok".to_string() } else { "degraded".to_string() },
+        status: if s.healthy {
+            "ok".to_string()
+        } else {
+            "degraded".to_string()
+        },
         version: env!("CARGO_PKG_VERSION").to_string(),
         crystal_count: s.crystal_count,
         tick_count: s.tick_count,
@@ -74,7 +77,10 @@ async fn health_handler(State(state): State<SharedState>) -> Json<HealthResponse
 }
 
 async fn crystals_handler(State(_state): State<SharedState>) -> Json<CrystalListResponse> {
-    Json(CrystalListResponse { crystals: vec![], total: 0 })
+    Json(CrystalListResponse {
+        crystals: vec![],
+        total: 0,
+    })
 }
 
 /// Start the gateway server on the given address.
@@ -97,7 +103,10 @@ mod tests {
     async fn health_endpoint() {
         let state = Arc::new(RwLock::new(AppState::default()));
         let app = build_router(state);
-        let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }
@@ -106,7 +115,10 @@ mod tests {
     async fn crystals_endpoint() {
         let state = Arc::new(RwLock::new(AppState::default()));
         let app = build_router(state);
-        let req = Request::builder().uri("/crystals").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/crystals")
+            .body(Body::empty())
+            .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }

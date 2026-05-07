@@ -29,7 +29,10 @@ fn main() {
                 klines
             }
             Err(e) => {
-                eprintln!("Failed to fetch live data: {}. Falling back to embedded.", e);
+                eprintln!(
+                    "Failed to fetch live data: {}. Falling back to embedded.",
+                    e
+                );
                 embedded_btc_klines()
             }
         }

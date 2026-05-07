@@ -68,7 +68,11 @@ impl NormFitness {
             norm_id: norm.id.clone(),
             score: if passed { 1.0 } else { 0.0 },
             passed,
-            message: if passed { "ok".into() } else { "norm skipped: zero weight".into() },
+            message: if passed {
+                "ok".into()
+            } else {
+                "norm skipped: zero weight".into()
+            },
         }
     }
 
@@ -146,7 +150,11 @@ impl ConstraintLattice {
         implications.sort();
         implications.dedup();
 
-        ConstraintLattice { implications, maximal, minimal }
+        ConstraintLattice {
+            implications,
+            maximal,
+            minimal,
+        }
     }
 }
 
@@ -162,7 +170,7 @@ impl ConstraintLattice {
 /// use [`CollapseCertificate::with_id`] to finalise it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CollapseCertificate {
-    /// SHA-256 hex of this certificate (assigned by [`with_id`]).
+    /// SHA-256 hex of this certificate (assigned by [`Self::with_id`]).
     pub id: String,
     pub field_cube_id: String,
     pub collapse_plan_id: String,
@@ -266,16 +274,17 @@ mod tests {
         assert!(lattice.minimal.contains(&"c.b".to_string()));
         assert!(lattice.minimal.contains(&"c.c".to_string()));
         // c.a implies both c.b and c.c (it has higher weight)
-        assert!(lattice.implications.contains(&("c.a".to_string(), "c.b".to_string())));
-        assert!(lattice.implications.contains(&("c.a".to_string(), "c.c".to_string())));
+        assert!(lattice
+            .implications
+            .contains(&("c.a".to_string(), "c.b".to_string())));
+        assert!(lattice
+            .implications
+            .contains(&("c.a".to_string(), "c.c".to_string())));
     }
 
     #[test]
     fn constraint_lattice_is_deterministic() {
-        let constraints = vec![
-            ("c.a".to_string(), 1.0f64),
-            ("c.b".to_string(), 0.5),
-        ];
+        let constraints = vec![("c.a".to_string(), 1.0f64), ("c.b".to_string(), 0.5)];
         let l1 = ConstraintLattice::from_weights(&constraints);
         let l2 = ConstraintLattice::from_weights(&constraints);
         assert_eq!(l1, l2);
@@ -347,6 +356,9 @@ mod tests {
         }
         .with_id()
         .unwrap();
-        assert_ne!(c1.id, c2.id, "distinct content must yield distinct addresses");
+        assert_ne!(
+            c1.id, c2.id,
+            "distinct content must yield distinct addresses"
+        );
     }
 }

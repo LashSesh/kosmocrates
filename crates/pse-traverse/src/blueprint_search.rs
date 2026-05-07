@@ -91,7 +91,9 @@ pub struct NonDominatedFrontier {
 
 impl NonDominatedFrontier {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     /// Add a blueprint to the frontier if it is not dominated.
@@ -176,11 +178,7 @@ impl BlueprintSearch {
         self.deterministic_grid(problem_spec_hash, n)
     }
 
-    fn deterministic_grid(
-        &self,
-        problem_spec_hash: &str,
-        n: usize,
-    ) -> Vec<TraversalBlueprint> {
+    fn deterministic_grid(&self, problem_spec_hash: &str, n: usize) -> Vec<TraversalBlueprint> {
         let quantization_scales: &[i32] = &[4, 5, 6, 7];
         let lambda_hards: &[f64] = &[0.5, 1.0];
 
@@ -248,8 +246,15 @@ mod tests {
         let blueprints2 = search.generate_blueprints("hash.abc123", 4);
         assert_eq!(blueprints1.len(), blueprints2.len());
         for (a, b) in blueprints1.iter().zip(blueprints2.iter()) {
-            assert_eq!(a.blueprint_id, b.blueprint_id, "blueprint_id must be stable");
-            assert_eq!(a.blueprint_id.len(), 64, "blueprint_id must be 64 hex chars");
+            assert_eq!(
+                a.blueprint_id, b.blueprint_id,
+                "blueprint_id must be stable"
+            );
+            assert_eq!(
+                a.blueprint_id.len(),
+                64,
+                "blueprint_id must be 64 hex chars"
+            );
         }
     }
 

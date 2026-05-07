@@ -1,5 +1,7 @@
 /target
-Cargo.lock
+# Cargo.lock is committed: this workspace ships binaries (pse-cli,
+# pse-demo, pse-traverse-cli, pse-bench-bbo, …) where reproducible
+# builds are a hard requirement. Library-only forks may delete it.
 *.db
 *.db-journal
 bench_results.json

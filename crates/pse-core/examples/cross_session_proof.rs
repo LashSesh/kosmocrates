@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use pse_core::{macro_step, load_memory_from_crystals, GlobalState};
+use pse_core::{load_memory_from_crystals, macro_step, GlobalState};
 use pse_graph::PassthroughAdapter;
 use pse_types::{Config, SemanticCrystal};
 
@@ -70,10 +70,7 @@ fn main() {
 
     println!("Session 1 (cold start):");
     println!("  Loading pattern memory... 0 signatures");
-    println!(
-        "  Processing {} ticks...",
-        n_ticks
-    );
+    println!("  Processing {} ticks...", n_ticks);
     println!(
         "  New crystals: {}, Memory hits: {}, Time: {}ms",
         crystals_1,
@@ -94,10 +91,7 @@ fn main() {
 
     println!("Session 2 (warm start — loading from Session 1):");
     println!("  Loading pattern memory... {} signatures", all_1.len());
-    println!(
-        "  Processing {} ticks (SAME data)...",
-        n_ticks
-    );
+    println!("  Processing {} ticks (SAME data)...", n_ticks);
     println!(
         "  New crystals: {}, Memory hits: {}, Time: {}ms",
         crystals_2,
@@ -119,10 +113,7 @@ fn main() {
 
     println!("Session 3 (warmer — loading from Session 1+2):");
     println!("  Loading pattern memory... {} signatures", all_2.len());
-    println!(
-        "  Processing {} ticks (SAME data)...",
-        n_ticks
-    );
+    println!("  Processing {} ticks (SAME data)...", n_ticks);
     println!(
         "  New crystals: {}, Memory hits: {}, Time: {}ms",
         crystals_3,

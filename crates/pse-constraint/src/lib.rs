@@ -6,11 +6,9 @@
 // isls-morph: Morphogenic controller (Layer L4)
 // C8 — depends on pse-types, pse-graph
 
-use std::collections::BTreeMap;
-use pse_types::{
-    AdaptationConfig, FiveDState, SemanticCrystal, VertexId,
-};
 use pse_graph::PersistentGraph;
+use pse_types::{AdaptationConfig, FiveDState, SemanticCrystal, VertexId};
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -31,7 +29,11 @@ pub enum MorphMutation {
     /// NodeMerge: d(u,v) < epsilon_merge => single node; edges unioned
     NodeMerge { u: VertexId, v: VertexId },
     /// EdgeRetype: edge exists => type changed; annotation preserved
-    EdgeRetype { from: VertexId, to: VertexId, new_type: String },
+    EdgeRetype {
+        from: VertexId,
+        to: VertexId,
+        new_type: String,
+    },
     /// SubgraphReplicate: |S| <= k_rep => copy with fresh IDs; no shared state
     SubgraphReplicate { vertices: Vec<VertexId> },
     /// SubgraphPrune: all edges in S dormant > T_prune => nodes deactivated (not deleted)
@@ -113,12 +115,15 @@ fn apply_mutation(
             let merged_id = u.wrapping_add(*v); // deterministic merge ID
             graph.upsert_vertex(merged_id, 0.0);
         }
-        MorphMutation::EdgeRetype { from, to, new_type: _ } => {
+        MorphMutation::EdgeRetype {
+            from,
+            to,
+            new_type: _,
+        } => {
             // Update edge annotation (type field is in annotation's comment field)
             // In our model, we update the weight as proxy for type change
             // Precondition: edge must exist
-            if let (Some(&from_idx), Some(&to_idx)) =
-                (graph.id_map.get(from), graph.id_map.get(to))
+            if let (Some(&from_idx), Some(&to_idx)) = (graph.id_map.get(from), graph.id_map.get(to))
             {
                 // Edge exists; annotation preserved as-is
                 let _ = graph.graph.find_edge(from_idx, to_idx);
@@ -146,20 +151,14 @@ fn apply_mutation(
 // ─── Attractor Centroid ───────────────────────────────────────────────────────
 
 /// Compute attractor centroid: centroid of top-k resonant points (OI-08)
-pub fn compute_attractor_centroid(
-    graph: &PersistentGraph,
-    k: usize,
-) -> FiveDState {
+pub fn compute_attractor_centroid(graph: &PersistentGraph, k: usize) -> FiveDState {
     if graph.embedding.is_empty() {
         return FiveDState::default();
     }
 
     // Score vertices by norm (proxy for resonance)
-    let mut scored: Vec<(f64, &FiveDState)> = graph
-        .embedding
-        .values()
-        .map(|s| (s.norm_sq(), s))
-        .collect();
+    let mut scored: Vec<(f64, &FiveDState)> =
+        graph.embedding.values().map(|s| (s.norm_sq(), s)).collect();
 
     // Sort descending by score (deterministic: BTreeMap gives consistent ordering)
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -216,8 +215,16 @@ pub fn morphogenic_update(
     // Merging ALL pairs is O(n²) and creates excessive synthetic vertices;
     // a greedy top-K approach preserves the merge semantics while bounding growth.
     {
-        let vids: Vec<VertexId> = graph.embedding.keys()
-            .filter(|&&vid| graph.embedding.get(&vid).map(|e| e.norm_sq() > 1e-9).unwrap_or(false))
+        let vids: Vec<VertexId> = graph
+            .embedding
+            .keys()
+            .filter(|&&vid| {
+                graph
+                    .embedding
+                    .get(&vid)
+                    .map(|e| e.norm_sq() > 1e-9)
+                    .unwrap_or(false)
+            })
             .copied()
             .collect();
         let mut candidates: Vec<(f64, VertexId, VertexId)> = Vec::new();
@@ -225,9 +232,7 @@ pub fn morphogenic_update(
             for j in (i + 1)..vids.len().min(200) {
                 let vi = vids[i];
                 let vj = vids[j];
-                if let (Some(si), Some(sj)) =
-                    (graph.embedding.get(&vi), graph.embedding.get(&vj))
-                {
+                if let (Some(si), Some(sj)) = (graph.embedding.get(&vi), graph.embedding.get(&vj)) {
                     let d = si.distance(sj);
                     if d < config.merge_distance {
                         candidates.push((d, vi, vj));
@@ -314,7 +319,13 @@ mod tests {
 
     #[test]
     fn intrinsic_step_converges_to_attractor() {
-        let mut h = FiveDState { p: 2.0, rho: 0.0, omega: 0.0, chi: 0.0, eta: 0.0 };
+        let mut h = FiveDState {
+            p: 2.0,
+            rho: 0.0,
+            omega: 0.0,
+            chi: 0.0,
+            eta: 0.0,
+        };
         let attractor = FiveDState::default();
         let constraints = Vec::new();
         let initial_distance = h.distance(&attractor);
@@ -331,7 +342,10 @@ mod tests {
     #[test]
     fn intrinsic_step_no_mutation_of_history() {
         // Inv I11: applying intrinsic step doesn't modify past crystal data
-        let mut h = FiveDState { p: 1.0, ..Default::default() };
+        let mut h = FiveDState {
+            p: 1.0,
+            ..Default::default()
+        };
         let attractor = FiveDState::default();
         // Simulate: step doesn't affect any immutable crystal data
         let before_p = h.p;
@@ -346,7 +360,16 @@ mod tests {
     fn compute_attractor_centroid_single_vertex() {
         let mut graph = PersistentGraph::new();
         graph.upsert_vertex(1, 0.0);
-        graph.embedding.insert(1, FiveDState { p: 2.0, rho: 1.0, omega: 0.5, chi: 0.3, eta: 0.1 });
+        graph.embedding.insert(
+            1,
+            FiveDState {
+                p: 2.0,
+                rho: 1.0,
+                omega: 0.5,
+                chi: 0.3,
+                eta: 0.1,
+            },
+        );
         let centroid = compute_attractor_centroid(&graph, 5);
         assert!((centroid.p - 2.0).abs() < 1e-10);
     }

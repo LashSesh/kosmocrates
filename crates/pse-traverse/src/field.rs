@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dynamic_state::{CanonicalNumber, DynamicError, Hash256, LiftedState, stable_id_of};
 use crate::dynamic_policy::DynamicPolicy;
+use crate::dynamic_state::{stable_id_of, CanonicalNumber, DynamicError, Hash256, LiftedState};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // FieldSignal
@@ -34,7 +34,11 @@ impl FieldSignal {
 // ───────────────────────────────────────────────────────────────────────────────
 
 pub trait FieldAbsorber {
-    fn absorb(&self, states: &[LiftedState], policy: &DynamicPolicy) -> Result<FieldSignal, DynamicError>;
+    fn absorb(
+        &self,
+        states: &[LiftedState],
+        policy: &DynamicPolicy,
+    ) -> Result<FieldSignal, DynamicError>;
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -56,7 +60,11 @@ impl Default for DefaultFieldAbsorber {
 }
 
 impl FieldAbsorber for DefaultFieldAbsorber {
-    fn absorb(&self, states: &[LiftedState], _policy: &DynamicPolicy) -> Result<FieldSignal, DynamicError> {
+    fn absorb(
+        &self,
+        states: &[LiftedState],
+        _policy: &DynamicPolicy,
+    ) -> Result<FieldSignal, DynamicError> {
         // FIELD-01: empty state set → neutral signal
         if states.is_empty() {
             let signal = FieldSignal {
@@ -86,13 +94,16 @@ impl FieldAbsorber for DefaultFieldAbsorber {
         } else {
             let mut total_variance = 0.0;
             for dim in 0..base_dim {
-                let vals: Vec<f64> = sorted.iter().map(|s| {
-                    if dim < s.coords.len().saturating_sub(1) {
-                        s.coords[dim].to_f64()
-                    } else {
-                        0.0
-                    }
-                }).collect();
+                let vals: Vec<f64> = sorted
+                    .iter()
+                    .map(|s| {
+                        if dim < s.coords.len().saturating_sub(1) {
+                            s.coords[dim].to_f64()
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect();
                 let mean = vals.iter().sum::<f64>() / n;
                 let var = vals.iter().map(|&v| (v - mean) * (v - mean)).sum::<f64>() / n;
                 total_variance += var;
@@ -129,12 +140,15 @@ impl FieldAbsorber for DefaultFieldAbsorber {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dynamic_state::{AuxiliaryKind, BaseState, DefaultStateLift, LiftProfile, StateLift};
+    use crate::dynamic_state::{BaseState, DefaultStateLift, StateLift};
 
     fn make_lifted_state(tick: u64, coords: Vec<f64>) -> LiftedState {
         let base = BaseState {
             state_id: Hash256::zero(),
-            coords: coords.iter().map(|&v| CanonicalNumber::quantize_default(v).unwrap()).collect(),
+            coords: coords
+                .iter()
+                .map(|&v| CanonicalNumber::quantize_default(v).unwrap())
+                .collect(),
             weight: CanonicalNumber::quantize_default(1.0).unwrap(),
             evidence_refs: vec![],
         };

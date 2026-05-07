@@ -97,19 +97,24 @@ impl AdaptiveCalibrator {
 
         let extract = |g: &GateSnapshot, idx: usize| -> f64 {
             match idx {
-                0 => g.d, 1 => g.q, 2 => g.r, 3 => g.g,
-                4 => g.j, 5 => g.p, 6 => g.n, 7 => g.k,
+                0 => g.d,
+                1 => g.q,
+                2 => g.r,
+                3 => g.g,
+                4 => g.j,
+                5 => g.p,
+                6 => g.n,
+                7 => g.k,
                 _ => unreachable!(),
             }
         };
         let mut out = base.clone();
         let bases = [
-            base.d, base.q, base.r, base.g,
-            base.j, base.p, base.n, base.k,
+            base.d, base.q, base.r, base.g, base.j, base.p, base.n, base.k,
         ];
         let setters: [&mut f64; 8] = [
-            &mut out.d, &mut out.q, &mut out.r, &mut out.g,
-            &mut out.j, &mut out.p, &mut out.n, &mut out.k,
+            &mut out.d, &mut out.q, &mut out.r, &mut out.g, &mut out.j, &mut out.p, &mut out.n,
+            &mut out.k,
         ];
 
         for (i, slot) in setters.into_iter().enumerate() {
@@ -143,7 +148,14 @@ mod tests {
 
     fn snap(d: f64, q: f64, r: f64, g: f64, j: f64, p: f64, n: f64, k: f64) -> GateSnapshot {
         GateSnapshot {
-            d, q, r, g, j, p, n, k,
+            d,
+            q,
+            r,
+            g,
+            j,
+            p,
+            n,
+            k,
             kairos: false,
         }
     }

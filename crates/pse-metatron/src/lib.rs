@@ -18,40 +18,27 @@
 //!  - **O.4**: periodic-table lookup in `pse-memory`.
 //!  - **O.5**: empirical bench extensions for the H1/H2/H3 hypotheses.
 
-pub mod error;
-pub mod geometry;
-pub mod scaffold;
-pub mod group;
-pub mod ingest;
-pub mod embed;
-pub mod orbit;
-pub mod stabilizer;
-pub mod complement;
-pub mod spectrum;
-pub mod platonic;
+pub mod analysis;
 pub mod bitgraph;
 pub mod bitgraph_n;
-pub mod properties;
-pub mod scan;
 pub mod catalog;
-pub mod analysis;
+pub mod complement;
+pub mod embed;
+pub mod error;
 pub mod export;
+pub mod geometry;
+pub mod group;
+pub mod ingest;
+pub mod orbit;
 pub mod phase_layout;
+pub mod platonic;
+pub mod properties;
+pub mod scaffold;
+pub mod scan;
 pub mod signature;
+pub mod spectrum;
+pub mod stabilizer;
 
-pub use error::{ScanError, ScanResult};
-pub use ingest::InputGraph;
-pub use scan::{scan, scan_with_cache, ScanReport, S7Cache};
-pub use export::{
-    catalog_to_csv, catalog_to_json, report_to_json, report_to_json_compact, write_catalog_json,
-};
-pub use catalog::{
-    build_catalog, build_catalog_for_n, build_catalog_orderly, find_in_catalog, oeis_a000055,
-    oeis_a000088, oeis_a000171, oeis_a001349, oeis_a003400, oeis_a005470, oeis_a005840,
-    oeis_a033995, CatalogEntry, CatalogStats, PeriodicTable,
-};
-pub use bitgraph::{S7BitCache, fast_orbit};
-pub use properties::{compute_properties, GraphProperties};
 pub use analysis::{
     cospectral_analysis, cospectral_distinguishers, full_analysis, matrix_power_analysis,
     platonic_correlation, scaffold_invariants, self_complementary_analysis, spectral_distribution,
@@ -59,10 +46,21 @@ pub use analysis::{
     PlatonicCorrelationAnalysis, ScaffoldInvariantAnalysis, SelfComplementaryAnalysis,
     SpectralDistribution,
 };
-pub use scaffold::MetatronScaffold;
-pub use platonic::{classify_platonic, PlatonicClass};
-pub use spectrum::compute_spectrum;
-pub use phase_layout::metatron_phase_layout;
-pub use signature::{
-    compute_signature, compute_signature_with_cache, signature_from_scan_report,
+pub use bitgraph::{fast_orbit, S7BitCache};
+pub use catalog::{
+    build_catalog, build_catalog_for_n, build_catalog_orderly, find_in_catalog, oeis_a000055,
+    oeis_a000088, oeis_a000171, oeis_a001349, oeis_a003400, oeis_a005470, oeis_a005840,
+    oeis_a033995, CatalogEntry, CatalogStats, PeriodicTable,
 };
+pub use error::{ScanError, ScanResult};
+pub use export::{
+    catalog_to_csv, catalog_to_json, report_to_json, report_to_json_compact, write_catalog_json,
+};
+pub use ingest::InputGraph;
+pub use phase_layout::metatron_phase_layout;
+pub use platonic::{classify_platonic, PlatonicClass};
+pub use properties::{compute_properties, GraphProperties};
+pub use scaffold::MetatronScaffold;
+pub use scan::{scan, scan_with_cache, S7Cache, ScanReport};
+pub use signature::{compute_signature, compute_signature_with_cache, signature_from_scan_report};
+pub use spectrum::compute_spectrum;

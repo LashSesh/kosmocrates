@@ -42,10 +42,7 @@ fn hex_digest(flat: &[u64]) -> String {
 
 /// Compute the orbit of the embedded graph under the S7 action.
 /// Returns the canonical form (lexicographically smallest), its hash, and the orbit size.
-pub fn compute_orbit(
-    embedded: &[Vec<f64>],
-    s7_matrices: &[Vec<Vec<f64>>],
-) -> OrbitResult {
+pub fn compute_orbit(embedded: &[Vec<f64>], s7_matrices: &[Vec<Vec<f64>>]) -> OrbitResult {
     let mut seen: HashSet<Vec<u64>> = HashSet::new();
     let mut min_flat: Option<Vec<u64>> = None;
     let mut min_matrix: Option<Vec<Vec<f64>>> = None;

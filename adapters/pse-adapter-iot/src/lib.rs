@@ -133,9 +133,7 @@ impl ObservationAdapter for IoTAdapter {
     ) -> Result<Observation, ObserveError> {
         if let Ok(reading) = serde_json::from_slice::<SensorReading>(raw) {
             if !reading.is_valid() {
-                return Err(ObserveError::Canonicalize(
-                    "invalid sensor reading".into(),
-                ));
+                return Err(ObserveError::Canonicalize("invalid sensor reading".into()));
             }
         }
         let payload = raw.to_vec();
@@ -178,7 +176,9 @@ pub fn generate_embedded_data(seed: u64) -> Vec<SensorReading> {
     let mut readings = Vec::with_capacity(10000);
     let mut rng = seed;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
 
@@ -220,7 +220,9 @@ pub fn generate_embedded_data(seed: u64) -> Vec<SensorReading> {
 pub fn describe_crystal(crystal: &pse_types::SemanticCrystal, tick: u64) -> String {
     format!(
         "IoT: pattern at tick {}, stability={:.4}, region={} vertices",
-        tick, crystal.stability_score, crystal.region.len(),
+        tick,
+        crystal.stability_score,
+        crystal.region.len(),
     )
 }
 
@@ -233,8 +235,10 @@ mod tests {
     #[test]
     fn test_sensor_reading_roundtrip() {
         let r = SensorReading {
-            machine_id: "m3".into(), sensor_type: SensorType::Vibration,
-            value: 2.5, unit: "mm/s".into(),
+            machine_id: "m3".into(),
+            sensor_type: SensorType::Vibration,
+            value: 2.5,
+            unit: "mm/s".into(),
         };
         let json = serde_json::to_vec(&r).unwrap();
         let restored: SensorReading = serde_json::from_slice(&json).unwrap();
@@ -247,8 +251,10 @@ mod tests {
             pattern_type: MaintenancePatternType::BearingDegradation,
             machine_id: "m3".into(),
             sensors_involved: vec![SensorType::Vibration],
-            urgency: Urgency::Urgent, confidence: 0.87,
-            description: "test".into(), estimated_rul_hours: Some(120.0),
+            urgency: Urgency::Urgent,
+            confidence: 0.87,
+            description: "test".into(),
+            estimated_rul_hours: Some(120.0),
         };
         let json = serde_json::to_string(&p).unwrap();
         let _: MaintenancePattern = serde_json::from_str(&json).unwrap();
@@ -257,12 +263,22 @@ mod tests {
     #[test]
     fn test_validation() {
         let valid = SensorReading {
-            machine_id: "m1".into(), sensor_type: SensorType::Vibration,
-            value: 1.0, unit: "mm/s".into(),
+            machine_id: "m1".into(),
+            sensor_type: SensorType::Vibration,
+            value: 1.0,
+            unit: "mm/s".into(),
         };
         assert!(valid.is_valid());
-        assert!(!SensorReading { value: -1.0, ..valid.clone() }.is_valid());
-        assert!(!SensorReading { value: f64::NAN, ..valid }.is_valid());
+        assert!(!SensorReading {
+            value: -1.0,
+            ..valid.clone()
+        }
+        .is_valid());
+        assert!(!SensorReading {
+            value: f64::NAN,
+            ..valid
+        }
+        .is_valid());
     }
 
     #[test]
@@ -289,8 +305,10 @@ mod tests {
     fn test_adapter_rejects_invalid() {
         let adapter = IoTAdapter::new("m1");
         let reading = SensorReading {
-            machine_id: "m1".into(), sensor_type: SensorType::Vibration,
-            value: -5.0, unit: "mm/s".into(),
+            machine_id: "m1".into(),
+            sensor_type: SensorType::Vibration,
+            value: -5.0,
+            unit: "mm/s".into(),
         };
         let raw = serde_json::to_vec(&reading).unwrap();
         let ctx = MeasurementContext::default();

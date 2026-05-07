@@ -159,13 +159,21 @@ pub struct TabularAdapter {
 impl TabularAdapter {
     /// Create a new tabular adapter.
     pub fn new(source: &str) -> Self {
-        Self { source: format!("tabular:{}", source) }
+        Self {
+            source: format!("tabular:{}", source),
+        }
     }
 }
 
 impl ObservationAdapter for TabularAdapter {
-    fn source_id(&self) -> &str { &self.source }
-    fn canonicalize(&self, raw: &[u8], context: &MeasurementContext) -> Result<Observation, ObserveError> {
+    fn source_id(&self) -> &str {
+        &self.source
+    }
+    fn canonicalize(
+        &self,
+        raw: &[u8],
+        context: &MeasurementContext,
+    ) -> Result<Observation, ObserveError> {
         if let Ok(row) = serde_json::from_slice::<TabularRow>(raw) {
             if !row.is_valid() {
                 return Err(ObserveError::Canonicalize("row contains NaN/Inf".into()));
@@ -174,29 +182,47 @@ impl ObservationAdapter for TabularAdapter {
         let payload = raw.to_vec();
         let digest: Hash256 = content_address_raw(&payload);
         Ok(Observation {
-            timestamp: 0.0, source_id: self.source.clone(),
-            provenance: ProvenanceEnvelope { origin: self.source.clone(), chain: Vec::new(), sig: None },
-            payload, context: context.clone(), digest, schema_version: "1.0.0".into(), phase_hint: None,
+            timestamp: 0.0,
+            source_id: self.source.clone(),
+            provenance: ProvenanceEnvelope {
+                origin: self.source.clone(),
+                chain: Vec::new(),
+                sig: None,
+            },
+            payload,
+            context: context.clone(),
+            digest,
+            schema_version: "1.0.0".into(),
+            phase_hint: None,
         })
     }
 }
 
 impl pse_core::DomainAdapter for TabularAdapter {
-    fn domain_name(&self) -> &str { "tabular" }
+    fn domain_name(&self) -> &str {
+        "tabular"
+    }
 }
 
 /// Parse CSV content into tabular rows.
 ///
 /// First line is treated as header. Numeric columns are extracted;
 /// non-numeric values are recorded as NaN.
-pub fn parse_csv(content: &str, config: &TabularConfig) -> Result<(Vec<TabularRow>, Vec<ColumnStats>), anyhow::Error> {
+pub fn parse_csv(
+    content: &str,
+    config: &TabularConfig,
+) -> Result<(Vec<TabularRow>, Vec<ColumnStats>), anyhow::Error> {
     let mut lines = content.lines();
     let header_line = lines.next().ok_or_else(|| anyhow::anyhow!("empty CSV"))?;
     let headers: Vec<&str> = header_line.split(',').map(|h| h.trim()).collect();
 
-    let entity_col_idx = config.entity_column.as_ref()
+    let entity_col_idx = config
+        .entity_column
+        .as_ref()
         .and_then(|name| headers.iter().position(|h| h == name));
-    let ignore_indices: Vec<usize> = config.ignore_columns.iter()
+    let ignore_indices: Vec<usize> = config
+        .ignore_columns
+        .iter()
         .filter_map(|name| headers.iter().position(|h| h == name))
         .collect();
 
@@ -206,7 +232,9 @@ pub fn parse_csv(content: &str, config: &TabularConfig) -> Result<(Vec<TabularRo
 
     for (row_idx, line) in lines.enumerate() {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let fields: Vec<&str> = line.split(',').map(|f| f.trim()).collect();
 
         let entity_id = if let Some(idx) = entity_col_idx {
@@ -217,9 +245,15 @@ pub fn parse_csv(content: &str, config: &TabularConfig) -> Result<(Vec<TabularRo
 
         let mut values = Vec::new();
         for (col_idx, field) in fields.iter().enumerate() {
-            if col_idx >= headers.len() { break; }
-            if ignore_indices.contains(&col_idx) { continue; }
-            if Some(col_idx) == entity_col_idx { continue; }
+            if col_idx >= headers.len() {
+                break;
+            }
+            if ignore_indices.contains(&col_idx) {
+                continue;
+            }
+            if Some(col_idx) == entity_col_idx {
+                continue;
+            }
 
             if field.is_empty() || *field == "NA" || *field == "null" {
                 col_null_counts[col_idx] += 1;
@@ -229,25 +263,43 @@ pub fn parse_csv(content: &str, config: &TabularConfig) -> Result<(Vec<TabularRo
             }
         }
 
-        rows.push(TabularRow { row_index: row_idx, entity_id, values });
+        rows.push(TabularRow {
+            row_index: row_idx,
+            entity_id,
+            values,
+        });
     }
 
     // Compute column stats
     let total_rows = rows.len();
     let mut stats = Vec::new();
     for (col_idx, header) in headers.iter().enumerate() {
-        if ignore_indices.contains(&col_idx) { continue; }
-        if Some(col_idx) == entity_col_idx { continue; }
+        if ignore_indices.contains(&col_idx) {
+            continue;
+        }
+        if Some(col_idx) == entity_col_idx {
+            continue;
+        }
 
         let vals = &col_values[col_idx];
         let null_count = col_null_counts[col_idx];
-        let null_pct = if total_rows > 0 { null_count as f64 / total_rows as f64 * 100.0 } else { 0.0 };
+        let null_pct = if total_rows > 0 {
+            null_count as f64 / total_rows as f64 * 100.0
+        } else {
+            0.0
+        };
 
         if vals.is_empty() {
             stats.push(ColumnStats {
-                name: header.to_string(), dtype: DataType::Text,
-                null_count, null_pct, unique_count: 0,
-                min: None, max: None, mean: None, std: None,
+                name: header.to_string(),
+                dtype: DataType::Text,
+                null_count,
+                null_pct,
+                unique_count: 0,
+                min: None,
+                max: None,
+                mean: None,
+                std: None,
             });
             continue;
         }
@@ -255,7 +307,8 @@ pub fn parse_csv(content: &str, config: &TabularConfig) -> Result<(Vec<TabularRo
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
-        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len().max(1) as f64;
+        let variance =
+            vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len().max(1) as f64;
         let std = variance.sqrt();
 
         let mut unique: Vec<i64> = vals.iter().map(|v| (*v * 1000.0) as i64).collect();
@@ -263,9 +316,15 @@ pub fn parse_csv(content: &str, config: &TabularConfig) -> Result<(Vec<TabularRo
         unique.dedup();
 
         stats.push(ColumnStats {
-            name: header.to_string(), dtype: DataType::Numeric,
-            null_count, null_pct, unique_count: unique.len(),
-            min: Some(min), max: Some(max), mean: Some(mean), std: Some(std),
+            name: header.to_string(),
+            dtype: DataType::Numeric,
+            null_count,
+            null_pct,
+            unique_count: unique.len(),
+            min: Some(min),
+            max: Some(max),
+            mean: Some(mean),
+            std: Some(std),
         });
     }
 
@@ -294,7 +353,12 @@ pub fn detect_outliers(rows: &[TabularRow], stats: &[ColumnStats]) -> Vec<Anomal
                 row_indices: outlier_rows.clone(),
                 column: stat.name.clone(),
                 anomaly_type: AnomalyType::OutlierValue,
-                description: format!("{} outliers in column '{}' (>{:.1} sigma)", outlier_rows.len(), stat.name, 3.0),
+                description: format!(
+                    "{} outliers in column '{}' (>{:.1} sigma)",
+                    outlier_rows.len(),
+                    stat.name,
+                    3.0
+                ),
                 confidence: 0.85,
             });
         }
@@ -305,7 +369,9 @@ pub fn detect_outliers(rows: &[TabularRow], stats: &[ColumnStats]) -> Vec<Anomal
 /// Detect distribution shifts by comparing first half vs second half means.
 pub fn detect_drift(rows: &[TabularRow], stats: &[ColumnStats]) -> Vec<DriftEvent> {
     let mut drifts = Vec::new();
-    if rows.len() < 10 { return drifts; }
+    if rows.len() < 10 {
+        return drifts;
+    }
     let mid = rows.len() / 2;
 
     for stat in stats {
@@ -318,12 +384,17 @@ pub fn detect_drift(rows: &[TabularRow], stats: &[ColumnStats]) -> Vec<DriftEven
         for row in rows {
             for (col, val) in &row.values {
                 if col == &stat.name {
-                    if row.row_index < mid { first_half.push(*val); }
-                    else { second_half.push(*val); }
+                    if row.row_index < mid {
+                        first_half.push(*val);
+                    } else {
+                        second_half.push(*val);
+                    }
                 }
             }
         }
-        if first_half.is_empty() || second_half.is_empty() { continue; }
+        if first_half.is_empty() || second_half.is_empty() {
+            continue;
+        }
         let mean1 = first_half.iter().sum::<f64>() / first_half.len() as f64;
         let mean2 = second_half.iter().sum::<f64>() / second_half.len() as f64;
         let shift = (mean2 - mean1).abs() / std_val;
@@ -332,7 +403,10 @@ pub fn detect_drift(rows: &[TabularRow], stats: &[ColumnStats]) -> Vec<DriftEven
                 column: stat.name.clone(),
                 drift_start_row: mid,
                 magnitude: shift,
-                description: format!("Distribution shift in '{}' at row {}: {:.2} sigma", stat.name, mid, shift),
+                description: format!(
+                    "Distribution shift in '{}' at row {}: {:.2} sigma",
+                    stat.name, mid, shift
+                ),
             });
         }
     }
@@ -346,7 +420,9 @@ pub fn detect_drift(rows: &[TabularRow], stats: &[ColumnStats]) -> Vec<DriftEven
 pub fn embedded_test_csv() -> String {
     let mut rng: u64 = 42;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
 
@@ -378,14 +454,17 @@ pub fn embedded_test_csv() -> String {
         };
 
         // Inject missing value clusters at rows 20-22, 50-52, 80-82
-        let col_b_str = if (20..=22).contains(&i) || (50..=52).contains(&i) || (80..=82).contains(&i) {
-            "NA".to_string()
-        } else {
-            format!("{:.2}", col_b)
-        };
+        let col_b_str =
+            if (20..=22).contains(&i) || (50..=52).contains(&i) || (80..=82).contains(&i) {
+                "NA".to_string()
+            } else {
+                format!("{:.2}", col_b)
+            };
 
-        lines.push(format!("{},{},{:.2},{},{:.2},{:.2},{:.2},{:.2}",
-            i, entity, col_a_final, col_b_str, col_c, col_d, col_e, col_f));
+        lines.push(format!(
+            "{},{},{:.2},{},{:.2},{:.2},{:.2},{:.2}",
+            i, entity, col_a_final, col_b_str, col_c, col_d, col_e, col_f
+        ));
     }
 
     lines.join("\n")
@@ -397,25 +476,37 @@ mod tests {
     use pse_core::{macro_step, GlobalState};
     use pse_types::Config;
 
-    #[test] fn test_tabular_row_roundtrip() {
-        let r = TabularRow { row_index: 0, entity_id: "e1".into(),
-            values: vec![("col_a".into(), 42.0)] };
+    #[test]
+    fn test_tabular_row_roundtrip() {
+        let r = TabularRow {
+            row_index: 0,
+            entity_id: "e1".into(),
+            values: vec![("col_a".into(), 42.0)],
+        };
         let json = serde_json::to_vec(&r).unwrap();
         let res: TabularRow = serde_json::from_slice(&json).unwrap();
         assert_eq!(res.entity_id, "e1");
     }
 
-    #[test] fn test_parse_csv() {
+    #[test]
+    fn test_parse_csv() {
         let csv = embedded_test_csv();
-        let config = TabularConfig { entity_column: Some("entity".into()), ..Default::default() };
+        let config = TabularConfig {
+            entity_column: Some("entity".into()),
+            ..Default::default()
+        };
         let (rows, stats) = parse_csv(&csv, &config).unwrap();
         assert_eq!(rows.len(), 100);
         assert!(!stats.is_empty());
     }
 
-    #[test] fn test_outlier_detection() {
+    #[test]
+    fn test_outlier_detection() {
         let csv = embedded_test_csv();
-        let config = TabularConfig { entity_column: Some("entity".into()), ..Default::default() };
+        let config = TabularConfig {
+            entity_column: Some("entity".into()),
+            ..Default::default()
+        };
         let (rows, stats) = parse_csv(&csv, &config).unwrap();
         let anomalies = detect_outliers(&rows, &stats);
         // Should find outliers in col_a
@@ -423,7 +514,8 @@ mod tests {
         assert!(!col_a_outliers.is_empty());
     }
 
-    #[test] fn test_drift_detection() {
+    #[test]
+    fn test_drift_detection() {
         let csv = embedded_test_csv();
         let config = TabularConfig {
             entity_column: Some("entity".into()),
@@ -433,13 +525,20 @@ mod tests {
         let (rows, stats) = parse_csv(&csv, &config).unwrap();
         let drifts = detect_drift(&rows, &stats);
         let col_a_drift: Vec<_> = drifts.iter().filter(|d| d.column == "col_a").collect();
-        assert!(!col_a_drift.is_empty(), "Expected drift in col_a, found drifts: {:?}",
-            drifts.iter().map(|d| &d.column).collect::<Vec<_>>());
+        assert!(
+            !col_a_drift.is_empty(),
+            "Expected drift in col_a, found drifts: {:?}",
+            drifts.iter().map(|d| &d.column).collect::<Vec<_>>()
+        );
     }
 
-    #[test] fn test_column_stats() {
+    #[test]
+    fn test_column_stats() {
         let csv = embedded_test_csv();
-        let config = TabularConfig { entity_column: Some("entity".into()), ..Default::default() };
+        let config = TabularConfig {
+            entity_column: Some("entity".into()),
+            ..Default::default()
+        };
         let (_, stats) = parse_csv(&csv, &config).unwrap();
         for stat in &stats {
             if stat.name == "col_b" {
@@ -448,21 +547,27 @@ mod tests {
         }
     }
 
-    #[test] fn test_empty_csv() {
+    #[test]
+    fn test_empty_csv() {
         let result = parse_csv("", &TabularConfig::default());
         assert!(result.is_err());
     }
 
-    #[test] fn test_single_column() {
+    #[test]
+    fn test_single_column() {
         let csv = "value\n1.0\n2.0\n3.0";
         let (rows, stats) = parse_csv(csv, &TabularConfig::default()).unwrap();
         assert_eq!(rows.len(), 3);
         assert_eq!(stats.len(), 1);
     }
 
-    #[test] fn test_offline_pipeline() {
+    #[test]
+    fn test_offline_pipeline() {
         let csv = embedded_test_csv();
-        let config_tab = TabularConfig { entity_column: Some("entity".into()), ..Default::default() };
+        let config_tab = TabularConfig {
+            entity_column: Some("entity".into()),
+            ..Default::default()
+        };
         let (rows, _) = parse_csv(&csv, &config_tab).unwrap();
         let config = Config::default();
         let mut state = GlobalState::new(&config);

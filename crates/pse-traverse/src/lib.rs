@@ -20,53 +20,48 @@
 //! operates within. See the `pse_traversal_agent_spec_v0_1.pdf` in the
 //! repository root for the spec this implementation realises.
 
+pub mod blueprint_search;
 pub mod canonical;
-pub mod spec;
-pub mod field_cube;
+pub mod compressor;
 pub mod dof;
-pub mod plan;
+pub mod dynamic_policy;
+pub mod dynamic_report;
+pub mod dynamic_state;
+pub mod dynamic_tick;
 pub mod excision;
+pub mod field;
+pub mod field_cube;
 pub mod gate;
-pub mod report;
-pub mod solver;
+pub mod guidance_field;
 pub mod norms;
 pub mod operator;
+pub mod plan;
+pub mod plan_delta;
+pub mod report;
+pub mod search_autopilot;
+pub mod search_ledger;
 pub mod signature;
 pub mod signature_diag;
 pub mod signature_gate;
-pub mod blueprint_search;
-pub mod search_ledger;
-pub mod search_autopilot;
-pub mod dynamic_state;
-pub mod dynamic_policy;
-pub mod field;
-pub mod guidance_field;
-pub mod compressor;
+pub mod solver;
+pub mod spec;
 pub mod transition_proof;
-pub mod plan_delta;
-pub mod dynamic_report;
-pub mod dynamic_tick;
 
 #[cfg(feature = "pse-commit")]
 pub mod bridge;
 
 pub use canonical::{canonical_bytes, content_address, hex_address};
-pub use spec::{
-    ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec,
-    InputRef, OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy, TreeValue, ValueDomain,
-};
-pub use field_cube::{
-    CarrierKind, CarrierState, CarrierStatus, Coupling, EvidenceRef, FieldCube,
-    FieldCubeBuilder, DefaultFieldCubeBuilder, PathSpec, TopologySummary,
-};
 pub use dof::{DoFEdge, DoFGraph, DoFNode, DoFNodeKind, NodeId, NodeStatus};
+pub use excision::{detect_path_excision, OperationalImpact, PathExcision};
+pub use field_cube::{
+    CarrierKind, CarrierState, CarrierStatus, Coupling, DefaultFieldCubeBuilder, EvidenceRef,
+    FieldCube, FieldCubeBuilder, PathSpec, TopologySummary,
+};
+pub use gate::{Candidate, GateCheck, GateEngine, GateReport, GateSeverity, MciGate};
+pub use norms::{CollapseCertificate, ConstraintLattice, NormFitness, NormKind, NormSpec};
 pub use plan::{
     CollapseEffect, CollapsePlan, CollapsePlanner, CollapseStep, CollapseStepKind,
     DefaultCollapsePlanner, FailurePolicy, OrderingPolicy,
-};
-pub use excision::{detect_path_excision, OperationalImpact, PathExcision};
-pub use gate::{
-    Candidate, GateCheck, GateEngine, GateReport, GateSeverity, MciGate,
 };
 pub use report::{
     CarrierMigrationReport, CommitOutcome, MigrationTrigger, RefinementRequest,
@@ -75,8 +70,9 @@ pub use report::{
 pub use solver::{
     NullSolver, OracleSolver, ProjectedContext, Solver, SolverContext, TemplateSolver,
 };
-pub use norms::{
-    CollapseCertificate, ConstraintLattice, NormFitness, NormKind, NormSpec,
+pub use spec::{
+    ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec, InputRef,
+    OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy, TreeValue, ValueDomain,
 };
 
 #[cfg(feature = "pse-commit")]
@@ -106,10 +102,14 @@ pub enum TraverseError {
 }
 
 impl From<std::io::Error> for TraverseError {
-    fn from(e: std::io::Error) -> Self { TraverseError::Io(e.to_string()) }
+    fn from(e: std::io::Error) -> Self {
+        TraverseError::Io(e.to_string())
+    }
 }
 impl From<serde_json::Error> for TraverseError {
-    fn from(e: serde_json::Error) -> Self { TraverseError::Parse(e.to_string()) }
+    fn from(e: serde_json::Error) -> Self {
+        TraverseError::Parse(e.to_string())
+    }
 }
 
 /// Result alias.

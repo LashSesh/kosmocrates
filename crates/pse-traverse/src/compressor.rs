@@ -4,10 +4,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::dynamic_state::{
-    BaseState, CanonicalNumber, DynamicError, Hash256, LiftedState, StableId, stable_id_of,
-};
 use crate::dynamic_policy::DynamicPolicy;
+use crate::dynamic_state::{
+    stable_id_of, BaseState, CanonicalNumber, DynamicError, Hash256, LiftedState, StableId,
+};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // CompressionNode
@@ -166,10 +166,16 @@ impl MorphodynamicCompressor for DefaultMorphodynamicCompressor {
         // COMPRESS-01: sort edges before updating
         self.edges.sort();
         for edge in self.edges.iter_mut() {
-            let mass_i = self.nodes.get(&edge.from)
-                .map(|n| n.mass.to_f64()).unwrap_or(0.0);
-            let mass_j = self.nodes.get(&edge.to)
-                .map(|n| n.mass.to_f64()).unwrap_or(0.0);
+            let mass_i = self
+                .nodes
+                .get(&edge.from)
+                .map(|n| n.mass.to_f64())
+                .unwrap_or(0.0);
+            let mass_j = self
+                .nodes
+                .get(&edge.to)
+                .map(|n| n.mass.to_f64())
+                .unwrap_or(0.0);
             let c_ij = edge.coherence.to_f64();
             let u_ij = mass_i.min(mass_j);
             let w = edge.weight.to_f64();
@@ -187,10 +193,11 @@ impl MorphodynamicCompressor for DefaultMorphodynamicCompressor {
         // 4. Split: for each node where mass > split_threshold AND variance > variance_threshold
         // Sort candidates lexicographically by node id
         let split_candidates: Vec<StableId> = {
-            let mut cands: Vec<StableId> = self.nodes.iter()
+            let mut cands: Vec<StableId> = self
+                .nodes
+                .iter()
                 .filter(|(_, n)| {
-                    n.mass.to_f64() > split_threshold
-                        && n.variance.to_f64() > variance_threshold
+                    n.mass.to_f64() > split_threshold && n.variance.to_f64() > variance_threshold
                 })
                 .map(|(id, _)| id.clone())
                 .collect();
@@ -221,13 +228,16 @@ impl MorphodynamicCompressor for DefaultMorphodynamicCompressor {
                 };
                 let state_a = state_a.with_id()?;
                 let id_a = StableId(stable_id_of(&state_a)?);
-                self.nodes.insert(id_a.clone(), CompressionNode {
-                    id: id_a,
-                    state: state_a,
-                    mass: half_mass.clone(),
-                    variance: CanonicalNumber::zero(),
-                    born_tick: tick,
-                });
+                self.nodes.insert(
+                    id_a.clone(),
+                    CompressionNode {
+                        id: id_a,
+                        state: state_a,
+                        mass: half_mass.clone(),
+                        variance: CanonicalNumber::zero(),
+                        born_tick: tick,
+                    },
+                );
 
                 let state_b = LiftedState {
                     state_id: Hash256::zero(),
@@ -238,13 +248,16 @@ impl MorphodynamicCompressor for DefaultMorphodynamicCompressor {
                 };
                 let state_b = state_b.with_id()?;
                 let id_b = StableId(stable_id_of(&state_b)?);
-                self.nodes.insert(id_b.clone(), CompressionNode {
-                    id: id_b,
-                    state: state_b,
-                    mass: half_mass,
-                    variance: CanonicalNumber::zero(),
-                    born_tick: tick,
-                });
+                self.nodes.insert(
+                    id_b.clone(),
+                    CompressionNode {
+                        id: id_b,
+                        state: state_b,
+                        mass: half_mass,
+                        variance: CanonicalNumber::zero(),
+                        born_tick: tick,
+                    },
+                );
 
                 nodes_split += 1;
             }
@@ -270,21 +283,37 @@ impl MorphodynamicCompressor for DefaultMorphodynamicCompressor {
         to_merge.sort();
 
         let mut nodes_merged = 0usize;
-        let mut merged_out: std::collections::BTreeSet<StableId> = std::collections::BTreeSet::new();
+        let mut merged_out: std::collections::BTreeSet<StableId> =
+            std::collections::BTreeSet::new();
         for (id_i, id_j) in to_merge {
             if merged_out.contains(&id_i) || merged_out.contains(&id_j) {
                 continue;
             }
             let (mass_i, mass_j, coords_i, coords_j, base_state_id, auxiliary, lift_profile) = {
-                let ni = match self.nodes.get(&id_i) { Some(n) => n.clone(), None => continue };
-                let nj = match self.nodes.get(&id_j) { Some(n) => n.clone(), None => continue };
-                (ni.mass.to_f64(), nj.mass.to_f64(), ni.state.coords.clone(), nj.state.coords.clone(),
-                 ni.state.base_state_id.clone(), ni.state.auxiliary.clone(), ni.state.lift_profile.clone())
+                let ni = match self.nodes.get(&id_i) {
+                    Some(n) => n.clone(),
+                    None => continue,
+                };
+                let nj = match self.nodes.get(&id_j) {
+                    Some(n) => n.clone(),
+                    None => continue,
+                };
+                (
+                    ni.mass.to_f64(),
+                    nj.mass.to_f64(),
+                    ni.state.coords.clone(),
+                    nj.state.coords.clone(),
+                    ni.state.base_state_id.clone(),
+                    ni.state.auxiliary.clone(),
+                    ni.state.lift_profile.clone(),
+                )
             };
 
             let total_mass = mass_i + mass_j;
             // Mass-weighted mean of coords
-            let merged_coords: Result<Vec<CanonicalNumber>, DynamicError> = coords_i.iter().zip(coords_j.iter())
+            let merged_coords: Result<Vec<CanonicalNumber>, DynamicError> = coords_i
+                .iter()
+                .zip(coords_j.iter())
                 .map(|(a, b)| {
                     let v = (a.to_f64() * mass_i + b.to_f64() * mass_j) / total_mass;
                     CanonicalNumber::quantize_default(v)
@@ -308,13 +337,16 @@ impl MorphodynamicCompressor for DefaultMorphodynamicCompressor {
             merged_out.insert(id_i);
             merged_out.insert(id_j);
 
-            self.nodes.insert(new_id.clone(), CompressionNode {
-                id: new_id,
-                state: merged_state,
-                mass: merged_mass,
-                variance: CanonicalNumber::zero(),
-                born_tick: tick,
-            });
+            self.nodes.insert(
+                new_id.clone(),
+                CompressionNode {
+                    id: new_id,
+                    state: merged_state,
+                    mass: merged_mass,
+                    variance: CanonicalNumber::zero(),
+                    born_tick: tick,
+                },
+            );
             nodes_merged += 1;
         }
 
@@ -368,13 +400,16 @@ fn l2_coord_distance(a: &[CanonicalNumber], b: &[CanonicalNumber]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dynamic_state::{AuxiliaryKind, BaseState, DefaultStateLift, LiftProfile, StateLift};
     use crate::dynamic_policy::DynamicPolicy;
+    use crate::dynamic_state::{BaseState, DefaultStateLift, StateLift};
 
     fn make_lifted(tick: u64, coords: Vec<f64>) -> LiftedState {
         let base = BaseState {
             state_id: Hash256::zero(),
-            coords: coords.iter().map(|&v| CanonicalNumber::quantize_default(v).unwrap()).collect(),
+            coords: coords
+                .iter()
+                .map(|&v| CanonicalNumber::quantize_default(v).unwrap())
+                .collect(),
             weight: CanonicalNumber::quantize_default(1.0).unwrap(),
             evidence_refs: vec![],
         };

@@ -37,18 +37,27 @@ pub enum DynamicError {
 impl std::fmt::Display for DynamicError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DynamicError::CanonicalizationFailed { reason } =>
-                write!(f, "canonicalization failed: {}", reason),
-            DynamicError::InvalidDimension { expected, got } =>
-                write!(f, "invalid dimension: expected {}, got {}", expected, got),
-            DynamicError::NonFiniteNumber { field } =>
-                write!(f, "non-finite number in field: {}", field),
-            DynamicError::ReplayMismatch { expected, actual } =>
-                write!(f, "replay mismatch: expected {}, actual {}", expected.hex(), actual.hex()),
-            DynamicError::OperatorVersionMismatch { expected, actual } =>
-                write!(f, "operator version mismatch: expected {}, actual {}", expected, actual),
-            DynamicError::StorageFailure { reason } =>
-                write!(f, "storage failure: {}", reason),
+            DynamicError::CanonicalizationFailed { reason } => {
+                write!(f, "canonicalization failed: {}", reason)
+            }
+            DynamicError::InvalidDimension { expected, got } => {
+                write!(f, "invalid dimension: expected {}, got {}", expected, got)
+            }
+            DynamicError::NonFiniteNumber { field } => {
+                write!(f, "non-finite number in field: {}", field)
+            }
+            DynamicError::ReplayMismatch { expected, actual } => write!(
+                f,
+                "replay mismatch: expected {}, actual {}",
+                expected.hex(),
+                actual.hex()
+            ),
+            DynamicError::OperatorVersionMismatch { expected, actual } => write!(
+                f,
+                "operator version mismatch: expected {}, actual {}",
+                expected, actual
+            ),
+            DynamicError::StorageFailure { reason } => write!(f, "storage failure: {}", reason),
         }
     }
 }
@@ -165,12 +174,14 @@ impl CanonicalNumber {
     /// Absolute value.
     pub fn abs(&self) -> Self {
         match self {
-            CanonicalNumber::FixedI64 { raw, scale } => {
-                CanonicalNumber::FixedI64 { raw: raw.abs(), scale: *scale }
-            }
-            CanonicalNumber::Rational { num, den } => {
-                CanonicalNumber::Rational { num: num.abs(), den: *den }
-            }
+            CanonicalNumber::FixedI64 { raw, scale } => CanonicalNumber::FixedI64 {
+                raw: raw.abs(),
+                scale: *scale,
+            },
+            CanonicalNumber::Rational { num, den } => CanonicalNumber::Rational {
+                num: num.abs(),
+                den: *den,
+            },
         }
     }
 }
@@ -221,8 +232,10 @@ impl Hash256 {
         }
         let mut bytes = [0u8; 32];
         for (i, chunk) in s.as_bytes().chunks(2).enumerate() {
-            let hi = hex_nibble(chunk[0]).map_err(|e| DynamicError::CanonicalizationFailed { reason: e })?;
-            let lo = hex_nibble(chunk[1]).map_err(|e| DynamicError::CanonicalizationFailed { reason: e })?;
+            let hi = hex_nibble(chunk[0])
+                .map_err(|e| DynamicError::CanonicalizationFailed { reason: e })?;
+            let lo = hex_nibble(chunk[1])
+                .map_err(|e| DynamicError::CanonicalizationFailed { reason: e })?;
             bytes[i] = (hi << 4) | lo;
         }
         Ok(Hash256(bytes))
@@ -266,7 +279,9 @@ pub struct StableId(pub Hash256);
 pub fn stable_id_of<T: Serialize>(value: &T) -> Result<Hash256, DynamicError> {
     crate::canonical::content_address(value)
         .map(Hash256)
-        .map_err(|e| DynamicError::CanonicalizationFailed { reason: e.to_string() })
+        .map_err(|e| DynamicError::CanonicalizationFailed {
+            reason: e.to_string(),
+        })
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -372,14 +387,18 @@ impl LiftedState {
 pub trait StateLift {
     fn lift(&self, base: &BaseState, tick: u64) -> Result<LiftedState, DynamicError>;
     fn project(&self, lifted: &LiftedState) -> Result<BaseState, DynamicError>;
-    fn roundtrip_error(&self, base: &BaseState, tick: u64) -> Result<CanonicalNumber, DynamicError>;
+    fn roundtrip_error(&self, base: &BaseState, tick: u64)
+        -> Result<CanonicalNumber, DynamicError>;
 }
 
 pub struct DefaultStateLift;
 
 impl StateLift for DefaultStateLift {
     fn lift(&self, base: &BaseState, tick: u64) -> Result<LiftedState, DynamicError> {
-        let auxiliary = CanonicalNumber::FixedI64 { raw: tick as i64, scale: 0 };
+        let auxiliary = CanonicalNumber::FixedI64 {
+            raw: tick as i64,
+            scale: 0,
+        };
         let profile = LiftProfile::new(base.coords.len(), AuxiliaryKind::LogicalTick)?;
         let mut coords = base.coords.clone();
         coords.push(auxiliary.clone());
@@ -405,7 +424,11 @@ impl StateLift for DefaultStateLift {
         s.with_id()
     }
 
-    fn roundtrip_error(&self, base: &BaseState, tick: u64) -> Result<CanonicalNumber, DynamicError> {
+    fn roundtrip_error(
+        &self,
+        base: &BaseState,
+        tick: u64,
+    ) -> Result<CanonicalNumber, DynamicError> {
         let lifted = self.lift(base, tick)?;
         let projected = self.project(&lifted)?;
         // Compute L2 distance between base.coords and projected.coords
@@ -446,13 +469,18 @@ mod tests {
         assert_eq!(base.coords.len(), projected.coords.len());
         for (a, b) in base.coords.iter().zip(projected.coords.iter()) {
             let diff = (a.to_f64() - b.to_f64()).abs();
-            assert!(diff < 1e-6, "coord mismatch: {} vs {}", a.to_f64(), b.to_f64());
+            assert!(
+                diff < 1e-6,
+                "coord mismatch: {} vs {}",
+                a.to_f64(),
+                b.to_f64()
+            );
         }
     }
 
     #[test]
     fn canonical_number_quantize_is_deterministic() {
-        let v = 3.14159265358979f64;
+        let v = std::f64::consts::PI;
         let a = CanonicalNumber::quantize_default(v).unwrap();
         let b = CanonicalNumber::quantize_default(v).unwrap();
         assert_eq!(a, b);
@@ -464,8 +492,10 @@ mod tests {
 
     #[test]
     fn hash256_hex_roundtrip() {
-        let h = Hash256([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-                         17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]);
+        let h = Hash256([
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
+        ]);
         let hex = h.hex();
         assert_eq!(hex.len(), 64);
         let h2 = Hash256::from_hex(&hex).unwrap();
@@ -476,7 +506,10 @@ mod tests {
     fn zero_hash_is_all_zeros() {
         let z = Hash256::zero();
         assert_eq!(z.0, [0u8; 32]);
-        assert_eq!(z.hex(), "0000000000000000000000000000000000000000000000000000000000000000");
+        assert_eq!(
+            z.hex(),
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        );
     }
 
     #[test]

@@ -15,7 +15,9 @@ use crate::field_cube::{EvidenceRef, FieldCube, TopologySummary};
 pub struct NodeId(pub String);
 
 impl NodeId {
-    pub fn new(s: impl Into<String>) -> Self { NodeId(s.into()) }
+    pub fn new(s: impl Into<String>) -> Self {
+        NodeId(s.into())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -70,31 +72,41 @@ impl DoFGraph {
     pub fn from_field_cube(cube: &FieldCube) -> Self {
         let mut nodes: BTreeMap<NodeId, DoFNode> = BTreeMap::new();
         for (id, dim) in &cube.dimensions {
-            nodes.insert(NodeId::new(id), DoFNode {
-                id: NodeId::new(id),
-                kind: DoFNodeKind::Dimension,
-                label: dim.label.clone(),
-                weight: 1.0,
-                status: NodeStatus::Open,
-                evidence: Vec::new(),
-            });
+            nodes.insert(
+                NodeId::new(id),
+                DoFNode {
+                    id: NodeId::new(id),
+                    kind: DoFNodeKind::Dimension,
+                    label: dim.label.clone(),
+                    weight: 1.0,
+                    status: NodeStatus::Open,
+                    evidence: Vec::new(),
+                },
+            );
         }
         for (id, c) in &cube.constraints {
-            nodes.insert(NodeId::new(id), DoFNode {
-                id: NodeId::new(id),
-                kind: DoFNodeKind::Constraint,
-                label: c.predicate.clone(),
-                weight: c.weight,
-                status: NodeStatus::Open,
-                evidence: Vec::new(),
-            });
+            nodes.insert(
+                NodeId::new(id),
+                DoFNode {
+                    id: NodeId::new(id),
+                    kind: DoFNodeKind::Constraint,
+                    label: c.predicate.clone(),
+                    weight: c.weight,
+                    status: NodeStatus::Open,
+                    evidence: Vec::new(),
+                },
+            );
         }
 
-        let mut edges: Vec<DoFEdge> = cube.couplings.iter().map(|cp| DoFEdge {
-            from: NodeId::new(&cp.from),
-            to: NodeId::new(&cp.to),
-            kind: cp.kind.clone(),
-        }).collect();
+        let mut edges: Vec<DoFEdge> = cube
+            .couplings
+            .iter()
+            .map(|cp| DoFEdge {
+                from: NodeId::new(&cp.from),
+                to: NodeId::new(&cp.to),
+                kind: cp.kind.clone(),
+            })
+            .collect();
         edges.sort();
 
         DoFGraph {
@@ -106,7 +118,10 @@ impl DoFGraph {
 
     /// Number of edges incident on `node` (treating edges as undirected).
     pub fn degree(&self, node: &NodeId) -> u64 {
-        self.edges.iter().filter(|e| &e.from == node || &e.to == node).count() as u64
+        self.edges
+            .iter()
+            .filter(|e| &e.from == node || &e.to == node)
+            .count() as u64
     }
 }
 
@@ -117,8 +132,8 @@ mod tests {
     use crate::field_cube::DefaultFieldCubeBuilder;
     use crate::field_cube::FieldCubeBuilder;
     use crate::spec::{
-        ConstraintSpec, ConstraintKind, DimensionKind, DimensionSource, DimensionSpec,
-        OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
+        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec, OutputSpec,
+        ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
     };
 
     fn spec() -> ProblemSpec {
@@ -143,7 +158,10 @@ mod tests {
                 required: true,
                 source: DimensionSource::User,
             }],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "y".into() }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "y".into(),
+            }],
             risk_policy: RiskPolicy::default(),
             replay: ReplayPolicy::default(),
             metadata: BTreeMap::new(),

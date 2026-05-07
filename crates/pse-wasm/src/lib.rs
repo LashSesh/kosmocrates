@@ -3,10 +3,10 @@
 //! Wraps the PSE engine with a JSON-in/JSON-out interface for browser use.
 //! All processing happens locally in the browser — no data leaves the machine.
 
-use wasm_bindgen::prelude::*;
 use pse_core::{macro_step, GlobalState};
 use pse_graph::PassthroughAdapter;
 use pse_types::Config;
+use wasm_bindgen::prelude::*;
 
 /// The WASM-exposed PSE engine.
 /// Wraps the real engine with a JSON-in/JSON-out interface.
@@ -75,13 +75,13 @@ impl PseWasm {
                     "columns": stats.len(),
                     "entities": entity_count,
                     "column_stats": stats,
-                }).to_string()
+                })
+                .to_string()
             }
-            Err(e) => {
-                serde_json::json!({
-                    "error": e.to_string()
-                }).to_string()
-            }
+            Err(e) => serde_json::json!({
+                "error": e.to_string()
+            })
+            .to_string(),
         }
     }
 
@@ -128,33 +128,40 @@ impl PseWasm {
             "memory_hits": new_hits,
             "total_crystals": self.state.archive.len(),
             "total_ticks": self.total_ticks,
-        }).to_string()
+        })
+        .to_string()
     }
 
     /// Get all crystals as JSON array.
     #[wasm_bindgen]
     pub fn crystals(&self) -> String {
-        let crystals: Vec<serde_json::Value> = self.state.archive.crystals().iter().map(|c| {
-            serde_json::json!({
-                "crystal_id": hex_encode(&c.crystal_id),
-                "stability_score": c.stability_score,
-                "free_energy": c.free_energy,
-                "region_size": c.region.len(),
-                "created_at": c.created_at,
-                "constraint_count": c.constraint_program.len(),
-                "topology": {
-                    "spectral_gap": c.topology_signature.spectral_gap,
-                    "betti_0": c.topology_signature.betti_0,
-                    "betti_1": c.topology_signature.betti_1,
-                    "kuramoto_coherence": c.topology_signature.kuramoto_coherence,
-                },
-                "consensus": {
-                    "primal_score": c.commit_proof.consensus_result.primal_score,
-                    "dual_score": c.commit_proof.consensus_result.dual_score,
-                    "mci": c.commit_proof.consensus_result.mci,
-                },
+        let crystals: Vec<serde_json::Value> = self
+            .state
+            .archive
+            .crystals()
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "crystal_id": hex_encode(&c.crystal_id),
+                    "stability_score": c.stability_score,
+                    "free_energy": c.free_energy,
+                    "region_size": c.region.len(),
+                    "created_at": c.created_at,
+                    "constraint_count": c.constraint_program.len(),
+                    "topology": {
+                        "spectral_gap": c.topology_signature.spectral_gap,
+                        "betti_0": c.topology_signature.betti_0,
+                        "betti_1": c.topology_signature.betti_1,
+                        "kuramoto_coherence": c.topology_signature.kuramoto_coherence,
+                    },
+                    "consensus": {
+                        "primal_score": c.commit_proof.consensus_result.primal_score,
+                        "dual_score": c.commit_proof.consensus_result.dual_score,
+                        "mci": c.commit_proof.consensus_result.mci,
+                    },
+                })
             })
-        }).collect();
+            .collect();
         serde_json::to_string(&crystals).unwrap_or_else(|_| "[]".to_string())
     }
 
@@ -175,7 +182,8 @@ impl PseWasm {
                     "drift_events": drifts,
                     "anomaly_count": anomalies.len(),
                     "drift_count": drifts.len(),
-                }).to_string()
+                })
+                .to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
@@ -196,20 +204,25 @@ impl PseWasm {
             "memory_misses": mem_stats.misses,
             "hit_rate": mem_stats.hit_rate,
             "pattern_hits": self.state.pattern_hits,
-        }).to_string()
+        })
+        .to_string()
     }
 
     /// Get accumulation curve data.
     /// Returns JSON array of { "tick": N, "total_crystals": N, "memory_hits": N }
     #[wasm_bindgen]
     pub fn accumulation_curve(&self) -> String {
-        let points: Vec<serde_json::Value> = self.curve_data.iter().map(|p| {
-            serde_json::json!({
-                "tick": p.tick,
-                "total_crystals": p.total_crystals,
-                "memory_hits": p.memory_hits,
+        let points: Vec<serde_json::Value> = self
+            .curve_data
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "tick": p.tick,
+                    "total_crystals": p.total_crystals,
+                    "memory_hits": p.memory_hits,
+                })
             })
-        }).collect();
+            .collect();
         serde_json::to_string(&points).unwrap_or_else(|_| "[]".to_string())
     }
 
@@ -228,9 +241,8 @@ impl PseWasm {
         self.state.last_constraint_count = 0;
         self.state.last_gate_passed = false;
         self.state.por_fsm = pse_cascade::PoRFsm::new();
-        self.state.phase_ladder = pse_cascade::build_phase_ladder(
-            self.config.carrier.num_carriers, 0.0, 1.0,
-        );
+        self.state.phase_ladder =
+            pse_cascade::build_phase_ladder(self.config.carrier.num_carriers, 0.0, 1.0);
         self.state.active_carrier = 0;
         self.state.scale_state = pse_scale::MultiScaleState::default();
         self.total_ticks = 0;

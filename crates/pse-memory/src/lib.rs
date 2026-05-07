@@ -219,9 +219,7 @@ impl PatternMemory {
             .iter()
             .map(|sig| (sig.crystal_id, similarity(candidate, sig, spectral_k)))
             .collect();
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(k);
         scored
     }
@@ -411,7 +409,7 @@ impl PatternMemory {
             crystal_id: [0u8; 32], // Unknown until crystallized
             spectral,
             resonance: stability_score,
-            confidence: 0.0, // Unknown before consensus
+            confidence: 0.0,         // Unknown before consensus
             content_hash: [0u8; 32], // Unknown before crystallization
             tick_range: (0, 0),
             observation_count: region_size,
@@ -432,7 +430,10 @@ impl PatternMemory {
 /// Returns value in [0.0, 1.0] where 1.0 = identical.
 pub fn similarity(a: &CrystalSignature, b: &CrystalSignature, spectral_k: usize) -> f64 {
     // 1. Exact content match (hash comparison) → return 1.0 immediately
-    if a.content_hash != [0u8; 32] && b.content_hash != [0u8; 32] && a.content_hash == b.content_hash {
+    if a.content_hash != [0u8; 32]
+        && b.content_hash != [0u8; 32]
+        && a.content_hash == b.content_hash
+    {
         return 1.0;
     }
 
@@ -549,7 +550,11 @@ mod tests {
         mem.insert(stored);
 
         // Very similar but not identical
-        let candidate = make_sig(vec![1.01, 2.01, 3.01, 4.01, 5.01, 6.01, 7.01, 8.01], 0.51, 0.51);
+        let candidate = make_sig(
+            vec![1.01, 2.01, 3.01, 4.01, 5.01, 6.01, 7.01, 8.01],
+            0.51,
+            0.51,
+        );
         assert!(mem.lookup(&candidate).is_some());
     }
 
@@ -669,9 +674,18 @@ mod tests {
     fn top_k_returns_highest_similarity_first() {
         let mut mem = PatternMemory::new(MemoryConfig::default());
         // a near-identical, b moderate-overlap, c orthogonal
-        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
-        mem.insert(sig_with_id(vec![0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xBB));
-        mem.insert(sig_with_id(vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xCC));
+        mem.insert(sig_with_id(
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0xAA,
+        ));
+        mem.insert(sig_with_id(
+            vec![0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0xBB,
+        ));
+        mem.insert(sig_with_id(
+            vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0xCC,
+        ));
         let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
         let top = mem.top_k(&candidate, 3);
         assert_eq!(top.len(), 3);
@@ -686,7 +700,10 @@ mod tests {
     #[test]
     fn top_k_does_not_update_stats() {
         let mut mem = PatternMemory::new(MemoryConfig::default());
-        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
+        mem.insert(sig_with_id(
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0xAA,
+        ));
         let stats_before = mem.stats().clone();
         let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
         let _ = mem.top_k(&candidate, 1);
@@ -699,8 +716,14 @@ mod tests {
     #[test]
     fn top_k_handles_k_larger_than_index() {
         let mut mem = PatternMemory::new(MemoryConfig::default());
-        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
-        mem.insert(sig_with_id(vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xBB));
+        mem.insert(sig_with_id(
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0xAA,
+        ));
+        mem.insert(sig_with_id(
+            vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0xBB,
+        ));
         let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
         let top = mem.top_k(&candidate, 100);
         assert_eq!(top.len(), 2);
@@ -709,7 +732,10 @@ mod tests {
     #[test]
     fn top_k_zero_returns_empty() {
         let mut mem = PatternMemory::new(MemoryConfig::default());
-        mem.insert(sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0xAA));
+        mem.insert(sig_with_id(
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0xAA,
+        ));
         let candidate = sig_with_id(vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 0x00);
         assert!(mem.top_k(&candidate, 0).is_empty());
     }
@@ -805,11 +831,8 @@ mod tests {
     fn lookup_crystal_falls_back_to_cosine_when_no_canonical_hash() {
         let mut mem = PatternMemory::new(MemoryConfig::default());
         // Stored with metatron, probe without — fallback path triggers.
-        let mut stored = make_crystal_with_metatron(
-            0xA1,
-            "h1",
-            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        );
+        let mut stored =
+            make_crystal_with_metatron(0xA1, "h1", vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         // Make stored's spectral distinctive enough that cosine matches.
         stored.topology_signature.spectral_gap = 1.0;
         mem.insert_crystal(&stored);

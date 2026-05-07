@@ -2,12 +2,10 @@ use std::fmt::Write;
 
 use serde::Serialize;
 
-use crate::bitgraph::{
-    bits_to_adjacency, complement_bits, fast_orbit, mask_for_n, S7BitCache,
-};
+use crate::bitgraph::{bits_to_adjacency, complement_bits, fast_orbit, mask_for_n, S7BitCache};
 use crate::bitgraph_n::{
-    bits_to_adjacency as bits_to_adjacency_n, complement_bits as complement_bits_n,
-    fast_orbit_n, SnBitCache,
+    bits_to_adjacency as bits_to_adjacency_n, complement_bits as complement_bits_n, fast_orbit_n,
+    SnBitCache,
 };
 use crate::complement::{complement, mat_pow, trace};
 use crate::embed::embed;
@@ -16,7 +14,9 @@ use crate::group::{generate_s7, permutation_matrix_13};
 use crate::ingest::InputGraph;
 use crate::orbit::compute_orbit;
 use crate::platonic::{classify_platonic, PlatonicClass};
-use crate::properties::{adjacency_to_bits, compute_properties, compute_properties_with, GraphProperties};
+use crate::properties::{
+    adjacency_to_bits, compute_properties, compute_properties_with, GraphProperties,
+};
 use crate::spectrum::compute_spectrum;
 use crate::stabilizer::{compute_stabilizer, StabilizerResult};
 
@@ -74,7 +74,10 @@ pub struct S7Cache {
 impl S7Cache {
     pub fn new() -> Self {
         let perms = generate_s7();
-        let matrices = perms.iter().map(|sigma| permutation_matrix_13(sigma)).collect();
+        let matrices = perms
+            .iter()
+            .map(|sigma| permutation_matrix_13(sigma))
+            .collect();
         Self { perms, matrices }
     }
 }

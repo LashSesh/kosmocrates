@@ -50,6 +50,12 @@ edition = "2021"
 authors = ["Sebastian Klemm"]
 license = "MIT"
 description = "Post-Symbolic Engine — universal computation through topology, physics, and geometry"
+repository = "https://github.com/lashsesh/pse"
+homepage = "https://github.com/lashsesh/pse"
+readme = "README.md"
+keywords = ["streaming", "topology", "deterministic", "audit", "post-symbolic"]
+categories = ["science", "algorithms", "data-structures"]
+rust-version = "1.82"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -75,3 +81,35 @@ wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 rayon = "1.10"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Release profile: tuned for the single-binary, single-thread-fast
+# delivery contract. `lto = "thin"` is the sweet spot for this workspace
+# (full LTO costs ~10× build time for ~2% throughput); `codegen-units = 1`
+# is what unlocks the cross-crate inlining that the macro_step hot path
+# relies on. `panic = "abort"` is intentional for the binaries — debug
+# builds keep `unwind` for the test harness.
+# ─────────────────────────────────────────────────────────────────────────
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = "symbols"
+panic = "abort"
+overflow-checks = false
+
+# Faster developer feedback: keep the dev profile fast to compile and
+# diagnostic, but turn on bounds-checks and overflow-checks so anything
+# subtle surfaces during local iteration.
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+# `cargo bench` and the `bench_full` example need the same codegen as
+# release, but keep some debug info so `perf` / `flamegraph` are useful.
+[profile.bench]
+inherits = "release"
+debug = true
+strip = "none"

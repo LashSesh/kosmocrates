@@ -12,8 +12,7 @@
 // C5 — depends on pse-types, pse-graph
 
 use pse_types::{
-    ConsensusConfig, ConsensusResult, GateSnapshot, NormalizationConfig,
-    PoRTrace, ThresholdConfig,
+    ConsensusConfig, ConsensusResult, GateSnapshot, NormalizationConfig, PoRTrace, ThresholdConfig,
 };
 use thiserror::Error;
 
@@ -42,17 +41,17 @@ pub fn norm_exp(d: f64, lambda: f64) -> f64 {
 /// All 11 metrics from PSE Sec 10
 #[derive(Clone, Debug, Default)]
 pub struct MetricSet {
-    pub d_deformation: f64,  // Def 10.3: N(D_raw; mu_D)
-    pub q_coherence: f64,    // Def 10.4: N(Q_raw; mu_Q)
-    pub r_resonance: f64,    // Def 10.5: exp(-d_R(H, s_ref))
-    pub g_readiness: f64,    // Def 10.6: gamma_D*D + gamma_Q*Q + gamma_R*R
-    pub j_doublekick: f64,   // Def 10.7: N(J_raw; mu_J)
-    pub p_projection: f64,   // Def 10.8: exp(-diam(P) * lambda_P)
-    pub n_seam: f64,         // Def 10.9: exp(-d_seam(L,R))
-    pub k_crystal: f64,      // Def 10.10: lambda_C*C + lambda_E*E
-    pub f_friction: f64,     // Def 10.11: N(F_raw; mu_F)
-    pub s_shock: f64,        // Def 10.12: N(S_raw; mu_S)
-    pub l_migration: f64,    // from carrier readiness
+    pub d_deformation: f64, // Def 10.3: N(D_raw; mu_D)
+    pub q_coherence: f64,   // Def 10.4: N(Q_raw; mu_Q)
+    pub r_resonance: f64,   // Def 10.5: exp(-d_R(H, s_ref))
+    pub g_readiness: f64,   // Def 10.6: gamma_D*D + gamma_Q*Q + gamma_R*R
+    pub j_doublekick: f64,  // Def 10.7: N(J_raw; mu_J)
+    pub p_projection: f64,  // Def 10.8: exp(-diam(P) * lambda_P)
+    pub n_seam: f64,        // Def 10.9: exp(-d_seam(L,R))
+    pub k_crystal: f64,     // Def 10.10: lambda_C*C + lambda_E*E
+    pub f_friction: f64,    // Def 10.11: N(F_raw; mu_F)
+    pub s_shock: f64,       // Def 10.12: N(S_raw; mu_S)
+    pub l_migration: f64,   // from carrier readiness
 }
 
 impl MetricSet {
@@ -115,7 +114,10 @@ impl Default for PoRFsm {
             stability_history: Vec::new(),
             lock_tick: None,
             verify_tick: None,
-            trace: PoRTrace { search_enter: 0.0, ..Default::default() },
+            trace: PoRTrace {
+                search_enter: 0.0,
+                ..Default::default()
+            },
         }
     }
 }
@@ -144,9 +146,7 @@ impl PoRFsm {
                 let delta = (kappa - last).abs();
                 if delta <= config.por_epsilon {
                     self.stability_history.push(kappa);
-                    if self.stability_history.len()
-                        >= config.por_t_min + config.por_t_stable
-                    {
+                    if self.stability_history.len() >= config.por_t_min + config.por_t_stable {
                         self.state = PoRState::Verify;
                         self.verify_tick = Some(t2);
                         self.trace.verify_enter = Some(t2);
@@ -264,20 +264,26 @@ pub struct WTOperator;
 fn ctx_kappa(ctx: &CascadeContext) -> f64 {
     let cfg = ctx.config;
     match &ctx.data {
-        Some(d) => mandorla_real(
-            &ctx.carrier.helix_a,
-            &ctx.carrier.helix_b,
-            d,
-            cfg.lambda,
-            cfg.mu_r,
-            cfg.eta_r,
-        ).kappa,
-        None => mandorla(
-            &ctx.carrier.helix_a,
-            &ctx.carrier.helix_b,
-            cfg.lambda,
-            cfg.mu_r,
-        ).kappa,
+        Some(d) => {
+            mandorla_real(
+                &ctx.carrier.helix_a,
+                &ctx.carrier.helix_b,
+                d,
+                cfg.lambda,
+                cfg.mu_r,
+                cfg.eta_r,
+            )
+            .kappa
+        }
+        None => {
+            mandorla(
+                &ctx.carrier.helix_a,
+                &ctx.carrier.helix_b,
+                cfg.lambda,
+                cfg.mu_r,
+            )
+            .kappa
+        }
     }
 }
 
@@ -305,7 +311,9 @@ fn kappa_with_carrier_phase_shift(ctx: &CascadeContext, delta: f64) -> f64 {
 }
 
 impl CascadeOperator for DKOperator {
-    fn name(&self) -> &str { "DK" }
+    fn name(&self) -> &str {
+        "DK"
+    }
     /// Double-Kick: mean κ over a small phase-perturbation ring around
     /// the active carrier. High score = robust resonance basin (κ stays
     /// high under perturbation); low score = balanced on a sharp peak.
@@ -333,7 +341,9 @@ impl CascadeOperator for DKOperator {
 }
 
 impl CascadeOperator for SWOperator {
-    fn name(&self) -> &str { "SW" }
+    fn name(&self) -> &str {
+        "SW"
+    }
     /// Symmetry-Weave: phase-coherence sharpness — `|cos(2·(φ_data −
     /// α.phi))|`. High when the data sits at a clear antinode (axis-
     /// aligned) or node (transverse), low in the ambiguous diagonal
@@ -358,7 +368,9 @@ impl CascadeOperator for SWOperator {
 }
 
 impl CascadeOperator for PIOperator {
-    fn name(&self) -> &str { "PI" }
+    fn name(&self) -> &str {
+        "PI"
+    }
     /// Phase-Integration: local-maximum probe. Asks whether κ at the
     /// data's actual phase exceeds κ at small perturbations ±π/8 of
     /// that phase. Score in [0, 1]: 1 = clear local maximum, 0 = at
@@ -371,7 +383,11 @@ impl CascadeOperator for PIOperator {
                 let cfg = ctx.config;
                 let two_pi = 2.0 * pi;
                 let kappa_at = |phi: f64| -> f64 {
-                    let probe = DataHelix { tau: d.tau, phi, r: d.r };
+                    let probe = DataHelix {
+                        tau: d.tau,
+                        phi,
+                        r: d.r,
+                    };
                     mandorla_real(
                         &ctx.carrier.helix_a,
                         &ctx.carrier.helix_b,
@@ -379,7 +395,8 @@ impl CascadeOperator for PIOperator {
                         cfg.lambda,
                         cfg.mu_r,
                         cfg.eta_r,
-                    ).kappa
+                    )
+                    .kappa
                 };
                 let eps = pi / 8.0;
                 let k_now = kappa_at(d.phi);
@@ -402,7 +419,9 @@ impl CascadeOperator for PIOperator {
 }
 
 impl CascadeOperator for WTOperator {
-    fn name(&self) -> &str { "WT" }
+    fn name(&self) -> &str {
+        "WT"
+    }
     /// Wave-Transfer: the largest κ achievable on any *other* carrier
     /// in the phase-ladder, divided by κ at the active carrier.
     /// Clamped to [0, 1]: 1 = the resonance pattern transfers cleanly
@@ -428,14 +447,17 @@ impl CascadeOperator for WTOperator {
             }
             let cfg = ctx.config;
             let k = match &ctx.data {
-                Some(d) => mandorla_real(
-                    &other.helix_a,
-                    &other.helix_b,
-                    d,
-                    cfg.lambda,
-                    cfg.mu_r,
-                    cfg.eta_r,
-                ).kappa,
+                Some(d) => {
+                    mandorla_real(
+                        &other.helix_a,
+                        &other.helix_b,
+                        d,
+                        cfg.lambda,
+                        cfg.mu_r,
+                        cfg.eta_r,
+                    )
+                    .kappa
+                }
                 None => mandorla(&other.helix_a, &other.helix_b, cfg.lambda, cfg.mu_r).kappa,
             };
             if k > best_other_kappa {
@@ -507,10 +529,9 @@ pub fn default_dual_ops() -> (PIOperator, WTOperator, DKOperator, SWOperator) {
 // ─── Carrier Geometry ─────────────────────────────────────────────────────
 
 use pse_types::{
-    CarrierConfig, CarrierInstance, DataHelix, Hash256, MandorlaState, Observation,
-    PhaseLadder, TubusCoord,
+    CarrierConfig, CarrierInstance, DataHelix, Hash256, MandorlaState, Observation, PhaseLadder,
+    TubusCoord,
 };
-
 
 // ─── Helix Pair ───────────────────────────────────────────────────────────────
 
@@ -538,12 +559,7 @@ pub fn helix_pair(tau: f64, phi: f64, r: f64) -> (TubusCoord, TubusCoord) {
 /// real interference with the data stream, use [`mandorla_real`] which
 /// modulates this base kappa with the data-helix phase- and
 /// amplitude-locks.
-pub fn mandorla(
-    alpha: &TubusCoord,
-    beta: &TubusCoord,
-    lambda: f64,
-    mu_r: f64,
-) -> MandorlaState {
+pub fn mandorla(alpha: &TubusCoord, beta: &TubusCoord, lambda: f64, mu_r: f64) -> MandorlaState {
     let raw_diff = (alpha.phi - beta.phi).abs();
     let delta_phi = raw_diff.min(2.0 * std::f64::consts::PI - raw_diff);
     let kappa = (-lambda * delta_phi).exp() * (-mu_r * alpha.r * alpha.r).exp();
@@ -603,8 +619,8 @@ pub fn migration_admissible(
     thresholds: &ThresholdConfig,
     config: &CarrierConfig,
 ) -> bool {
-    let friction_or_shock = metrics.f_friction >= thresholds.f_friction
-        || metrics.s_shock >= thresholds.s_shock;
+    let friction_or_shock =
+        metrics.f_friction >= thresholds.f_friction || metrics.s_shock >= thresholds.s_shock;
     let readiness = config.lambda_q * target.resonance
         + config.lambda_r * 0.5 // target resonance proxy
         + config.lambda_m * target.mandorla.kappa;
@@ -678,7 +694,10 @@ pub fn advance_phase_ladder(ladder: &mut PhaseLadder, delta_tau: f64) {
         carrier.helix_b.tau += delta_tau;
         carrier.mandorla.tau += delta_tau;
         // Inv I7: phase monotonicity enforced by only advancing forward
-        assert!(delta_tau >= 0.0, "phase monotonicity violated: delta_tau < 0");
+        assert!(
+            delta_tau >= 0.0,
+            "phase monotonicity violated: delta_tau < 0"
+        );
     }
 }
 
@@ -773,7 +792,11 @@ pub fn observation_data_helix(obs: &Observation, intrinsic_tau: f64) -> DataHeli
 /// as zero amplitude → trivially-coherent (κ depends on `exp(-μ·r²)`).
 pub fn batch_data_helix(observations: &[Observation], intrinsic_tau: f64) -> DataHelix {
     if observations.is_empty() {
-        return DataHelix { tau: intrinsic_tau, phi: 0.0, r: 0.0 };
+        return DataHelix {
+            tau: intrinsic_tau,
+            phi: 0.0,
+            r: 0.0,
+        };
     }
     let n = observations.len() as f64;
     let mut sum_sin = 0.0_f64;
@@ -967,8 +990,8 @@ mod tests {
 
     // ── Data-helix tests (E.1) ────────────────────────────────────────────
 
-    use pse_types::{MeasurementContext, ProvenanceEnvelope};
     use pse_types::content_address_raw;
+    use pse_types::{MeasurementContext, ProvenanceEnvelope};
 
     fn obs(payload: Vec<u8>) -> Observation {
         let digest = content_address_raw(&payload);
@@ -1375,7 +1398,7 @@ mod consensus_tests {
 
         // Large delta should reset
         fsm.step(0.2, 4.0, &config); // big drop - but wait, 0.2 < por_kappa_bar resets in Search
-        // Actually in Lock, we check delta. But 0.2 < kappa_bar doesn't matter; delta = |0.2 - 0.8| = 0.6 > epsilon
+                                     // Actually in Lock, we check delta. But 0.2 < kappa_bar doesn't matter; delta = |0.2 - 0.8| = 0.6 > epsilon
         assert_eq!(fsm.state, PoRState::Search);
     }
 
@@ -1407,7 +1430,11 @@ mod consensus_tests {
     fn dual_consensus_basic() {
         let ladder = build_phase_ladder(4, 0.0, 1.0);
         let cfg = CarrierConfig::default();
-        let data = Some(DataHelix { tau: 0.0, phi: 0.0, r: 0.5 });
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: 0.0,
+            r: 0.5,
+        });
         let ctx = make_ctx_with_data(&ladder, &cfg, data);
         let (dk, sw, pi, wt) = default_primal_ops();
         let (pi2, wt2, dk2, sw2) = default_dual_ops();
@@ -1426,7 +1453,11 @@ mod consensus_tests {
         // perturb the carrier; subsequent ops see the perturbed state.
         let ladder = build_phase_ladder(4, 0.0, 1.0);
         let cfg = CarrierConfig::default();
-        let data = Some(DataHelix { tau: 0.0, phi: 0.7, r: 0.4 });
+        let data = Some(DataHelix {
+            tau: 0.0,
+            phi: 0.7,
+            r: 0.4,
+        });
         let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
         let initial_phi = ctx.carrier.helix_a.phi;
         let dk = DKOperator;
@@ -1451,9 +1482,11 @@ mod consensus_tests {
         });
         let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
         let out = DKOperator.apply(&dummy_precursor(1.0), &mut ctx);
-        assert!(out.stability_score > 0.3,
-                "DK score should be substantial near a resonance peak, got {}",
-                out.stability_score);
+        assert!(
+            out.stability_score > 0.3,
+            "DK score should be substantial near a resonance peak, got {}",
+            out.stability_score
+        );
     }
 
     #[test]
@@ -1484,9 +1517,11 @@ mod consensus_tests {
         });
         let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
         let out = SWOperator.apply(&dummy_precursor(1.0), &mut ctx);
-        assert!(out.stability_score < 1e-9,
-                "diagonal data should give SW score 0, got {}",
-                out.stability_score);
+        assert!(
+            out.stability_score < 1e-9,
+            "diagonal data should give SW score 0, got {}",
+            out.stability_score
+        );
     }
 
     #[test]
@@ -1502,9 +1537,11 @@ mod consensus_tests {
         });
         let mut ctx = make_ctx_with_data(&ladder, &cfg, data);
         let out = PIOperator.apply(&dummy_precursor(1.0), &mut ctx);
-        assert!(out.stability_score > 0.05,
-                "PI should detect axis-aligned data as a local max, got {}",
-                out.stability_score);
+        assert!(
+            out.stability_score > 0.05,
+            "PI should detect axis-aligned data as a local max, got {}",
+            out.stability_score
+        );
     }
 
     #[test]
@@ -1540,9 +1577,12 @@ mod consensus_tests {
         // WT should have transferred to a *better* carrier than carrier 0.
         // Carrier 1 has α.phi = π/2, so data at π/2 + 0.05 is essentially
         // axis-aligned with it.
-        assert_ne!(ctx.active_idx, initial_idx,
-                   "WT should migrate when a better carrier exists; \
-                    stayed at index {}", ctx.active_idx);
+        assert_ne!(
+            ctx.active_idx, initial_idx,
+            "WT should migrate when a better carrier exists; \
+                    stayed at index {}",
+            ctx.active_idx
+        );
     }
 
     #[test]

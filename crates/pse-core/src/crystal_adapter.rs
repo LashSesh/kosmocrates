@@ -48,7 +48,9 @@ impl CrystalAdapter {
     /// Create an adapter for the given compositional layer label
     /// (e.g. `"meso"`, `"macro"`, or any user-supplied tag).
     pub fn new(layer: impl Into<String>) -> Self {
-        Self { layer: layer.into() }
+        Self {
+            layer: layer.into(),
+        }
     }
 
     /// Layer label this adapter was constructed with.

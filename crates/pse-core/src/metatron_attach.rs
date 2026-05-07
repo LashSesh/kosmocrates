@@ -100,11 +100,7 @@ pub fn signature_for_region(
 /// Attach a Metatron signature to a crystal in-place, if eligible.
 /// Idempotent — calling twice is safe (overwrites, but with the same
 /// value given the same graph state).
-pub fn attach_signature(
-    crystal: &mut SemanticCrystal,
-    graph: &PersistentGraph,
-    cache: &S7Cache,
-) {
+pub fn attach_signature(crystal: &mut SemanticCrystal, graph: &PersistentGraph, cache: &S7Cache) {
     crystal.metatron_signature = signature_for_region(graph, &crystal.region, cache);
 }
 

@@ -3,20 +3,20 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dynamic_state::{
-    BaseState, CanonicalNumber, DefaultStateLift, DynamicError, Hash256, LiftedState, StateLift,
-    stable_id_of,
-};
-use crate::dynamic_policy::DynamicPolicy;
-use crate::field::{DefaultFieldAbsorber, FieldAbsorber};
-use crate::guidance_field::{DefaultGuidanceField, GuidanceField, GuidanceFieldState};
 use crate::compressor::{
     CompressionGraph, DefaultMorphodynamicCompressor, MorphodynamicCompressor,
 };
-use crate::transition_proof::{DynamicGateConfig, TransitionProof, evaluate_dynamic_gate};
+use crate::dynamic_policy::DynamicPolicy;
 use crate::dynamic_report::{
     DynamicRunDescriptor, DynamicRunReport, DynamicStopCondition, DynamicTickReport,
 };
+use crate::dynamic_state::{
+    stable_id_of, BaseState, CanonicalNumber, DefaultStateLift, DynamicError, Hash256, LiftedState,
+    StateLift,
+};
+use crate::field::{DefaultFieldAbsorber, FieldAbsorber};
+use crate::guidance_field::{DefaultGuidanceField, GuidanceField, GuidanceFieldState};
+use crate::transition_proof::{evaluate_dynamic_gate, DynamicGateConfig, TransitionProof};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // DynamicTraversalState
@@ -106,7 +106,8 @@ pub fn dynamic_tick(
 
     // 3. field_signal = DefaultFieldAbsorber.absorb(lifted_states, policy)
     let absorber = DefaultFieldAbsorber::default();
-    let field_signal = absorber.absorb(&lifted_states, &input.policy)
+    let field_signal = absorber
+        .absorb(&lifted_states, &input.policy)
         .unwrap_or_else(|_| {
             // TICK-01: neutral signal on error
             crate::field::FieldSignal {
@@ -160,7 +161,8 @@ pub fn dynamic_tick(
     for ls in &lifted_states {
         if let Ok(grad) = guidance_field.gradient(ls) {
             let base_dim = ls.lift_profile.base_dimension;
-            let base_coords: Vec<f64> = grad.coords[..base_dim.min(grad.coords.len())].iter()
+            let base_coords: Vec<f64> = grad.coords[..base_dim.min(grad.coords.len())]
+                .iter()
                 .map(|c| c.to_f64())
                 .collect();
             if gradient_coords_sum.is_empty() {
@@ -183,15 +185,18 @@ pub fn dynamic_tick(
         gradient_coords_sum.len()
     };
 
-    let guidance_base_coords: Result<Vec<CanonicalNumber>, DynamicError> = (0..dims).map(|i| {
-        let v = if gradient_count > 0 && i < gradient_coords_sum.len() {
-            gradient_coords_sum[i] / gradient_count as f64
-        } else {
-            0.0
-        };
-        CanonicalNumber::quantize_default(v)
-    }).collect();
-    let guidance_base_coords = guidance_base_coords.unwrap_or_else(|_| vec![CanonicalNumber::zero(); dims]);
+    let guidance_base_coords: Result<Vec<CanonicalNumber>, DynamicError> = (0..dims)
+        .map(|i| {
+            let v = if gradient_count > 0 && i < gradient_coords_sum.len() {
+                gradient_coords_sum[i] / gradient_count as f64
+            } else {
+                0.0
+            };
+            CanonicalNumber::quantize_default(v)
+        })
+        .collect();
+    let guidance_base_coords =
+        guidance_base_coords.unwrap_or_else(|_| vec![CanonicalNumber::zero(); dims]);
 
     let guidance_base = BaseState {
         state_id: Hash256::zero(),
@@ -275,14 +280,15 @@ pub fn dynamic_tick(
             &next_states,
             &field_signal,
             &compressor_stats,
-        ).ok()
+        )
+        .ok()
     } else {
         None
     };
 
     // 11. gate_report
-    let gate_report = evaluate_dynamic_gate(proof.as_ref(), &input.gate_config)
-        .unwrap_or_else(|_| {
+    let gate_report =
+        evaluate_dynamic_gate(proof.as_ref(), &input.gate_config).unwrap_or_else(|_| {
             crate::transition_proof::DynamicGateReport {
                 report_id: Hash256::zero(),
                 proof_id: Hash256::zero(),
@@ -304,8 +310,7 @@ pub fn dynamic_tick(
         });
 
     // 12. next_state_id
-    let next_state_id = stable_id_of(&next_states)
-        .unwrap_or(Hash256::zero());
+    let next_state_id = stable_id_of(&next_states).unwrap_or(Hash256::zero());
 
     // 13. Update dyn_state
     dyn_state.tick = input.tick;
@@ -313,8 +318,8 @@ pub fn dynamic_tick(
     dyn_state.guidance_field = guidance_field.snapshot();
     dyn_state.compression_graph = compressor.snapshot();
     // Recompute state_id
-    let new_state_id = stable_id_of(&(dyn_state.tick, &dyn_state.base_states))
-        .unwrap_or(Hash256::zero());
+    let new_state_id =
+        stable_id_of(&(dyn_state.tick, &dyn_state.base_states)).unwrap_or(Hash256::zero());
     dyn_state.state_id = new_state_id;
 
     // 14. Return DynamicTickReport
@@ -342,11 +347,8 @@ pub fn dynamic_run(
     initial_states: Vec<BaseState>,
     policy: DynamicPolicy,
 ) -> Result<DynamicRunReport, DynamicError> {
-    let mut dyn_state = DynamicTraversalState::init(
-        initial_states,
-        policy.clone(),
-        descriptor.clone(),
-    )?;
+    let mut dyn_state =
+        DynamicTraversalState::init(initial_states, policy.clone(), descriptor.clone())?;
 
     let mut tick_reports: Vec<DynamicTickReport> = Vec::new();
     let max_ticks = descriptor.max_ticks;
@@ -379,18 +381,27 @@ pub fn dynamic_run(
         for cond in &descriptor.stop_conditions {
             match cond {
                 DynamicStopCondition::MaxTicks(n) => {
-                    if tick >= *n { should_stop = true; }
+                    if tick >= *n {
+                        should_stop = true;
+                    }
                 }
                 DynamicStopCondition::GateFireCount { min_count } => {
-                    if fire_count >= *min_count { should_stop = true; }
+                    if fire_count >= *min_count {
+                        should_stop = true;
+                    }
                 }
-                DynamicStopCondition::StabilizedDensity { tolerance, consecutive_ticks } => {
+                DynamicStopCondition::StabilizedDensity {
+                    tolerance,
+                    consecutive_ticks,
+                } => {
                     let cur = report.compressor_stats.density.clone();
                     if let Some(ref prev) = prev_density {
                         let diff = (cur.to_f64() - prev.to_f64()).abs();
                         if diff <= tolerance.to_f64() {
                             stable_density_count += 1;
-                            if stable_density_count >= *consecutive_ticks { should_stop = true; }
+                            if stable_density_count >= *consecutive_ticks {
+                                should_stop = true;
+                            }
                         } else {
                             stable_density_count = 0;
                         }
@@ -402,7 +413,9 @@ pub fn dynamic_run(
                     if let Some(ref prev) = prev_state_root {
                         if &cur == prev {
                             stable_root_count += 1;
-                            if stable_root_count >= *consecutive_ticks { should_stop = true; }
+                            if stable_root_count >= *consecutive_ticks {
+                                should_stop = true;
+                            }
                         } else {
                             stable_root_count = 0;
                         }
@@ -410,14 +423,18 @@ pub fn dynamic_run(
                     prev_state_root = Some(cur);
                 }
                 DynamicStopCondition::MaxHoldCount { max_count } => {
-                    if hold_count >= *max_count { should_stop = true; }
+                    if hold_count >= *max_count {
+                        should_stop = true;
+                    }
                 }
             }
         }
 
         tick_reports.push(report);
 
-        if should_stop { break; }
+        if should_stop {
+            break;
+        }
     }
 
     let final_state_id = dyn_state.state_id.clone();
@@ -444,8 +461,8 @@ pub fn dynamic_run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dynamic_state::{BaseState, CanonicalNumber};
     use crate::dynamic_policy::DynamicPolicy;
+    use crate::dynamic_state::{BaseState, CanonicalNumber};
     use crate::transition_proof::{DynamicGateConfig, DynamicGateDecision};
 
     #[test]
@@ -455,7 +472,8 @@ mod tests {
         let gate_config = DynamicGateConfig::default();
         let descriptor = DynamicRunDescriptor::default();
 
-        let mut dyn_state = DynamicTraversalState::init(vec![], policy.clone(), descriptor).unwrap();
+        let mut dyn_state =
+            DynamicTraversalState::init(vec![], policy.clone(), descriptor).unwrap();
 
         let input = DynamicTickInput {
             tick: 1,
@@ -492,7 +510,8 @@ mod tests {
         };
         let base = base.with_id().unwrap();
 
-        let mut dyn_state = DynamicTraversalState::init(vec![base.clone()], policy.clone(), descriptor).unwrap();
+        let mut dyn_state =
+            DynamicTraversalState::init(vec![base.clone()], policy.clone(), descriptor).unwrap();
 
         let input = DynamicTickInput {
             tick: 1,

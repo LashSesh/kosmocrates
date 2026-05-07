@@ -3,14 +3,13 @@
 //! Combines the observation ingestion layer (L0) with the persistent
 //! graph storage layer (L1).
 
-use std::collections::BTreeMap;
-use pse_types::{
-    CommitIndex, EdgeAnnotation, FiveDState, Hash256, MeasurementContext,
-    Observation, PersistenceConfig, ProvenanceEnvelope, VertexId,
-    content_address_raw,
-};
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::Direction;
+use pse_types::{
+    content_address_raw, CommitIndex, EdgeAnnotation, FiveDState, Hash256, MeasurementContext,
+    Observation, PersistenceConfig, ProvenanceEnvelope, VertexId,
+};
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -82,12 +81,17 @@ pub struct PassthroughAdapter {
 impl PassthroughAdapter {
     /// Create a new passthrough adapter with the given source ID.
     pub fn new(id: impl Into<String>) -> Self {
-        Self { id: id.into(), schema_version: "1.0.0".to_string() }
+        Self {
+            id: id.into(),
+            schema_version: "1.0.0".to_string(),
+        }
     }
 }
 
 impl ObservationAdapter for PassthroughAdapter {
-    fn source_id(&self) -> &str { &self.id }
+    fn source_id(&self) -> &str {
+        &self.id
+    }
 
     fn canonicalize(
         &self,
@@ -161,7 +165,9 @@ impl FastPassthroughAdapter {
 }
 
 impl ObservationAdapter for FastPassthroughAdapter {
-    fn source_id(&self) -> &str { &self.id }
+    fn source_id(&self) -> &str {
+        &self.id
+    }
 
     fn canonicalize(
         &self,
@@ -230,7 +236,13 @@ pub struct VertexData {
 impl VertexData {
     /// Create a new active vertex.
     pub fn new(id: VertexId, timestamp: f64) -> Self {
-        Self { id, active: true, first_seen: timestamp, last_seen: timestamp, activation_count: 1 }
+        Self {
+            id,
+            active: true,
+            first_seen: timestamp,
+            last_seen: timestamp,
+            activation_count: 1,
+        }
     }
 }
 
@@ -275,11 +287,14 @@ impl Default for PersistentGraph {
 
 impl PersistentGraph {
     /// Create a new empty persistent graph.
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Estimate heap size in bytes.
     pub fn estimate_heap_size(&self) -> usize {
-        let id_map_bytes = self.id_map.len() * (std::mem::size_of::<u64>() + std::mem::size_of::<usize>());
+        let id_map_bytes =
+            self.id_map.len() * (std::mem::size_of::<u64>() + std::mem::size_of::<usize>());
         let vertex_bytes = self.graph.node_count() * std::mem::size_of::<VertexData>();
         let edge_bytes = self.graph.edge_count() * std::mem::size_of::<EdgeAnnotation>();
         let embedding_bytes = self.embedding.len() * std::mem::size_of::<FiveDState>();
@@ -310,10 +325,17 @@ impl PersistentGraph {
         let from_idx = self.upsert_vertex(from, timestamp);
         let to_idx = self.upsert_vertex(to, timestamp);
         if !self.graph.contains_edge(from_idx, to_idx) {
-            self.graph.add_edge(from_idx, to_idx, EdgeAnnotation {
-                birth_time: timestamp, last_update: timestamp, weight: 1.0,
-                active_windows: 1, ..Default::default()
-            });
+            self.graph.add_edge(
+                from_idx,
+                to_idx,
+                EdgeAnnotation {
+                    birth_time: timestamp,
+                    last_update: timestamp,
+                    weight: 1.0,
+                    active_windows: 1,
+                    ..Default::default()
+                },
+            );
         } else if let Some(edge_idx) = self.graph.find_edge(from_idx, to_idx) {
             if let Some(ann) = self.graph.edge_weight_mut(edge_idx) {
                 ann.last_update = timestamp;
@@ -370,7 +392,11 @@ impl PersistentGraph {
                 timestamp,
             });
 
-            self.hot.data.entry(vid).or_default().push((timestamp, obs.payload.clone()));
+            self.hot
+                .data
+                .entry(vid)
+                .or_default()
+                .push((timestamp, obs.payload.clone()));
         }
 
         let lambda = config.lambda_decay;
@@ -450,24 +476,37 @@ impl PersistentGraph {
         // Pre-pass: gather normalization constants.
         for ni in &node_indices {
             let deg = self.graph.neighbors_undirected(*ni).count() as f64;
-            if deg > max_degree { max_degree = deg; }
+            if deg > max_degree {
+                max_degree = deg;
+            }
             if let Some(data) = self.graph.node_weight(*ni) {
                 if data.activation_count > max_activation {
                     max_activation = data.activation_count;
                 }
             }
             let inc_w = sum_incident_edge_weights(&self.graph, *ni);
-            if inc_w > max_incident_weight { max_incident_weight = inc_w; }
+            if inc_w > max_incident_weight {
+                max_incident_weight = inc_w;
+            }
         }
 
         let all_vids: Vec<VertexId> = self.embedding.keys().cloned().collect();
         for vid in all_vids {
             if let Some(&nidx) = self.id_map.get(&vid) {
                 let undirected_deg = self.graph.neighbors_undirected(nidx).count() as f64;
-                let out_deg = self.graph.neighbors_directed(nidx, Direction::Outgoing).count() as f64;
-                let in_deg = self.graph.neighbors_directed(nidx, Direction::Incoming).count() as f64;
-                let activation = self.graph.node_weight(nidx)
-                    .map(|d| d.activation_count).unwrap_or(0);
+                let out_deg = self
+                    .graph
+                    .neighbors_directed(nidx, Direction::Outgoing)
+                    .count() as f64;
+                let in_deg = self
+                    .graph
+                    .neighbors_directed(nidx, Direction::Incoming)
+                    .count() as f64;
+                let activation = self
+                    .graph
+                    .node_weight(nidx)
+                    .map(|d| d.activation_count)
+                    .unwrap_or(0);
                 let inc_w = sum_incident_edge_weights(&self.graph, nidx);
                 let rho = clustering_coefficient(&self.graph, nidx);
                 let p = inc_w / max_incident_weight;
@@ -503,7 +542,11 @@ impl PersistentGraph {
 
     /// Get all active vertex IDs.
     pub fn active_vertices(&self) -> Vec<VertexId> {
-        self.graph.node_weights().filter(|d| d.active).map(|d| d.id).collect()
+        self.graph
+            .node_weights()
+            .filter(|d| d.active)
+            .map(|d| d.id)
+            .collect()
     }
 
     /// Get embedding for a vertex.
@@ -513,20 +556,32 @@ impl PersistentGraph {
 
     /// Get all embeddings as a point cloud.
     pub fn point_cloud(&self) -> Vec<(VertexId, FiveDState)> {
-        self.embedding.iter().map(|(vid, state)| (*vid, state.clone())).collect()
+        self.embedding
+            .iter()
+            .map(|(vid, state)| (*vid, state.clone()))
+            .collect()
     }
 
     /// Compute topology signature for the current graph.
     pub fn topology_signature(&self) -> pse_types::TopologySignature {
         let n = self.graph.node_count() as u64;
         let e = self.graph.edge_count() as u64;
-        let betti_0 = if n == 0 { 0 } else { count_weakly_connected(&self.graph) };
+        let betti_0 = if n == 0 {
+            0
+        } else {
+            count_weakly_connected(&self.graph)
+        };
         let betti_1 = (e + betti_0).saturating_sub(n);
         let spectral_gap = compute_spectral_gap(&self.graph);
         let euler_char = n as i64 - e as i64;
 
         pse_types::TopologySignature {
-            betti_0, betti_1, betti_2: 0, spectral_gap, euler_char, ..Default::default()
+            betti_0,
+            betti_1,
+            betti_2: 0,
+            spectral_gap,
+            euler_char,
+            ..Default::default()
         }
     }
 }
@@ -535,10 +590,7 @@ impl PersistentGraph {
 /// outgoing, counted once per directed edge — duplicates a self-loop
 /// twice, which is the correct contribution of a self-loop to the
 /// vertex's potential energy).
-fn sum_incident_edge_weights(
-    graph: &DiGraph<VertexData, EdgeAnnotation>,
-    nidx: NodeIndex,
-) -> f64 {
+fn sum_incident_edge_weights(graph: &DiGraph<VertexData, EdgeAnnotation>, nidx: NodeIndex) -> f64 {
     let mut sum = 0.0_f64;
     for er in graph.edges_directed(nidx, Direction::Outgoing) {
         sum += er.weight().weight;
@@ -557,10 +609,7 @@ fn sum_incident_edge_weights(
 /// "neighbour-pair connectivity" — the directed edge-set contains each
 /// observation-driven link, but topologically two vertices that
 /// share *any* edge between them are connected for clustering.
-fn clustering_coefficient(
-    graph: &DiGraph<VertexData, EdgeAnnotation>,
-    nidx: NodeIndex,
-) -> f64 {
+fn clustering_coefficient(graph: &DiGraph<VertexData, EdgeAnnotation>, nidx: NodeIndex) -> f64 {
     let neighbours: Vec<NodeIndex> = graph
         .neighbors_undirected(nidx)
         .filter(|n| *n != nidx)
@@ -608,18 +657,24 @@ pub fn derive_vertex_id(s: &str) -> VertexId {
 /// Count weakly connected components using union-find.
 fn count_weakly_connected(graph: &DiGraph<VertexData, EdgeAnnotation>) -> u64 {
     let n = graph.node_count();
-    if n == 0 { return 0; }
+    if n == 0 {
+        return 0;
+    }
     let mut parent: Vec<usize> = (0..n).collect();
 
     fn find(parent: &mut Vec<usize>, x: usize) -> usize {
-        if parent[x] != x { parent[x] = find(parent, parent[x]); }
+        if parent[x] != x {
+            parent[x] = find(parent, parent[x]);
+        }
         parent[x]
     }
 
     fn union(parent: &mut Vec<usize>, x: usize, y: usize) {
         let rx = find(parent, x);
         let ry = find(parent, y);
-        if rx != ry { parent[rx] = ry; }
+        if rx != ry {
+            parent[rx] = ry;
+        }
     }
 
     for edge in graph.raw_edges() {
@@ -627,19 +682,28 @@ fn count_weakly_connected(graph: &DiGraph<VertexData, EdgeAnnotation>) -> u64 {
     }
 
     let mut roots: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-    for i in 0..n { roots.insert(find(&mut parent, i)); }
+    for i in 0..n {
+        roots.insert(find(&mut parent, i));
+    }
     roots.len() as u64
 }
 
 /// Compute spectral gap of graph Laplacian.
 fn compute_spectral_gap(graph: &DiGraph<VertexData, EdgeAnnotation>) -> f64 {
     let n = graph.node_count();
-    if n < 2 { return 0.0; }
-    if n > 100 { return 0.1; }
+    if n < 2 {
+        return 0.0;
+    }
+    if n > 100 {
+        return 0.1;
+    }
 
     let node_indices: Vec<_> = graph.node_indices().collect();
     let idx_map: BTreeMap<petgraph::graph::NodeIndex, usize> = node_indices
-        .iter().enumerate().map(|(i, &nidx)| (nidx, i)).collect();
+        .iter()
+        .enumerate()
+        .map(|(i, &nidx)| (nidx, i))
+        .collect();
 
     let mut laplacian = vec![vec![0.0f64; n]; n];
     for edge in graph.raw_edges() {
@@ -651,8 +715,16 @@ fn compute_spectral_gap(graph: &DiGraph<VertexData, EdgeAnnotation>) -> f64 {
         laplacian[j][i] -= 1.0;
     }
 
-    let max_diag = laplacian.iter().enumerate().map(|(i, row)| row[i]).fold(0.0f64, f64::max);
-    let min_diag = laplacian.iter().enumerate().map(|(i, row)| row[i]).fold(f64::INFINITY, f64::min);
+    let max_diag = laplacian
+        .iter()
+        .enumerate()
+        .map(|(i, row)| row[i])
+        .fold(0.0f64, f64::max);
+    let min_diag = laplacian
+        .iter()
+        .enumerate()
+        .map(|(i, row)| row[i])
+        .fold(f64::INFINITY, f64::min);
     (max_diag - min_diag).abs()
 }
 
@@ -818,9 +890,17 @@ mod tests {
         g.apply_observations(&rare, &cfg).unwrap();
         let f = g.embedding.get(&derive_vertex_id("freq")).unwrap();
         let r = g.embedding.get(&derive_vertex_id("rare")).unwrap();
-        assert!(f.omega >= r.omega, "ω(frequent) {} should ≥ ω(rare) {}",
-                f.omega, r.omega);
-        assert!(f.omega > 0.5, "ω(frequent) should be near 1.0, got {}", f.omega);
+        assert!(
+            f.omega >= r.omega,
+            "ω(frequent) {} should ≥ ω(rare) {}",
+            f.omega,
+            r.omega
+        );
+        assert!(
+            f.omega > 0.5,
+            "ω(frequent) should be near 1.0, got {}",
+            f.omega
+        );
     }
 
     #[test]
@@ -836,7 +916,11 @@ mod tests {
         let trigger = vec![make_obs("centre", b"x".to_vec(), 1.0)];
         g.apply_observations(&trigger, &cfg).unwrap();
         let embed = g.embedding.get(&centre).unwrap();
-        assert_eq!(embed.rho, 0.0, "star centre must have ρ = 0, got {}", embed.rho);
+        assert_eq!(
+            embed.rho, 0.0,
+            "star centre must have ρ = 0, got {}",
+            embed.rho
+        );
     }
 
     #[test]
@@ -855,8 +939,11 @@ mod tests {
         g.apply_observations(&trigger, &cfg).unwrap();
         for vid in [a, b, c] {
             let embed = g.embedding.get(&vid).unwrap();
-            assert_eq!(embed.rho, 1.0, "triangle vertex {} must have ρ = 1, got {}",
-                       vid, embed.rho);
+            assert_eq!(
+                embed.rho, 1.0,
+                "triangle vertex {} must have ρ = 1, got {}",
+                vid, embed.rho
+            );
         }
     }
 
@@ -871,11 +958,31 @@ mod tests {
         ];
         g.apply_observations(&obs, &cfg).unwrap();
         for (_, embed) in g.embedding.iter() {
-            assert!((0.0..=1.0).contains(&embed.p), "p out of range: {}", embed.p);
-            assert!((0.0..=1.0).contains(&embed.rho), "ρ out of range: {}", embed.rho);
-            assert!((0.0..=1.0).contains(&embed.omega), "ω out of range: {}", embed.omega);
-            assert!((0.0..=1.0).contains(&embed.chi), "χ out of range: {}", embed.chi);
-            assert!((0.0..=1.0).contains(&embed.eta), "η out of range: {}", embed.eta);
+            assert!(
+                (0.0..=1.0).contains(&embed.p),
+                "p out of range: {}",
+                embed.p
+            );
+            assert!(
+                (0.0..=1.0).contains(&embed.rho),
+                "ρ out of range: {}",
+                embed.rho
+            );
+            assert!(
+                (0.0..=1.0).contains(&embed.omega),
+                "ω out of range: {}",
+                embed.omega
+            );
+            assert!(
+                (0.0..=1.0).contains(&embed.chi),
+                "χ out of range: {}",
+                embed.chi
+            );
+            assert!(
+                (0.0..=1.0).contains(&embed.eta),
+                "η out of range: {}",
+                embed.eta
+            );
         }
     }
 
@@ -894,11 +1001,11 @@ mod tests {
         g2.apply_observations(&obs, &cfg).unwrap();
         for (vid, e1) in g1.embedding.iter() {
             let e2 = g2.embedding.get(vid).unwrap();
-            assert_eq!(e1.p,     e2.p);
-            assert_eq!(e1.rho,   e2.rho);
+            assert_eq!(e1.p, e2.p);
+            assert_eq!(e1.rho, e2.rho);
             assert_eq!(e1.omega, e2.omega);
-            assert_eq!(e1.chi,   e2.chi);
-            assert_eq!(e1.eta,   e2.eta);
+            assert_eq!(e1.chi, e2.chi);
+            assert_eq!(e1.eta, e2.eta);
         }
     }
 }

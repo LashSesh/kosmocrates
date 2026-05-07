@@ -15,15 +15,21 @@ pub struct Sphere {
 }
 
 impl Default for Sphere {
-    fn default() -> Self { Self { cx: 0.5, cy: 0.5 } }
+    fn default() -> Self {
+        Self { cx: 0.5, cy: 0.5 }
+    }
 }
 
 impl TestFunction for Sphere {
-    fn name(&self) -> &str { "sphere" }
+    fn name(&self) -> &str {
+        "sphere"
+    }
     fn evaluate(&self, p: &[f64; 2], _t: usize) -> f64 {
         (p[0] - self.cx).powi(2) + (p[1] - self.cy).powi(2)
     }
-    fn f_min_at(&self, _t: usize) -> f64 { 0.0 }
+    fn f_min_at(&self, _t: usize) -> f64 {
+        0.0
+    }
 }
 
 /// Rastrigin: highly multimodal, many local minima on a regular lattice.
@@ -31,16 +37,19 @@ impl TestFunction for Sphere {
 pub struct Rastrigin;
 
 impl TestFunction for Rastrigin {
-    fn name(&self) -> &str { "rastrigin" }
+    fn name(&self) -> &str {
+        "rastrigin"
+    }
     fn evaluate(&self, p: &[f64; 2], _t: usize) -> f64 {
         // Rescale [0,1] → [-5.12, 5.12] which is the canonical domain.
         let x = (p[0] - 0.5) * 10.24;
         let y = (p[1] - 0.5) * 10.24;
         let two_pi = std::f64::consts::TAU;
-        20.0 + (x * x - 10.0 * (two_pi * x).cos())
-            + (y * y - 10.0 * (two_pi * y).cos())
+        20.0 + (x * x - 10.0 * (two_pi * x).cos()) + (y * y - 10.0 * (two_pi * y).cos())
     }
-    fn f_min_at(&self, _t: usize) -> f64 { 0.0 }
+    fn f_min_at(&self, _t: usize) -> f64 {
+        0.0
+    }
 }
 
 /// Ackley: single global minimum surrounded by many local minima.
@@ -48,18 +57,20 @@ impl TestFunction for Rastrigin {
 pub struct Ackley;
 
 impl TestFunction for Ackley {
-    fn name(&self) -> &str { "ackley" }
+    fn name(&self) -> &str {
+        "ackley"
+    }
     fn evaluate(&self, p: &[f64; 2], _t: usize) -> f64 {
         let x = (p[0] - 0.5) * 10.0;
         let y = (p[1] - 0.5) * 10.0;
         let two_pi = std::f64::consts::TAU;
         let inner1 = -0.2 * (0.5 * (x * x + y * y)).sqrt();
         let inner2 = 0.5 * ((two_pi * x).cos() + (two_pi * y).cos());
-        -20.0 * inner1.exp() - inner2.exp()
-            + 20.0
-            + std::f64::consts::E
+        -20.0 * inner1.exp() - inner2.exp() + 20.0 + std::f64::consts::E
     }
-    fn f_min_at(&self, _t: usize) -> f64 { 0.0 }
+    fn f_min_at(&self, _t: usize) -> f64 {
+        0.0
+    }
 }
 
 /// Drift Rastrigin: the global optimum precesses slowly along a circle
@@ -78,7 +89,10 @@ pub struct DriftRastrigin {
 
 impl Default for DriftRastrigin {
     fn default() -> Self {
-        Self { drift_amplitude: 0.15, period_steps: 60.0 }
+        Self {
+            drift_amplitude: 0.15,
+            period_steps: 60.0,
+        }
     }
 }
 
@@ -92,16 +106,19 @@ impl DriftRastrigin {
 }
 
 impl TestFunction for DriftRastrigin {
-    fn name(&self) -> &str { "drift_rastrigin" }
+    fn name(&self) -> &str {
+        "drift_rastrigin"
+    }
     fn evaluate(&self, p: &[f64; 2], t: usize) -> f64 {
         let (cx, cy) = self.optimum_at(t);
         let x = (p[0] - cx) * 10.24;
         let y = (p[1] - cy) * 10.24;
         let two_pi = std::f64::consts::TAU;
-        20.0 + (x * x - 10.0 * (two_pi * x).cos())
-            + (y * y - 10.0 * (two_pi * y).cos())
+        20.0 + (x * x - 10.0 * (two_pi * x).cos()) + (y * y - 10.0 * (two_pi * y).cos())
     }
-    fn f_min_at(&self, _t: usize) -> f64 { 0.0 }
+    fn f_min_at(&self, _t: usize) -> f64 {
+        0.0
+    }
 }
 
 #[cfg(test)]

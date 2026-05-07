@@ -35,7 +35,7 @@ use pse_types::Config;
 pub struct ResonanceFingerprint {
     /// Topological signature of the current observation graph.
     pub topology: TopologySignature,
-    /// 5D centroid (mean across all vertex embeddings, all axes in [0,1]).
+    /// 5D centroid (mean across all vertex embeddings, all axes in `[0, 1]`).
     pub centroid: FiveDState,
     /// Number of vertices contributing to the centroid.
     pub centroid_n: usize,
@@ -94,11 +94,7 @@ pub fn resonance_fingerprint(
 
     // Build a candidate signature from the current state and query the
     // pattern memory's top-K. Read-only — does not perturb memory stats.
-    let candidate = current_state_signature(
-        &topology,
-        mandorla.kappa,
-        centroid_n,
-    );
+    let candidate = current_state_signature(&topology, mandorla.kappa, centroid_n);
     let resonant_crystals = if k > 0 {
         state.memory.top_k(&candidate, k)
     } else {
@@ -258,7 +254,11 @@ mod tests {
             fp.centroid.chi,
             fp.centroid.eta,
         ] {
-            assert!((0.0..=1.0).contains(&axis), "centroid axis out of range: {}", axis);
+            assert!(
+                (0.0..=1.0).contains(&axis),
+                "centroid axis out of range: {}",
+                axis
+            );
         }
     }
 

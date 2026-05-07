@@ -2,9 +2,9 @@
 //!
 //! Demonstrates the PSE engine producing crystals from synthetic observation data.
 
-use pse_types::Config;
-use pse_core::{GlobalState, macro_step};
+use pse_core::{macro_step, GlobalState};
 use pse_graph::PassthroughAdapter;
+use pse_types::Config;
 
 fn main() {
     let config = Config::default();
@@ -15,7 +15,10 @@ fn main() {
     let n_ticks = 100;
     let mut crystal_count = 0;
 
-    println!("PSE Synthetic Scenario: {} entities, {} ticks", n_entities, n_ticks);
+    println!(
+        "PSE Synthetic Scenario: {} entities, {} ticks",
+        n_entities, n_ticks
+    );
     println!("─────────────────────────────────────────────");
 
     for tick in 0..n_ticks {
@@ -35,10 +38,19 @@ fn main() {
         match macro_step(&mut state, &batch, &config, &adapter) {
             Ok(Some(crystal)) => {
                 crystal_count += 1;
-                let id_hex: String = crystal.crystal_id.iter()
-                    .take(8).map(|b| format!("{:02x}", b)).collect();
-                println!("  tick {:3}: CRYSTAL {} | stability={:.4} | region={} vertices",
-                    tick, id_hex, crystal.stability_score, crystal.region.len());
+                let id_hex: String = crystal
+                    .crystal_id
+                    .iter()
+                    .take(8)
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
+                println!(
+                    "  tick {:3}: CRYSTAL {} | stability={:.4} | region={} vertices",
+                    tick,
+                    id_hex,
+                    crystal.stability_score,
+                    crystal.region.len()
+                );
             }
             Ok(None) => {
                 // No crystal this tick (gate rejection)
@@ -50,8 +62,10 @@ fn main() {
     }
 
     println!("─────────────────────────────────────────────");
-    println!("Result: {} crystals from {} ticks ({} entities)",
-        crystal_count, n_ticks, n_entities);
+    println!(
+        "Result: {} crystals from {} ticks ({} entities)",
+        crystal_count, n_ticks, n_entities
+    );
 
     if crystal_count > 0 {
         println!("SUCCESS: Engine produced crystals.");

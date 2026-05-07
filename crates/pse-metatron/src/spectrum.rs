@@ -37,10 +37,7 @@ pub fn compute_spectrum(embedded: &[Vec<f64>], n: usize) -> SpectrumResult {
         .collect();
     eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-    let spectral_radius = eigenvalues
-        .iter()
-        .map(|v| v.abs())
-        .fold(0.0_f64, f64::max);
+    let spectral_radius = eigenvalues.iter().map(|v| v.abs()).fold(0.0_f64, f64::max);
 
     // Laplacian L = D - A
     let mut laplacian = DMatrix::zeros(n, n);
@@ -68,10 +65,8 @@ pub fn compute_spectrum(embedded: &[Vec<f64>], n: usize) -> SpectrumResult {
         tau.round().max(0.0) as u64
     };
 
-    let laplacian_eigenvalues: Vec<f64> = lap_vals
-        .iter()
-        .map(|v| (v * 1e10).round() / 1e10)
-        .collect();
+    let laplacian_eigenvalues: Vec<f64> =
+        lap_vals.iter().map(|v| (v * 1e10).round() / 1e10).collect();
 
     let triangle_count = count_triangles(embedded);
     let graph_energy = (eigenvalues.iter().map(|v| v.abs()).sum::<f64>() * 1e6).round() / 1e6;

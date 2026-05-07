@@ -92,8 +92,15 @@ impl Xorshift64 {
 
 #[derive(Debug)]
 enum IsoNode {
-    Internal { feat: usize, split: f64, left: Box<IsoNode>, right: Box<IsoNode> },
-    External { size: usize },
+    Internal {
+        feat: usize,
+        split: f64,
+        left: Box<IsoNode>,
+        right: Box<IsoNode>,
+    },
+    External {
+        size: usize,
+    },
 }
 
 fn build_tree(
@@ -104,11 +111,15 @@ fn build_tree(
     rng: &mut Xorshift64,
 ) -> IsoNode {
     if depth >= height_limit || indices.len() <= 1 {
-        return IsoNode::External { size: indices.len() };
+        return IsoNode::External {
+            size: indices.len(),
+        };
     }
     let n_features = samples[0].len();
     if n_features == 0 {
-        return IsoNode::External { size: indices.len() };
+        return IsoNode::External {
+            size: indices.len(),
+        };
     }
     let feat = rng.next_below(n_features);
 
@@ -117,12 +128,20 @@ fn build_tree(
     let mut hi = f64::NEG_INFINITY;
     for &i in indices {
         let v = samples[i][feat];
-        if v < lo { lo = v; }
-        if v > hi { hi = v; }
+        if v < lo {
+            lo = v;
+        }
+        if v > hi {
+            hi = v;
+        }
     }
+    // NaN-safe: if hi is not strictly greater than lo (including NaN cases),
+    // the feature is constant in this bag and we cannot split further.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(hi > lo) {
-        // Constant feature in this bag — cannot split further.
-        return IsoNode::External { size: indices.len() };
+        return IsoNode::External {
+            size: indices.len(),
+        };
     }
     let split = lo + (hi - lo) * rng.next_f64();
 
@@ -136,21 +155,31 @@ fn build_tree(
         }
     }
     if left_idx.is_empty() || right_idx.is_empty() {
-        return IsoNode::External { size: indices.len() };
+        return IsoNode::External {
+            size: indices.len(),
+        };
     }
 
     IsoNode::Internal {
         feat,
         split,
         left: Box::new(build_tree(samples, &left_idx, depth + 1, height_limit, rng)),
-        right: Box::new(build_tree(samples, &right_idx, depth + 1, height_limit, rng)),
+        right: Box::new(build_tree(
+            samples,
+            &right_idx,
+            depth + 1,
+            height_limit,
+            rng,
+        )),
     }
 }
 
 /// Average path length of unsuccessful search in a BST of size `n`
 /// (Liu, Ting, Zhou eq. 1).
 fn c_factor(n: usize) -> f64 {
-    if n <= 1 { return 0.0; }
+    if n <= 1 {
+        return 0.0;
+    }
     let n_f = n as f64;
     let h = (n_f - 1.0).ln() + 0.577_215_664_901_532_9;
     2.0 * h - 2.0 * (n_f - 1.0) / n_f
@@ -159,7 +188,12 @@ fn c_factor(n: usize) -> f64 {
 fn path_length(node: &IsoNode, point: &[f64], depth: u32) -> f64 {
     match node {
         IsoNode::External { size } => depth as f64 + c_factor(*size),
-        IsoNode::Internal { feat, split, left, right } => {
+        IsoNode::Internal {
+            feat,
+            split,
+            left,
+            right,
+        } => {
             let next = if point[*feat] < *split { left } else { right };
             path_length(next, point, depth + 1)
         }
@@ -176,10 +210,16 @@ fn path_length(node: &IsoNode, point: &[f64], depth: u32) -> f64 {
 /// All rows must have the same length; rows with mismatched lengths are
 /// ignored.
 pub fn detect(samples: &[Vec<f64>], config: &IsoForestConfig) -> Vec<Detection> {
-    if samples.is_empty() { return Vec::new(); }
+    if samples.is_empty() {
+        return Vec::new();
+    }
     let n_features = samples[0].len();
-    if n_features == 0 { return Vec::new(); }
-    if !samples.iter().all(|r| r.len() == n_features) { return Vec::new(); }
+    if n_features == 0 {
+        return Vec::new();
+    }
+    if !samples.iter().all(|r| r.len() == n_features) {
+        return Vec::new();
+    }
 
     let psi = config.psi.min(samples.len()).max(2);
     let height_limit = (psi as f64).log2().ceil() as u32;
@@ -203,9 +243,8 @@ pub fn detect(samples: &[Vec<f64>], config: &IsoForestConfig) -> Vec<Detection> 
     // Score every sample.
     let mut detections = Vec::new();
     for (i, point) in samples.iter().enumerate() {
-        let mean_path: f64 = trees.iter()
-            .map(|t| path_length(t, point, 0))
-            .sum::<f64>() / trees.len() as f64;
+        let mean_path: f64 =
+            trees.iter().map(|t| path_length(t, point, 0)).sum::<f64>() / trees.len() as f64;
         let score = 2.0_f64.powf(-mean_path / c_psi.max(1e-12));
         if score >= config.threshold {
             detections.push(Detection::new(i as u64 + 1, score, SOURCE));
@@ -229,12 +268,23 @@ mod tests {
 
     #[test]
     fn deterministic_under_same_seed() {
-        let samples: Vec<Vec<f64>> = (0..200).map(|i| {
-            // Bulk normal-ish samples with one obvious outlier at index 100.
-            let v = if i == 100 { 100.0 } else { (i as f64 * 0.1).sin() };
-            vec![v]
-        }).collect();
-        let cfg = IsoForestConfig { n_trees: 30, psi: 64, threshold: 0.55, seed: 7 };
+        let samples: Vec<Vec<f64>> = (0..200)
+            .map(|i| {
+                // Bulk normal-ish samples with one obvious outlier at index 100.
+                let v = if i == 100 {
+                    100.0
+                } else {
+                    (i as f64 * 0.1).sin()
+                };
+                vec![v]
+            })
+            .collect();
+        let cfg = IsoForestConfig {
+            n_trees: 30,
+            psi: 64,
+            threshold: 0.55,
+            seed: 7,
+        };
         let a = detect(&samples, &cfg);
         let b = detect(&samples, &cfg);
         assert_eq!(a.len(), b.len());
@@ -249,7 +299,12 @@ mod tests {
     fn finds_obvious_outlier_in_flat_signal() {
         let mut samples: Vec<Vec<f64>> = (0..300).map(|_| vec![1.0]).collect();
         samples[150] = vec![1000.0];
-        let cfg = IsoForestConfig { n_trees: 50, psi: 128, threshold: 0.6, seed: 42 };
+        let cfg = IsoForestConfig {
+            n_trees: 50,
+            psi: 128,
+            threshold: 0.6,
+            seed: 42,
+        };
         let det = detect(&samples, &cfg);
         assert!(
             det.iter().any(|d| d.tick == 151),
@@ -261,10 +316,19 @@ mod tests {
     #[test]
     fn scores_lie_in_unit_interval() {
         let samples: Vec<Vec<f64>> = (0..400).map(|i| vec![i as f64]).collect();
-        let cfg = IsoForestConfig { n_trees: 30, psi: 64, threshold: 0.0, seed: 7 };
+        let cfg = IsoForestConfig {
+            n_trees: 30,
+            psi: 64,
+            threshold: 0.0,
+            seed: 7,
+        };
         let det = detect(&samples, &cfg);
         for d in &det {
-            assert!((0.0..=1.0).contains(&d.score), "score out of range: {:?}", d);
+            assert!(
+                (0.0..=1.0).contains(&d.score),
+                "score out of range: {:?}",
+                d
+            );
         }
     }
 
@@ -273,7 +337,12 @@ mod tests {
         // A perfectly constant feature has no information; iForest should
         // collapse trees immediately and produce essentially equal scores.
         let samples: Vec<Vec<f64>> = vec![vec![5.0]; 200];
-        let cfg = IsoForestConfig { n_trees: 30, psi: 64, threshold: 0.6, seed: 11 };
+        let cfg = IsoForestConfig {
+            n_trees: 30,
+            psi: 64,
+            threshold: 0.6,
+            seed: 11,
+        };
         let det = detect(&samples, &cfg);
         // No point is more anomalous than any other.
         assert!(

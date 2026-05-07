@@ -125,14 +125,16 @@ impl FieldCubeBuilder for DefaultFieldCubeBuilder {
         for d in &spec.dimensions {
             if dimensions.contains_key(&d.id) {
                 return Err(TraverseError::InvalidSpec(format!(
-                    "duplicate dimension id: {}", d.id
+                    "duplicate dimension id: {}",
+                    d.id
                 )));
             }
             // Cheap sanity: enum domains must be non-empty.
             if let ValueDomain::Enum(v) = &d.values {
                 if v.is_empty() {
                     return Err(TraverseError::InvalidSpec(format!(
-                        "dimension {} has empty enum domain", d.id
+                        "dimension {} has empty enum domain",
+                        d.id
                     )));
                 }
             }
@@ -142,7 +144,8 @@ impl FieldCubeBuilder for DefaultFieldCubeBuilder {
         for c in &spec.constraints {
             if constraints.contains_key(&c.id) {
                 return Err(TraverseError::InvalidSpec(format!(
-                    "duplicate constraint id: {}", c.id
+                    "duplicate constraint id: {}",
+                    c.id
                 )));
             }
             constraints.insert(c.id.clone(), c.clone());
@@ -167,7 +170,9 @@ impl FieldCubeBuilder for DefaultFieldCubeBuilder {
         // constraints exists in `constraints` (operative-option proxy).
         let mut paths: Vec<PathSpec> = Vec::new();
         for d in spec.dimensions.iter().filter(|d| d.required) {
-            let mut gating: Vec<String> = spec.constraints.iter()
+            let mut gating: Vec<String> = spec
+                .constraints
+                .iter()
                 .filter(|c| c.dimensions.contains(&d.id))
                 .map(|c| c.id.clone())
                 .collect();
@@ -190,7 +195,9 @@ impl FieldCubeBuilder for DefaultFieldCubeBuilder {
             CarrierKind::Verify,
             CarrierKind::Commit,
             CarrierKind::Coagula,
-        ].into_iter().map(|k| CarrierState {
+        ]
+        .into_iter()
+        .map(|k| CarrierState {
             id: format!("{:?}", k).to_lowercase(),
             kind: k,
             load: 0.0,
@@ -199,7 +206,8 @@ impl FieldCubeBuilder for DefaultFieldCubeBuilder {
             shock: 0.0,
             coherence: 1.0,
             status: CarrierStatus::Idle,
-        }).collect();
+        })
+        .collect();
         carriers.sort_by(|a, b| a.id.cmp(&b.id));
 
         let topology = compute_topology(&dimensions, &constraints, &couplings);
@@ -225,7 +233,9 @@ fn compute_topology(
     constraints: &BTreeMap<String, ConstraintSpec>,
     couplings: &[Coupling],
 ) -> TopologySummary {
-    let nodes: BTreeSet<&str> = dimensions.keys().map(|s| s.as_str())
+    let nodes: BTreeSet<&str> = dimensions
+        .keys()
+        .map(|s| s.as_str())
         .chain(constraints.keys().map(|s| s.as_str()))
         .collect();
     let n = nodes.len() as u64;
@@ -233,23 +243,37 @@ fn compute_topology(
 
     // Component count via union-find on coupling edges.
     let mut idx: BTreeMap<&str, usize> = BTreeMap::new();
-    for (i, n) in nodes.iter().enumerate() { idx.insert(*n, i); }
+    for (i, n) in nodes.iter().enumerate() {
+        idx.insert(*n, i);
+    }
     let mut parent: Vec<usize> = (0..nodes.len()).collect();
     fn find(p: &mut [usize], x: usize) -> usize {
-        if p[x] == x { x } else { let r = find(p, p[x]); p[x] = r; r }
+        if p[x] == x {
+            x
+        } else {
+            let r = find(p, p[x]);
+            p[x] = r;
+            r
+        }
     }
     for c in couplings {
         if let (Some(&a), Some(&b)) = (idx.get(c.from.as_str()), idx.get(c.to.as_str())) {
             let ra = find(&mut parent, a);
             let rb = find(&mut parent, b);
-            if ra != rb { parent[ra] = rb; }
+            if ra != rb {
+                parent[ra] = rb;
+            }
         }
     }
     let comp_roots: BTreeSet<usize> = (0..parent.len()).map(|i| find(&mut parent, i)).collect();
     let component_count = if n > 0 { comp_roots.len() as u64 } else { 0 };
 
     // Cycle proxy: m > n - components ⇒ at least one cycle in the bipartite graph.
-    let has_cycle: u8 = if n > 0 && m + component_count > n { 1 } else { 0 };
+    let has_cycle: u8 = if n > 0 && m + component_count > n {
+        1
+    } else {
+        0
+    };
 
     let mut deg: BTreeMap<&str, u64> = BTreeMap::new();
     for c in couplings {
@@ -258,7 +282,9 @@ fn compute_topology(
     }
     let mean_degree = if n > 0 {
         deg.values().sum::<u64>() as f64 / n as f64
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     TopologySummary {
         node_count: n,
@@ -273,7 +299,10 @@ fn compute_topology(
 mod tests {
     use super::*;
     use crate::canonical::content_address;
-    use crate::spec::{ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, OutputSpec, ReplayPolicy, RiskPolicy};
+    use crate::spec::{
+        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, OutputSpec, ReplayPolicy,
+        RiskPolicy,
+    };
 
     fn minimal_spec() -> ProblemSpec {
         ProblemSpec {
@@ -282,28 +311,30 @@ mod tests {
             objective: "obj".into(),
             domain: "d".into(),
             inputs: vec![],
-            constraints: vec![
-                ConstraintSpec {
-                    id: "c.x".into(),
-                    kind: ConstraintKind::Hard,
-                    predicate: "true".into(),
-                    weight: 1.0,
-                    dimensions: vec!["d.layout".into()],
-                },
-            ],
-            dimensions: vec![
-                DimensionSpec {
-                    id: "d.layout".into(),
-                    label: "Layout".into(),
-                    kind: DimensionKind::Enum,
-                    values: ValueDomain::Enum(vec!["a".into(), "b".into()]),
-                    required: true,
-                    source: DimensionSource::User,
-                },
-            ],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "x".into() }],
+            constraints: vec![ConstraintSpec {
+                id: "c.x".into(),
+                kind: ConstraintKind::Hard,
+                predicate: "true".into(),
+                weight: 1.0,
+                dimensions: vec!["d.layout".into()],
+            }],
+            dimensions: vec![DimensionSpec {
+                id: "d.layout".into(),
+                label: "Layout".into(),
+                kind: DimensionKind::Enum,
+                values: ValueDomain::Enum(vec!["a".into(), "b".into()]),
+                required: true,
+                source: DimensionSource::User,
+            }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "x".into(),
+            }],
             risk_policy: RiskPolicy::default(),
-            replay: ReplayPolicy { seed: Some(7), canonical: true },
+            replay: ReplayPolicy {
+                seed: Some(7),
+                canonical: true,
+            },
             metadata: BTreeMap::new(),
         }
     }
@@ -324,7 +355,10 @@ mod tests {
     fn fieldcube_address_stable_across_runs() {
         let cube1 = DefaultFieldCubeBuilder.build(&minimal_spec()).unwrap();
         let cube2 = DefaultFieldCubeBuilder.build(&minimal_spec()).unwrap();
-        assert_eq!(content_address(&cube1).unwrap(), content_address(&cube2).unwrap());
+        assert_eq!(
+            content_address(&cube1).unwrap(),
+            content_address(&cube2).unwrap()
+        );
     }
 
     #[test]
