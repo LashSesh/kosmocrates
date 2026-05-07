@@ -3,8 +3,8 @@
 //! Defines the shared types, temporal primitives, 5D state representations,
 //! and content-addressed hashing used by all other PSE crates.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub use ordered_float::OrderedFloat;
 
@@ -127,7 +127,10 @@ impl Default for CarrierInstance {
     fn default() -> Self {
         Self {
             helix_a: TubusCoord::default(),
-            helix_b: TubusCoord { phi: std::f64::consts::PI, ..Default::default() },
+            helix_b: TubusCoord {
+                phi: std::f64::consts::PI,
+                ..Default::default()
+            },
             mandorla: MandorlaState::default(),
             resonance: 0.0,
             offset: 0.0,
@@ -252,11 +255,20 @@ pub type ConstraintProgram = Vec<ConstraintCandidate>;
 
 /// Severity level of a constitutional constraint.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ConstraintSeverity { Mandatory, Recommended }
+pub enum ConstraintSeverity {
+    Mandatory,
+    Recommended,
+}
 
 /// Conformance class (C0 through C4).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ConformanceClass { C0, C1, C2, C3, C4 }
+pub enum ConformanceClass {
+    C0,
+    C1,
+    C2,
+    C3,
+    C4,
+}
 
 /// A single constitutional constraint with satisfaction evidence.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -547,7 +559,12 @@ pub struct TemporalConfig {
 
 impl Default for TemporalConfig {
     fn default() -> Self {
-        Self { dt2: 0.01, gamma: 0.01, c_temp: 5.0, t_default: 1.0 }
+        Self {
+            dt2: 0.01,
+            gamma: 0.01,
+            c_temp: 5.0,
+            t_default: 1.0,
+        }
     }
 }
 
@@ -587,7 +604,9 @@ pub struct CarrierConfig {
     pub use_metatron_ladder: bool,
 }
 
-fn default_eta_r() -> f64 { 1.0 }
+fn default_eta_r() -> f64 {
+    1.0
+}
 
 impl Default for CarrierConfig {
     fn default() -> Self {
@@ -719,9 +738,17 @@ pub struct ThresholdConfig {
 impl Default for ThresholdConfig {
     fn default() -> Self {
         Self {
-            d: 0.5, q: 0.5, r: 0.5, g: 0.5,
-            j: 0.5, p: 0.5, n: 0.5, k: 0.5,
-            f_friction: 0.7, s_shock: 0.7, l_migration: 0.6,
+            d: 0.5,
+            q: 0.5,
+            r: 0.5,
+            g: 0.5,
+            j: 0.5,
+            p: 0.5,
+            n: 0.5,
+            k: 0.5,
+            f_friction: 0.7,
+            s_shock: 0.7,
+            l_migration: 0.6,
         }
     }
 }
@@ -788,7 +815,9 @@ pub enum SurrogateMethod {
 }
 
 impl Default for SurrogateMethod {
-    fn default() -> Self { SurrogateMethod::Shuffle }
+    fn default() -> Self {
+        SurrogateMethod::Shuffle
+    }
 }
 
 /// Configuration for the surrogate-data falsification pass (Strand D).
@@ -867,14 +896,32 @@ mod tests {
 
     #[test]
     fn five_d_state_distance() {
-        let a = FiveDState { p: 1.0, rho: 0.0, omega: 0.0, chi: 0.0, eta: 0.0 };
-        let b = FiveDState { p: 0.0, rho: 0.0, omega: 0.0, chi: 0.0, eta: 0.0 };
+        let a = FiveDState {
+            p: 1.0,
+            rho: 0.0,
+            omega: 0.0,
+            chi: 0.0,
+            eta: 0.0,
+        };
+        let b = FiveDState {
+            p: 0.0,
+            rho: 0.0,
+            omega: 0.0,
+            chi: 0.0,
+            eta: 0.0,
+        };
         assert!((a.distance(&b) - 1.0).abs() < 1e-10);
     }
 
     #[test]
     fn content_address_deterministic() {
-        let state = FiveDState { p: 1.0, rho: 2.0, omega: 3.0, chi: 4.0, eta: 5.0 };
+        let state = FiveDState {
+            p: 1.0,
+            rho: 2.0,
+            omega: 3.0,
+            chi: 4.0,
+            eta: 5.0,
+        };
         let h1 = content_address(&state);
         let h2 = content_address(&state);
         assert_eq!(h1, h2);
@@ -931,8 +978,16 @@ mod tests {
         // This preserves byte-identical serialization vs. the pre-change form.
         let cp = CommitProof::default();
         let json = serde_json::to_string(&cp).unwrap();
-        assert!(!json.contains("falsification_p_value"), "default JSON leaked field: {}", json);
-        assert!(!json.contains("surrogate_count"), "default JSON leaked field: {}", json);
+        assert!(
+            !json.contains("falsification_p_value"),
+            "default JSON leaked field: {}",
+            json
+        );
+        assert!(
+            !json.contains("surrogate_count"),
+            "default JSON leaked field: {}",
+            json
+        );
     }
 
     #[test]
@@ -964,8 +1019,7 @@ mod tests {
         // that the corresponding field loads as FalsificationConfig::default()
         // when missing — the standard backward-compat path for pre-existing
         // on-disk configs.
-        let mut baseline_json: serde_json::Value =
-            serde_json::to_value(Config::default()).unwrap();
+        let mut baseline_json: serde_json::Value = serde_json::to_value(Config::default()).unwrap();
         // Simulate a legacy config by stripping the new section.
         baseline_json
             .as_object_mut()

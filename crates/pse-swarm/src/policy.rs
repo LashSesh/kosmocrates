@@ -8,8 +8,7 @@ use pse_pmhd::{DecisionSpec, DrillEngine, PmhdConfig};
 
 use crate::{
     report::{ConsensusVote, DrillSummary},
-    AgentStep,
-    SwarmMember,
+    AgentStep, SwarmMember,
 };
 
 // ─── ConsensusMode ────────────────────────────────────────────────────────────

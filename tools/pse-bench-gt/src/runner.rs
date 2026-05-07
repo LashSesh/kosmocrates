@@ -64,11 +64,7 @@ pub fn run_pse(
             }
             Ok(None) => {
                 if state.pattern_hits > hits_before {
-                    detections.push(Detection::new(
-                        state.commit_index,
-                        0.5,
-                        "pse_memory_hit",
-                    ));
+                    detections.push(Detection::new(state.commit_index, 0.5, "pse_memory_hit"));
                 }
             }
             Err(_) => {}
@@ -246,11 +242,7 @@ fn run_pse_windowed_inner(
             }
             Ok(None) => {
                 if state.pattern_hits > hits_before {
-                    detections.push(Detection::new(
-                        state.commit_index,
-                        0.5,
-                        "pse_memory_hit",
-                    ));
+                    detections.push(Detection::new(state.commit_index, 0.5, "pse_memory_hit"));
                 }
             }
             Err(_) => {}
@@ -306,9 +298,12 @@ mod tests {
         // The graph must now have at least one vertex per *distinct*
         // payload, so the windowed-mode invariant holds: distinct
         // observations no longer collapse onto a single vertex.
-        assert!(state.graph.id_map.len() >= observations.len(),
-                "expected at least {} vertices in graph, got {}",
-                observations.len(), state.graph.id_map.len());
+        assert!(
+            state.graph.id_map.len() >= observations.len(),
+            "expected at least {} vertices in graph, got {}",
+            observations.len(),
+            state.graph.id_map.len()
+        );
     }
 
     #[test]
@@ -322,9 +317,10 @@ mod tests {
         // With window=5 and 20 observations, after the window stabilises
         // every batch produces C(5, 2) = 10 pairwise edges. Even with
         // deduplication and weight decay, the graph cannot be edgeless.
-        assert!(state.graph.graph.edge_count() > 0,
-                "windowed runner must produce graph edges, got {}",
-                state.graph.graph.edge_count());
+        assert!(
+            state.graph.graph.edge_count() > 0,
+            "windowed runner must produce graph edges, got {}",
+            state.graph.graph.edge_count()
+        );
     }
 }
-

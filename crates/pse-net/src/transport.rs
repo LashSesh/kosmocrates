@@ -11,8 +11,8 @@ use std::time::Instant;
 ///
 /// Frame format: `[4 bytes big-endian length][JSON payload]`
 pub fn send_message(stream: &mut TcpStream, msg: &SwarmMessage) -> io::Result<()> {
-    let json = serde_json::to_vec(msg)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let json =
+        serde_json::to_vec(msg).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let len = json.len() as u32;
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(&json)?;
@@ -38,8 +38,7 @@ pub fn recv_message(stream: &mut TcpStream) -> io::Result<SwarmMessage> {
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf)?;
 
-    serde_json::from_slice(&buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    serde_json::from_slice(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 /// Simple token-bucket rate limiter.

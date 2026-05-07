@@ -32,27 +32,17 @@ pub enum SwarmMessage {
         hops: Vec<Hash256>,
     },
     /// Request crystals created since a given tick.
-    CrystalSync {
-        since_tick: u64,
-    },
+    CrystalSync { since_tick: u64 },
     /// Response to a CrystalSync request.
-    CrystalSyncResponse {
-        crystals: Vec<CrystalEnvelope>,
-    },
+    CrystalSyncResponse { crystals: Vec<CrystalEnvelope> },
     /// Heartbeat ping.
-    Ping {
-        nonce: u64,
-    },
+    Ping { nonce: u64 },
     /// Heartbeat pong.
-    Pong {
-        nonce: u64,
-    },
+    Pong { nonce: u64 },
     /// Request known peers.
     PeerRequest,
     /// Response with known peers.
-    PeerResponse {
-        peers: Vec<PeerInfo>,
-    },
+    PeerResponse { peers: Vec<PeerInfo> },
 }
 
 #[cfg(test)]

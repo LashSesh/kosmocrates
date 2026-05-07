@@ -1,8 +1,8 @@
 //! Minimal example: observe price data, find invariances.
 
-use pse_types::Config;
-use pse_core::{GlobalState, macro_step};
+use pse_core::{macro_step, GlobalState};
 use pse_graph::PassthroughAdapter;
+use pse_types::Config;
 
 fn main() {
     let config = Config::default();
@@ -13,9 +13,8 @@ fn main() {
     println!("──────────────────────────");
 
     let prices = vec![
-        100.0, 101.2, 99.8, 102.5, 101.0, 103.3, 100.5, 104.0,
-        102.1, 105.5, 103.0, 106.2, 104.5, 107.0, 105.1, 108.3,
-        106.0, 109.5, 107.2, 110.0,
+        100.0, 101.2, 99.8, 102.5, 101.0, 103.3, 100.5, 104.0, 102.1, 105.5, 103.0, 106.2, 104.5,
+        107.0, 105.1, 108.3, 106.0, 109.5, 107.2, 110.0,
     ];
 
     let mut crystal_count = 0;
@@ -30,7 +29,10 @@ fn main() {
 
         if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
             crystal_count += 1;
-            println!("  tick {:2}: Crystal (stability={:.4})", i, crystal.stability_score);
+            println!(
+                "  tick {:2}: Crystal (stability={:.4})",
+                i, crystal.stability_score
+            );
         }
     }
 

@@ -8,14 +8,19 @@ use pse_types::Config;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let file_path = args.iter().position(|a| a == "--file")
+    let file_path = args
+        .iter()
+        .position(|a| a == "--file")
         .and_then(|i| args.get(i + 1).cloned());
 
     let events = if let Some(path) = file_path {
         println!("Loading JSONL from: {}", path);
         match std::fs::read_to_string(&path) {
             Ok(content) => parse_jsonl(&content).unwrap_or_default(),
-            Err(e) => { eprintln!("Error: {}. Using embedded.", e); generate_embedded_data(42) }
+            Err(e) => {
+                eprintln!("Error: {}. Using embedded.", e);
+                generate_embedded_data(42)
+            }
         }
     } else {
         println!("Using embedded inference data (1000 events).");
@@ -31,17 +36,27 @@ fn main() {
     let adapter = ModelMonAdapter::new("fraud_v3");
     let batch_size = 20;
 
-    let serialized: Vec<Vec<u8>> = events.iter()
-        .map(|e| serde_json::to_vec(e).unwrap()).collect();
+    let serialized: Vec<Vec<u8>> = events
+        .iter()
+        .map(|e| serde_json::to_vec(e).unwrap())
+        .collect();
 
     let mut crystal_count = 0;
     for (tick, chunk) in serialized.chunks(batch_size).enumerate() {
         let batch: Vec<Vec<u8>> = chunk.to_vec();
         if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
             crystal_count += 1;
-            println!("  Crystal {}: {}", crystal_count, describe_crystal(&crystal, tick as u64));
+            println!(
+                "  Crystal {}: {}",
+                crystal_count,
+                describe_crystal(&crystal, tick as u64)
+            );
         }
     }
     println!("{}", "─".repeat(60));
-    println!("Final: {} crystals from {} events", crystal_count, events.len());
+    println!(
+        "Final: {} crystals from {} events",
+        crystal_count,
+        events.len()
+    );
 }

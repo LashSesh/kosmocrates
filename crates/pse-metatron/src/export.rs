@@ -23,9 +23,7 @@ pub fn catalog_to_json(table: &PeriodicTable) -> ScanResult<String> {
 /// Write the catalog to disk as `periodic_table.json`.
 pub fn write_catalog_json(table: &PeriodicTable, path: &Path) -> ScanResult<()> {
     let json = catalog_to_json(table)?;
-    fs::write(path, json).map_err(|e| {
-        crate::error::ScanError::Serde(serde_json::Error::io(e))
-    })?;
+    fs::write(path, json).map_err(|e| crate::error::ScanError::Serde(serde_json::Error::io(e)))?;
     Ok(())
 }
 

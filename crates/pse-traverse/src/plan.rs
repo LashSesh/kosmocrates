@@ -76,31 +76,22 @@ pub enum OrderingPolicy {
 }
 
 pub trait CollapsePlanner {
-    fn plan(
-        &self,
-        cube: &FieldCube,
-        graph: &DoFGraph,
-        excisions: &[PathExcision],
-    ) -> CollapsePlan;
+    fn plan(&self, cube: &FieldCube, graph: &DoFGraph, excisions: &[PathExcision]) -> CollapsePlan;
 }
 
 /// Reference planner — implements the MVP ordering policy.
 pub struct DefaultCollapsePlanner;
 
 impl CollapsePlanner for DefaultCollapsePlanner {
-    fn plan(
-        &self,
-        cube: &FieldCube,
-        graph: &DoFGraph,
-        excisions: &[PathExcision],
-    ) -> CollapsePlan {
+    fn plan(&self, cube: &FieldCube, graph: &DoFGraph, excisions: &[PathExcision]) -> CollapsePlan {
         let mut steps: Vec<CollapseStep> = Vec::new();
 
         // 1. Path-excision detection step always comes first (it's a check, not a mutation).
         steps.push(CollapseStep {
             id: "s.detect_path_excision".into(),
             kind: CollapseStepKind::DetectPathExcision,
-            target_nodes: excisions.iter()
+            target_nodes: excisions
+                .iter()
                 .map(|e| NodeId::new(&e.dimension_id))
                 .collect(),
             required_constraints: Vec::new(),
@@ -112,10 +103,14 @@ impl CollapsePlanner for DefaultCollapsePlanner {
         });
 
         // 2. Hard-constraint application steps, sorted by coupled-node degree desc, ID asc.
-        let mut hard: Vec<(String, u64)> = cube.constraints.values()
+        let mut hard: Vec<(String, u64)> = cube
+            .constraints
+            .values()
             .filter(|c| c.kind == ConstraintKind::Hard)
             .map(|c| {
-                let max_deg = c.dimensions.iter()
+                let max_deg = c
+                    .dimensions
+                    .iter()
                     .map(|d| graph.degree(&NodeId::new(d)))
                     .max()
                     .unwrap_or(0);
@@ -138,7 +133,9 @@ impl CollapsePlanner for DefaultCollapsePlanner {
         }
 
         // 3. Soft-constraint steps (lex sort).
-        let mut soft: Vec<&str> = cube.constraints.values()
+        let mut soft: Vec<&str> = cube
+            .constraints
+            .values()
             .filter(|c| c.kind == ConstraintKind::Soft)
             .map(|c| c.id.as_str())
             .collect();
@@ -158,7 +155,9 @@ impl CollapsePlanner for DefaultCollapsePlanner {
         }
 
         // 4. Required-dimension resolution steps (lex sort).
-        let mut dims: Vec<&str> = cube.dimensions.values()
+        let mut dims: Vec<&str> = cube
+            .dimensions
+            .values()
             .filter(|d| d.required)
             .map(|d| d.id.as_str())
             .collect();
@@ -168,7 +167,9 @@ impl CollapsePlanner for DefaultCollapsePlanner {
                 id: format!("s.resolve.{}", did),
                 kind: CollapseStepKind::ResolveDimension,
                 target_nodes: vec![NodeId::new(did)],
-                required_constraints: cube.constraints.values()
+                required_constraints: cube
+                    .constraints
+                    .values()
                     .filter(|c| c.dimensions.iter().any(|d| d == did))
                     .map(|c| c.id.clone())
                     .collect(),
@@ -206,7 +207,8 @@ impl CollapsePlanner for DefaultCollapsePlanner {
             failure_policy: FailurePolicy::FailClosed,
         });
 
-        let expected_reduction = steps.iter()
+        let expected_reduction = steps
+            .iter()
             .map(|s| s.expected_effect.estimated_reduction)
             .sum::<f64>()
             .min(1.0);
@@ -230,8 +232,8 @@ mod tests {
     use crate::excision::detect_path_excision;
     use crate::field_cube::{DefaultFieldCubeBuilder, FieldCubeBuilder};
     use crate::spec::{
-        ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec,
-        OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
+        ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec, OutputSpec, ProblemSpec,
+        ReplayPolicy, RiskPolicy, ValueDomain,
     };
     use std::collections::BTreeMap;
 
@@ -266,7 +268,10 @@ mod tests {
                 required: true,
                 source: DimensionSource::User,
             }],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "y".into() }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "y".into(),
+            }],
             risk_policy: RiskPolicy::default(),
             replay: ReplayPolicy::default(),
             metadata: BTreeMap::new(),
@@ -295,10 +300,23 @@ mod tests {
         // hard constraint c.b should come before soft constraint c.a
         let i_hard = p.steps.iter().position(|s| s.id == "s.apply.c.b").unwrap();
         let i_soft = p.steps.iter().position(|s| s.id == "s.apply.c.a").unwrap();
-        assert!(i_hard < i_soft, "hard {} not before soft {}", i_hard, i_soft);
+        assert!(
+            i_hard < i_soft,
+            "hard {} not before soft {}",
+            i_hard,
+            i_soft
+        );
         // verify before commit
-        let i_v = p.steps.iter().position(|s| s.kind == CollapseStepKind::VerifyCandidate).unwrap();
-        let i_c = p.steps.iter().position(|s| s.kind == CollapseStepKind::CommitCandidate).unwrap();
+        let i_v = p
+            .steps
+            .iter()
+            .position(|s| s.kind == CollapseStepKind::VerifyCandidate)
+            .unwrap();
+        let i_c = p
+            .steps
+            .iter()
+            .position(|s| s.kind == CollapseStepKind::CommitCandidate)
+            .unwrap();
         assert!(i_v < i_c);
     }
 }

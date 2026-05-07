@@ -163,10 +163,7 @@ pub fn compute_diagnostics(
 
     // ── Consecutive gaps ──────────────────────────────────────────────────────
     let gaps: Vec<f64> = if values_f64.len() >= 2 {
-        values_f64
-            .windows(2)
-            .map(|w| w[1] - w[0])
-            .collect()
+        values_f64.windows(2).map(|w| w[1] - w[0]).collect()
     } else {
         Vec::new()
     };
@@ -187,17 +184,18 @@ pub fn compute_diagnostics(
         1.0
     } else {
         let mean_gap = gaps.iter().sum::<f64>() / gaps.len() as f64;
-        let var_gap = gaps.iter().map(|g| (g - mean_gap).powi(2)).sum::<f64>()
-            / gaps.len() as f64;
+        let var_gap = gaps.iter().map(|g| (g - mean_gap).powi(2)).sum::<f64>() / gaps.len() as f64;
         let rigidity_raw = 1.0 - (var_gap / (mean_gap.powi(2) + eps)).min(1.0);
         clamp01(rigidity_raw, "rigidity", &mut messages)
     };
 
     // ── Hierarchy indicator ───────────────────────────────────────────────────
-    let (min_val, max_val) = values_f64.iter().copied().fold(
-        (f64::INFINITY, f64::NEG_INFINITY),
-        |(mn, mx), v| (mn.min(v), mx.max(v)),
-    );
+    let (min_val, max_val) = values_f64
+        .iter()
+        .copied()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), v| {
+            (mn.min(v), mx.max(v))
+        });
     let mean_spacing = if gaps.is_empty() {
         0.0
     } else {
@@ -289,7 +287,8 @@ mod tests {
             .map(|(i, w)| WeightedEdge {
                 u: 0,
                 v: (i + 1).min(n - 1),
-                weight: SignatureValue::quantize(w, scale).unwrap_or_else(|_| SignatureValue::zero(scale)),
+                weight: SignatureValue::quantize(w, scale)
+                    .unwrap_or_else(|_| SignatureValue::zero(scale)),
             })
             .collect();
         let directed_edges: Vec<WeightedDirectedEdge> = dir_weights
@@ -298,7 +297,8 @@ mod tests {
             .map(|(i, w)| WeightedDirectedEdge {
                 from: 0,
                 to: (i + 1).min(n - 1),
-                weight: SignatureValue::quantize(w, scale).unwrap_or_else(|_| SignatureValue::zero(scale)),
+                weight: SignatureValue::quantize(w, scale)
+                    .unwrap_or_else(|_| SignatureValue::zero(scale)),
             })
             .collect();
         StructuralOperator {
@@ -321,11 +321,19 @@ mod tests {
     fn make_signature(values_f64: Vec<f64>, zero_mult: usize, scale: i32) -> Signature {
         let vals: Vec<SignatureValue> = values_f64
             .iter()
-            .map(|&v| SignatureValue::quantize(v, scale).unwrap_or_else(|_| SignatureValue::zero(scale)))
+            .map(|&v| {
+                SignatureValue::quantize(v, scale).unwrap_or_else(|_| SignatureValue::zero(scale))
+            })
             .collect();
         let dim = vals.len();
-        let min_value = vals.first().cloned().unwrap_or_else(|| SignatureValue::zero(scale));
-        let max_value = vals.last().cloned().unwrap_or_else(|| SignatureValue::zero(scale));
+        let min_value = vals
+            .first()
+            .cloned()
+            .unwrap_or_else(|| SignatureValue::zero(scale));
+        let max_value = vals
+            .last()
+            .cloned()
+            .unwrap_or_else(|| SignatureValue::zero(scale));
         Signature {
             signature_id: "sig.test".into(),
             operator_id: "op.test".into(),
@@ -351,11 +359,31 @@ mod tests {
         let op = make_operator(vec![1.0, 2.0], vec![0.5], scale);
         let cfg = DiagnosticConfig::default();
         let diag = compute_diagnostics(&sig, &op, &cfg);
-        assert!((0.0..=1.0).contains(&diag.gap_score),          "gap_score={}", diag.gap_score);
-        assert!((0.0..=1.0).contains(&diag.degeneracy_score),   "deg={}", diag.degeneracy_score);
-        assert!((0.0..=1.0).contains(&diag.rigidity_score),     "rig={}", diag.rigidity_score);
-        assert!((0.0..=1.0).contains(&diag.asymmetry_score),    "asym={}", diag.asymmetry_score);
-        assert!((0.0..=1.0).contains(&diag.fragmentation_score),"frag={}", diag.fragmentation_score);
+        assert!(
+            (0.0..=1.0).contains(&diag.gap_score),
+            "gap_score={}",
+            diag.gap_score
+        );
+        assert!(
+            (0.0..=1.0).contains(&diag.degeneracy_score),
+            "deg={}",
+            diag.degeneracy_score
+        );
+        assert!(
+            (0.0..=1.0).contains(&diag.rigidity_score),
+            "rig={}",
+            diag.rigidity_score
+        );
+        assert!(
+            (0.0..=1.0).contains(&diag.asymmetry_score),
+            "asym={}",
+            diag.asymmetry_score
+        );
+        assert!(
+            (0.0..=1.0).contains(&diag.fragmentation_score),
+            "frag={}",
+            diag.fragmentation_score
+        );
     }
 
     #[test]

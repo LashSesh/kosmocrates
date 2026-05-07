@@ -12,7 +12,7 @@ use pse_types::MetatronTopologySignature;
 
 use crate::error::ScanResult;
 use crate::ingest::InputGraph;
-use crate::scan::{scan, scan_with_cache, ScanReport, S7Cache};
+use crate::scan::{scan, scan_with_cache, S7Cache, ScanReport};
 
 /// Project a full [`ScanReport`] into a lightweight
 /// [`MetatronTopologySignature`] suitable for storage on every

@@ -277,9 +277,15 @@ mod tests {
                 required: true,
                 source: DimensionSource::User,
             }],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "y".into() }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "y".into(),
+            }],
             risk_policy: RiskPolicy::default(),
-            replay: ReplayPolicy { seed: Some(42), canonical: true },
+            replay: ReplayPolicy {
+                seed: Some(42),
+                canonical: true,
+            },
             metadata: BTreeMap::new(),
         }
     }
@@ -318,7 +324,8 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert!(
             candidates[0].assignments.contains_key("d.x"),
-            "expected d.x in {:?}", candidates[0].assignments
+            "expected d.x in {:?}",
+            candidates[0].assignments
         );
     }
 

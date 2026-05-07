@@ -119,10 +119,7 @@ impl InputGraph {
                     });
                 }
                 if (self.adjacency[i][j] - self.adjacency[j][i]).abs() > 1e-10 {
-                    return Err(ScanError::NotSymmetric {
-                        i: i + 1,
-                        j: j + 1,
-                    });
+                    return Err(ScanError::NotSymmetric { i: i + 1, j: j + 1 });
                 }
             }
         }
@@ -153,7 +150,10 @@ mod tests {
         let matrix = vec![vec![0.0; 9]; 9];
         let result = InputGraph::from_adjacency(matrix);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ScanError::TooManyNodes { n: 9 }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ScanError::TooManyNodes { n: 9 }
+        ));
     }
 
     #[test]
@@ -180,7 +180,10 @@ mod tests {
         ];
         let result = InputGraph::from_adjacency(matrix);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ScanError::NotSymmetric { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ScanError::NotSymmetric { .. }
+        ));
     }
 
     #[test]
@@ -197,13 +200,13 @@ mod tests {
 
     #[test]
     fn reject_non_binary() {
-        let matrix = vec![
-            vec![0.0, 0.5],
-            vec![0.5, 0.0],
-        ];
+        let matrix = vec![vec![0.0, 0.5], vec![0.5, 0.0]];
         let result = InputGraph::from_adjacency(matrix);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ScanError::NonBinaryWeight { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ScanError::NonBinaryWeight { .. }
+        ));
     }
 
     #[test]

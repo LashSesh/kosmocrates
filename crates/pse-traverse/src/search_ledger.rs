@@ -96,7 +96,9 @@ pub struct SearchLedger {
 impl SearchLedger {
     /// Create an empty ledger.
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     /// Append an entry to the ledger.
@@ -156,7 +158,8 @@ impl SearchLedger {
     /// Build a [`SearchLedgerReport`] from the current state.
     ///
     /// `frontier_ids` should be the result of
-    /// [`NonDominatedFrontier::frontier_ids`].  It is stored sorted.
+    /// [`crate::blueprint_search::NonDominatedFrontier::frontier_ids`].
+    /// It is stored sorted.
     pub fn report(
         &self,
         problem_spec_hash: &str,

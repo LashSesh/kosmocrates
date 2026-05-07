@@ -11,7 +11,9 @@ use crate::Optimizer;
 
 struct Xorshift64(u64);
 impl Xorshift64 {
-    fn new(seed: u64) -> Self { Self(seed.wrapping_add(0x9E37_79B9_7F4A_7C15)) }
+    fn new(seed: u64) -> Self {
+        Self(seed.wrapping_add(0x9E37_79B9_7F4A_7C15))
+    }
     fn next_u64(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x << 13;
@@ -37,12 +39,17 @@ pub struct RandomSearch {
 
 impl RandomSearch {
     pub fn new(seed: u64, dim: usize) -> Self {
-        Self { rng: Xorshift64::new(seed), dim: dim.max(1) }
+        Self {
+            rng: Xorshift64::new(seed),
+            dim: dim.max(1),
+        }
     }
 }
 
 impl<'f> Optimizer<'f> for RandomSearch {
-    fn name(&self) -> &str { "random_search" }
+    fn name(&self) -> &str {
+        "random_search"
+    }
     fn next_point(&mut self, _history: &[(Vec<f64>, f64)]) -> Vec<f64> {
         (0..self.dim).map(|_| self.rng.next_unit()).collect()
     }
@@ -81,7 +88,9 @@ fn halton_value(mut index: u64, base: u64) -> f64 {
 }
 
 impl<'f> Optimizer<'f> for HaltonSearch {
-    fn name(&self) -> &str { "halton" }
+    fn name(&self) -> &str {
+        "halton"
+    }
     fn next_point(&mut self, _history: &[(Vec<f64>, f64)]) -> Vec<f64> {
         let i = self.index as u64;
         self.index += 1;
@@ -108,12 +117,16 @@ pub struct TritonSpiralBBO {
 
 impl TritonSpiralBBO {
     pub fn new(seed: u64) -> Self {
-        Self { spiral: NavigatorSpiral::new(2, seed) }
+        Self {
+            spiral: NavigatorSpiral::new(2, seed),
+        }
     }
 }
 
 impl<'f> Optimizer<'f> for TritonSpiralBBO {
-    fn name(&self) -> &str { "triton_spiral" }
+    fn name(&self) -> &str {
+        "triton_spiral"
+    }
     fn next_point(&mut self, _history: &[(Vec<f64>, f64)]) -> Vec<f64> {
         self.spiral.next_point()
     }

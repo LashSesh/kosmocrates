@@ -3,12 +3,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::dynamic_state::{BaseState, CanonicalNumber, DynamicError, Hash256, stable_id_of};
-use crate::dynamic_policy::{DynamicPolicyKind, PolicyScheduleEntry, QuantizationPolicy};
 use crate::compressor::CompressorStats;
-use crate::guidance_field::GuidanceRelaxReport;
-use crate::transition_proof::{DynamicGateConfig, DynamicGateDecision, DynamicGateReport, TransitionProof};
+use crate::dynamic_policy::{DynamicPolicyKind, PolicyScheduleEntry, QuantizationPolicy};
+use crate::dynamic_state::{stable_id_of, BaseState, CanonicalNumber, DynamicError, Hash256};
 use crate::field::FieldSignal;
+use crate::guidance_field::GuidanceRelaxReport;
+use crate::transition_proof::{
+    DynamicGateConfig, DynamicGateDecision, DynamicGateReport, TransitionProof,
+};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // SignatureDrivenPolicyHint
@@ -29,10 +31,19 @@ pub struct SignatureDrivenPolicyHint {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DynamicStopCondition {
     MaxTicks(u64),
-    GateFireCount { min_count: u64 },
-    StabilizedDensity { tolerance: CanonicalNumber, consecutive_ticks: u64 },
-    StabilizedStateRoot { consecutive_ticks: u64 },
-    MaxHoldCount { max_count: u64 },
+    GateFireCount {
+        min_count: u64,
+    },
+    StabilizedDensity {
+        tolerance: CanonicalNumber,
+        consecutive_ticks: u64,
+    },
+    StabilizedStateRoot {
+        consecutive_ticks: u64,
+    },
+    MaxHoldCount {
+        max_count: u64,
+    },
 }
 
 // ───────────────────────────────────────────────────────────────────────────────

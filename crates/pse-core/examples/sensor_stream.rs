@@ -1,8 +1,8 @@
 //! Minimal example: IoT sensor anomaly detection.
 
-use pse_types::Config;
-use pse_core::{GlobalState, macro_step};
+use pse_core::{macro_step, GlobalState};
 use pse_graph::PassthroughAdapter;
+use pse_types::Config;
 
 fn main() {
     let config = Config::default();
@@ -32,7 +32,10 @@ fn main() {
 
         if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
             crystal_count += 1;
-            println!("  tick {:2}: Crystal (stability={:.4})", tick, crystal.stability_score);
+            println!(
+                "  tick {:2}: Crystal (stability={:.4})",
+                tick, crystal.stability_score
+            );
         }
     }
 

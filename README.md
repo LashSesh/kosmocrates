@@ -54,7 +54,7 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
 | `B15` `macro_step` end-to-end | **43–110 µs** |
 | `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **627 / 627** passing |
+| Workspace test suite | **695 / 695** passing |
 
 The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
 and matched on the full pipeline. See `cargo run --release --example
@@ -393,6 +393,26 @@ calibration moves; the *contract* doesn't.
 * **Extending**: implement `ObservationAdapter` for your data source;
   optionally implement `DomainAdapter` for domain-specific vocabulary.
   The trait surface is two methods.
+
+---
+
+## Quality / production-readiness
+
+| Check | Command | Status |
+|---|---|---|
+| Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
+| Format | `cargo fmt --all -- --check` | clean |
+| Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
+| Tests | `cargo test --workspace --locked` | 695 / 695 passing |
+| Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
+| Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
+| CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |
+| Dependency updates | Dependabot (weekly Cargo, monthly Actions) | `.github/dependabot.yml` |
+| Security policy | Private vulnerability reporting + threat model | [`SECURITY.md`](SECURITY.md) |
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development loop and
+the determinism / replay rules every contribution must respect, and
+[`CHANGELOG.md`](CHANGELOG.md) for the release log.
 
 ---
 

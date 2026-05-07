@@ -18,7 +18,7 @@
 //! no crystal is produced.
 //!
 //! The composed crystal is itself a fully-formed `SemanticCrystal`:
-//! it can be ingested again through the [`crystal_adapter::CrystalAdapter`],
+//! it can be ingested again through the `crystal_adapter::CrystalAdapter`,
 //! it can be the input of subsequent compose / dual / bridge / query
 //! calls, and its `crystal_id` is content-addressed via the same
 //! CrystalCore subset (region, stability, created_at, free_energy,
@@ -28,8 +28,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pse_types::{
-    content_address, CommitProof, ConsensusResult, ConstraintProgram, EvidenceChain,
-    GateSnapshot, Hash256, PoRTrace, SemanticCrystal, TopologySignature, VertexId,
+    content_address, CommitProof, ConsensusResult, ConstraintProgram, EvidenceChain, GateSnapshot,
+    Hash256, PoRTrace, SemanticCrystal, TopologySignature, VertexId,
 };
 use serde::Serialize;
 use thiserror::Error;
@@ -98,7 +98,10 @@ pub fn compose(
     sorted.sort_by_key(|c| c.crystal_id);
 
     // Region: union, deduplicated, sorted.
-    let mut region: Vec<VertexId> = sorted.iter().flat_map(|c| c.region.iter().copied()).collect();
+    let mut region: Vec<VertexId> = sorted
+        .iter()
+        .flat_map(|c| c.region.iter().copied())
+        .collect();
     region.sort_unstable();
     region.dedup();
 
@@ -147,11 +150,7 @@ pub fn compose(
 
     // Carrier instance idx: lowest input — composition stays on the
     // earliest carrier the inputs already shared.
-    let carrier_instance_idx = sorted
-        .iter()
-        .map(|c| c.carrier_instance_idx)
-        .min()
-        .unwrap();
+    let carrier_instance_idx = sorted.iter().map(|c| c.carrier_instance_idx).min().unwrap();
 
     // Synthetic commit proof. The composition is a structural commit
     // (no observation cascade was run), so the gate values reflect
@@ -385,9 +384,11 @@ pub fn bridge(
     {
         return Err(BridgeError::Incompatible(format!(
             "Betti number mismatch: ({},{},{}) vs ({},{},{})",
-            a.topology_signature.betti_0, a.topology_signature.betti_1,
+            a.topology_signature.betti_0,
+            a.topology_signature.betti_1,
             a.topology_signature.betti_2,
-            b.topology_signature.betti_0, b.topology_signature.betti_1,
+            b.topology_signature.betti_0,
+            b.topology_signature.betti_1,
             b.topology_signature.betti_2,
         )));
     }
@@ -405,8 +406,7 @@ pub fn bridge(
     {
         return Err(BridgeError::Incompatible(format!(
             "kuramoto_coherence differs by {:.4}; tolerance {:.4}",
-            (a.topology_signature.kuramoto_coherence
-                - b.topology_signature.kuramoto_coherence)
+            (a.topology_signature.kuramoto_coherence - b.topology_signature.kuramoto_coherence)
                 .abs(),
             config.kuramoto_coherence_tolerance,
         )));
@@ -466,8 +466,7 @@ pub fn bridge(
     let created_at = lo.created_at.max(hi.created_at) + 1;
     // Free energy: sum (additive coupling free-energy contribution).
     let free_energy = lo.free_energy + hi.free_energy;
-    let parent_crystal_ids =
-        vec![hex_encode(&lo.crystal_id), hex_encode(&hi.crystal_id)];
+    let parent_crystal_ids = vec![hex_encode(&lo.crystal_id), hex_encode(&hi.crystal_id)];
     let carrier_instance_idx = lo.carrier_instance_idx.min(hi.carrier_instance_idx);
 
     // Synthetic commit proof for the bridge (structural commit, no live cascade).
@@ -611,9 +610,7 @@ pub fn query(
         .iter()
         .map(|c| (c.clone(), crystal_similarity(template, c, config)))
         .collect();
-    scored.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     scored.truncate(top_k);
     scored
 }
@@ -621,14 +618,8 @@ pub fn query(
 /// Crystal-to-crystal similarity in `[0, 1]`. Public for downstream
 /// callers (tests, custom rankers) that want the same metric outside
 /// the `query` driver.
-pub fn crystal_similarity(
-    a: &SemanticCrystal,
-    b: &SemanticCrystal,
-    config: &QueryConfig,
-) -> f64 {
-    let total_w = config.topology_weight
-        + config.region_weight
-        + config.stability_weight;
+pub fn crystal_similarity(a: &SemanticCrystal, b: &SemanticCrystal, config: &QueryConfig) -> f64 {
+    let total_w = config.topology_weight + config.region_weight + config.stability_weight;
     if total_w < 1e-12 {
         return 0.0;
     }
@@ -719,11 +710,7 @@ fn region_jaccard(a: &[VertexId], b: &[VertexId]) -> f64 {
 /// M-operators. `scale_tag = "interpolated"`.
 /// `parent_crystal_ids = [a.id, b.id]` sorted by crystal_id for
 /// canonical ordering.
-pub fn interpolate(
-    a: &SemanticCrystal,
-    b: &SemanticCrystal,
-    alpha: f64,
-) -> SemanticCrystal {
+pub fn interpolate(a: &SemanticCrystal, b: &SemanticCrystal, alpha: f64) -> SemanticCrystal {
     let alpha = alpha.clamp(0.0, 1.0);
     let inv_alpha = 1.0 - alpha;
 
@@ -750,10 +737,18 @@ pub fn interpolate(
             // To preserve "alpha=0 → exactly a.region" regardless of
             // sort order, we rebind the membership rule to the
             // *original* a vs b semantic.
-            let alpha_for_lo = if std::ptr::eq(lo, a) { alpha } else { 1.0 - alpha };
+            let alpha_for_lo = if std::ptr::eq(lo, a) {
+                alpha
+            } else {
+                1.0 - alpha
+            };
             alpha_for_lo <= 0.5
         } else {
-            let alpha_for_hi = if std::ptr::eq(hi, b) { alpha } else { 1.0 - alpha };
+            let alpha_for_hi = if std::ptr::eq(hi, b) {
+                alpha
+            } else {
+                1.0 - alpha
+            };
             alpha_for_hi >= 0.5
         };
         if include {
@@ -770,12 +765,10 @@ pub fn interpolate(
     // numbers and Euler char are integer; we round the interpolated
     // value to the nearest integer to keep them well-typed.
     let lerp = |x: f64, y: f64| inv_alpha * x + alpha * y;
-    let lerp_u64 = |x: u64, y: u64| -> u64 {
-        (inv_alpha * x as f64 + alpha * y as f64).round() as u64
-    };
-    let lerp_i64 = |x: i64, y: i64| -> i64 {
-        (inv_alpha * x as f64 + alpha * y as f64).round() as i64
-    };
+    let lerp_u64 =
+        |x: u64, y: u64| -> u64 { (inv_alpha * x as f64 + alpha * y as f64).round() as u64 };
+    let lerp_i64 =
+        |x: i64, y: i64| -> i64 { (inv_alpha * x as f64 + alpha * y as f64).round() as i64 };
     let topology_signature = TopologySignature {
         betti_0: lerp_u64(a.topology_signature.betti_0, b.topology_signature.betti_0),
         betti_1: lerp_u64(a.topology_signature.betti_1, b.topology_signature.betti_1),
@@ -800,14 +793,12 @@ pub fn interpolate(
             a.topology_signature.mean_propagation_time,
             b.topology_signature.mean_propagation_time,
         ),
-        dtl_connected: a.topology_signature.dtl_connected
-            && b.topology_signature.dtl_connected,
+        dtl_connected: a.topology_signature.dtl_connected && b.topology_signature.dtl_connected,
     };
 
     let free_energy = inv_alpha * a.free_energy + alpha * b.free_energy;
     let created_at = a.created_at.max(b.created_at) + 1;
-    let parent_crystal_ids =
-        vec![hex_encode(&lo.crystal_id), hex_encode(&hi.crystal_id)];
+    let parent_crystal_ids = vec![hex_encode(&lo.crystal_id), hex_encode(&hi.crystal_id)];
     let carrier_instance_idx = a.carrier_instance_idx.min(b.carrier_instance_idx);
 
     let commit_proof = CommitProof {
@@ -904,13 +895,15 @@ fn check_compatibility(
         {
             return Err(ComposeError::Incompatible(format!(
                 "Betti number mismatch: ({},{},{}) vs ({},{},{})",
-                first.betti_0, first.betti_1, first.betti_2,
-                other.betti_0, other.betti_1, other.betti_2,
+                first.betti_0,
+                first.betti_1,
+                first.betti_2,
+                other.betti_0,
+                other.betti_1,
+                other.betti_2,
             )));
         }
-        if (first.spectral_gap - other.spectral_gap).abs()
-            > config.spectral_gap_tolerance
-        {
+        if (first.spectral_gap - other.spectral_gap).abs() > config.spectral_gap_tolerance {
             return Err(ComposeError::Incompatible(format!(
                 "spectral_gap differs by {:.4}; tolerance {:.4}",
                 (first.spectral_gap - other.spectral_gap).abs(),
@@ -933,7 +926,11 @@ fn check_compatibility(
 fn mean_topology(crystals: &[&SemanticCrystal]) -> TopologySignature {
     let n = crystals.len() as f64;
     let mean = |get: &dyn Fn(&TopologySignature) -> f64| -> f64 {
-        crystals.iter().map(|c| get(&c.topology_signature)).sum::<f64>() / n
+        crystals
+            .iter()
+            .map(|c| get(&c.topology_signature))
+            .sum::<f64>()
+            / n
     };
     let first = &crystals[0].topology_signature;
     TopologySignature {
@@ -1230,8 +1227,10 @@ mod tests {
     fn dual_changes_crystal_id() {
         let c = make_crystal(vec![1, 2, 3], 0.8, 1, 0.30, 0.70, 5);
         let d = dual(&c);
-        assert_ne!(d.crystal_id, c.crystal_id,
-                   "dual must produce a distinct crystal_id");
+        assert_ne!(
+            d.crystal_id, c.crystal_id,
+            "dual must produce a distinct crystal_id"
+        );
     }
 
     #[test]
@@ -1260,7 +1259,8 @@ mod tests {
     fn dual_commit_proof_carries_dual_operator() {
         let c = make_crystal(vec![1], 0.5, 1, 0.30, 0.70, 1);
         let d = dual(&c);
-        assert!(d.commit_proof
+        assert!(d
+            .commit_proof
             .operator_stack
             .iter()
             .any(|(name, _)| name == "dual"));
@@ -1332,8 +1332,7 @@ mod tests {
         let bridged = bridge(&a, &b, &BridgeConfig::default()).unwrap();
         let geo_mean = (0.9_f64 * 0.3_f64).sqrt();
         assert!(
-            bridged.stability_score >= 0.3 - 1e-9
-                && bridged.stability_score <= geo_mean + 1e-9,
+            bridged.stability_score >= 0.3 - 1e-9 && bridged.stability_score <= geo_mean + 1e-9,
             "harmonic mean must lie in [min, geometric_mean]: got {} \
              outside [0.3, {}]",
             bridged.stability_score,
@@ -1525,10 +1524,8 @@ mod tests {
             stability_weight: 0.0,
         };
         let template = make_crystal(vec![1, 2, 3], 0.7, 1, 0.30, 0.70, 1);
-        let same_topo_diff_region =
-            make_crystal(vec![100, 200, 300], 0.7, 1, 0.30, 0.70, 1);
-        let same_topo_diff_region_2 =
-            make_crystal(vec![400, 500], 0.7, 1, 0.30, 0.70, 1);
+        let same_topo_diff_region = make_crystal(vec![100, 200, 300], 0.7, 1, 0.30, 0.70, 1);
+        let same_topo_diff_region_2 = make_crystal(vec![400, 500], 0.7, 1, 0.30, 0.70, 1);
         let result = query(
             &template,
             &[same_topo_diff_region, same_topo_diff_region_2],
@@ -1572,7 +1569,9 @@ mod tests {
         assert_eq!(r.region, a.region);
         assert!((r.stability_score - a.stability_score).abs() < 1e-12);
         assert_eq!(r.topology_signature.betti_0, a.topology_signature.betti_0);
-        assert!((r.topology_signature.spectral_gap - a.topology_signature.spectral_gap).abs() < 1e-12);
+        assert!(
+            (r.topology_signature.spectral_gap - a.topology_signature.spectral_gap).abs() < 1e-12
+        );
     }
 
     #[test]
@@ -1583,7 +1582,9 @@ mod tests {
         assert_eq!(r.region, b.region);
         assert!((r.stability_score - b.stability_score).abs() < 1e-12);
         assert_eq!(r.topology_signature.betti_0, b.topology_signature.betti_0);
-        assert!((r.topology_signature.spectral_gap - b.topology_signature.spectral_gap).abs() < 1e-12);
+        assert!(
+            (r.topology_signature.spectral_gap - b.topology_signature.spectral_gap).abs() < 1e-12
+        );
     }
 
     #[test]
@@ -1598,10 +1599,18 @@ mod tests {
         assert!(
             r.stability_score > lo + 1e-9 && r.stability_score < hi - 1e-9,
             "stability {} not strictly between [{}, {}]",
-            r.stability_score, lo, hi
+            r.stability_score,
+            lo,
+            hi
         );
-        let g_lo = a.topology_signature.spectral_gap.min(b.topology_signature.spectral_gap);
-        let g_hi = a.topology_signature.spectral_gap.max(b.topology_signature.spectral_gap);
+        let g_lo = a
+            .topology_signature
+            .spectral_gap
+            .min(b.topology_signature.spectral_gap);
+        let g_hi = a
+            .topology_signature
+            .spectral_gap
+            .max(b.topology_signature.spectral_gap);
         assert!(
             r.topology_signature.spectral_gap > g_lo + 1e-9
                 && r.topology_signature.spectral_gap < g_hi - 1e-9,
@@ -1637,7 +1646,10 @@ mod tests {
         let b = make_crystal(vec![4, 5, 6], 0.7, 1, 0.30, 0.70, 2);
         let interp = interpolate(&a, &b, 0.3);
         let composed = compose(&[interp.clone(), a.clone()], &ComposeConfig::default());
-        assert!(composed.is_ok(), "interpolated crystal must be compose-compatible");
+        assert!(
+            composed.is_ok(),
+            "interpolated crystal must be compose-compatible"
+        );
         let d = dual(&interp);
         assert_eq!(d.region, interp.region);
     }

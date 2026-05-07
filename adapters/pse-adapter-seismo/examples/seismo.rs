@@ -20,8 +20,14 @@ fn main() {
         println!("Fetching live data from USGS...");
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         match rt.block_on(pse_adapter_seismo::fetch_events(2.5, 200)) {
-            Ok(e) => { println!("Fetched {} events.", e.len()); e }
-            Err(e) => { eprintln!("Failed: {}. Using embedded.", e); embedded_seismo_data() }
+            Ok(e) => {
+                println!("Fetched {} events.", e.len());
+                e
+            }
+            Err(e) => {
+                eprintln!("Failed: {}. Using embedded.", e);
+                embedded_seismo_data()
+            }
         }
     };
 
@@ -33,7 +39,8 @@ fn main() {
     println!("\nProcessing {} events ({} per tick)...", total, batch_size);
     println!("{}", "─".repeat(60));
 
-    let serialized: Vec<Vec<u8>> = events.iter()
+    let serialized: Vec<Vec<u8>> = events
+        .iter()
         .map(|e| serde_json::to_vec(e).expect("serialize"))
         .collect();
 
@@ -41,8 +48,11 @@ fn main() {
         let batch: Vec<Vec<u8>> = chunk.to_vec();
         if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
             crystal_count += 1;
-            println!("  Crystal {}: {}", crystal_count,
-                describe_crystal(&crystal, "Pacific Ring of Fire", tick as u64));
+            println!(
+                "  Crystal {}: {}",
+                crystal_count,
+                describe_crystal(&crystal, "Pacific Ring of Fire", tick as u64)
+            );
         }
     }
 

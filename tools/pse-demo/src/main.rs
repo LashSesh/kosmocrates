@@ -92,7 +92,9 @@ fn main() {
             Err(e) => eprintln!("tick {} error: {}", k, e),
         }
         if let Some(g) = state.last_gate.clone() {
-            if g.kairos { kairos_passes += 1; }
+            if g.kairos {
+                kairos_passes += 1;
+            }
             gate_history.push(g);
         }
     }
@@ -107,13 +109,25 @@ fn main() {
     println!("\nResults");
     println!("-------");
     println!("Wall time:          {:.3}s", elapsed.as_secs_f64());
-    println!("Observations:       {} (across {} macro_steps)", total_obs, N_TICKS);
+    println!(
+        "Observations:       {} (across {} macro_steps)",
+        total_obs, N_TICKS
+    );
     println!("Throughput:         {:.0} obs/sec", obs_per_sec);
-    println!("Kairos passes:      {} / {}", kairos_passes, gate_history.len());
+    println!(
+        "Kairos passes:      {} / {}",
+        kairos_passes,
+        gate_history.len()
+    );
     println!("Crystals formed:    {}", crystals.len());
     println!("Crystal rate:       {:.2} /sec", crystal_rate);
     if let Some(c) = crystals.first() {
-        let id_hex: String = c.crystal_id.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+        let id_hex: String = c
+            .crystal_id
+            .iter()
+            .take(8)
+            .map(|b| format!("{:02x}", b))
+            .collect();
         println!("First crystal SHA:  {}…", id_hex);
     }
 
@@ -187,7 +201,10 @@ struct GateReport {
 impl GateReport {
     fn summary_table(&self) -> String {
         let mut s = String::new();
-        s.push_str(&format!("{:<6} {:>10} {:>10} {:>8}\n", "metric", "mean", "threshold", "fails"));
+        s.push_str(&format!(
+            "{:<6} {:>10} {:>10} {:>8}\n",
+            "metric", "mean", "threshold", "fails"
+        ));
         for i in 0..8 {
             s.push_str(&format!(
                 "{:<6} {:>10.4} {:>10.4} {:>8}\n",
@@ -208,9 +225,14 @@ impl GateReport {
 
 fn bottleneck_report(history: &[GateSnapshot], config: &Config) -> GateReport {
     let thresholds = [
-        config.thresholds.d, config.thresholds.q, config.thresholds.r,
-        config.thresholds.g, config.thresholds.j, config.thresholds.p,
-        config.thresholds.n, config.thresholds.k,
+        config.thresholds.d,
+        config.thresholds.q,
+        config.thresholds.r,
+        config.thresholds.g,
+        config.thresholds.j,
+        config.thresholds.p,
+        config.thresholds.n,
+        config.thresholds.k,
     ];
     if history.is_empty() {
         return GateReport {
@@ -233,8 +255,14 @@ fn bottleneck_report(history: &[GateSnapshot], config: &Config) -> GateReport {
     }
     let n = history.len() as f64;
     let means = [
-        sums[0]/n, sums[1]/n, sums[2]/n, sums[3]/n,
-        sums[4]/n, sums[5]/n, sums[6]/n, sums[7]/n,
+        sums[0] / n,
+        sums[1] / n,
+        sums[2] / n,
+        sums[3] / n,
+        sums[4] / n,
+        sums[5] / n,
+        sums[6] / n,
+        sums[7] / n,
     ];
     let mut max_fails = 0u64;
     let mut bottleneck_idx: Option<usize> = None;
@@ -244,9 +272,20 @@ fn bottleneck_report(history: &[GateSnapshot], config: &Config) -> GateReport {
             bottleneck_idx = Some(i);
         }
     }
-    let bottleneck = bottleneck_idx.map(|i| format!(
-        "{} (failed {}/{} ticks; mean={:.4}, threshold={:.4})",
-        NAMES[i], fails[i], history.len(), means[i], thresholds[i],
-    ));
-    GateReport { means, fails, thresholds, bottleneck }
+    let bottleneck = bottleneck_idx.map(|i| {
+        format!(
+            "{} (failed {}/{} ticks; mean={:.4}, threshold={:.4})",
+            NAMES[i],
+            fails[i],
+            history.len(),
+            means[i],
+            thresholds[i],
+        )
+    });
+    GateReport {
+        means,
+        fails,
+        thresholds,
+        bottleneck,
+    }
 }

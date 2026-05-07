@@ -6,11 +6,11 @@
 // isls-archive: Evidence chains, replay, verification (C7)
 // depends on pse-types
 
-use std::collections::BTreeMap;
 use pse_types::{
-    content_address, content_address_raw, EvidenceChain, EvidenceEntry,
-    ProvenanceEnvelope, SemanticCrystal,
+    content_address, content_address_raw, EvidenceChain, EvidenceEntry, ProvenanceEnvelope,
+    SemanticCrystal,
 };
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -40,7 +40,11 @@ pub fn build_evidence_chain(entries: &[Vec<u8>]) -> EvidenceChain {
     let mut chain: EvidenceChain = Vec::with_capacity(entries.len());
     for (i, content) in entries.iter().enumerate() {
         let digest = content_address_raw(content);
-        let prev = if i > 0 { Some(chain[i - 1].digest) } else { None };
+        let prev = if i > 0 {
+            Some(chain[i - 1].digest)
+        } else {
+            None
+        };
         chain.push(EvidenceEntry {
             digest,
             content: content.clone(),
@@ -55,10 +59,7 @@ pub fn build_evidence_chain(entries: &[Vec<u8>]) -> EvidenceChain {
 
 /// Verify crystal integrity (OI-05 resolved)
 /// Inv I10: crystals are immutable; this function takes &SemanticCrystal
-pub fn verify_crystal(
-    crystal: &SemanticCrystal,
-    pinned: &BTreeMap<String, String>,
-) -> Result<()> {
+pub fn verify_crystal(crystal: &SemanticCrystal, pinned: &BTreeMap<String, String>) -> Result<()> {
     // 1. Content address: crystal.crystal_id == SHA-256(JCS(crystal))
     // We need a version of the crystal without the crystal_id field for content-addressing
     // By convention: crystal_id is set to content_address(&crystal_without_id), but
@@ -95,10 +96,7 @@ pub fn verify_crystal(
 
     // 5. Dual consensus
     let cr = &crystal.commit_proof.consensus_result;
-    if cr.primal_score < cr.threshold
-        || cr.dual_score < cr.threshold
-        || cr.mci < 0.8
-    {
+    if cr.primal_score < cr.threshold || cr.dual_score < cr.threshold || cr.mci < 0.8 {
         return Err(VerifyError::ConsensusFail);
     }
 
@@ -276,12 +274,19 @@ pub fn build_crystal_with_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pse_types::{CommitProof, GateSnapshot, ConsensusResult};
+    use pse_types::{CommitProof, ConsensusResult, GateSnapshot};
 
     fn make_valid_commit_proof() -> CommitProof {
         CommitProof {
             gate_values: GateSnapshot {
-                d: 1.0, q: 1.0, r: 1.0, g: 1.0, j: 1.0, p: 1.0, n: 1.0, k: 1.0,
+                d: 1.0,
+                q: 1.0,
+                r: 1.0,
+                g: 1.0,
+                j: 1.0,
+                p: 1.0,
+                n: 1.0,
+                k: 1.0,
                 kairos: true,
             },
             consensus_result: ConsensusResult {
@@ -320,15 +325,7 @@ mod tests {
     #[test]
     fn verify_crystal_valid() {
         let proof = make_valid_commit_proof();
-        let crystal = build_crystal_with_id(
-            vec![1, 2, 3],
-            0.9,
-            1,
-            -1.0,
-            0,
-            Vec::new(),
-            proof,
-        );
+        let crystal = build_crystal_with_id(vec![1, 2, 3], 0.9, 1, -1.0, 0, Vec::new(), proof);
         let pinned = BTreeMap::new();
         assert!(verify_crystal(&crystal, &pinned).is_ok());
     }
@@ -339,7 +336,10 @@ mod tests {
         proof.gate_values.kairos = false;
         let crystal = build_crystal_with_id(vec![1], 0.9, 1, -1.0, 0, Vec::new(), proof);
         let pinned = BTreeMap::new();
-        assert!(matches!(verify_crystal(&crystal, &pinned), Err(VerifyError::GateFail)));
+        assert!(matches!(
+            verify_crystal(&crystal, &pinned),
+            Err(VerifyError::GateFail)
+        ));
     }
 
     #[test]
@@ -348,7 +348,10 @@ mod tests {
         proof.consensus_result.primal_score = 0.1; // below threshold
         let crystal = build_crystal_with_id(vec![1], 0.9, 1, -1.0, 0, Vec::new(), proof);
         let pinned = BTreeMap::new();
-        assert!(matches!(verify_crystal(&crystal, &pinned), Err(VerifyError::ConsensusFail)));
+        assert!(matches!(
+            verify_crystal(&crystal, &pinned),
+            Err(VerifyError::ConsensusFail)
+        ));
     }
 
     #[test]
@@ -358,7 +361,10 @@ mod tests {
         let crystal = build_crystal_with_id(vec![1], 0.9, 1, -1.0, 0, Vec::new(), proof);
         let mut pinned = BTreeMap::new();
         pinned.insert("band".to_string(), "2.0.0".to_string()); // version mismatch
-        assert!(matches!(verify_crystal(&crystal, &pinned), Err(VerifyError::OperatorDrift(_))));
+        assert!(matches!(
+            verify_crystal(&crystal, &pinned),
+            Err(VerifyError::OperatorDrift(_))
+        ));
     }
 
     #[test]

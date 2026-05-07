@@ -7,7 +7,7 @@
 //! This representation allows the full S_7 orbit (5040 permutations) to be
 //! computed in microseconds via precomputed bit-permutation tables.
 //!
-//! Together with [`generate_s7`](crate::group::generate_s7) this provides the
+//! Together with [`crate::group::generate_s7`] this provides the
 //! engine for the Periodic Table catalog generator.
 
 use crate::group::generate_s7;
@@ -288,9 +288,8 @@ mod tests {
     #[test]
     fn bits_to_adjacency_matches_edges() {
         // Triangle on nodes 1-2-3
-        let g = (1u32 << edge_to_bit(0, 1))
-            | (1u32 << edge_to_bit(1, 2))
-            | (1u32 << edge_to_bit(0, 2));
+        let g =
+            (1u32 << edge_to_bit(0, 1)) | (1u32 << edge_to_bit(1, 2)) | (1u32 << edge_to_bit(0, 2));
         let adj = bits_to_adjacency(g, 3);
         assert_eq!(adj[0][1], 1.0);
         assert_eq!(adj[1][2], 1.0);

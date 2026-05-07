@@ -57,7 +57,9 @@ fn build_graph(n_nodes: usize, n_edges: usize) -> PersistentGraph {
     // Use a simple LCG to deterministically pick edges
     let mut rng: u64 = 42;
     let next = |r: &mut u64| -> u64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *r
     };
 
@@ -151,9 +153,16 @@ fn bench_b08_kuramoto(graph: &PersistentGraph) {
     for (i, (&vid, _)) in graph.embedding.iter().enumerate() {
         kgraph.upsert_vertex(vid, 0.0);
         let omega = -1.0 + 2.0 * (i as f64 / n_nodes.max(1) as f64);
-        kgraph.embedding.insert(vid, FiveDState {
-            p: 0.0, rho: 0.0, omega, chi: 0.0, eta: 0.0,
-        });
+        kgraph.embedding.insert(
+            vid,
+            FiveDState {
+                p: 0.0,
+                rho: 0.0,
+                omega,
+                chi: 0.0,
+                eta: 0.0,
+            },
+        );
     }
     for edge in graph.graph.raw_edges() {
         let src = graph.graph[edge.source()].id;
@@ -247,13 +256,16 @@ fn bench_b10_constraint_propagation() {
             let vid = (comp * vertices_per_component + v) as u64 + 1;
             graph.upsert_vertex(vid, 0.0);
             let phase = (comp as f64 * 0.3 + v as f64 * 0.1) % std::f64::consts::TAU;
-            graph.embedding.insert(vid, FiveDState {
-                p: comp as f64 / n_components as f64,
-                rho: 0.5 + 0.2 * phase.sin(),
-                omega: phase,
-                chi: v as f64 / vertices_per_component as f64,
-                eta: 0.1,
-            });
+            graph.embedding.insert(
+                vid,
+                FiveDState {
+                    p: comp as f64 / n_components as f64,
+                    rho: 0.5 + 0.2 * phase.sin(),
+                    omega: phase,
+                    chi: v as f64 / vertices_per_component as f64,
+                    eta: 0.1,
+                },
+            );
         }
         for v in 0..(vertices_per_component - 1) {
             let a = (comp * vertices_per_component + v) as u64 + 1;
@@ -266,9 +278,8 @@ fn bench_b10_constraint_propagation() {
     let start = Instant::now();
     let mut total_mutations = 0;
     for _ in 0..100 {
-        let mutations = pse_constraint::morphogenic_update(
-            &mut graph, &mut morph, &[], &config.adaptation,
-        );
+        let mutations =
+            pse_constraint::morphogenic_update(&mut graph, &mut morph, &[], &config.adaptation);
         total_mutations += mutations.len();
     }
     let elapsed = start.elapsed();

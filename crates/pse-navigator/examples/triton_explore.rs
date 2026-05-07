@@ -43,7 +43,10 @@ fn main() {
     let steps = triton.run(100);
 
     // Print every 10th step
-    for step in steps.iter().filter(|s| s.index % 10 == 0 || s.is_singularity) {
+    for step in steps
+        .iter()
+        .filter(|s| s.index % 10 == 0 || s.is_singularity)
+    {
         println!(
             "{:>5} {:>10.4} {:>10.4} {:>10.6} {:>10.4} {:>8} {:>6}",
             step.index,
@@ -88,10 +91,7 @@ fn main() {
 
     // Spectral singularities in final mesh
     let spectral_sings = triton.spectral_singularities();
-    println!(
-        "  Spectral bottlenecks: {} vertices",
-        spectral_sings.len()
-    );
+    println!("  Spectral bottlenecks: {} vertices", spectral_sings.len());
 
     println!("\n{}", "═".repeat(60));
     println!("Demo complete.");

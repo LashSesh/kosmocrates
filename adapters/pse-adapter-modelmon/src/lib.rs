@@ -28,11 +28,17 @@ pub struct InferenceEvent {
 }
 
 impl InferenceEvent {
-    /// Validate: confidence in [0,1], latency >= 0, no NaN in features.
+    /// Validate: confidence in `[0, 1]`, latency >= 0, no NaN in features.
     pub fn is_valid(&self) -> bool {
-        if self.confidence.is_nan() || self.latency_ms.is_nan() { return false; }
-        if !(0.0..=1.0).contains(&self.confidence) { return false; }
-        if self.latency_ms < 0.0 { return false; }
+        if self.confidence.is_nan() || self.latency_ms.is_nan() {
+            return false;
+        }
+        if !(0.0..=1.0).contains(&self.confidence) {
+            return false;
+        }
+        if self.latency_ms < 0.0 {
+            return false;
+        }
         self.input_features.values().all(|v| v.is_finite())
     }
 }
@@ -96,13 +102,21 @@ pub struct ModelMonAdapter {
 impl ModelMonAdapter {
     /// Create a new adapter for the given model.
     pub fn new(model_id: &str) -> Self {
-        Self { source: format!("modelmon:{}", model_id) }
+        Self {
+            source: format!("modelmon:{}", model_id),
+        }
     }
 }
 
 impl ObservationAdapter for ModelMonAdapter {
-    fn source_id(&self) -> &str { &self.source }
-    fn canonicalize(&self, raw: &[u8], context: &MeasurementContext) -> Result<Observation, ObserveError> {
+    fn source_id(&self) -> &str {
+        &self.source
+    }
+    fn canonicalize(
+        &self,
+        raw: &[u8],
+        context: &MeasurementContext,
+    ) -> Result<Observation, ObserveError> {
         if let Ok(event) = serde_json::from_slice::<InferenceEvent>(raw) {
             if !event.is_valid() {
                 return Err(ObserveError::Canonicalize("invalid inference event".into()));
@@ -111,15 +125,26 @@ impl ObservationAdapter for ModelMonAdapter {
         let payload = raw.to_vec();
         let digest: Hash256 = content_address_raw(&payload);
         Ok(Observation {
-            timestamp: 0.0, source_id: self.source.clone(),
-            provenance: ProvenanceEnvelope { origin: self.source.clone(), chain: Vec::new(), sig: None },
-            payload, context: context.clone(), digest, schema_version: "1.0.0".into(), phase_hint: None,
+            timestamp: 0.0,
+            source_id: self.source.clone(),
+            provenance: ProvenanceEnvelope {
+                origin: self.source.clone(),
+                chain: Vec::new(),
+                sig: None,
+            },
+            payload,
+            context: context.clone(),
+            digest,
+            schema_version: "1.0.0".into(),
+            phase_hint: None,
         })
     }
 }
 
 impl pse_core::DomainAdapter for ModelMonAdapter {
-    fn domain_name(&self) -> &str { "modelmon" }
+    fn domain_name(&self) -> &str {
+        "modelmon"
+    }
 }
 
 /// Generate 1000 embedded inference events with drift patterns.
@@ -131,7 +156,9 @@ pub fn generate_embedded_data(seed: u64) -> Vec<InferenceEvent> {
     let mut events = Vec::with_capacity(1000);
     let mut rng = seed;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (*r as f64 / u64::MAX as f64) * 2.0 - 1.0
     };
 
@@ -165,7 +192,9 @@ pub fn generate_embedded_data(seed: u64) -> Vec<InferenceEvent> {
         events.push(InferenceEvent {
             model_id: "fraud_v3".into(),
             input_features: features,
-            prediction, confidence, ground_truth,
+            prediction,
+            confidence,
+            ground_truth,
             latency_ms: latency,
         });
     }
@@ -177,7 +206,9 @@ pub fn parse_jsonl(content: &str) -> Result<Vec<InferenceEvent>, anyhow::Error> 
     let mut events = Vec::new();
     for (line_num, line) in content.lines().enumerate() {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         match serde_json::from_str::<InferenceEvent>(line) {
             Ok(event) => {
                 if event.is_valid() {
@@ -194,8 +225,12 @@ pub fn parse_jsonl(content: &str) -> Result<Vec<InferenceEvent>, anyhow::Error> 
 
 /// Describe a crystal in model monitoring context.
 pub fn describe_crystal(crystal: &pse_types::SemanticCrystal, event_idx: u64) -> String {
-    format!("ModelMon: pattern at event {}, stability={:.4}, region={} vertices",
-        event_idx, crystal.stability_score, crystal.region.len())
+    format!(
+        "ModelMon: pattern at event {}, stability={:.4}, region={} vertices",
+        event_idx,
+        crystal.stability_score,
+        crystal.region.len()
+    )
 }
 
 #[cfg(test)]
@@ -204,44 +239,75 @@ mod tests {
     use pse_core::{macro_step, GlobalState};
     use pse_types::Config;
 
-    #[test] fn test_inference_event_roundtrip() {
+    #[test]
+    fn test_inference_event_roundtrip() {
         let mut features = HashMap::new();
         features.insert("amount".into(), 100.0);
-        let e = InferenceEvent { model_id: "m1".into(), input_features: features,
-            prediction: 0.0, confidence: 0.95, ground_truth: Some(0.0), latency_ms: 10.0 };
+        let e = InferenceEvent {
+            model_id: "m1".into(),
+            input_features: features,
+            prediction: 0.0,
+            confidence: 0.95,
+            ground_truth: Some(0.0),
+            latency_ms: 10.0,
+        };
         let json = serde_json::to_vec(&e).unwrap();
         let r: InferenceEvent = serde_json::from_slice(&json).unwrap();
         assert!((r.confidence - 0.95).abs() < 1e-10);
     }
-    #[test] fn test_monitor_pattern_roundtrip() {
-        let p = MonitorPattern { pattern_type: MonitorPatternType::InputDrift,
-            model_id: "m1".into(), features_affected: vec!["amount".into()],
-            confidence: 0.88, severity: MonitorSeverity::Warning,
-            description: "drift".into(), recommendation: "retrain".into() };
+    #[test]
+    fn test_monitor_pattern_roundtrip() {
+        let p = MonitorPattern {
+            pattern_type: MonitorPatternType::InputDrift,
+            model_id: "m1".into(),
+            features_affected: vec!["amount".into()],
+            confidence: 0.88,
+            severity: MonitorSeverity::Warning,
+            description: "drift".into(),
+            recommendation: "retrain".into(),
+        };
         let json = serde_json::to_string(&p).unwrap();
         let _: MonitorPattern = serde_json::from_str(&json).unwrap();
     }
-    #[test] fn test_validation() {
+    #[test]
+    fn test_validation() {
         let mut f = HashMap::new();
         f.insert("a".into(), 1.0);
-        let v = InferenceEvent { model_id: "m".into(), input_features: f,
-            prediction: 0.0, confidence: 0.9, ground_truth: None, latency_ms: 5.0 };
+        let v = InferenceEvent {
+            model_id: "m".into(),
+            input_features: f,
+            prediction: 0.0,
+            confidence: 0.9,
+            ground_truth: None,
+            latency_ms: 5.0,
+        };
         assert!(v.is_valid());
-        assert!(!InferenceEvent { confidence: 1.5, ..v.clone() }.is_valid());
-        assert!(!InferenceEvent { latency_ms: -1.0, ..v }.is_valid());
+        assert!(!InferenceEvent {
+            confidence: 1.5,
+            ..v.clone()
+        }
+        .is_valid());
+        assert!(!InferenceEvent {
+            latency_ms: -1.0,
+            ..v
+        }
+        .is_valid());
     }
-    #[test] fn test_embedded_data() {
+    #[test]
+    fn test_embedded_data() {
         let d = generate_embedded_data(42);
         assert_eq!(d.len(), 1000);
         assert!(d.iter().all(|e| e.is_valid()));
     }
-    #[test] fn test_jsonl_parsing() {
+    #[test]
+    fn test_jsonl_parsing() {
         let jsonl = r#"{"model_id":"m","input_features":{"a":1.0},"prediction":0.0,"confidence":0.9,"ground_truth":null,"latency_ms":5.0}
 {"model_id":"m","input_features":{"a":2.0},"prediction":1.0,"confidence":0.8,"ground_truth":null,"latency_ms":6.0}"#;
         let events = parse_jsonl(jsonl).unwrap();
         assert_eq!(events.len(), 2);
     }
-    #[test] fn test_offline_pipeline() {
+    #[test]
+    fn test_offline_pipeline() {
         let config = Config::default();
         let mut state = GlobalState::new(&config);
         let adapter = ModelMonAdapter::new("fraud_v3");

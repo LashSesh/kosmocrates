@@ -33,7 +33,11 @@ pub struct PseMacroStepCommitter<A: pse_graph::ObservationAdapter> {
 impl<A: pse_graph::ObservationAdapter> PseMacroStepCommitter<A> {
     pub fn new(config: pse_types::Config, adapter: A) -> Self {
         let state = pse_core::GlobalState::new(&config);
-        Self { state, config, adapter }
+        Self {
+            state,
+            config,
+            adapter,
+        }
     }
 }
 
@@ -46,7 +50,9 @@ impl<A: pse_graph::ObservationAdapter> CrystalCommitter for PseMacroStepCommitte
         let payloads = candidate.to_observation_payloads(evidence_payloads)?;
         match pse_core::macro_step(&mut self.state, &payloads, &self.config, &self.adapter) {
             Ok(Some(crystal)) => {
-                let hex: String = crystal.crystal_id.iter()
+                let hex: String = crystal
+                    .crystal_id
+                    .iter()
                     .map(|b| format!("{:02x}", b))
                     .collect();
                 Ok(CommitOutcome::Crystal {
@@ -55,7 +61,10 @@ impl<A: pse_graph::ObservationAdapter> CrystalCommitter for PseMacroStepCommitte
                 })
             }
             Ok(None) => {
-                let snap_json = self.state.last_gate.as_ref()
+                let snap_json = self
+                    .state
+                    .last_gate
+                    .as_ref()
                     .and_then(|g| serde_json::to_string(g).ok());
                 Ok(CommitOutcome::NoCrystal {
                     candidate_id: candidate.id.clone(),
@@ -70,7 +79,10 @@ impl<A: pse_graph::ObservationAdapter> CrystalCommitter for PseMacroStepCommitte
 
 /// Convenience: turn a `GateReport` failure into a `CommitOutcome::GateFailed`
 /// with the gate report's content address.
-pub fn gate_failed(candidate: &Candidate, report: &crate::gate::GateReport) -> Result<CommitOutcome> {
+pub fn gate_failed(
+    candidate: &Candidate,
+    report: &crate::gate::GateReport,
+) -> Result<CommitOutcome> {
     let addr = hex_address(report)?;
     Ok(CommitOutcome::GateFailed {
         candidate_id: candidate.id.clone(),
@@ -106,11 +118,10 @@ mod tests {
 
     #[test]
     fn pse_bridge_returns_no_crystal_safely() {
-        let mut committer = PseMacroStepCommitter::new(
-            pse_types::Config::default(),
-            passthrough(),
-        );
-        let r = committer.commit_candidate(&candidate(), &[]).expect("must not panic");
+        let mut committer = PseMacroStepCommitter::new(pse_types::Config::default(), passthrough());
+        let r = committer
+            .commit_candidate(&candidate(), &[])
+            .expect("must not panic");
         // Default thresholds reject everything → NoCrystal expected.
         match r {
             CommitOutcome::NoCrystal { candidate_id, .. } => {

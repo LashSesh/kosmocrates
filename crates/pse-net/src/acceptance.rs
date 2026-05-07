@@ -104,7 +104,7 @@ mod tests {
             sub_crystal_ids: Vec::new(),
             parent_crystal_ids: Vec::new(),
             genesis_metadata: None,
-        metatron_signature: None,
+            metatron_signature: None,
         }
     }
 

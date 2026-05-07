@@ -32,7 +32,11 @@ impl SpectralSignature {
     }
 
     pub fn zero() -> Self {
-        Self { psi: 0.0, rho: 0.0, omega: 0.0 }
+        Self {
+            psi: 0.0,
+            rho: 0.0,
+            omega: 0.0,
+        }
     }
 }
 
@@ -244,10 +248,22 @@ impl SimplexMesh {
     pub fn betti_numbers(&self) -> Vec<usize> {
         let v = self.vertices.len();
         let e = self.edges.len();
-        let f = self.simplices.iter().filter(|s| s.vertices.len() == 3).count();
-        let t = self.simplices.iter().filter(|s| s.vertices.len() == 4).count();
+        let f = self
+            .simplices
+            .iter()
+            .filter(|s| s.vertices.len() == 3)
+            .count();
+        let t = self
+            .simplices
+            .iter()
+            .filter(|s| s.vertices.len() == 4)
+            .count();
 
-        let b0 = if v == 0 { 0 } else { self.connected_components() };
+        let b0 = if v == 0 {
+            0
+        } else {
+            self.connected_components()
+        };
         let chi = v as i64 - e as i64 + f as i64 - t as i64;
         let b1 = (e as i64 - v as i64 + b0 as i64).max(0) as usize;
         let b2 = (chi - b0 as i64 + b1 as i64).max(0) as usize;
@@ -272,7 +288,11 @@ impl SimplexMesh {
             degree[edge.v2] += w;
         }
 
-        pse_topology::SparseLaplacian { n, degree, adjacency }
+        pse_topology::SparseLaplacian {
+            n,
+            degree,
+            adjacency,
+        }
     }
 
     /// Spectral gap λ₁ via C16 decomposition.
@@ -293,7 +313,11 @@ impl SimplexMesh {
         vertex_id: usize,
         laplacian: &pse_topology::SparseLaplacian,
     ) -> (Vec<f64>, f64) {
-        let dim = self.vertices.get(vertex_id).map(|v| v.point.len()).unwrap_or(1);
+        let dim = self
+            .vertices
+            .get(vertex_id)
+            .map(|v| v.point.len())
+            .unwrap_or(1);
         if laplacian.n < 2 || self.vertices.is_empty() {
             return (vec![0.0; dim], 0.0);
         }
@@ -313,7 +337,11 @@ impl SimplexMesh {
         vertex_id: usize,
         laplacian: &pse_topology::SparseLaplacian,
     ) -> Vec<f64> {
-        let dim = self.vertices.get(vertex_id).map(|v| v.point.len()).unwrap_or(1);
+        let dim = self
+            .vertices
+            .get(vertex_id)
+            .map(|v| v.point.len())
+            .unwrap_or(1);
         if laplacian.n < 2 || self.vertices.is_empty() {
             return vec![0.0; dim];
         }
@@ -326,7 +354,6 @@ impl SimplexMesh {
     /// Extract gradient direction from Fiedler vector.
     #[allow(clippy::needless_range_loop)]
     fn gradient_from_fiedler(&self, vertex_id: usize, fiedler: &[f64], dim: usize) -> Vec<f64> {
-
         if fiedler.len() <= vertex_id {
             return vec![0.0; dim];
         }
@@ -694,23 +721,21 @@ impl<E: Fn(&[f64]) -> SpectralSignature> Navigator<E> {
         self.mesh.add_simplices(&new_simplices);
         let betti_after = self.mesh.betti_numbers();
 
-        let simplices_added =
-            if !self.config.allow_betti_change
-                && !topology_stable(&betti_before, &betti_after, self.config.betti_tolerance)
-                && self.mesh.vertex_count() > self.config.min_vertices_for_guard
-            {
-                self.mesh.remove_simplices(&new_simplices);
-                0
-            } else {
-                new_simplices.len()
-            };
+        let simplices_added = if !self.config.allow_betti_change
+            && !topology_stable(&betti_before, &betti_after, self.config.betti_tolerance)
+            && self.mesh.vertex_count() > self.config.min_vertices_for_guard
+        {
+            self.mesh.remove_simplices(&new_simplices);
+            0
+        } else {
+            new_simplices.len()
+        };
 
         // 8. Compute Laplacian on the mesh
         let laplacian = self.mesh.laplacian_matrix();
 
         // 9. Spectral gradient + gap from a SINGLE decomposition
-        let (gradient, spectral_gap) =
-            self.mesh.spectral_gradient_and_gap(vertex_id, &laplacian);
+        let (gradient, spectral_gap) = self.mesh.spectral_gradient_and_gap(vertex_id, &laplacian);
 
         // 10. Momentum update (reward = current / best resonance)
         let best_res = self
@@ -747,7 +772,11 @@ impl<E: Fn(&[f64]) -> SpectralSignature> Navigator<E> {
             betti,
             best_resonance: self.spiral.best_resonance(),
             is_singularity,
-            direction_type: if spectral_gap > 0.1 { "spectral".to_string() } else { "golden-angle".to_string() },
+            direction_type: if spectral_gap > 0.1 {
+                "spectral".to_string()
+            } else {
+                "golden-angle".to_string()
+            },
         };
         self.history.push(step.clone());
         step
@@ -910,8 +939,7 @@ impl NavigatorState {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let json = serde_json::to_string_pretty(self)
-            .map_err(std::io::Error::other)?;
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 
@@ -950,7 +978,12 @@ mod tests {
         }
         for v in 0..5usize {
             let outgoing = mesh.edges.iter().filter(|e| e.v1 == v).count();
-            assert!(outgoing <= 2, "vertex {} has {} outgoing edges", v, outgoing);
+            assert!(
+                outgoing <= 2,
+                "vertex {} has {} outgoing edges",
+                v,
+                outgoing
+            );
         }
     }
 
@@ -959,7 +992,7 @@ mod tests {
     fn at_nv3_resonance_weight() {
         let mut mesh = SimplexMesh::new();
         let high = SpectralSignature::new(0.9, 0.9, 0.9); // resonance = 0.729
-        let low = SpectralSignature::new(0.1, 0.1, 0.1);  // resonance = 0.001
+        let low = SpectralSignature::new(0.1, 0.1, 0.1); // resonance = 0.001
 
         let h0 = mesh.add_vertex(&[0.0, 0.0], &high);
         let h1 = mesh.add_vertex(&[1.0, 0.0], &high);
@@ -970,12 +1003,18 @@ mod tests {
         edges.extend(mesh.connect_knn(l0, 1));
         mesh.weight_edges_by_resonance(&edges);
 
-        let high_w = mesh.edges.iter()
+        let high_w = mesh
+            .edges
+            .iter()
             .find(|e| (e.v1 == h0 && e.v2 == h1) || (e.v1 == h1 && e.v2 == h0))
-            .map(|e| e.weight).unwrap_or(0.0);
-        let low_w = mesh.edges.iter()
+            .map(|e| e.weight)
+            .unwrap_or(0.0);
+        let low_w = mesh
+            .edges
+            .iter()
             .find(|e| e.v1 == l0 || e.v2 == l0)
-            .map(|e| e.weight).unwrap_or(0.0);
+            .map(|e| e.weight)
+            .unwrap_or(0.0);
 
         assert!(high_w > low_w, "high={} should be > low={}", high_w, low_w);
     }
@@ -990,14 +1029,34 @@ mod tests {
         mesh.add_vertex(&[0.5, 1.0], &sig);
 
         let all_edges = vec![
-            MeshEdge { v1: 0, v2: 1, weight: 0.0, distance: 1.0 },
-            MeshEdge { v1: 1, v2: 2, weight: 0.0, distance: 1.0 },
-            MeshEdge { v1: 0, v2: 2, weight: 0.0, distance: 1.0 },
+            MeshEdge {
+                v1: 0,
+                v2: 1,
+                weight: 0.0,
+                distance: 1.0,
+            },
+            MeshEdge {
+                v1: 1,
+                v2: 2,
+                weight: 0.0,
+                distance: 1.0,
+            },
+            MeshEdge {
+                v1: 0,
+                v2: 2,
+                weight: 0.0,
+                distance: 1.0,
+            },
         ];
         mesh.edges.extend(all_edges.clone());
 
         let simplices = mesh.detect_simplices(&all_edges);
-        assert_eq!(simplices.len(), 1, "expected 1 triangle, got {}", simplices.len());
+        assert_eq!(
+            simplices.len(),
+            1,
+            "expected 1 triangle, got {}",
+            simplices.len()
+        );
         assert_eq!(simplices[0].vertices.len(), 3);
     }
 
@@ -1009,10 +1068,30 @@ mod tests {
         for i in 0..4 {
             mesh.add_vertex(&[i as f64, 0.0], &sig);
         }
-        mesh.edges.push(MeshEdge { v1: 0, v2: 1, weight: 1.0, distance: 1.0 });
-        mesh.edges.push(MeshEdge { v1: 1, v2: 2, weight: 1.0, distance: 1.0 });
-        mesh.edges.push(MeshEdge { v1: 2, v2: 3, weight: 1.0, distance: 1.0 });
-        mesh.edges.push(MeshEdge { v1: 3, v2: 0, weight: 1.0, distance: 1.0 });
+        mesh.edges.push(MeshEdge {
+            v1: 0,
+            v2: 1,
+            weight: 1.0,
+            distance: 1.0,
+        });
+        mesh.edges.push(MeshEdge {
+            v1: 1,
+            v2: 2,
+            weight: 1.0,
+            distance: 1.0,
+        });
+        mesh.edges.push(MeshEdge {
+            v1: 2,
+            v2: 3,
+            weight: 1.0,
+            distance: 1.0,
+        });
+        mesh.edges.push(MeshEdge {
+            v1: 3,
+            v2: 0,
+            weight: 1.0,
+            distance: 1.0,
+        });
 
         let betti = mesh.betti_numbers();
         assert_eq!(betti[0], 1, "b0={} (expected 1 component)", betti[0]);
@@ -1045,9 +1124,24 @@ mod tests {
         let v3 = mesh.add_vertex(&[1.1, 0.0], &sig);
 
         // Strong within-cluster edges, weak between-cluster edge
-        mesh.edges.push(MeshEdge { v1: v0, v2: v1, weight: 5.0, distance: 0.1 });
-        mesh.edges.push(MeshEdge { v1: v2, v2: v3, weight: 5.0, distance: 0.1 });
-        mesh.edges.push(MeshEdge { v1: v1, v2: v2, weight: 0.1, distance: 0.9 });
+        mesh.edges.push(MeshEdge {
+            v1: v0,
+            v2: v1,
+            weight: 5.0,
+            distance: 0.1,
+        });
+        mesh.edges.push(MeshEdge {
+            v1: v2,
+            v2: v3,
+            weight: 5.0,
+            distance: 0.1,
+        });
+        mesh.edges.push(MeshEdge {
+            v1: v1,
+            v2: v2,
+            weight: 0.1,
+            distance: 0.9,
+        });
 
         let laplacian = mesh.laplacian_matrix();
         let gradient = mesh.spectral_gradient(v0, &laplacian);
@@ -1070,7 +1164,12 @@ mod tests {
         let c1 = m1.add_vertex(&[0.0, 0.0], &uniform);
         for i in 1..=4 {
             m1.add_vertex(&[i as f64, 0.0], &uniform);
-            m1.edges.push(MeshEdge { v1: c1, v2: i, weight: 1.0, distance: 1.0 });
+            m1.edges.push(MeshEdge {
+                v1: c1,
+                v2: i,
+                weight: 1.0,
+                distance: 1.0,
+            });
         }
         let h_uniform = m1.local_entropy(c1);
 
@@ -1080,22 +1179,43 @@ mod tests {
         m2.add_vertex(&[1.0, 0.0], &SpectralSignature::new(0.99, 0.99, 0.99));
         m2.add_vertex(&[2.0, 0.0], &SpectralSignature::new(0.01, 0.01, 0.01));
         m2.add_vertex(&[3.0, 0.0], &SpectralSignature::new(0.01, 0.01, 0.01));
-        m2.edges.push(MeshEdge { v1: c2, v2: 1, weight: 1.0, distance: 1.0 });
-        m2.edges.push(MeshEdge { v1: c2, v2: 2, weight: 1.0, distance: 1.0 });
-        m2.edges.push(MeshEdge { v1: c2, v2: 3, weight: 1.0, distance: 1.0 });
+        m2.edges.push(MeshEdge {
+            v1: c2,
+            v2: 1,
+            weight: 1.0,
+            distance: 1.0,
+        });
+        m2.edges.push(MeshEdge {
+            v1: c2,
+            v2: 2,
+            weight: 1.0,
+            distance: 1.0,
+        });
+        m2.edges.push(MeshEdge {
+            v1: c2,
+            v2: 3,
+            weight: 1.0,
+            distance: 1.0,
+        });
         let h_dominant = m2.local_entropy(c2);
 
         assert!(
             h_uniform > h_dominant,
             "uniform entropy ({:.4}) should exceed dominant entropy ({:.4})",
-            h_uniform, h_dominant
+            h_uniform,
+            h_dominant
         );
     }
 
     // AT-NV9: 20 navigator steps; best resonance > 0 and monotonically non-decreasing.
     #[test]
     fn at_nv9_triton_integration() {
-        let config = NavigatorConfig { dim: 2, k: 3, seed: 42, ..Default::default() };
+        let config = NavigatorConfig {
+            dim: 2,
+            k: 3,
+            seed: 42,
+            ..Default::default()
+        };
         let mut nav = Navigator::new(config, |params: &[f64]| {
             // Peak resonance at (1, 1)
             let dist = ((params[0] - 1.0).powi(2) + (params[1] - 1.0).powi(2)).sqrt();
@@ -1105,7 +1225,10 @@ mod tests {
 
         let steps = nav.run(20);
         assert_eq!(steps.len(), 20);
-        assert!(nav.spiral.best_resonance() > 0.0, "best resonance should be > 0");
+        assert!(
+            nav.spiral.best_resonance() > 0.0,
+            "best resonance should be > 0"
+        );
 
         // best_resonance is non-decreasing step-by-step
         let mut prev_best = 0.0f64;
@@ -1125,18 +1248,32 @@ mod tests {
         let center = mesh.add_vertex(&[5.0, 5.0], &gold);
         for i in 0..5 {
             let neighbor = mesh.add_vertex(&[i as f64, 0.0], &low);
-            mesh.edges.push(MeshEdge { v1: center, v2: neighbor, weight: 1.0, distance: 1.0 });
+            mesh.edges.push(MeshEdge {
+                v1: center,
+                v2: neighbor,
+                weight: 1.0,
+                distance: 1.0,
+            });
         }
 
         let sings = mesh.detect_singularities();
-        assert!(sings.contains(&center), "center should be a singularity (got {:?})", sings);
+        assert!(
+            sings.contains(&center),
+            "center should be a singularity (got {:?})",
+            sings
+        );
     }
 
     // AT-NV11: Same seed → identical mesh and history.
     #[test]
     fn at_nv11_determinism() {
         let make = || {
-            let config = NavigatorConfig { dim: 2, k: 2, seed: 12345, ..Default::default() };
+            let config = NavigatorConfig {
+                dim: 2,
+                k: 2,
+                seed: 12345,
+                ..Default::default()
+            };
             Navigator::new(config, |params: &[f64]| {
                 SpectralSignature::new(params[0], params[0], params[0])
             })
@@ -1156,7 +1293,12 @@ mod tests {
     // AT-NV12: Navigator fallback (no metatron_triton) stays in [0,1]^n.
     #[test]
     fn at_nv12_fallback_without_triton() {
-        let config = NavigatorConfig { dim: 3, k: 2, seed: 99, ..Default::default() };
+        let config = NavigatorConfig {
+            dim: 3,
+            k: 2,
+            seed: 99,
+            ..Default::default()
+        };
         let mut nav = Navigator::new(config, |params: &[f64]| {
             SpectralSignature::new(params[0], params[1], params[2])
         });
@@ -1164,10 +1306,7 @@ mod tests {
         assert_eq!(steps.len(), 5);
         for step in &steps {
             for &x in &step.point {
-                assert!(
-                    (0.0..=1.0).contains(&x),
-                    "coordinate {} out of [0, 1]", x
-                );
+                assert!((0.0..=1.0).contains(&x), "coordinate {} out of [0, 1]", x);
             }
         }
     }
@@ -1193,18 +1332,38 @@ mod tests {
         // Intra-cluster A edges
         for i in 0..4 {
             for j in (i + 1)..4 {
-                mesh.edges.push(MeshEdge { v1: i, v2: j, weight: 1.0, distance: 0.1 });
+                mesh.edges.push(MeshEdge {
+                    v1: i,
+                    v2: j,
+                    weight: 1.0,
+                    distance: 0.1,
+                });
             }
         }
         // Intra-cluster B edges
         for i in 5..9 {
             for j in (i + 1)..9 {
-                mesh.edges.push(MeshEdge { v1: i, v2: j, weight: 1.0, distance: 0.1 });
+                mesh.edges.push(MeshEdge {
+                    v1: i,
+                    v2: j,
+                    weight: 1.0,
+                    distance: 0.1,
+                });
             }
         }
         // Bottleneck edges (vertex 4 bridges A and B)
-        mesh.edges.push(MeshEdge { v1: 3, v2: 4, weight: 0.5, distance: 0.2 });
-        mesh.edges.push(MeshEdge { v1: 4, v2: 5, weight: 0.5, distance: 0.1 });
+        mesh.edges.push(MeshEdge {
+            v1: 3,
+            v2: 4,
+            weight: 0.5,
+            distance: 0.2,
+        });
+        mesh.edges.push(MeshEdge {
+            v1: 4,
+            v2: 5,
+            weight: 0.5,
+            distance: 0.1,
+        });
 
         let singularities = mesh.detect_spectral_singularities(0.5);
         // The bottleneck vertex (4) should be near the Fiedler zero-crossing
@@ -1235,16 +1394,21 @@ mod tests {
 
             // Edges should have non-zero weight (from weight_edges_by_resonance)
             for e in &edges {
-                assert!(e.weight >= 0.0 || mesh.edges.iter().any(|me|
-                    (me.v1 == e.v1 && me.v2 == e.v2) || (me.v1 == e.v2 && me.v2 == e.v1)
-                ));
+                assert!(
+                    e.weight >= 0.0
+                        || mesh.edges.iter().any(|me| (me.v1 == e.v1 && me.v2 == e.v2)
+                            || (me.v1 == e.v2 && me.v2 == e.v1))
+                );
             }
 
             let _ = simplices; // May or may not have simplices depending on geometry
         }
 
         assert_eq!(mesh.vertex_count(), 5);
-        assert!(!mesh.edges.is_empty(), "mesh should have edges after incremental triangulation");
+        assert!(
+            !mesh.edges.is_empty(),
+            "mesh should have edges after incremental triangulation"
+        );
     }
 
     // AT-NV15: Betti numbers for a known topology (tetrahedron = 4 vertices fully connected).
@@ -1258,7 +1422,12 @@ mod tests {
         // All 6 edges
         for i in 0..4 {
             for j in (i + 1)..4 {
-                mesh.edges.push(MeshEdge { v1: i, v2: j, weight: 1.0, distance: 1.0 });
+                mesh.edges.push(MeshEdge {
+                    v1: i,
+                    v2: j,
+                    weight: 1.0,
+                    distance: 1.0,
+                });
             }
         }
         // 4 triangle faces
@@ -1273,7 +1442,12 @@ mod tests {
     // AT-NV16: TritonNavigator wraps Navigator and tracks singularities.
     #[test]
     fn at_nv16_triton_navigator_wraps_navigator() {
-        let config = NavigatorConfig { dim: 2, k: 3, seed: 42, ..Default::default() };
+        let config = NavigatorConfig {
+            dim: 2,
+            k: 3,
+            seed: 42,
+            ..Default::default()
+        };
 
         // Run base Navigator
         let mut base = Navigator::new(config.clone(), |params: &[f64]| {
@@ -1306,7 +1480,12 @@ mod tests {
     // AT-NV17: 100 steps produce distinct exploration points (no overlaps in [0,1]^2).
     #[test]
     fn at_nv17_exploration_coverage() {
-        let config = NavigatorConfig { dim: 2, k: 3, seed: 42, ..Default::default() };
+        let config = NavigatorConfig {
+            dim: 2,
+            k: 3,
+            seed: 42,
+            ..Default::default()
+        };
         let mut nav = Navigator::new(config, |params: &[f64]| {
             SpectralSignature::new(params[0], params[1], 0.5)
         });
@@ -1316,14 +1495,27 @@ mod tests {
         let mut unique_count = 0;
         for (i, a) in steps.iter().enumerate() {
             let is_unique = steps.iter().enumerate().all(|(j, b)| {
-                if i == j { return true; }
-                let dist: f64 = a.point.iter().zip(b.point.iter())
-                    .map(|(x, y)| (x - y).powi(2)).sum::<f64>().sqrt();
+                if i == j {
+                    return true;
+                }
+                let dist: f64 = a
+                    .point
+                    .iter()
+                    .zip(b.point.iter())
+                    .map(|(x, y)| (x - y).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
                 dist > 1e-10
             });
-            if is_unique { unique_count += 1; }
+            if is_unique {
+                unique_count += 1;
+            }
         }
-        assert!(unique_count >= 90, "at least 90 of 100 points should be unique, got {}", unique_count);
+        assert!(
+            unique_count >= 90,
+            "at least 90 of 100 points should be unique, got {}",
+            unique_count
+        );
     }
 
     // AT-NV18: TritonNavigator topology events are counted.

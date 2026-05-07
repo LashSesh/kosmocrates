@@ -42,12 +42,20 @@ pub enum OperationalImpact {
 pub fn detect_path_excision(cube: &FieldCube) -> Vec<PathExcision> {
     let mut out = Vec::new();
     for (dim_id, dim) in &cube.dimensions {
-        if !dim.required { continue; }
-        let admissible_paths_to_dim: Vec<&crate::field_cube::PathSpec> = cube.paths.iter()
+        if !dim.required {
+            continue;
+        }
+        let admissible_paths_to_dim: Vec<&crate::field_cube::PathSpec> = cube
+            .paths
+            .iter()
             .filter(|p| &p.to == dim_id && p.admissible)
             .collect();
-        if !admissible_paths_to_dim.is_empty() { continue; }
-        let blocking_paths: Vec<String> = cube.paths.iter()
+        if !admissible_paths_to_dim.is_empty() {
+            continue;
+        }
+        let blocking_paths: Vec<String> = cube
+            .paths
+            .iter()
             .filter(|p| &p.to == dim_id)
             .flat_map(|p| p.gating_constraints.iter().cloned())
             .collect();
@@ -66,8 +74,11 @@ pub fn detect_path_excision(cube: &FieldCube) -> Vec<PathExcision> {
             });
         }
     }
-    out.sort_by(|a, b| a.dimension_id.cmp(&b.dimension_id)
-        .then(a.formal_value.cmp(&b.formal_value)));
+    out.sort_by(|a, b| {
+        a.dimension_id
+            .cmp(&b.dimension_id)
+            .then(a.formal_value.cmp(&b.formal_value))
+    });
     out
 }
 
@@ -99,8 +110,8 @@ mod tests {
     use super::*;
     use crate::field_cube::{DefaultFieldCubeBuilder, FieldCubeBuilder};
     use crate::spec::{
-        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec,
-        OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy,
+        ConstraintKind, ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec, OutputSpec,
+        ProblemSpec, ReplayPolicy, RiskPolicy,
     };
     use std::collections::BTreeMap;
 
@@ -120,7 +131,10 @@ mod tests {
                 required: true,
                 source: DimensionSource::User,
             }],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "y".into() }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "y".into(),
+            }],
             risk_policy: RiskPolicy::default(),
             replay: ReplayPolicy::default(),
             metadata: BTreeMap::new(),
@@ -139,7 +153,9 @@ mod tests {
 
     #[test]
     fn detect_path_excision_is_deterministic() {
-        let cube = DefaultFieldCubeBuilder.build(&spec_with_no_constraint_for_dimension()).unwrap();
+        let cube = DefaultFieldCubeBuilder
+            .build(&spec_with_no_constraint_for_dimension())
+            .unwrap();
         let a = detect_path_excision(&cube);
         let b = detect_path_excision(&cube);
         assert_eq!(a, b);

@@ -56,7 +56,7 @@ pub struct AutopilotConfig {
     pub require_replay_identity: bool,
     /// If true, every evaluation must pass the signature gate.
     pub require_signature_gate: bool,
-    /// RNG seed passed down to [`BlueprintSearch`].
+    /// RNG seed passed down to [`crate::blueprint_search::BlueprintSearch`].
     pub seed: u64,
 }
 
@@ -145,9 +145,7 @@ impl SearchAutopilot {
         };
         self.state.cycle += 1;
 
-        if self.state.phase == AutopilotPhase::Complete
-            && self.state.stop_reason.is_none()
-        {
+        if self.state.phase == AutopilotPhase::Complete && self.state.stop_reason.is_none() {
             self.state.stop_reason = Some("all phases complete".into());
         }
     }

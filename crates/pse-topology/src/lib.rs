@@ -3,10 +3,10 @@
 //! Spectral graph analysis, CTQW propagation, Kuramoto synchronization,
 //! DTL predicates, fixpoint detection, and observation deduplication.
 
-use std::collections::{BTreeMap, BTreeSet};
 use pse_graph::PersistentGraph;
 use pse_types::Hash256;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ pub struct SpectralDecomposition {
 
 pub struct SparseLaplacian {
     pub n: usize,
-    pub degree: Vec<f64>,     // diagonal: D_ii
+    pub degree: Vec<f64>,                    // diagonal: D_ii
     pub adjacency: Vec<(usize, usize, f64)>, // (i, j, w) for i != j
 }
 
@@ -66,8 +66,8 @@ pub struct SparseLaplacian {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CtqwResult {
     pub transfer_probabilities: Vec<Vec<f64>>, // p[j][k] at time t*
-    pub propagation_speeds: Vec<Vec<f64>>,      // v[j][k]
-    pub mean_propagation_time: f64,             // t_bar
+    pub propagation_speeds: Vec<Vec<f64>>,     // v[j][k]
+    pub mean_propagation_time: f64,            // t_bar
 }
 
 // ─── Kuramoto State ───────────────────────────────────────────────────────────
@@ -136,12 +136,16 @@ impl FixpointDetector {
         if dist <= self.epsilon {
             self.consecutive_count += 1;
             if self.consecutive_count >= self.n_consecutive {
-                return FixpointStatus::Converged { iteration: self.iteration };
+                return FixpointStatus::Converged {
+                    iteration: self.iteration,
+                };
             }
         } else {
             self.consecutive_count = 0;
         }
-        FixpointStatus::NotYet { jaccard_distance: dist }
+        FixpointStatus::NotYet {
+            jaccard_distance: dist,
+        }
     }
 
     pub fn reset(&mut self) {
@@ -197,7 +201,11 @@ pub fn compute_laplacian(graph: &PersistentGraph) -> SparseLaplacian {
         degree[*j] += w;
     }
 
-    SparseLaplacian { n, degree, adjacency }
+    SparseLaplacian {
+        n,
+        degree,
+        adjacency,
+    }
 }
 
 /// Spectral decomposition via partial or full eigendecomposition.
@@ -391,7 +399,9 @@ fn spectral_decompose_partial(laplacian: &SparseLaplacian, k: usize) -> Spectral
     let eig = SymmetricEigen::new(t_mat);
 
     // Sort Ritz values ascending
-    let mut ritz: Vec<(f64, usize)> = eig.eigenvalues.iter()
+    let mut ritz: Vec<(f64, usize)> = eig
+        .eigenvalues
+        .iter()
         .enumerate()
         .map(|(i, &v)| (v, i))
         .collect();
@@ -435,7 +445,11 @@ fn build_spectral_result(
     kept: usize,
     n: usize,
 ) -> SpectralDecomposition {
-    let spectral_gap = if eigenvalues.len() > 1 { eigenvalues[1].max(0.0) } else { 0.0 };
+    let spectral_gap = if eigenvalues.len() > 1 {
+        eigenvalues[1].max(0.0)
+    } else {
+        0.0
+    };
     let cheeger_estimate = (2.0 * spectral_gap).sqrt();
     let fiedler_vector = if eigenvectors.len() > 1 {
         eigenvectors[1].clone()
@@ -493,12 +507,19 @@ pub fn ctqw_propagate(spectral: &SpectralDecomposition, config: &TopologyConfig)
                 let mut im = 0.0f64;
                 for m in 0..k {
                     let lam = spectral.eigenvalues[m];
-                    let u_mj = if m < spectral.eigenvectors.len() && j < spectral.eigenvectors[m].len() {
-                        spectral.eigenvectors[m][j]
-                    } else { 0.0 };
-                    let u_md = if m < spectral.eigenvectors.len() && dest < spectral.eigenvectors[m].len() {
+                    let u_mj =
+                        if m < spectral.eigenvectors.len() && j < spectral.eigenvectors[m].len() {
+                            spectral.eigenvectors[m][j]
+                        } else {
+                            0.0
+                        };
+                    let u_md = if m < spectral.eigenvectors.len()
+                        && dest < spectral.eigenvectors[m].len()
+                    {
                         spectral.eigenvectors[m][dest]
-                    } else { 0.0 };
+                    } else {
+                        0.0
+                    };
                     let phase = -lam * t;
                     re += phase.cos() * u_mj * u_md;
                     im += phase.sin() * u_mj * u_md;
@@ -520,12 +541,18 @@ pub fn ctqw_propagate(spectral: &SpectralDecomposition, config: &TopologyConfig)
             let mut im = 0.0f64;
             for m in 0..k {
                 let lam = spectral.eigenvalues[m];
-                let u_mj = if m < spectral.eigenvectors.len() && j < spectral.eigenvectors[m].len() {
+                let u_mj = if m < spectral.eigenvectors.len() && j < spectral.eigenvectors[m].len()
+                {
                     spectral.eigenvectors[m][j]
-                } else { 0.0 };
-                let u_md = if m < spectral.eigenvectors.len() && dest < spectral.eigenvectors[m].len() {
-                    spectral.eigenvectors[m][dest]
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
+                let u_md =
+                    if m < spectral.eigenvectors.len() && dest < spectral.eigenvectors[m].len() {
+                        spectral.eigenvectors[m][dest]
+                    } else {
+                        0.0
+                    };
                 let phase = -lam * t_max;
                 re += phase.cos() * u_mj * u_md;
                 im += phase.sin() * u_mj * u_md;
@@ -535,22 +562,34 @@ pub fn ctqw_propagate(spectral: &SpectralDecomposition, config: &TopologyConfig)
     }
 
     // Propagation speeds (set to 0 when t_star is infinite or same vertex)
-    let propagation_speeds: Vec<Vec<f64>> = t_star.iter().enumerate().map(|(j, row)| {
-        row.iter().enumerate().map(|(dest, &ts)| {
-            if j == dest || ts == 0.0 || ts.is_infinite() {
-                0.0
-            } else {
-                // distance = 1 (simplified: no actual shortest-path distance)
-                1.0 / ts
-            }
-        }).collect()
-    }).collect();
+    let propagation_speeds: Vec<Vec<f64>> = t_star
+        .iter()
+        .enumerate()
+        .map(|(j, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(dest, &ts)| {
+                    if j == dest || ts == 0.0 || ts.is_infinite() {
+                        0.0
+                    } else {
+                        // distance = 1 (simplified: no actual shortest-path distance)
+                        1.0 / ts
+                    }
+                })
+                .collect()
+        })
+        .collect();
 
     // Mean propagation time: average of finite t_star values (excluding diagonal)
-    let finite_times: Vec<f64> = t_star.iter().enumerate()
-        .flat_map(|(j, row)| row.iter().enumerate()
-            .filter(move |&(dest, _)| dest != j)
-            .map(|(_, &ts)| ts))
+    let finite_times: Vec<f64> = t_star
+        .iter()
+        .enumerate()
+        .flat_map(|(j, row)| {
+            row.iter()
+                .enumerate()
+                .filter(move |&(dest, _)| dest != j)
+                .map(|(_, &ts)| ts)
+        })
         .filter(|ts| ts.is_finite())
         .collect();
     let mean_propagation_time = if finite_times.is_empty() {
@@ -559,7 +598,11 @@ pub fn ctqw_propagate(spectral: &SpectralDecomposition, config: &TopologyConfig)
         finite_times.iter().sum::<f64>() / finite_times.len() as f64
     };
 
-    CtqwResult { transfer_probabilities, propagation_speeds, mean_propagation_time }
+    CtqwResult {
+        transfer_probabilities,
+        propagation_speeds,
+        mean_propagation_time,
+    }
 }
 
 /// Compute Kuramoto order parameter from phases: r * exp(i*Psi) = mean(exp(i*phi))
@@ -621,25 +664,45 @@ pub fn kuramoto_step(state: &mut KuramotoState, graph: &PersistentGraph, config:
     };
 
     let compute_dphi = |phases: &[f64]| -> Vec<f64> {
-        (0..n).map(|i| {
-            let coupling = if degree[i] > 0.0 {
-                neighbors[i].iter()
-                    .map(|&(j, w)| w * (phases[j] - phases[i]).sin())
-                    .sum::<f64>() * kappa / degree[i]
-            } else {
-                0.0
-            };
-            omega_nat[i] + coupling
-        }).collect()
+        (0..n)
+            .map(|i| {
+                let coupling = if degree[i] > 0.0 {
+                    neighbors[i]
+                        .iter()
+                        .map(|&(j, w)| w * (phases[j] - phases[i]).sin())
+                        .sum::<f64>()
+                        * kappa
+                        / degree[i]
+                } else {
+                    0.0
+                };
+                omega_nat[i] + coupling
+            })
+            .collect()
     };
 
     // RK4
     let k1 = compute_dphi(&state.phases);
-    let ph2: Vec<f64> = state.phases.iter().zip(k1.iter()).map(|(p, k)| p + 0.5 * dt * k).collect();
+    let ph2: Vec<f64> = state
+        .phases
+        .iter()
+        .zip(k1.iter())
+        .map(|(p, k)| p + 0.5 * dt * k)
+        .collect();
     let k2 = compute_dphi(&ph2);
-    let ph3: Vec<f64> = state.phases.iter().zip(k2.iter()).map(|(p, k)| p + 0.5 * dt * k).collect();
+    let ph3: Vec<f64> = state
+        .phases
+        .iter()
+        .zip(k2.iter())
+        .map(|(p, k)| p + 0.5 * dt * k)
+        .collect();
     let k3 = compute_dphi(&ph3);
-    let ph4: Vec<f64> = state.phases.iter().zip(k3.iter()).map(|(p, k)| p + dt * k).collect();
+    let ph4: Vec<f64> = state
+        .phases
+        .iter()
+        .zip(k3.iter())
+        .map(|(p, k)| p + dt * k)
+        .collect();
     let k4 = compute_dphi(&ph4);
 
     for i in 0..n {
@@ -654,7 +717,9 @@ pub fn kuramoto_step(state: &mut KuramotoState, graph: &PersistentGraph, config:
 
 /// Initialize Kuramoto state from graph embeddings.
 pub fn init_kuramoto_state(graph: &PersistentGraph) -> KuramotoState {
-    let phases: Vec<f64> = graph.embedding.values()
+    let phases: Vec<f64> = graph
+        .embedding
+        .values()
         .map(|s| s.omega.rem_euclid(std::f64::consts::TAU))
         .collect();
     let (r, psi) = kuramoto_order_parameter(&phases);
@@ -803,23 +868,31 @@ pub fn dedup_filter(
 
 fn count_components(graph: &PersistentGraph) -> u64 {
     let n = graph.graph.node_count();
-    if n == 0 { return 0; }
+    if n == 0 {
+        return 0;
+    }
     let mut parent: Vec<usize> = (0..n).collect();
 
     fn find(parent: &mut Vec<usize>, x: usize) -> usize {
-        if parent[x] != x { parent[x] = find(parent, parent[x]); }
+        if parent[x] != x {
+            parent[x] = find(parent, parent[x]);
+        }
         parent[x]
     }
     fn union(parent: &mut Vec<usize>, x: usize, y: usize) {
         let rx = find(parent, x);
         let ry = find(parent, y);
-        if rx != ry { parent[rx] = ry; }
+        if rx != ry {
+            parent[rx] = ry;
+        }
     }
     for edge in graph.graph.raw_edges() {
         union(&mut parent, edge.source().index(), edge.target().index());
     }
     let mut roots = BTreeSet::new();
-    for i in 0..n { roots.insert(find(&mut parent, i)); }
+    for i in 0..n {
+        roots.insert(find(&mut parent, i));
+    }
     roots.len() as u64
 }
 
@@ -828,8 +901,8 @@ fn count_components(graph: &PersistentGraph) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pse_types::{Observation, ProvenanceEnvelope, MeasurementContext};
     use pse_graph::PersistentGraph;
+    use pse_types::{MeasurementContext, Observation, ProvenanceEnvelope};
 
     fn make_graph_chain(n: usize) -> PersistentGraph {
         let mut g = PersistentGraph::new();
@@ -862,10 +935,10 @@ mod tests {
         // Row sums of Laplacian should be zero: degree[i] - sum(w_{ij}) = 0
         // Verified implicitly: degree[i] = sum of adjacent edge weights
         // and adjacency entries sum to degree[i] per row
-        let mut row_sums = vec![lap.degree.clone()];
+        let row_sums = vec![lap.degree.clone()];
         for &(i, j, w) in &lap.adjacency {
             let _ = (i, j); // adjacency subtracts from off-diagonal
-            // degree[i] already set; adjacency entries are negative contributions
+                            // degree[i] already set; adjacency entries are negative contributions
             let _ = w;
         }
         // Just check n is correct and degree vector has correct length
@@ -879,7 +952,10 @@ mod tests {
         let g_conn = make_graph_chain(5);
         let lap_conn = compute_laplacian(&g_conn);
         let spec_conn = spectral_decompose(&lap_conn, 5);
-        assert!(spec_conn.spectral_gap > 0.0, "connected graph must have spectral_gap > 0");
+        assert!(
+            spec_conn.spectral_gap > 0.0,
+            "connected graph must have spectral_gap > 0"
+        );
 
         let g_disc = make_disconnected_graph();
         let lap_disc = compute_laplacian(&g_disc);
@@ -906,7 +982,12 @@ mod tests {
                 // At t=0: exp(0) = 1, so alpha = sum_m u_m[j]^2 * 1
                 prob += u_mj * u_mj;
             }
-            assert!((prob - 1.0).abs() < 1e-8, "p_jj(0) should be 1, got {} at j={}", prob, j);
+            assert!(
+                (prob - 1.0).abs() < 1e-8,
+                "p_jj(0) should be 1, got {} at j={}",
+                prob,
+                j
+            );
         }
     }
 
@@ -916,7 +997,10 @@ mod tests {
         let g = make_graph_chain(4);
         let lap = compute_laplacian(&g);
         let spec = spectral_decompose(&lap, 4);
-        let config = TopologyConfig { ctqw_time_steps: 5, ..Default::default() };
+        let config = TopologyConfig {
+            ctqw_time_steps: 5,
+            ..Default::default()
+        };
         let ctqw = ctqw_propagate(&spec, &config);
         for (j, row) in ctqw.transfer_probabilities.iter().enumerate() {
             let sum: f64 = row.iter().sum();
@@ -924,7 +1008,8 @@ mod tests {
             assert!(
                 (sum - 1.0).abs() < 0.5,
                 "sum_k p_jk(t) should ≈ 1 for j={}, got {}",
-                j, sum
+                j,
+                sum
             );
         }
     }
@@ -935,7 +1020,11 @@ mod tests {
         // Case 1: identical phases → r should be 1
         let phases_identical = vec![1.0f64; 10];
         let (r, _) = kuramoto_order_parameter(&phases_identical);
-        assert!((r - 1.0).abs() < 1e-10, "identical phases should give r=1, got {}", r);
+        assert!(
+            (r - 1.0).abs() < 1e-10,
+            "identical phases should give r=1, got {}",
+            r
+        );
 
         // Case 2: strong coupling → phases converge
         let g = make_graph_chain(4);
@@ -954,7 +1043,11 @@ mod tests {
         for _ in 0..200 {
             kuramoto_step(&mut state, &g, &config);
         }
-        assert!(state.order_parameter > 0.3, "strong coupling should increase r, got {}", state.order_parameter);
+        assert!(
+            state.order_parameter > 0.3,
+            "strong coupling should increase r, got {}",
+            state.order_parameter
+        );
     }
 
     // AT-T6: Kuramoto incoherence — zero coupling → r ≈ 0 for random phases
@@ -1061,7 +1154,10 @@ mod tests {
     #[test]
     fn at_t11_budget_fallback() {
         // Very tight budget: 0ms → should trigger fallback on any graph
-        let config = TopologyConfig { budget_ms: 0, ..Default::default() };
+        let config = TopologyConfig {
+            budget_ms: 0,
+            ..Default::default()
+        };
         let g = make_graph_chain(10);
         // Should not panic; result will have zeroed spectral values
         let sig = compute_topological_signature(&g, &config);

@@ -35,14 +35,28 @@ fn tmp_out(name: &str) -> PathBuf {
 fn cli_plan_writes_report() {
     let out = tmp_out("plan_cli_test.json");
     let status = Command::new(bin())
-        .args(["plan", "--problem", problem_json().to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .args([
+            "plan",
+            "--problem",
+            problem_json().to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
         .status()
         .expect("failed to spawn pse-traverse-cli plan");
-    assert!(status.success(), "plan subcommand exited with {:?}", status.code());
+    assert!(
+        status.success(),
+        "plan subcommand exited with {:?}",
+        status.code()
+    );
     let bytes = fs::read(&out).expect("plan output file was not written");
     let v: serde_json::Value =
         serde_json::from_slice(&bytes).expect("plan output is not valid JSON");
-    assert!(v.get("steps").is_some(), "plan JSON missing 'steps' field: {}", v);
+    assert!(
+        v.get("steps").is_some(),
+        "plan JSON missing 'steps' field: {}",
+        v
+    );
 }
 
 /// Two consecutive `plan` runs on the same input produce byte-identical output.
@@ -54,7 +68,13 @@ fn cli_plan_is_byte_identical_across_two_runs() {
 
     for out in [&out1, &out2] {
         let status = Command::new(bin())
-            .args(["plan", "--problem", problem.to_str().unwrap(), "--out", out.to_str().unwrap()])
+            .args([
+                "plan",
+                "--problem",
+                problem.to_str().unwrap(),
+                "--out",
+                out.to_str().unwrap(),
+            ])
             .status()
             .expect("failed to spawn pse-traverse-cli plan");
         assert!(status.success());
@@ -71,7 +91,13 @@ fn cli_run_then_replay_ok() {
     let problem = problem_json();
 
     let status = Command::new(bin())
-        .args(["run", "--problem", problem.to_str().unwrap(), "--out", run_out.to_str().unwrap()])
+        .args([
+            "run",
+            "--problem",
+            problem.to_str().unwrap(),
+            "--out",
+            run_out.to_str().unwrap(),
+        ])
         .status()
         .expect("failed to spawn pse-traverse-cli run");
     assert!(status.success(), "run subcommand failed");
@@ -86,5 +112,9 @@ fn cli_run_then_replay_ok() {
         String::from_utf8_lossy(&replay_out.stderr)
     );
     let stdout = String::from_utf8_lossy(&replay_out.stdout);
-    assert!(stdout.contains("replay ok"), "unexpected replay output: {}", stdout);
+    assert!(
+        stdout.contains("replay ok"),
+        "unexpected replay output: {}",
+        stdout
+    );
 }

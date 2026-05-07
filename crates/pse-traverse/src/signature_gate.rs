@@ -78,14 +78,20 @@ pub fn check_signature_gate(
     let mut measured: BTreeMap<String, f64> = BTreeMap::new();
     measured.insert("gap_score".into(), diagnostics.gap_score);
     measured.insert("degeneracy_score".into(), diagnostics.degeneracy_score);
-    measured.insert("fragmentation_score".into(), diagnostics.fragmentation_score);
+    measured.insert(
+        "fragmentation_score".into(),
+        diagnostics.fragmentation_score,
+    );
     measured.insert("asymmetry_score".into(), diagnostics.asymmetry_score);
     measured.insert("rigidity_score".into(), diagnostics.rigidity_score);
 
     let mut thresholds: BTreeMap<String, f64> = BTreeMap::new();
     thresholds.insert("min_gap_score".into(), config.min_gap_score);
     thresholds.insert("max_degeneracy_score".into(), config.max_degeneracy_score);
-    thresholds.insert("max_fragmentation_score".into(), config.max_fragmentation_score);
+    thresholds.insert(
+        "max_fragmentation_score".into(),
+        config.max_fragmentation_score,
+    );
 
     // Short-circuit when disabled.
     if !config.enabled {
@@ -177,9 +183,14 @@ mod tests {
             fail_closed: true,
         };
         let outcome = check_signature_gate(&diag, &config);
-        assert!(!outcome.passed, "gate should fail when gap_score < min_gap_score");
+        assert!(
+            !outcome.passed,
+            "gate should fail when gap_score < min_gap_score"
+        );
         assert!(config.fail_closed, "fail_closed should be true");
-        assert!(outcome.reasons.contains(&"gap_score below minimum".to_string()));
+        assert!(outcome
+            .reasons
+            .contains(&"gap_score below minimum".to_string()));
     }
 
     #[test]
@@ -197,7 +208,10 @@ mod tests {
         };
         let outcome = check_signature_gate(&diag, &config);
         // Gate still reports false — the semantics of blocking are the caller's.
-        assert!(!outcome.passed, "gate should still report false even when fail_closed=false");
+        assert!(
+            !outcome.passed,
+            "gate should still report false even when fail_closed=false"
+        );
         assert!(!config.fail_closed, "fail_closed should be false");
     }
 
@@ -227,6 +241,9 @@ mod tests {
         };
         let outcome = check_signature_gate(&diag, &config);
         assert!(!outcome.passed);
-        assert!(outcome.reasons.iter().any(|r| r.contains("regime not allowed")));
+        assert!(outcome
+            .reasons
+            .iter()
+            .any(|r| r.contains("regime not allowed")));
     }
 }

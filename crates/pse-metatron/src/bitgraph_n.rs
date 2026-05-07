@@ -252,11 +252,7 @@ pub fn stabilizer_order_n(bits: u32, cache: &SnBitCache) -> usize {
 /// sorted in ascending order so downstream processing is deterministic.
 pub fn enumerate_canonical_parallel(cache: &SnBitCache) -> Vec<u32> {
     let mask = mask_for_n(cache.n);
-    let total: u64 = if cache.n < 2 {
-        1
-    } else {
-        mask as u64 + 1
-    };
+    let total: u64 = if cache.n < 2 { 1 } else { mask as u64 + 1 };
     (0u64..total)
         .into_par_iter()
         .filter_map(|bits_u64| {
@@ -275,11 +271,7 @@ pub fn enumerate_canonical_parallel(cache: &SnBitCache) -> Vec<u32> {
 /// Sequential variant (used as the fallback and reference).
 pub fn enumerate_canonical_sequential(cache: &SnBitCache) -> Vec<u32> {
     let mask = mask_for_n(cache.n);
-    let total: u64 = if cache.n < 2 {
-        1
-    } else {
-        mask as u64 + 1
-    };
+    let total: u64 = if cache.n < 2 { 1 } else { mask as u64 + 1 };
     (0u64..total)
         .filter_map(|b| {
             let bits = b as u32;

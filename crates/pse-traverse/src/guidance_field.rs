@@ -4,10 +4,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::dynamic_state::{
-    CanonicalNumber, DynamicError, Hash256, LiftedState, StableId, stable_id_of,
-};
 use crate::dynamic_policy::DynamicPolicy;
+use crate::dynamic_state::{
+    stable_id_of, CanonicalNumber, DynamicError, Hash256, LiftedState, StableId,
+};
 use crate::field::FieldSignal;
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -155,10 +155,14 @@ impl GuidanceField for DefaultGuidanceField {
         let mut new_transitions: Vec<GuidanceTransition> = Vec::new();
         for t in self.transitions.iter() {
             // phase_delta from |aux_from - aux_to|
-            let aux_from = self.nodes.get(&t.from)
+            let aux_from = self
+                .nodes
+                .get(&t.from)
                 .map(|n| n.state.auxiliary.to_f64())
                 .unwrap_or(0.0);
-            let aux_to = self.nodes.get(&t.to)
+            let aux_to = self
+                .nodes
+                .get(&t.to)
                 .map(|n| n.state.auxiliary.to_f64())
                 .unwrap_or(0.0);
             let phase_delta_raw = (aux_from - aux_to).abs();
@@ -220,7 +224,8 @@ impl GuidanceField for DefaultGuidanceField {
 
         // Find nearest node by L2 distance on base coords
         let base_dim = position.lift_profile.base_dimension;
-        let pos_base: Vec<f64> = position.coords[..base_dim.min(position.coords.len())].iter()
+        let pos_base: Vec<f64> = position.coords[..base_dim.min(position.coords.len())]
+            .iter()
             .map(|c| c.to_f64())
             .collect();
 
@@ -265,7 +270,11 @@ fn l2_distance_base(pos: &[f64], state: &LiftedState, base_dim: usize) -> f64 {
     let mut sum = 0.0;
     for i in 0..base_dim {
         let p = pos.get(i).copied().unwrap_or(0.0);
-        let s = if i < state.coords.len() { state.coords[i].to_f64() } else { 0.0 };
+        let s = if i < state.coords.len() {
+            state.coords[i].to_f64()
+        } else {
+            0.0
+        };
         sum += (p - s) * (p - s);
     }
     sum.sqrt()
@@ -278,13 +287,16 @@ fn l2_distance_base(pos: &[f64], state: &LiftedState, base_dim: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dynamic_state::{AuxiliaryKind, BaseState, DefaultStateLift, LiftProfile, StateLift};
     use crate::dynamic_policy::DynamicPolicy;
+    use crate::dynamic_state::{BaseState, DefaultStateLift, StateLift};
 
     fn make_lifted(tick: u64, coords: Vec<f64>) -> LiftedState {
         let base = BaseState {
             state_id: Hash256::zero(),
-            coords: coords.iter().map(|&v| CanonicalNumber::quantize_default(v).unwrap()).collect(),
+            coords: coords
+                .iter()
+                .map(|&v| CanonicalNumber::quantize_default(v).unwrap())
+                .collect(),
             weight: CanonicalNumber::quantize_default(1.0).unwrap(),
             evidence_refs: vec![],
         };

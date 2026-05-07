@@ -415,9 +415,7 @@ mod tests {
     // ── End-to-end falsification (D.3) ───────────────────────────────────
 
     use pse_graph::PassthroughAdapter;
-    use pse_types::{
-        content_address_raw, MeasurementContext, Observation, ProvenanceEnvelope,
-    };
+    use pse_types::{content_address_raw, MeasurementContext, Observation, ProvenanceEnvelope};
 
     fn obs_from_payloads(payloads: Vec<Vec<u8>>) -> Vec<Observation> {
         payloads

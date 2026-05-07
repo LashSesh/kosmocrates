@@ -7,12 +7,12 @@
 // C4 — depends on pse-types, pse-graph
 // Inv I5: read-only on PersistentGraph (takes &PersistentGraph, immutable ref)
 
-use std::collections::BTreeMap;
-use pse_types::{
-    content_address, ConstraintCandidate, ConstraintProgram, ConstraintTemplate,
-    ExtractionConfig, FiveDState, VertexId,
-};
 use pse_graph::PersistentGraph;
+use pse_types::{
+    content_address, ConstraintCandidate, ConstraintProgram, ConstraintTemplate, ExtractionConfig,
+    FiveDState, VertexId,
+};
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -40,7 +40,10 @@ impl TimeWindow {
     }
 
     pub fn all() -> Self {
-        Self { start: f64::NEG_INFINITY, end: f64::INFINITY }
+        Self {
+            start: f64::NEG_INFINITY,
+            end: f64::INFINITY,
+        }
     }
 }
 
@@ -63,15 +66,25 @@ pub trait Operator: Send + Sync {
 pub struct BandOp;
 
 impl Operator for BandOp {
-    fn id(&self) -> &str { "band" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Band }
+    fn id(&self) -> &str {
+        "band"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Band
+    }
     fn evaluate(&self, input: &FiveDState, params: &BTreeMap<String, f64>) -> f64 {
         let lo = params.get("lo").copied().unwrap_or(0.0);
         let hi = params.get("hi").copied().unwrap_or(1.0);
         let dim = params.get("dim").copied().unwrap_or(0.0) as usize;
         let v = input.as_array()[dim.min(4)];
-        if v >= lo && v <= hi { 1.0 } else { 0.0 }
+        if v >= lo && v <= hi {
+            1.0
+        } else {
+            0.0
+        }
     }
 }
 
@@ -79,16 +92,26 @@ impl Operator for BandOp {
 pub struct RatioOp;
 
 impl Operator for RatioOp {
-    fn id(&self) -> &str { "ratio" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Ratio }
+    fn id(&self) -> &str {
+        "ratio"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Ratio
+    }
     fn evaluate(&self, input: &FiveDState, params: &BTreeMap<String, f64>) -> f64 {
         let a_idx = params.get("a").copied().unwrap_or(0.0) as usize;
         let b_idx = params.get("b").copied().unwrap_or(1.0) as usize;
         let arr = input.as_array();
         let a = arr[a_idx.min(4)];
         let b = arr[b_idx.min(4)];
-        if b.abs() < 1e-10 { 0.0 } else { (a / b).abs().min(1.0) }
+        if b.abs() < 1e-10 {
+            0.0
+        } else {
+            (a / b).abs().min(1.0)
+        }
     }
 }
 
@@ -96,13 +119,23 @@ impl Operator for RatioOp {
 pub struct CorrelationOp;
 
 impl Operator for CorrelationOp {
-    fn id(&self) -> &str { "correlation" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Correlation }
+    fn id(&self) -> &str {
+        "correlation"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Correlation
+    }
     fn evaluate(&self, input: &FiveDState, _params: &BTreeMap<String, f64>) -> f64 {
         // Normalized dot product as correlation proxy
         let norm_sq = input.norm_sq();
-        if norm_sq < 1e-10 { 0.0 } else { (1.0 - 1.0 / (1.0 + norm_sq)).min(1.0) }
+        if norm_sq < 1e-10 {
+            0.0
+        } else {
+            (1.0 - 1.0 / (1.0 + norm_sq)).min(1.0)
+        }
     }
 }
 
@@ -110,9 +143,15 @@ impl Operator for CorrelationOp {
 pub struct GrangerOp;
 
 impl Operator for GrangerOp {
-    fn id(&self) -> &str { "granger" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Granger }
+    fn id(&self) -> &str {
+        "granger"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Granger
+    }
     fn evaluate(&self, input: &FiveDState, _params: &BTreeMap<String, f64>) -> f64 {
         // Eta dimension as causality metric, normalized to [0,1]
         (input.eta.abs() / (1.0 + input.eta.abs())).min(1.0)
@@ -123,9 +162,15 @@ impl Operator for GrangerOp {
 pub struct SpectralOp;
 
 impl Operator for SpectralOp {
-    fn id(&self) -> &str { "spectral" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Spectral }
+    fn id(&self) -> &str {
+        "spectral"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Spectral
+    }
     fn evaluate(&self, input: &FiveDState, params: &BTreeMap<String, f64>) -> f64 {
         let target = params.get("target_freq").copied().unwrap_or(1.0);
         let bw = params.get("bandwidth").copied().unwrap_or(1.0);
@@ -138,9 +183,15 @@ impl Operator for SpectralOp {
 pub struct TopologicalOp;
 
 impl Operator for TopologicalOp {
-    fn id(&self) -> &str { "topological" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Topological }
+    fn id(&self) -> &str {
+        "topological"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Topological
+    }
     fn evaluate(&self, input: &FiveDState, _params: &BTreeMap<String, f64>) -> f64 {
         // Chi dimension as connectivity/topology proxy
         (input.chi.abs() / (1.0 + input.chi.abs())).min(1.0)
@@ -151,9 +202,15 @@ impl Operator for TopologicalOp {
 pub struct PhaseOp;
 
 impl Operator for PhaseOp {
-    fn id(&self) -> &str { "phase" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Phase }
+    fn id(&self) -> &str {
+        "phase"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Phase
+    }
     fn evaluate(&self, input: &FiveDState, params: &BTreeMap<String, f64>) -> f64 {
         let target = params.get("target_phase").copied().unwrap_or(0.0);
         let diff = (input.omega - target).abs() % std::f64::consts::TAU;
@@ -166,9 +223,15 @@ impl Operator for PhaseOp {
 pub struct ContractionOp;
 
 impl Operator for ContractionOp {
-    fn id(&self) -> &str { "contraction" }
-    fn version(&self) -> &str { "1.0.0" }
-    fn template(&self) -> ConstraintTemplate { ConstraintTemplate::Contraction }
+    fn id(&self) -> &str {
+        "contraction"
+    }
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    fn template(&self) -> ConstraintTemplate {
+        ConstraintTemplate::Contraction
+    }
     fn evaluate(&self, input: &FiveDState, params: &BTreeMap<String, f64>) -> f64 {
         let radius = params.get("radius").copied().unwrap_or(1.0);
         let norm = input.norm_sq().sqrt();
@@ -200,7 +263,11 @@ pub fn variance(region: &[(VertexId, FiveDState)]) -> f64 {
     let n = region.len() as f64;
     // Variance = mean(sum of squared norms) - mean(norm)^2
     let mean_p: f64 = region.iter().map(|(_, s)| s.p).sum::<f64>() / n;
-    let var_p: f64 = region.iter().map(|(_, s)| (s.p - mean_p).powi(2)).sum::<f64>() / n;
+    let var_p: f64 = region
+        .iter()
+        .map(|(_, s)| (s.p - mean_p).powi(2))
+        .sum::<f64>()
+        / n;
     var_p
 }
 
@@ -211,7 +278,11 @@ pub fn region_entropy(region: &[(VertexId, FiveDState)]) -> f64 {
     }
     // Differential entropy approximation via variance
     let v = variance(region);
-    if v < 1e-15 { 0.0 } else { 0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * v).ln() }
+    if v < 1e-15 {
+        0.0
+    } else {
+        0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * v).ln()
+    }
 }
 
 /// Evaluate a constraint candidate against a state
@@ -232,7 +303,11 @@ fn evaluate_candidate(
 
     // Compute a stable ID for this constraint type on this state
     #[derive(serde::Serialize)]
-    struct CandidateKey<'a> { op_id: &'a str, template: &'a ConstraintTemplate, score_bucket: u64 }
+    struct CandidateKey<'a> {
+        op_id: &'a str,
+        template: &'a ConstraintTemplate,
+        score_bucket: u64,
+    }
     let key = CandidateKey {
         op_id: op.id(),
         template: &op.template(),
@@ -361,7 +436,7 @@ mod tests {
     #[test]
     fn inverse_weave_read_only() {
         // Inv I5: graph passed as immutable ref, verify it's unchanged
-        let mut g = PersistentGraph::new();
+        let g = PersistentGraph::new();
         let initial_commit = g.commit_index;
 
         let library = default_operator_library();
@@ -379,7 +454,13 @@ mod tests {
     #[test]
     fn band_op_evaluates() {
         let op = BandOp;
-        let state = FiveDState { p: 0.5, rho: 0.0, omega: 0.0, chi: 0.0, eta: 0.0 };
+        let state = FiveDState {
+            p: 0.5,
+            rho: 0.0,
+            omega: 0.0,
+            chi: 0.0,
+            eta: 0.0,
+        };
         let mut params = BTreeMap::new();
         params.insert("lo".to_string(), 0.0);
         params.insert("hi".to_string(), 1.0);
@@ -390,7 +471,13 @@ mod tests {
     #[test]
     fn band_op_outside_band() {
         let op = BandOp;
-        let state = FiveDState { p: 2.0, rho: 0.0, omega: 0.0, chi: 0.0, eta: 0.0 };
+        let state = FiveDState {
+            p: 2.0,
+            rho: 0.0,
+            omega: 0.0,
+            chi: 0.0,
+            eta: 0.0,
+        };
         let mut params = BTreeMap::new();
         params.insert("lo".to_string(), 0.0);
         params.insert("hi".to_string(), 1.0);

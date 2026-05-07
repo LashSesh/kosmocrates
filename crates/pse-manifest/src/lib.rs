@@ -3,12 +3,12 @@
 //! Produces a content-addressed meta-artifact that binds an entire run,
 //! linking crystals, traces, registries, and evidence into a single verifiable envelope.
 
-use std::collections::BTreeMap;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use pse_types::{content_address, EvidenceEntry, GateSnapshot, Hash256, RunDescriptor};
 use pse_evidence::Archive;
 use pse_registry::RegistrySet;
+use pse_types::{content_address, EvidenceEntry, GateSnapshot, Hash256, RunDescriptor};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ManifestError {
@@ -101,7 +101,11 @@ pub fn build_manifest(
     let registry_digests = registries.digests();
 
     // mef_head: head of the evidence chain — last crystal's last evidence entry
-    let mef_head = archive.crystals().last().and_then(|c| c.evidence_chain.last()).map(|e| e.digest);
+    let mef_head = archive
+        .crystals()
+        .last()
+        .and_then(|c| c.evidence_chain.last())
+        .map(|e| e.digest);
 
     let core = ManifestCore {
         rd_digest: &rd_digest,
@@ -166,7 +170,11 @@ pub fn verify_manifest(
         archive.crystals().iter().map(|c| c.crystal_id).collect();
     for (i, cd) in manifest.crystal_digests.iter().enumerate() {
         if !archive_ids.contains(cd) {
-            return Err(ManifestError::CrystalNotFound(format!("index {}: {}", i, hex(cd))));
+            return Err(ManifestError::CrystalNotFound(format!(
+                "index {}: {}",
+                i,
+                hex(cd)
+            )));
         }
     }
 
@@ -192,7 +200,9 @@ pub fn verify_manifest(
 
     // MV6: if mef_head present, verify evidence chain head
     if let Some(expected_head) = &manifest.mef_head {
-        let actual_head = archive.crystals().last()
+        let actual_head = archive
+            .crystals()
+            .last()
             .and_then(|c| c.evidence_chain.last())
             .map(|e| e.digest);
         match actual_head {
@@ -212,7 +222,13 @@ pub fn build_replay_pack(
     registries: RegistrySet,
     boundary_evidence: Vec<EvidenceEntry>,
 ) -> ReplayPack {
-    ReplayPack { manifest, rd, observation_log, registries, boundary_evidence }
+    ReplayPack {
+        manifest,
+        rd,
+        observation_log,
+        registries,
+        boundary_evidence,
+    }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -224,9 +240,9 @@ fn hex(h: &Hash256) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pse_types::{Config, GateSnapshot};
     use pse_evidence::Archive;
     use pse_registry::RegistrySet;
+    use pse_types::{Config, GateSnapshot};
 
     fn make_rd() -> RunDescriptor {
         RunDescriptor {
@@ -298,7 +314,8 @@ mod tests {
         let traces: Vec<TraceEntry> = vec![];
         let obs_log: Vec<Vec<Vec<u8>>> = vec![];
 
-        let mut manifest = build_manifest(&rd, &traces, &archive, &registries, "discovery", &obs_log);
+        let mut manifest =
+            build_manifest(&rd, &traces, &archive, &registries, "discovery", &obs_log);
         // Inject a fake crystal digest
         manifest.crystal_digests.push([0xdeu8; 32]);
         // Recompute run_id to avoid MV1 failure
@@ -338,7 +355,10 @@ mod tests {
         );
 
         // Pack must preserve the manifest exactly
-        assert_eq!(pack.manifest.run_id, manifest.run_id, "pack must preserve run_id");
+        assert_eq!(
+            pack.manifest.run_id, manifest.run_id,
+            "pack must preserve run_id"
+        );
 
         // Rebuild manifest from pack contents → must produce identical outputs (replay determinism)
         let manifest2 = build_manifest(
@@ -349,12 +369,18 @@ mod tests {
             "discovery",
             &pack.observation_log,
         );
-        assert_eq!(manifest.trace_digests, manifest2.trace_digests,
-            "replay produced different trace digests");
-        assert_eq!(manifest.crystal_digests, manifest2.crystal_digests,
-            "replay produced different crystal digests");
-        assert_eq!(manifest.registry_digests, manifest2.registry_digests,
-            "replay produced different registry digests");
+        assert_eq!(
+            manifest.trace_digests, manifest2.trace_digests,
+            "replay produced different trace digests"
+        );
+        assert_eq!(
+            manifest.crystal_digests, manifest2.crystal_digests,
+            "replay produced different crystal digests"
+        );
+        assert_eq!(
+            manifest.registry_digests, manifest2.registry_digests,
+            "replay produced different registry digests"
+        );
     }
 
     // AT-M5: Trace determinism — same RD produces same trace digests

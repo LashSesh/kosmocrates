@@ -3,17 +3,17 @@
 //! Evidence-bound secret encapsulation using AES-256-GCM, with policy-gated
 //! seal/open operations, expiration, and use-count limits.
 
-use std::collections::BTreeMap;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
 use hkdf::Hkdf;
-use sha2::Sha256;
-use pse_types::Hash256;
 use pse_manifest::ExecutionManifest;
+use pse_types::Hash256;
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+use std::collections::BTreeMap;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CapsuleError {
@@ -97,7 +97,8 @@ fn derive_session_key(master_key: &[u8; 32], manifest: &ExecutionManifest) -> [u
 
     let hk = Hkdf::<Sha256>::new(Some(&salt), master_key);
     let mut okm = [0u8; 32];
-    hk.expand(&binding, &mut okm).expect("HKDF expand must not fail for 32-byte output");
+    hk.expand(&binding, &mut okm)
+        .expect("HKDF expand must not fail for 32-byte output");
     okm
 }
 
@@ -136,7 +137,10 @@ pub fn seal(
         policy: &'a CapsulePolicy,
         bind: &'a BTreeMap<String, Hash256>,
     }
-    let aad_content = AadContent { policy: &policy, bind: &bind };
+    let aad_content = AadContent {
+        policy: &policy,
+        bind: &bind,
+    };
     let aad = serde_json::to_vec(&aad_content).expect("AAD serialization must not fail");
 
     let key = Key::<Aes256Gcm>::from_slice(&session_key);
@@ -144,7 +148,13 @@ pub fn seal(
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(nonce, aes_gcm::aead::Payload { msg: secret, aad: &aad })
+        .encrypt(
+            nonce,
+            aes_gcm::aead::Payload {
+                msg: secret,
+                aad: &aad,
+            },
+        )
         .map_err(|_| CapsuleError::EncryptFailed)?;
 
     Ok(Capsule {
@@ -188,7 +198,13 @@ pub fn open(
     let nonce = Nonce::from_slice(&capsule.nonce);
 
     let plaintext = cipher
-        .decrypt(nonce, aes_gcm::aead::Payload { msg: &capsule.ciphertext, aad: &capsule.aad })
+        .decrypt(
+            nonce,
+            aes_gcm::aead::Payload {
+                msg: &capsule.ciphertext,
+                aad: &capsule.aad,
+            },
+        )
         .map_err(|_| CapsuleError::DecryptFailed)?;
 
     Ok(plaintext)
@@ -197,7 +213,10 @@ pub fn open(
 // ─── Policy Verification ─────────────────────────────────────────────────────
 
 /// Verify capsule policy against a manifest
-pub fn verify_policy(capsule: &Capsule, manifest: &ExecutionManifest) -> std::result::Result<(), PolicyError> {
+pub fn verify_policy(
+    capsule: &Capsule,
+    manifest: &ExecutionManifest,
+) -> std::result::Result<(), PolicyError> {
     let policy = &capsule.policy;
 
     // Program ID
@@ -225,10 +244,10 @@ pub fn verify_policy(capsule: &Capsule, manifest: &ExecutionManifest) -> std::re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pse_types::{Config, SchedulerConfig};
+    use pse_evidence::Archive;
     use pse_manifest::{build_manifest, TraceEntry};
     use pse_registry::RegistrySet;
-    use pse_evidence::Archive;
+    use pse_types::{Config, SchedulerConfig};
 
     fn make_manifest() -> ExecutionManifest {
         let rd = pse_types::RunDescriptor {
@@ -298,7 +317,10 @@ mod tests {
         }
 
         let result = open(&capsule, MASTER_KEY, &manifest, None);
-        assert!(matches!(result, Err(CapsuleError::DecryptFailed) | Err(CapsuleError::PolicyViolation(_))));
+        assert!(matches!(
+            result,
+            Err(CapsuleError::DecryptFailed) | Err(CapsuleError::PolicyViolation(_))
+        ));
     }
 
     // AT-C4: Expiry enforcement
@@ -319,7 +341,14 @@ mod tests {
         let manifest = make_manifest();
         let policy = make_policy(&manifest);
 
-        let c1 = seal(b"secret", policy.clone(), BTreeMap::new(), MASTER_KEY, &manifest).unwrap();
+        let c1 = seal(
+            b"secret",
+            policy.clone(),
+            BTreeMap::new(),
+            MASTER_KEY,
+            &manifest,
+        )
+        .unwrap();
         let c2 = seal(b"secret", policy, BTreeMap::new(), MASTER_KEY, &manifest).unwrap();
 
         assert_eq!(c1.nonce, c2.nonce);
@@ -350,7 +379,14 @@ mod tests {
         let registries2 = RegistrySet::new();
         let traces2: Vec<TraceEntry> = vec![];
         let obs_log2: Vec<Vec<Vec<u8>>> = vec![];
-        let manifest2 = build_manifest(&rd2, &traces2, &archive2, &registries2, "discovery", &obs_log2);
+        let manifest2 = build_manifest(
+            &rd2,
+            &traces2,
+            &archive2,
+            &registries2,
+            "discovery",
+            &obs_log2,
+        );
 
         let result = open(&capsule, MASTER_KEY, &manifest2, None);
         assert!(result.is_err());
@@ -428,16 +464,24 @@ impl CapsuleSealer {
             policy: &'a CapsulePolicy,
             bind: &'a BTreeMap<String, Hash256>,
         }
-        let aad_content = AadContent { policy: &policy, bind: &bind };
-        let aad = serde_json::to_vec(&aad_content)
-            .expect("AAD serialization must not fail");
+        let aad_content = AadContent {
+            policy: &policy,
+            bind: &bind,
+        };
+        let aad = serde_json::to_vec(&aad_content).expect("AAD serialization must not fail");
 
         let key = Key::<Aes256Gcm>::from_slice(&session_key);
         let cipher = Aes256Gcm::new(key);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher
-            .encrypt(nonce, aes_gcm::aead::Payload { msg: secret, aad: &aad })
+            .encrypt(
+                nonce,
+                aes_gcm::aead::Payload {
+                    msg: secret,
+                    aad: &aad,
+                },
+            )
             .map_err(|_| CapsuleError::EncryptFailed)?;
 
         Ok((
@@ -502,8 +546,9 @@ mod sealer_tests {
         let manifest = dummy_manifest(1);
         assert_eq!(sealer.next_counter_for(&manifest.run_id), 0);
         let policy = dummy_policy(&manifest);
-        let (_, counter_used) =
-            sealer.seal(b"secret", policy, BTreeMap::new(), &manifest).unwrap();
+        let (_, counter_used) = sealer
+            .seal(b"secret", policy, BTreeMap::new(), &manifest)
+            .unwrap();
         assert_eq!(counter_used, 0);
         assert_eq!(sealer.next_counter_for(&manifest.run_id), 1);
     }
@@ -568,7 +613,12 @@ mod sealer_tests {
         let sealer = CapsuleSealer::new(*MASTER_KEY);
         let manifest = dummy_manifest(1);
         let (capsule, _) = sealer
-            .seal(b"hello", dummy_policy(&manifest), BTreeMap::new(), &manifest)
+            .seal(
+                b"hello",
+                dummy_policy(&manifest),
+                BTreeMap::new(),
+                &manifest,
+            )
             .unwrap();
         let opened = open(&capsule, MASTER_KEY, &manifest, None).unwrap();
         assert_eq!(opened, b"hello");
@@ -582,11 +632,21 @@ mod sealer_tests {
         // assumption gap the CapsuleSealer wraps shut.
         let manifest = dummy_manifest(1);
         let cap1 = seal(
-            b"a", dummy_policy(&manifest), BTreeMap::new(), MASTER_KEY, &manifest,
-        ).unwrap();
+            b"a",
+            dummy_policy(&manifest),
+            BTreeMap::new(),
+            MASTER_KEY,
+            &manifest,
+        )
+        .unwrap();
         let cap2 = seal(
-            b"b", dummy_policy(&manifest), BTreeMap::new(), MASTER_KEY, &manifest,
-        ).unwrap();
+            b"b",
+            dummy_policy(&manifest),
+            BTreeMap::new(),
+            MASTER_KEY,
+            &manifest,
+        )
+        .unwrap();
         // Same run_id + counter=0 → same nonce. This is the bug.
         // CapsuleSealer prevents it; bare seal() does not.
         assert_eq!(cap1.nonce, cap2.nonce);

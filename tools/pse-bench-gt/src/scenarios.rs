@@ -11,9 +11,7 @@ use pse_adapter_binance::{
     embedded_binance_ground_truth, embedded_btc_klines_with_regime_shift, BinanceAdapter,
 };
 use pse_adapter_seismo::{embedded_seismo_data, embedded_seismo_ground_truth, SeismoAdapter};
-use pse_adapter_vitals::{
-    embedded_vitals_ground_truth, generate_embedded_data, VitalsAdapter,
-};
+use pse_adapter_vitals::{embedded_vitals_ground_truth, generate_embedded_data, VitalsAdapter};
 use pse_core::GlobalState;
 use pse_types::Config;
 use serde::{Deserialize, Serialize};
@@ -99,9 +97,8 @@ pub fn run_seismo_scenario_with(
         .map(|e| serde_json::to_vec(e).expect("seismo event must serialize"))
         .collect();
 
-    let mut detections = crate::runner::run_pse_windowed(
-        &mut state, &payloads, config, "seismo", window_size,
-    );
+    let mut detections =
+        crate::runner::run_pse_windowed(&mut state, &payloads, config, "seismo", window_size);
 
     let features = extract_seismo_features(&events);
     let stl_cfg = stl_zscore::StlZscoreConfig::default();
@@ -160,10 +157,8 @@ pub fn run_vitals_scenario_with(
 ) -> ScenarioResult {
     let duration_sec: u32 = 60;
     let raw = generate_embedded_data(42, duration_sec);
-    let patient_b: Vec<&pse_adapter_vitals::VitalReading> = raw
-        .iter()
-        .filter(|r| r.patient_id == "patient_B")
-        .collect();
+    let patient_b: Vec<&pse_adapter_vitals::VitalReading> =
+        raw.iter().filter(|r| r.patient_id == "patient_B").collect();
 
     let _adapter = VitalsAdapter::new("patient_B");
     let mut state = GlobalState::new(config);
@@ -173,9 +168,8 @@ pub fn run_vitals_scenario_with(
         .map(|r| serde_json::to_vec(r).expect("vital reading must serialize"))
         .collect();
 
-    let mut detections = crate::runner::run_pse_windowed(
-        &mut state, &payloads, config, "vitals_b", window_size,
-    );
+    let mut detections =
+        crate::runner::run_pse_windowed(&mut state, &payloads, config, "vitals_b", window_size);
 
     // ECG amplitude is the natural per-tick scalar feature.
     let features: Vec<f64> = patient_b.iter().map(|r| r.value).collect();
@@ -262,8 +256,7 @@ pub fn run_binance_scenario_with(
     // Strand I phase extractor: log-return → phase, mirroring the
     // BinanceAdapter's own canonicalize logic.
     let phase_fn = |raw: &[u8]| -> Option<f64> {
-        let tick: pse_adapter_binance::BinanceTick =
-            serde_json::from_slice(raw).ok()?;
+        let tick: pse_adapter_binance::BinanceTick = serde_json::from_slice(raw).ok()?;
         if tick.open > 0.0 && tick.close > 0.0 {
             let log_return = (tick.close / tick.open).ln();
             let normalized = (log_return * 50.0 + 0.5).rem_euclid(1.0);
@@ -351,7 +344,9 @@ mod tests {
     fn seismo_scenario_ground_truth_is_normalized() {
         let config = Config::default();
         let result = run_seismo_scenario(&config, 0);
-        let mainshock = result.ground_truth.iter()
+        let mainshock = result
+            .ground_truth
+            .iter()
             .find(|e| e.label == "mainshock")
             .expect("mainshock must be present after normalization");
         assert_eq!(mainshock.start_index, 184);
@@ -400,8 +395,7 @@ mod tests {
         let events = pse_adapter_seismo::embedded_seismo_data();
         let bg: Vec<f64> = events[0..184].iter().map(|e| e.magnitude).collect();
         let mean = bg.iter().sum::<f64>() / bg.len() as f64;
-        let var = bg.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
-            / (bg.len() as f64 - 1.0);
+        let var = bg.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (bg.len() as f64 - 1.0);
         let std = var.sqrt();
         let z_main = (events[184].magnitude - mean) / std;
         // Loose bound — the mainshock z-score is well below 3σ.

@@ -187,7 +187,11 @@ pub fn build_catalog_for_n(n: usize) -> ScanResult<Vec<RawEntry>> {
     }
     let bit_cache = S7BitCache::new();
     let _ = mask_for_n(n);
-    let limit = if n < 2 { 1u32 } else { 1u32 << (n * (n - 1) / 2) };
+    let limit = if n < 2 {
+        1u32
+    } else {
+        1u32 << (n * (n - 1) / 2)
+    };
 
     // Step 1 (parallel): compute canonical under S_7 for every labelled
     // graph. Collect (canonical, original) pairs and deduplicate.
@@ -470,7 +474,9 @@ pub mod verify {
             if (e.report.a2_trace - 2.0 * e.m as f64).abs() > 1e-6 {
                 return Err(format!(
                     "tr(A^2) = {} != 2m = {} for {}",
-                    e.report.a2_trace, 2 * e.m, e.id
+                    e.report.a2_trace,
+                    2 * e.m,
+                    e.id
                 ));
             }
             // tr(A^3) = 6 * triangle_count

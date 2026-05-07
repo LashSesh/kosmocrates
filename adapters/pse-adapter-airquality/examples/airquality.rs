@@ -16,10 +16,14 @@ fn main() {
     let total = readings.len();
     let batch_size = 20;
 
-    println!("\nProcessing {} readings ({} per tick)...", total, batch_size);
+    println!(
+        "\nProcessing {} readings ({} per tick)...",
+        total, batch_size
+    );
     println!("{}", "─".repeat(60));
 
-    let serialized: Vec<Vec<u8>> = readings.iter()
+    let serialized: Vec<Vec<u8>> = readings
+        .iter()
         .map(|r| serde_json::to_vec(r).expect("serialize"))
         .collect();
 
@@ -28,8 +32,11 @@ fn main() {
         let batch: Vec<Vec<u8>> = chunk.to_vec();
         if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
             crystal_count += 1;
-            println!("  Crystal {}: {}", crystal_count,
-                describe_crystal(&crystal, "DE", tick as u64));
+            println!(
+                "  Crystal {}: {}",
+                crystal_count,
+                describe_crystal(&crystal, "DE", tick as u64)
+            );
         }
     }
 

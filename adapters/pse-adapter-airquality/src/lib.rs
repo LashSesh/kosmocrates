@@ -209,11 +209,41 @@ struct StationInfo {
 
 /// Five German air quality monitoring stations.
 const STATIONS: [StationInfo; 5] = [
-    StationInfo { id: 1001, name: "Stuttgart Neckartor",     lat: 48.7862, lon: 9.1850,  baseline_pm25: 14.0 },
-    StationInfo { id: 1002, name: "Ludwigsburg",             lat: 48.8975, lon: 9.1922,  baseline_pm25: 12.0 },
-    StationInfo { id: 1003, name: "Esslingen",               lat: 48.7396, lon: 9.3048,  baseline_pm25: 11.0 },
-    StationInfo { id: 1004, name: "Heilbronn Weinsberger",   lat: 49.1427, lon: 9.2109,  baseline_pm25: 10.0 },
-    StationInfo { id: 1005, name: "Reutlingen Lederstrasse", lat: 48.4914, lon: 9.2146,  baseline_pm25: 13.0 },
+    StationInfo {
+        id: 1001,
+        name: "Stuttgart Neckartor",
+        lat: 48.7862,
+        lon: 9.1850,
+        baseline_pm25: 14.0,
+    },
+    StationInfo {
+        id: 1002,
+        name: "Ludwigsburg",
+        lat: 48.8975,
+        lon: 9.1922,
+        baseline_pm25: 12.0,
+    },
+    StationInfo {
+        id: 1003,
+        name: "Esslingen",
+        lat: 48.7396,
+        lon: 9.3048,
+        baseline_pm25: 11.0,
+    },
+    StationInfo {
+        id: 1004,
+        name: "Heilbronn Weinsberger",
+        lat: 49.1427,
+        lon: 9.2109,
+        baseline_pm25: 10.0,
+    },
+    StationInfo {
+        id: 1005,
+        name: "Reutlingen Lederstrasse",
+        lat: 48.4914,
+        lon: 9.2146,
+        baseline_pm25: 13.0,
+    },
 ];
 
 /// Deterministic pseudo-random number generator (LCG).
@@ -297,8 +327,9 @@ pub fn embedded_airquality_data() -> Vec<AirQualityReading> {
 
                     // Attenuation by distance from source
                     let distance_factor = 1.0 / (1.0 + distances[station_idx] * 3.0);
-                    let spike_magnitude =
-                        (spike_peak_pm25 - station.baseline_pm25) * spike_envelope * distance_factor;
+                    let spike_magnitude = (spike_peak_pm25 - station.baseline_pm25)
+                        * spike_envelope
+                        * distance_factor;
                     value += spike_magnitude;
                 }
             }
@@ -472,7 +503,9 @@ mod tests {
         let reading = &readings[0];
         let raw = serde_json::to_vec(reading).expect("serialize reading");
         let ctx = MeasurementContext::default();
-        let obs = adapter.canonicalize(&raw, &ctx).expect("canonicalize reading");
+        let obs = adapter
+            .canonicalize(&raw, &ctx)
+            .expect("canonicalize reading");
         assert_eq!(obs.source_id, "airquality:1001");
         assert!(!obs.payload.is_empty());
     }

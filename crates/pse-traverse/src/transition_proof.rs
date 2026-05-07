@@ -3,9 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dynamic_state::{BaseState, CanonicalNumber, DynamicError, Hash256, stable_id_of};
-use crate::field::FieldSignal;
 use crate::compressor::CompressorStats;
+use crate::dynamic_state::{stable_id_of, BaseState, CanonicalNumber, DynamicError, Hash256};
+use crate::field::FieldSignal;
 use crate::field_cube::EvidenceRef;
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -56,14 +56,19 @@ impl TransitionProof {
             0.0
         } else {
             let n = prev_sorted.len().min(next_sorted.len());
-            let sum: f64 = prev_sorted.iter().zip(next_sorted.iter()).take(n).map(|(p, q)| {
-                let mut sq = 0.0;
-                for (a, b) in p.coords.iter().zip(q.coords.iter()) {
-                    let d = a.to_f64() - b.to_f64();
-                    sq += d * d;
-                }
-                sq.sqrt()
-            }).sum();
+            let sum: f64 = prev_sorted
+                .iter()
+                .zip(next_sorted.iter())
+                .take(n)
+                .map(|(p, q)| {
+                    let mut sq = 0.0;
+                    for (a, b) in p.coords.iter().zip(q.coords.iter()) {
+                        let d = a.to_f64() - b.to_f64();
+                        sq += d * d;
+                    }
+                    sq.sqrt()
+                })
+                .sum();
             sum / n as f64
         };
         let path_delta = CanonicalNumber::quantize_default(path_delta_raw)?;
@@ -98,10 +103,18 @@ impl TransitionProof {
 }
 
 fn mean_energy(states: &[BaseState]) -> f64 {
-    if states.is_empty() { return 0.0; }
-    let sum: f64 = states.iter().map(|s| {
-        s.coords.iter().map(|c| c.to_f64() * c.to_f64()).sum::<f64>()
-    }).sum();
+    if states.is_empty() {
+        return 0.0;
+    }
+    let sum: f64 = states
+        .iter()
+        .map(|s| {
+            s.coords
+                .iter()
+                .map(|c| c.to_f64() * c.to_f64())
+                .sum::<f64>()
+        })
+        .sum();
     sum / states.len() as f64
 }
 
@@ -278,7 +291,11 @@ pub fn evaluate_dynamic_gate(
         }
     }
 
-    let decision = if passed { DynamicGateDecision::Fire } else { DynamicGateDecision::Hold };
+    let decision = if passed {
+        DynamicGateDecision::Fire
+    } else {
+        DynamicGateDecision::Hold
+    };
 
     let report = DynamicGateReport {
         report_id: Hash256::zero(),
@@ -297,9 +314,9 @@ pub fn evaluate_dynamic_gate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dynamic_state::{BaseState, DefaultStateLift, StateLift};
-    use crate::field::FieldSignal;
     use crate::compressor::CompressorStats;
+    use crate::dynamic_state::BaseState;
+    use crate::field::FieldSignal;
 
     fn dummy_stats() -> CompressorStats {
         CompressorStats {
@@ -346,7 +363,8 @@ mod tests {
         let base = BaseState::zero(2).unwrap();
         let stats = dummy_stats();
         let signal = dummy_signal();
-        let proof = TransitionProof::compute(1, &[base.clone()], &[base.clone()], &signal, &stats).unwrap();
+        let proof =
+            TransitionProof::compute(1, &[base.clone()], &[base.clone()], &signal, &stats).unwrap();
         let report = evaluate_dynamic_gate(Some(&proof), &config).unwrap();
         // With zero path_delta, zero alignment vs 0.0 min, should fire
         assert!(report.passed);
@@ -363,19 +381,26 @@ mod tests {
             coords: vec![CanonicalNumber::quantize_default(0.0).unwrap()],
             weight: CanonicalNumber::zero(),
             evidence_refs: vec![],
-        }.with_id().unwrap();
+        }
+        .with_id()
+        .unwrap();
         let next = BaseState {
             state_id: Hash256::zero(),
             coords: vec![CanonicalNumber::quantize_default(100.0).unwrap()],
             weight: CanonicalNumber::zero(),
             evidence_refs: vec![],
-        }.with_id().unwrap();
+        }
+        .with_id()
+        .unwrap();
 
         let proof = TransitionProof::compute(1, &[prev], &[next], &signal, &stats).unwrap();
         let config = DynamicGateConfig::default(); // max_path_delta = 1.0
         let report = evaluate_dynamic_gate(Some(&proof), &config).unwrap();
         assert!(!report.passed);
         assert_eq!(report.decision, DynamicGateDecision::Hold);
-        assert!(report.reasons.iter().any(|r| r.code == "path_delta_too_high"));
+        assert!(report
+            .reasons
+            .iter()
+            .any(|r| r.code == "path_delta_too_high"));
     }
 }

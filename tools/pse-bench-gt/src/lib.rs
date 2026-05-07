@@ -72,7 +72,11 @@ pub struct Detection {
 
 impl Detection {
     pub fn new(tick: u64, score: f64, source: impl Into<String>) -> Self {
-        Self { tick, score, source: source.into() }
+        Self {
+            tick,
+            score,
+            source: source.into(),
+        }
     }
 }
 
@@ -124,16 +128,33 @@ pub fn score_detections(
     tolerance_ticks: u64,
 ) -> Metrics {
     // ---- Greedy matching at the native tolerance, no score filter. ----
-    let (tp, fp, fn_) = match_at_threshold(ground_truth, detections, tolerance_ticks, f64::NEG_INFINITY);
-    let precision = if tp + fp == 0 { 0.0 } else { tp as f64 / (tp + fp) as f64 };
-    let recall = if tp + fn_ == 0 { 0.0 } else { tp as f64 / (tp + fn_) as f64 };
+    let (tp, fp, fn_) =
+        match_at_threshold(ground_truth, detections, tolerance_ticks, f64::NEG_INFINITY);
+    let precision = if tp + fp == 0 {
+        0.0
+    } else {
+        tp as f64 / (tp + fp) as f64
+    };
+    let recall = if tp + fn_ == 0 {
+        0.0
+    } else {
+        tp as f64 / (tp + fn_) as f64
+    };
     let f1 = if precision + recall == 0.0 {
         0.0
     } else {
         2.0 * precision * recall / (precision + recall)
     };
     let auprc = compute_auprc(ground_truth, detections, tolerance_ticks);
-    Metrics { tp, fp, fn_, precision, recall, f1, auprc }
+    Metrics {
+        tp,
+        fp,
+        fn_,
+        precision,
+        recall,
+        f1,
+        auprc,
+    }
 }
 
 /// Greedy TP/FP/FN count at a given minimum score.
@@ -144,10 +165,7 @@ fn match_at_threshold(
     min_score: f64,
 ) -> (u64, u64, u64) {
     // Filter detections by score threshold.
-    let active: Vec<&Detection> = detections
-        .iter()
-        .filter(|d| d.score >= min_score)
-        .collect();
+    let active: Vec<&Detection> = detections.iter().filter(|d| d.score >= min_score).collect();
 
     // For each GT event, find the highest-score detection that falls in its
     // extended window. That detection is "consumed" by this match.
@@ -161,8 +179,12 @@ fn match_at_threshold(
         // Pick the highest-score non-consumed detection in [lo, hi).
         let mut best: Option<(usize, f64)> = None;
         for (i, d) in active.iter().enumerate() {
-            if consumed[i] { continue; }
-            if d.tick < lo || d.tick >= hi { continue; }
+            if consumed[i] {
+                continue;
+            }
+            if d.tick < lo || d.tick >= hi {
+                continue;
+            }
             match best {
                 None => best = Some((i, d.score)),
                 Some((_, s)) if d.score > s => best = Some((i, d.score)),
@@ -170,8 +192,13 @@ fn match_at_threshold(
             }
         }
         match best {
-            Some((i, _)) => { consumed[i] = true; tp += 1; }
-            None => { fn_ += 1; }
+            Some((i, _)) => {
+                consumed[i] = true;
+                tp += 1;
+            }
+            None => {
+                fn_ += 1;
+            }
         }
     }
 
@@ -224,8 +251,16 @@ fn compute_auprc(
     points.push((0.0, 1.0));
     for &s in &scores {
         let (tp, fp, fn_) = match_at_threshold(ground_truth, detections, tolerance_ticks, s);
-        let precision = if tp + fp == 0 { 1.0 } else { tp as f64 / (tp + fp) as f64 };
-        let recall = if tp + fn_ == 0 { 0.0 } else { tp as f64 / (tp + fn_) as f64 };
+        let precision = if tp + fp == 0 {
+            1.0
+        } else {
+            tp as f64 / (tp + fp) as f64
+        };
+        let recall = if tp + fn_ == 0 {
+            0.0
+        } else {
+            tp as f64 / (tp + fn_) as f64
+        };
         points.push((recall, precision));
     }
 
@@ -373,12 +408,7 @@ mod tests {
         // Two GT events, two matching high-score detections, two distractor
         // low-score detections far from any GT.
         let gts = vec![gt(10, 20, "a"), gt(30, 40, "b")];
-        let dets = vec![
-            det(15, 0.95),
-            det(35, 0.95),
-            det(100, 0.10),
-            det(200, 0.05),
-        ];
+        let dets = vec![det(15, 0.95), det(35, 0.95), det(100, 0.10), det(200, 0.05)];
         let m = score_detections(&gts, &dets, 0);
         assert_eq!(m.tp, 2);
         assert_eq!(m.fn_, 0);

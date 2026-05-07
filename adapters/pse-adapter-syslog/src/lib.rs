@@ -47,10 +47,14 @@ impl LogEntry {
     /// Validate: response time non-negative, status code in range, host non-empty.
     pub fn is_valid(&self) -> bool {
         if let Some(rt) = self.response_time_ms {
-            if rt < 0.0 || rt.is_nan() || rt.is_infinite() { return false; }
+            if rt < 0.0 || rt.is_nan() || rt.is_infinite() {
+                return false;
+            }
         }
         if let Some(code) = self.status_code {
-            if !(100..=599).contains(&code) { return false; }
+            if !(100..=599).contains(&code) {
+                return false;
+            }
         }
         !self.host.is_empty() && !self.service.is_empty()
     }
@@ -109,13 +113,21 @@ pub struct SyslogAdapter {
 impl SyslogAdapter {
     /// Create a new adapter for the given host.
     pub fn new(host: &str) -> Self {
-        Self { source: format!("syslog:{}", host) }
+        Self {
+            source: format!("syslog:{}", host),
+        }
     }
 }
 
 impl ObservationAdapter for SyslogAdapter {
-    fn source_id(&self) -> &str { &self.source }
-    fn canonicalize(&self, raw: &[u8], context: &MeasurementContext) -> Result<Observation, ObserveError> {
+    fn source_id(&self) -> &str {
+        &self.source
+    }
+    fn canonicalize(
+        &self,
+        raw: &[u8],
+        context: &MeasurementContext,
+    ) -> Result<Observation, ObserveError> {
         if let Ok(entry) = serde_json::from_slice::<LogEntry>(raw) {
             if !entry.is_valid() {
                 return Err(ObserveError::Canonicalize("invalid log entry".into()));
@@ -124,15 +136,26 @@ impl ObservationAdapter for SyslogAdapter {
         let payload = raw.to_vec();
         let digest: Hash256 = content_address_raw(&payload);
         Ok(Observation {
-            timestamp: 0.0, source_id: self.source.clone(),
-            provenance: ProvenanceEnvelope { origin: self.source.clone(), chain: Vec::new(), sig: None },
-            payload, context: context.clone(), digest, schema_version: "1.0.0".into(), phase_hint: None,
+            timestamp: 0.0,
+            source_id: self.source.clone(),
+            provenance: ProvenanceEnvelope {
+                origin: self.source.clone(),
+                chain: Vec::new(),
+                sig: None,
+            },
+            payload,
+            context: context.clone(),
+            digest,
+            schema_version: "1.0.0".into(),
+            phase_hint: None,
         })
     }
 }
 
 impl pse_core::DomainAdapter for SyslogAdapter {
-    fn domain_name(&self) -> &str { "syslog" }
+    fn domain_name(&self) -> &str {
+        "syslog"
+    }
 }
 
 /// Generate 10,000 synthetic log entries across 3 hosts.
@@ -142,7 +165,9 @@ pub fn generate_embedded_data(seed: u64) -> Vec<LogEntry> {
     let mut entries = Vec::with_capacity(10000);
     let mut rng = seed;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *r as f64 / u64::MAX as f64
     };
     let hosts = ["web-01", "web-02", "web-03"];
@@ -170,9 +195,13 @@ pub fn generate_embedded_data(seed: u64) -> Vec<LogEntry> {
             format!("GET /api/resource/{}", (next_rng(&mut rng) * 1000.0) as u32)
         };
         entries.push(LogEntry {
-            host: hosts[host_idx].into(), service: services[host_idx].into(),
-            level, status_code: Some(status), response_time_ms: Some(response_time),
-            message: msg, bytes: Some((next_rng(&mut rng) * 10000.0) as u64 + 100),
+            host: hosts[host_idx].into(),
+            service: services[host_idx].into(),
+            level,
+            status_code: Some(status),
+            response_time_ms: Some(response_time),
+            message: msg,
+            bytes: Some((next_rng(&mut rng) * 10000.0) as u64 + 100),
         });
     }
     entries
@@ -180,8 +209,12 @@ pub fn generate_embedded_data(seed: u64) -> Vec<LogEntry> {
 
 /// Describe a crystal in syslog context.
 pub fn describe_crystal(crystal: &pse_types::SemanticCrystal, entry: u64) -> String {
-    format!("Syslog: pattern at entry {}, stability={:.4}, region={} vertices",
-        entry, crystal.stability_score, crystal.region.len())
+    format!(
+        "Syslog: pattern at entry {}, stability={:.4}, region={} vertices",
+        entry,
+        crystal.stability_score,
+        crystal.region.len()
+    )
 }
 
 #[cfg(test)]
@@ -190,33 +223,64 @@ mod tests {
     use pse_core::{macro_step, GlobalState};
     use pse_types::Config;
 
-    #[test] fn test_log_entry_roundtrip() {
-        let e = LogEntry { host: "w1".into(), service: "nginx".into(), level: LogLevel::Info,
-            status_code: Some(200), response_time_ms: Some(12.5), message: "OK".into(), bytes: Some(1024) };
+    #[test]
+    fn test_log_entry_roundtrip() {
+        let e = LogEntry {
+            host: "w1".into(),
+            service: "nginx".into(),
+            level: LogLevel::Info,
+            status_code: Some(200),
+            response_time_ms: Some(12.5),
+            message: "OK".into(),
+            bytes: Some(1024),
+        };
         let json = serde_json::to_vec(&e).unwrap();
         let r: LogEntry = serde_json::from_slice(&json).unwrap();
         assert_eq!(r.host, "w1");
     }
-    #[test] fn test_pattern_roundtrip() {
-        let p = SecurityPattern { pattern_type: SecurityPatternType::DDoSOnset,
-            hosts: vec!["w1".into()], confidence: 0.95, severity: SecuritySeverity::Critical,
-            description: "test".into() };
+    #[test]
+    fn test_pattern_roundtrip() {
+        let p = SecurityPattern {
+            pattern_type: SecurityPatternType::DDoSOnset,
+            hosts: vec!["w1".into()],
+            confidence: 0.95,
+            severity: SecuritySeverity::Critical,
+            description: "test".into(),
+        };
         let json = serde_json::to_string(&p).unwrap();
         let _: SecurityPattern = serde_json::from_str(&json).unwrap();
     }
-    #[test] fn test_validation() {
-        let v = LogEntry { host: "h".into(), service: "s".into(), level: LogLevel::Info,
-            status_code: Some(200), response_time_ms: Some(10.0), message: "ok".into(), bytes: None };
+    #[test]
+    fn test_validation() {
+        let v = LogEntry {
+            host: "h".into(),
+            service: "s".into(),
+            level: LogLevel::Info,
+            status_code: Some(200),
+            response_time_ms: Some(10.0),
+            message: "ok".into(),
+            bytes: None,
+        };
         assert!(v.is_valid());
-        assert!(!LogEntry { host: "".into(), ..v.clone() }.is_valid());
-        assert!(!LogEntry { response_time_ms: Some(-1.0), ..v }.is_valid());
+        assert!(!LogEntry {
+            host: "".into(),
+            ..v.clone()
+        }
+        .is_valid());
+        assert!(!LogEntry {
+            response_time_ms: Some(-1.0),
+            ..v
+        }
+        .is_valid());
     }
-    #[test] fn test_embedded_data() {
+    #[test]
+    fn test_embedded_data() {
         let d = generate_embedded_data(42);
         assert_eq!(d.len(), 10000);
         assert!(d.iter().all(|e| e.is_valid()));
     }
-    #[test] fn test_offline_pipeline() {
+    #[test]
+    fn test_offline_pipeline() {
         let config = Config::default();
         let mut state = GlobalState::new(&config);
         let adapter = SyslogAdapter::new("web-01");

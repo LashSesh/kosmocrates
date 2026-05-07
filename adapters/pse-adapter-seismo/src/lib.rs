@@ -267,7 +267,9 @@ pub fn embedded_seismo_data() -> Vec<SeismoEvent> {
     let mut events = Vec::with_capacity(200);
     let mut rng: u64 = 42;
     let next_rng = |r: &mut u64| -> f64 {
-        *r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *r = r
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         // Map to [0.0, 1.0)
         (*r as f64 / u64::MAX as f64).abs()
     };
@@ -316,7 +318,11 @@ pub fn embedded_seismo_data() -> Vec<SeismoEvent> {
             depth_km,
             magnitude,
             magnitude_type,
-            place: format!("{:.0}km from {}", 10.0 + next_rng(&mut rng) * 90.0, anchor.2),
+            place: format!(
+                "{:.0}km from {}",
+                10.0 + next_rng(&mut rng) * 90.0,
+                anchor.2
+            ),
             event_type: "earthquake".to_string(),
             timestamp_ms: base_ts + time_offset_ms,
         });
@@ -357,7 +363,10 @@ pub fn embedded_seismo_data() -> Vec<SeismoEvent> {
             depth_km,
             magnitude,
             magnitude_type: "ml".to_string(),
-            place: format!("aftershock {:.0}km from Hualien, Taiwan", 5.0 + next_rng(&mut rng) * 45.0),
+            place: format!(
+                "aftershock {:.0}km from Hualien, Taiwan",
+                5.0 + next_rng(&mut rng) * 45.0
+            ),
             event_type: "earthquake".to_string(),
             timestamp_ms: mainshock_ts + time_offset_ms,
         });
@@ -589,7 +598,11 @@ mod tests {
         let gt = embedded_seismo_ground_truth();
         assert!(!gt.is_empty(), "ground truth must not be empty");
         for ev in &gt {
-            assert!(ev.start_index < ev.end_index, "window must be non-empty: {:?}", ev);
+            assert!(
+                ev.start_index < ev.end_index,
+                "window must be non-empty: {:?}",
+                ev
+            );
             assert!(
                 ev.end_index <= events.len(),
                 "end_index {} out of bounds for {} events",
@@ -603,11 +616,17 @@ mod tests {
     fn test_ground_truth_mainshock_has_magnitude_six() {
         let events = embedded_seismo_data();
         let gt = embedded_seismo_ground_truth();
-        let mainshock = gt.iter().find(|e| e.label == "mainshock")
+        let mainshock = gt
+            .iter()
+            .find(|e| e.label == "mainshock")
             .expect("mainshock entry must exist");
         // The single event at the mainshock index must be the M6.0 Hualien quake.
         let ev = &events[mainshock.start_index];
-        assert!((ev.magnitude - 6.0).abs() < 1e-9, "expected M6.0, got {}", ev.magnitude);
+        assert!(
+            (ev.magnitude - 6.0).abs() < 1e-9,
+            "expected M6.0, got {}",
+            ev.magnitude
+        );
         assert_eq!(ev.magnitude_type, "mw");
     }
 
@@ -615,7 +634,9 @@ mod tests {
     fn test_ground_truth_aftershocks_are_smaller_than_mainshock() {
         let events = embedded_seismo_data();
         let gt = embedded_seismo_ground_truth();
-        let cluster = gt.iter().find(|e| e.label == "aftershock_cluster")
+        let cluster = gt
+            .iter()
+            .find(|e| e.label == "aftershock_cluster")
             .expect("aftershock cluster entry must exist");
         // All aftershocks must be strictly smaller than the M6.0 mainshock.
         for ev in &events[cluster.start_index..cluster.end_index] {
@@ -624,7 +645,11 @@ mod tests {
                 "aftershock magnitude {} should be below mainshock",
                 ev.magnitude
             );
-            assert!(ev.magnitude >= 1.0, "aftershock magnitude {} too small", ev.magnitude);
+            assert!(
+                ev.magnitude >= 1.0,
+                "aftershock magnitude {} too small",
+                ev.magnitude
+            );
         }
     }
 }

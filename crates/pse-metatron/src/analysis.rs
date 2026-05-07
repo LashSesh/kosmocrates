@@ -120,13 +120,15 @@ pub fn cospectral_analysis(table: &PeriodicTable) -> CospectralAnalysis {
     }
     let per_n: Vec<CospectralNStats> = per_n_map
         .into_iter()
-        .map(|(n, (graphs, classes, in_classes, largest))| CospectralNStats {
-            n,
-            graphs,
-            non_singleton_classes: classes,
-            graphs_in_classes: in_classes,
-            largest_class_size: largest,
-        })
+        .map(
+            |(n, (graphs, classes, in_classes, largest))| CospectralNStats {
+                n,
+                graphs,
+                non_singleton_classes: classes,
+                graphs_in_classes: in_classes,
+                largest_class_size: largest,
+            },
+        )
         .collect();
 
     CospectralAnalysis {
@@ -187,7 +189,16 @@ pub fn matrix_power_analysis(table: &PeriodicTable) -> MatrixPowerAnalysis {
     let mut s_deg = HashSet::<(usize, Vec<usize>)>::new();
 
     // per-n counters
-    let mut per_n_map: BTreeMap<usize, (usize, HashSet<(i64, i64)>, HashSet<(i64, i64, i64)>, HashSet<(i64, i64, i64, i64)>, HashSet<Vec<i64>>)> = BTreeMap::new();
+    let mut per_n_map: BTreeMap<
+        usize,
+        (
+            usize,
+            HashSet<(i64, i64)>,
+            HashSet<(i64, i64, i64)>,
+            HashSet<(i64, i64, i64, i64)>,
+            HashSet<Vec<i64>>,
+        ),
+    > = BTreeMap::new();
 
     for e in &table.entries {
         let n = e.n;
@@ -204,9 +215,15 @@ pub fn matrix_power_analysis(table: &PeriodicTable) -> MatrixPowerAnalysis {
         s_spec.insert((n, spectrum_key(&e.report.eigenvalues)));
         s_deg.insert((n, e.report.properties.degree_sequence.clone()));
 
-        let rec = per_n_map
-            .entry(n)
-            .or_insert_with(|| (0usize, HashSet::new(), HashSet::new(), HashSet::new(), HashSet::new()));
+        let rec = per_n_map.entry(n).or_insert_with(|| {
+            (
+                0usize,
+                HashSet::new(),
+                HashSet::new(),
+                HashSet::new(),
+                HashSet::new(),
+            )
+        });
         rec.0 += 1;
         rec.1.insert((a2, a3));
         rec.2.insert((a2, a3, a4));
@@ -823,7 +840,12 @@ fn scaffold_rays_and_ring(entry: &CatalogEntry) -> (usize, usize) {
 pub fn scaffold_invariants(table: &PeriodicTable) -> ScaffoldInvariantAnalysis {
     let mut per_n_map: BTreeMap<
         usize,
-        (usize, std::collections::HashSet<(usize, usize)>, usize, usize),
+        (
+            usize,
+            std::collections::HashSet<(usize, usize)>,
+            usize,
+            usize,
+        ),
     > = BTreeMap::new();
     for e in &table.entries {
         let (r, h) = scaffold_rays_and_ring(e);
@@ -885,7 +907,11 @@ pub fn cospectral_distinguishers(
 ) -> Vec<CospectralDistinguisher> {
     let cospec = cospectral_analysis(table);
     let mut out: Vec<CospectralDistinguisher> = Vec::new();
-    for group in cospec.groups.iter().filter(|g| g.members.len() >= min_class_size) {
+    for group in cospec
+        .groups
+        .iter()
+        .filter(|g| g.members.len() >= min_class_size)
+    {
         let mut members: Vec<CospectralMemberDetail> = Vec::new();
         for id in &group.members {
             let Some(e) = table.entries.iter().find(|x| &x.id == id) else {
@@ -906,28 +932,49 @@ pub fn cospectral_distinguishers(
             });
         }
         let mut dist: Vec<String> = Vec::new();
-        if members.iter().any(|m| m.degree_sequence != members[0].degree_sequence) {
+        if members
+            .iter()
+            .any(|m| m.degree_sequence != members[0].degree_sequence)
+        {
             dist.push("degree_sequence".into());
         }
-        if members.iter().any(|m| m.triangle_count != members[0].triangle_count) {
+        if members
+            .iter()
+            .any(|m| m.triangle_count != members[0].triangle_count)
+        {
             dist.push("triangle_count".into());
         }
-        if members.iter().any(|m| m.stabilizer_order != members[0].stabilizer_order) {
+        if members
+            .iter()
+            .any(|m| m.stabilizer_order != members[0].stabilizer_order)
+        {
             dist.push("stabilizer_order".into());
         }
         if members.iter().any(|m| m.diameter != members[0].diameter) {
             dist.push("diameter".into());
         }
-        if members.iter().any(|m| m.max_clique_size != members[0].max_clique_size) {
+        if members
+            .iter()
+            .any(|m| m.max_clique_size != members[0].max_clique_size)
+        {
             dist.push("max_clique_size".into());
         }
-        if members.iter().any(|m| m.chromatic_number != members[0].chromatic_number) {
+        if members
+            .iter()
+            .any(|m| m.chromatic_number != members[0].chromatic_number)
+        {
             dist.push("chromatic_number".into());
         }
-        if members.iter().any(|m| m.is_connected != members[0].is_connected) {
+        if members
+            .iter()
+            .any(|m| m.is_connected != members[0].is_connected)
+        {
             dist.push("is_connected".into());
         }
-        if members.iter().any(|m| m.is_bipartite != members[0].is_bipartite) {
+        if members
+            .iter()
+            .any(|m| m.is_bipartite != members[0].is_bipartite)
+        {
             dist.push("is_bipartite".into());
         }
         if members
@@ -1012,7 +1059,10 @@ mod tests {
             .iter()
             .filter(|g| g.n == 5 && g.members.len() == 2)
             .collect();
-        assert!(!n5_pairs.is_empty(), "expected at least one cospectral pair at n=5");
+        assert!(
+            !n5_pairs.is_empty(),
+            "expected at least one cospectral pair at n=5"
+        );
         // Spectrum should be {-2, 0, 0, 0, 2}.
         let spec = &n5_pairs[0].spectrum;
         assert!((spec[0] - (-2.0)).abs() < 1e-6);
@@ -1035,7 +1085,10 @@ mod tests {
             .entries
             .iter()
             .find(|e| e.n == 5 && e.degree_sequence == vec![2, 2, 2, 2, 2]);
-        assert!(c5.is_some(), "C5 not found among self-complementary n=5 graphs");
+        assert!(
+            c5.is_some(),
+            "C5 not found among self-complementary n=5 graphs"
+        );
     }
 
     #[test]
@@ -1078,6 +1131,9 @@ mod tests {
             .expect("octahedron row missing");
         // Octahedron K_{2,2,2} exists at n=6, m=12. At least one isomorphic
         // instance must be present.
-        assert!(oct.isomorphic_count >= 1, "expected K_{{2,2,2}} in n=6 catalog");
+        assert!(
+            oct.isomorphic_count >= 1,
+            "expected K_{{2,2,2}} in n=6 catalog"
+        );
     }
 }

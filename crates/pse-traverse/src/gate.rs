@@ -47,10 +47,7 @@ impl Candidate {
 
     /// Produce the observation payloads that `pse_core::macro_step`
     /// will receive on commit.
-    pub fn to_observation_payloads(
-        &self,
-        evidence_payloads: &[Vec<u8>],
-    ) -> Result<Vec<Vec<u8>>> {
+    pub fn to_observation_payloads(&self, evidence_payloads: &[Vec<u8>]) -> Result<Vec<Vec<u8>>> {
         let mut out: Vec<Vec<u8>> = self.payloads.clone();
         out.extend_from_slice(evidence_payloads);
         Ok(out)
@@ -124,7 +121,10 @@ pub struct GateEngine {
 
 impl Default for GateEngine {
     fn default() -> Self {
-        Self { dual_fabric: true, mci_min: 0.5 }
+        Self {
+            dual_fabric: true,
+            mci_min: 0.5,
+        }
     }
 }
 
@@ -135,7 +135,9 @@ impl GateEngine {
         let mut checks = Vec::new();
 
         // Check 1: every required dimension assigned.
-        let mut missing_required: Vec<String> = cube.dimensions.values()
+        let mut missing_required: Vec<String> = cube
+            .dimensions
+            .values()
             .filter(|d| d.required && !candidate.assignments.contains_key(&d.id))
             .map(|d| d.id.clone())
             .collect();
@@ -148,12 +150,17 @@ impl GateEngine {
             message: if missing_required.is_empty() {
                 "ok".into()
             } else {
-                format!("missing required dimensions: {}", missing_required.join(","))
+                format!(
+                    "missing required dimensions: {}",
+                    missing_required.join(",")
+                )
             },
         });
 
         // Check 2: every claimed constraint exists.
-        let mut missing_claims: Vec<String> = candidate.claimed_satisfies.iter()
+        let mut missing_claims: Vec<String> = candidate
+            .claimed_satisfies
+            .iter()
             .filter(|c| !cube.constraints.contains_key(*c))
             .cloned()
             .collect();
@@ -172,11 +179,15 @@ impl GateEngine {
 
         // Check 3: every hard constraint touching an assigned dimension is claimed.
         let assigned_dims: Vec<&str> = candidate.assignments.keys().map(|s| s.as_str()).collect();
-        let mut hard_uncovered: Vec<String> = cube.constraints.values()
+        let mut hard_uncovered: Vec<String> = cube
+            .constraints
+            .values()
             .filter(|c| {
                 c.kind == ConstraintKind::Hard
-                && c.dimensions.iter().any(|d| assigned_dims.contains(&d.as_str()))
-                && !candidate.claimed_satisfies.contains(&c.id)
+                    && c.dimensions
+                        .iter()
+                        .any(|d| assigned_dims.contains(&d.as_str()))
+                    && !candidate.claimed_satisfies.contains(&c.id)
             })
             .map(|c| c.id.clone())
             .collect();
@@ -202,14 +213,16 @@ impl GateEngine {
             // is at most `primal_total - hard_constraints_covered_check`.
             // The MCI is then the agreement fraction between the two.
             let mirror_pass = primal_total.saturating_sub(1); // mirror fails check 3 by construction
-            let agreement = checks.iter()
+            let agreement = checks
+                .iter()
                 .filter(|c| c.id != "g.hard_constraints_covered")
                 .filter(|c| c.passed)
                 .count();
             let mci = if primal_total > 0 {
-                ((primal_pass + agreement) as f64) /
-                ((primal_total + mirror_pass.max(1)) as f64)
-            } else { 0.0 };
+                ((primal_pass + agreement) as f64) / ((primal_total + mirror_pass.max(1)) as f64)
+            } else {
+                0.0
+            };
             let mci_clamped = mci.clamp(0.0, 1.0);
             checks.push(GateCheck {
                 id: "g.dual_fabric_mci".into(),
@@ -219,9 +232,12 @@ impl GateEngine {
                 message: format!("mci={:.4} >= min={:.4}", mci_clamped, self.mci_min),
             });
             Some(mci_clamped)
-        } else { None };
+        } else {
+            None
+        };
 
-        let hard_passed = checks.iter()
+        let hard_passed = checks
+            .iter()
             .filter(|c| matches!(c.severity, GateSeverity::Error | GateSeverity::Critical))
             .all(|c| c.passed);
         let mci_passed = mci.map(|m| m >= self.mci_min).unwrap_or(true);
@@ -233,17 +249,25 @@ impl GateEngine {
             checks,
             mci,
             pse_commit_ready: passed,
-            failure_policy: if passed { None } else { Some(FailurePolicy::Refine) },
+            failure_policy: if passed {
+                None
+            } else {
+                Some(FailurePolicy::Refine)
+            },
             diagnostic_channels: Vec::new(),
         }
     }
 }
 
 /// Standalone MCI gate (Phase 4 hook).
-pub struct MciGate { pub min: f64 }
+pub struct MciGate {
+    pub min: f64,
+}
 
 impl MciGate {
-    pub fn check(&self, mci: f64) -> bool { (0.0..=1.0).contains(&mci) && mci >= self.min }
+    pub fn check(&self, mci: f64) -> bool {
+        (0.0..=1.0).contains(&mci) && mci >= self.min
+    }
 }
 
 #[cfg(test)]
@@ -251,8 +275,8 @@ mod tests {
     use super::*;
     use crate::field_cube::{DefaultFieldCubeBuilder, FieldCubeBuilder};
     use crate::spec::{
-        ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec,
-        OutputSpec, ProblemSpec, ReplayPolicy, RiskPolicy, ValueDomain,
+        ConstraintSpec, DimensionKind, DimensionSource, DimensionSpec, OutputSpec, ProblemSpec,
+        ReplayPolicy, RiskPolicy, ValueDomain,
     };
 
     fn cube() -> FieldCube {
@@ -277,7 +301,10 @@ mod tests {
                 required: true,
                 source: DimensionSource::User,
             }],
-            desired_outputs: vec![OutputSpec { id: "o.x".into(), kind: "y".into() }],
+            desired_outputs: vec![OutputSpec {
+                id: "o.x".into(),
+                kind: "y".into(),
+            }],
             risk_policy: RiskPolicy::default(),
             replay: ReplayPolicy::default(),
             metadata: BTreeMap::new(),

@@ -608,11 +608,7 @@ pub fn compute_properties_with(
 /// Self-complementarity is decided internally via S_7 canonical comparison.
 /// For n = 8 use [`compute_properties_with`] directly and pass the
 /// self-complementarity flag from [`crate::bitgraph_n::fast_orbit_n`].
-pub fn compute_properties(
-    embedded: &[Vec<f64>],
-    n: usize,
-    cache: &S7BitCache,
-) -> GraphProperties {
+pub fn compute_properties(embedded: &[Vec<f64>], n: usize, cache: &S7BitCache) -> GraphProperties {
     let bits = adjacency_to_bits(embedded, n);
     let comp_bits = complement_bits(bits, n);
     let canon_g = canonical_using_cache(bits, cache);
@@ -647,7 +643,7 @@ fn canonical_using_cache(bits: u32, cache: &S7BitCache) -> u32 {
     canonical
 }
 
-/// Sanity helper that mirrors [`canonical_using_cache`] without a cache —
+/// Sanity helper that mirrors `canonical_using_cache` without a cache —
 /// used internally and for ad-hoc tests. Kept available because callers may
 /// want to verify behavior without instantiating an `S7BitCache`.
 pub fn canonical_form_uncached(bits: u32) -> u32 {
@@ -738,8 +734,8 @@ mod tests {
 
     #[test]
     fn star_is_tree_and_bipartite() {
-        let g = InputGraph::from_edges(7, &[(1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7)])
-            .unwrap();
+        let g =
+            InputGraph::from_edges(7, &[(1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7)]).unwrap();
         let e = embed(&g);
         let cache = S7BitCache::new();
         let p = compute_properties(&e, 7, &cache);
@@ -768,9 +764,8 @@ mod tests {
 
     #[test]
     fn k33_is_not_planar() {
-        let edges: Vec<(usize, usize)> = (1..=3)
-            .flat_map(|i| (4..=6).map(move |j| (i, j)))
-            .collect();
+        let edges: Vec<(usize, usize)> =
+            (1..=3).flat_map(|i| (4..=6).map(move |j| (i, j))).collect();
         let g = InputGraph::from_edges(6, &edges).unwrap();
         let e = embed(&g);
         let cache = S7BitCache::new();
@@ -781,8 +776,8 @@ mod tests {
 
     #[test]
     fn cycle_c6_is_planar_not_threshold() {
-        let g = InputGraph::from_edges(6, &[(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 1)])
-            .unwrap();
+        let g =
+            InputGraph::from_edges(6, &[(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 1)]).unwrap();
         let e = embed(&g);
         let cache = S7BitCache::new();
         let p = compute_properties(&e, 6, &cache);
@@ -792,11 +787,8 @@ mod tests {
 
     #[test]
     fn k4_is_planar_and_threshold() {
-        let g = InputGraph::from_edges(
-            4,
-            &[(1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)],
-        )
-        .unwrap();
+        let g =
+            InputGraph::from_edges(4, &[(1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)]).unwrap();
         let e = embed(&g);
         let cache = S7BitCache::new();
         let p = compute_properties(&e, 4, &cache);

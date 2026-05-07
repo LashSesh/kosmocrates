@@ -8,14 +8,19 @@ use pse_types::Config;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let file_path = args.iter().position(|a| a == "--file")
+    let file_path = args
+        .iter()
+        .position(|a| a == "--file")
         .and_then(|i| args.get(i + 1).cloned());
 
     let csv_content = if let Some(path) = file_path {
         println!("Loading CSV from: {}", path);
         match std::fs::read_to_string(&path) {
             Ok(c) => c,
-            Err(e) => { eprintln!("Error reading file: {}. Using embedded test data.", e); embedded_test_csv() }
+            Err(e) => {
+                eprintln!("Error reading file: {}. Using embedded test data.", e);
+                embedded_test_csv()
+            }
         }
     } else {
         println!("Using embedded test CSV (100 rows, 8 columns).");
@@ -29,7 +34,10 @@ fn main() {
 
     let (rows, stats) = match parse_csv(&csv_content, &tab_config) {
         Ok(r) => r,
-        Err(e) => { eprintln!("CSV parse error: {}", e); return; }
+        Err(e) => {
+            eprintln!("CSV parse error: {}", e);
+            return;
+        }
     };
 
     println!("\n=== Data Quality Report ===");
@@ -37,16 +45,22 @@ fn main() {
 
     println!("\n--- Column Statistics ---");
     for stat in &stats {
-        println!("  {}: min={:.2?} max={:.2?} mean={:.2?} std={:.2?} nulls={}({:.1}%)",
-            stat.name, stat.min, stat.max, stat.mean, stat.std, stat.null_count, stat.null_pct);
+        println!(
+            "  {}: min={:.2?} max={:.2?} mean={:.2?} std={:.2?} nulls={}({:.1}%)",
+            stat.name, stat.min, stat.max, stat.mean, stat.std, stat.null_count, stat.null_pct
+        );
     }
 
     let anomalies = detect_outliers(&rows, &stats);
     if !anomalies.is_empty() {
         println!("\n--- Outliers ---");
         for a in &anomalies {
-            println!("  {}: {} (rows: {:?})", a.column, a.description,
-                &a.row_indices[..a.row_indices.len().min(5)]);
+            println!(
+                "  {}: {} (rows: {:?})",
+                a.column,
+                a.description,
+                &a.row_indices[..a.row_indices.len().min(5)]
+            );
         }
     }
 
@@ -71,5 +85,8 @@ fn main() {
             crystal_count += 1;
         }
     }
-    println!("PSE crystals: {}, ticks: {}", crystal_count, state.commit_index);
+    println!(
+        "PSE crystals: {}, ticks: {}",
+        crystal_count, state.commit_index
+    );
 }

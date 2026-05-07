@@ -13,14 +13,14 @@ pub mod topology_ops;
 
 pub use crystal_adapter::CrystalAdapter;
 pub use explore::{resonance_landscape_explorer, ResonanceExplorationResult, ResonanceProbe};
-pub use query::{resonance_fingerprint, ResonanceFingerprint};
-pub use topology_ops::{
-    bridge, compose, crystal_similarity, dual, interpolate, query, BridgeConfig,
-    BridgeError, ComposeConfig, ComposeError, QueryConfig,
-};
 pub use metatron_attach::{
     attach_signature, attach_signature_global, induced_adjacency, signature_for_region,
     signature_for_region_global, METATRON_REGION_CAP,
+};
+pub use query::{resonance_fingerprint, ResonanceFingerprint};
+pub use topology_ops::{
+    bridge, compose, crystal_similarity, dual, interpolate, query, BridgeConfig, BridgeError,
+    ComposeConfig, ComposeError, QueryConfig,
 };
 
 /// The trait that domain plugins implement to use the PSE engine.
@@ -28,33 +28,36 @@ pub trait DomainAdapter: Send + Sync + 'static {
     /// Human-readable name for this domain.
     fn domain_name(&self) -> &str;
     /// Convert domain-specific raw data to observation bytes.
-    fn encode_observation(&self, raw: &[u8]) -> Vec<u8> { raw.to_vec() }
+    fn encode_observation(&self, raw: &[u8]) -> Vec<u8> {
+        raw.to_vec()
+    }
     /// Optional domain-specific validation.
-    fn validate(&self, _crystal: &pse_types::SemanticCrystal) -> bool { true }
+    fn validate(&self, _crystal: &pse_types::SemanticCrystal) -> bool {
+        true
+    }
 }
 
-use std::collections::BTreeMap;
-use pse_types::{
-    CommitIndex, CommitProof, Config, DataHelix, FiveDState, GateSnapshot,
-    MandorlaState, MeasurementContext, NullCenter, Observation, PhaseLadder,
-    RunDescriptor, SemanticCrystal, VertexId,
-};
-use pse_graph::{ingest, ObservationAdapter, PassthroughAdapter};
-use pse_graph::PersistentGraph;
-use pse_extract::{inverse_weave, TimeWindow, default_operator_library};
-use pse_cascade::{
-    CascadeContext, CascadeOperator, CrystalPrecursor, DKOperator, dual_consensus, MetricSet,
-    PIOperator, PoRFsm, SWOperator, WTOperator,
-};
 use pse_cascade::{
     batch_data_helix, build_metatron_phase_ladder, build_phase_ladder, helix_pair, mandorla,
     mandorla_real, restore_neutrality,
 };
-use pse_evidence::{Archive, build_crystal_with_id};
+use pse_cascade::{
+    dual_consensus, CascadeContext, CascadeOperator, CrystalPrecursor, DKOperator, MetricSet,
+    PIOperator, PoRFsm, SWOperator, WTOperator,
+};
 use pse_constraint::{intrinsic_step, morphogenic_update, MorphState};
-use pse_memory::{PatternMemory, MemoryConfig};
+use pse_evidence::{build_crystal_with_id, Archive};
+use pse_extract::{default_operator_library, inverse_weave, TimeWindow};
+use pse_graph::PersistentGraph;
+use pse_graph::{ingest, ObservationAdapter, PassthroughAdapter};
+use pse_memory::{MemoryConfig, PatternMemory};
+use pse_types::{
+    CommitIndex, CommitProof, Config, DataHelix, FiveDState, GateSnapshot, MandorlaState,
+    MeasurementContext, NullCenter, Observation, PhaseLadder, RunDescriptor, SemanticCrystal,
+    VertexId,
+};
+use std::collections::BTreeMap;
 use thiserror::Error;
-
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -106,7 +109,7 @@ pub struct GlobalState {
     pub candidates: Vec<CrystalPrecursor>,
     pub consensus: ConsensusState,
     pub morph: MorphState,
-    pub active_carrier: usize,     // index into phase_ladder
+    pub active_carrier: usize, // index into phase_ladder
     pub phase_ladder: PhaseLadder,
     pub h5_state: FiveDState,
     pub commit_index: CommitIndex,
@@ -234,19 +237,25 @@ pub fn compute_all_metrics(
     let d_raw: f64 = if prev_embeddings.is_empty() {
         0.75
     } else {
-        let mut diffs: Vec<f64> = graph.embedding.iter()
+        let mut diffs: Vec<f64> = graph
+            .embedding
+            .iter()
             .filter_map(|(vid, curr)| {
                 let curr_norm = curr.norm_sq().sqrt();
-                if curr_norm < 1e-9 { return None; }
+                if curr_norm < 1e-9 {
+                    return None;
+                }
                 let prev = prev_embeddings.get(vid)?;
                 let prev_norm = prev.norm_sq().sqrt();
-                if prev_norm < 1e-9 { return None; }
-                let dp = curr.p   - prev.p;
+                if prev_norm < 1e-9 {
+                    return None;
+                }
+                let dp = curr.p - prev.p;
                 let dr = curr.rho - prev.rho;
                 let dw = curr.omega - prev.omega;
-                let dc = curr.chi  - prev.chi;
-                let de = curr.eta  - prev.eta;
-                let diff = (dp*dp + dr*dr + dw*dw + dc*dc + de*de).sqrt();
+                let dc = curr.chi - prev.chi;
+                let de = curr.eta - prev.eta;
+                let diff = (dp * dp + dr * dr + dw * dw + dc * dc + de * de).sqrt();
                 Some(diff / (curr_norm + 1e-9))
             })
             .collect();
@@ -262,14 +271,17 @@ pub fn compute_all_metrics(
             0.0
         } else {
             diffs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let idx = ((diffs.len() as f64 * 0.90).ceil() as usize).saturating_sub(1)
+            let idx = ((diffs.len() as f64 * 0.90).ceil() as usize)
+                .saturating_sub(1)
                 .min(diffs.len() - 1);
             diffs[idx]
         };
 
         let n_curr = graph.embedding.len();
         let n_prev = prev_embeddings.len();
-        let n_intersect = graph.embedding.keys()
+        let n_intersect = graph
+            .embedding
+            .keys()
             .filter(|vid| prev_embeddings.contains_key(vid))
             .count();
         let denom = n_curr.max(n_prev);
@@ -280,7 +292,11 @@ pub fn compute_all_metrics(
         };
 
         let candidate = mean.max(p90).max(churn);
-        if candidate.is_finite() && candidate > 0.0 { candidate } else { 0.75 }
+        if candidate.is_finite() && candidate > 0.0 {
+            candidate
+        } else {
+            0.75
+        }
     };
     let d = pse_cascade::norm_saturate(d_raw, norm.mu_d);
 
@@ -322,7 +338,8 @@ pub fn compute_all_metrics(
     let n = pse_cascade::norm_exp(mandorla.delta_phi, norm.lambda_seam);
 
     // K: crystal score (lambda_C * coherence + lambda_E * entropy_factor)
-    let k = norm.lambda_c * q + norm.lambda_e * (1.0 - mandorla.delta_phi / std::f64::consts::PI).max(0.0);
+    let k = norm.lambda_c * q
+        + norm.lambda_e * (1.0 - mandorla.delta_phi / std::f64::consts::PI).max(0.0);
 
     // F: friction (proxy: rate of change in graph structure)
     let f_raw = graph.commit_index as f64 * 0.01;
@@ -366,7 +383,8 @@ fn attempt_carrier_migration(state: &mut GlobalState, metrics: &MetricSet, confi
         .enumerate()
         .filter(|(i, _)| *i != current)
         .max_by(|(_, a), (_, b)| {
-            a.mandorla.kappa
+            a.mandorla
+                .kappa
                 .partial_cmp(&b.mandorla.kappa)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
@@ -442,8 +460,12 @@ pub fn macro_step(
             let mut best_kappa = f64::NEG_INFINITY;
             for (i, c) in state.phase_ladder.iter().enumerate() {
                 let m = pse_cascade::mandorla_real(
-                    &c.helix_a, &c.helix_b, data,
-                    config.carrier.lambda, config.carrier.mu_r, config.carrier.eta_r,
+                    &c.helix_a,
+                    &c.helix_b,
+                    data,
+                    config.carrier.lambda,
+                    config.carrier.mu_r,
+                    config.carrier.eta_r,
                 );
                 if m.kappa > best_kappa {
                     best_kappa = m.kappa;
@@ -456,7 +478,9 @@ pub fn macro_step(
 
     // L1: Update persistent graph (MCCE assimilated)
     state.engine_state = EngineState::Relating;
-    state.graph.apply_observations(&canonical_obs, &config.persistence)?;
+    state
+        .graph
+        .apply_observations(&canonical_obs, &config.persistence)?;
 
     // Embedding + Mandorla
     state.engine_state = EngineState::Embedding;
@@ -502,7 +526,13 @@ pub fn macro_step(
 
     // Resonance evaluation
     state.engine_state = EngineState::Resonating;
-    let metrics = compute_all_metrics(&state.graph, &mand, &state.h5_state, config, &state.prev_embeddings);
+    let metrics = compute_all_metrics(
+        &state.graph,
+        &mand,
+        &state.h5_state,
+        config,
+        &state.prev_embeddings,
+    );
     // Save current embeddings for next tick's d-metric computation
     state.prev_embeddings = state.graph.embedding.clone();
 
@@ -537,14 +567,22 @@ pub fn macro_step(
     if !gate.kairos {
         tracing::debug!(
             tick = state.commit_index,
-            d = gate.d, d_thr = config.thresholds.d,
-            q = gate.q, q_thr = config.thresholds.q,
-            r = gate.r, r_thr = config.thresholds.r,
-            g = gate.g, g_thr = config.thresholds.g,
-            j = gate.j, j_thr = config.thresholds.j,
-            p = gate.p, p_thr = config.thresholds.p,
-            n = gate.n, n_thr = config.thresholds.n,
-            k = gate.k, k_thr = config.thresholds.k,
+            d = gate.d,
+            d_thr = config.thresholds.d,
+            q = gate.q,
+            q_thr = config.thresholds.q,
+            r = gate.r,
+            r_thr = config.thresholds.r,
+            g = gate.g,
+            g_thr = config.thresholds.g,
+            j = gate.j,
+            j_thr = config.thresholds.j,
+            p = gate.p,
+            p_thr = config.thresholds.p,
+            n = gate.n,
+            n_thr = config.thresholds.n,
+            k = gate.k,
+            k_thr = config.thresholds.k,
             "kairos rejected"
         );
         state.engine_state = EngineState::Rejected("kairos failed".into());
@@ -674,33 +712,27 @@ pub fn macro_step(
     // batch's. If `gate_on_fail` and `p_value >= alpha`, the crystal
     // is rejected and the commit is suppressed. Either way the
     // p-value lands in the commit proof when the crystal does commit.
-    let (fals_p_value, fals_count): (Option<f64>, Option<u32>) = if config
-        .falsification
-        .enabled
-        && !canonical_obs.is_empty()
-    {
-        let result = falsify::falsify_with_surrogates(
-            &canonical_obs,
-            config,
-            config.falsification.k,
-            config.falsification.method.clone(),
-            // Per-tick seed derived from the commit index so two replays
-            // of the same RunDescriptor produce identical p-values
-            // (Inv I4 preserved through the falsifier).
-            0xFA15_E700_u64.wrapping_add(state.commit_index),
-            adapter,
-        );
-        if config.falsification.gate_on_fail
-            && result.p_value >= config.falsification.alpha
-        {
-            state.engine_state =
-                EngineState::Rejected("falsification failed".into());
-            return Ok(None);
-        }
-        (Some(result.p_value), Some(result.k_actual))
-    } else {
-        (None, None)
-    };
+    let (fals_p_value, fals_count): (Option<f64>, Option<u32>) =
+        if config.falsification.enabled && !canonical_obs.is_empty() {
+            let result = falsify::falsify_with_surrogates(
+                &canonical_obs,
+                config,
+                config.falsification.k,
+                config.falsification.method.clone(),
+                // Per-tick seed derived from the commit index so two replays
+                // of the same RunDescriptor produce identical p-values
+                // (Inv I4 preserved through the falsifier).
+                0xFA15_E700_u64.wrapping_add(state.commit_index),
+                adapter,
+            );
+            if config.falsification.gate_on_fail && result.p_value >= config.falsification.alpha {
+                state.engine_state = EngineState::Rejected("falsification failed".into());
+                return Ok(None);
+            }
+            (Some(result.p_value), Some(result.k_actual))
+        } else {
+            (None, None)
+        };
 
     // Build commit proof
     let por_trace = state.por_fsm.get_trace().clone();
@@ -748,8 +780,11 @@ pub fn macro_step(
         crystal.topology_signature.cheeger_estimate = sig.cheeger_estimate;
         crystal.topology_signature.kuramoto_coherence = sig.kuramoto_coherence;
         crystal.topology_signature.mean_propagation_time = sig.mean_propagation_time;
-        crystal.topology_signature.dtl_connected = sig.dtl_predicates
-            .get("Connected").cloned().unwrap_or(false);
+        crystal.topology_signature.dtl_connected = sig
+            .dtl_predicates
+            .get("Connected")
+            .cloned()
+            .unwrap_or(false);
         if !sig.betti_numbers.is_empty() {
             crystal.topology_signature.betti_0 = sig.betti_numbers[0];
             crystal.topology_signature.betti_1 = sig.betti_numbers.get(1).cloned().unwrap_or(0);
@@ -819,7 +854,12 @@ pub fn macro_step(
     // macro_step; do not increment again here.
 
     // L4: Morphogenic update (Inv I11: non-retroactive)
-    morphogenic_update(&mut state.graph, &mut state.morph, &[crystal.clone()], &config.adaptation);
+    morphogenic_update(
+        &mut state.graph,
+        &mut state.morph,
+        &[crystal.clone()],
+        &config.adaptation,
+    );
 
     // Intrinsic dynamics update (OI-08)
     state.t2 += config.temporal.dt2;
@@ -859,28 +899,33 @@ pub fn run_with_descriptor(
     Ok(results)
 }
 
-
 // ─── Temperature Calibration (OI-06) ─────────────────────────────────────────
 
 /// Compute temperature from realized standard deviation of resonance field (OI-06)
-pub fn compute_temperature(
-    resonance_window: &[f64],
-    c_t: f64,
-    t_default: f64,
-) -> f64 {
+pub fn compute_temperature(resonance_window: &[f64], c_t: f64, t_default: f64) -> f64 {
     if resonance_window.len() < 2 {
         return t_default;
     }
     let n = resonance_window.len() as f64;
     let mean = resonance_window.iter().sum::<f64>() / n;
-    let variance = resonance_window.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    let variance = resonance_window
+        .iter()
+        .map(|x| (x - mean).powi(2))
+        .sum::<f64>()
+        / (n - 1.0);
     let sigma = variance.sqrt();
     c_t * sigma
 }
 
 /// Temperature regime classification (OI-06)
 pub fn temperature_regime(t: f64) -> &'static str {
-    if t < 0.5 { "calm" } else if t < 2.0 { "normal" } else { "volatile" }
+    if t < 0.5 {
+        "calm"
+    } else if t < 2.0 {
+        "normal"
+    } else {
+        "volatile"
+    }
 }
 
 #[cfg(test)]
@@ -1014,7 +1059,20 @@ mod tests {
         let mut state = GlobalState::new(&cfg);
         let adapter = PassthroughAdapter::new("j-default");
         let payload = serde_json::to_vec(&"trivial").unwrap();
-        let _ = macro_step(&mut state, &payload.clone().into_iter().collect::<Vec<u8>>().chunks(1).map(|c| c.to_vec()).next().into_iter().collect::<Vec<_>>(), &cfg, &adapter);
+        let _ = macro_step(
+            &mut state,
+            &payload
+                .clone()
+                .into_iter()
+                .collect::<Vec<u8>>()
+                .chunks(1)
+                .map(|c| c.to_vec())
+                .next()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            &cfg,
+            &adapter,
+        );
         // Sanity: still at the original carrier (no friction-triggered
         // migration on a single trivial tick).
         assert_eq!(state.active_carrier, 0);
@@ -1054,8 +1112,12 @@ mod tests {
         let mut best_kappa = f64::NEG_INFINITY;
         for (i, c) in state.phase_ladder.iter().enumerate() {
             let m = pse_cascade::mandorla_real(
-                &c.helix_a, &c.helix_b, &data,
-                cfg.carrier.lambda, cfg.carrier.mu_r, cfg.carrier.eta_r,
+                &c.helix_a,
+                &c.helix_b,
+                &data,
+                cfg.carrier.lambda,
+                cfg.carrier.mu_r,
+                cfg.carrier.eta_r,
             );
             if m.kappa > best_kappa {
                 best_kappa = m.kappa;

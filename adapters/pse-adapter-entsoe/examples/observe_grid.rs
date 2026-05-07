@@ -42,10 +42,7 @@ fn main() {
     let mut crystal_count = 0;
     let mut all_crystals = Vec::new();
 
-    println!(
-        "\nProcessing {} grid observations...",
-        total
-    );
+    println!("\nProcessing {} grid observations...", total);
     println!("{}", "─".repeat(60));
 
     for (tick, obs) in observations.iter().enumerate() {

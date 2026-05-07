@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dynamic_state::{CanonicalNumber, DynamicError, Hash256, stable_id_of};
+use crate::dynamic_state::{stable_id_of, CanonicalNumber, DynamicError, Hash256};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // PlanDeltaOp

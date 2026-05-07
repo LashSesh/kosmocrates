@@ -16,7 +16,7 @@
 //! The evaluator at each landscape point returns the
 //! [`SpectralSignature`] of the hypothetical PSE configuration:
 //!
-//!  - `psi = κ_real` from [`mandorla_real`] — the actual resonance
+//!  - `psi = κ_real` from `mandorla_real` — the actual resonance
 //!    coherence at that (carrier-φ, data-r) pair;
 //!  - `rho = phase_lock_factor` — `(1 + cos(2·(φ_d − α.phi))) / 2`,
 //!    measuring how cleanly the data sits on the carrier axis;
@@ -83,11 +83,7 @@ pub fn resonance_landscape_explorer(
 
     // Probe-data template: use the current data-helix if present, else
     // a neutral probe at the carrier radius and zero phase.
-    let probe_phi = state
-        .last_data_helix
-        .as_ref()
-        .map(|d| d.phi)
-        .unwrap_or(0.0);
+    let probe_phi = state.last_data_helix.as_ref().map(|d| d.phi).unwrap_or(0.0);
     let probe_tau = state
         .last_data_helix
         .as_ref()
@@ -101,16 +97,23 @@ pub fn resonance_landscape_explorer(
         let phi_alpha = u * two_pi;
         let r_data = v;
 
-        let alpha_p = TubusCoord { tau: alpha.tau, phi: phi_alpha, r: alpha.r };
+        let alpha_p = TubusCoord {
+            tau: alpha.tau,
+            phi: phi_alpha,
+            r: alpha.r,
+        };
         let beta_p = TubusCoord {
             tau: beta.tau,
             phi: (phi_alpha + std::f64::consts::PI).rem_euclid(two_pi),
             r: beta.r,
         };
-        let probe = DataHelix { tau: probe_tau, phi: probe_phi, r: r_data };
-        let m = pse_cascade::mandorla_real(
-            &alpha_p, &beta_p, &probe, cfg.lambda, cfg.mu_r, cfg.eta_r,
-        );
+        let probe = DataHelix {
+            tau: probe_tau,
+            phi: probe_phi,
+            r: r_data,
+        };
+        let m =
+            pse_cascade::mandorla_real(&alpha_p, &beta_p, &probe, cfg.lambda, cfg.mu_r, cfg.eta_r);
 
         // Decompose into the three E.2 factors so the navigator's
         // resonance metric (psi × rho × omega) reflects the
@@ -212,17 +215,30 @@ mod tests {
         let beta = &active.helix_b;
         let probe_phi = state.last_data_helix.as_ref().map(|d| d.phi).unwrap_or(0.0);
         let phi_alpha = 0.5 * std::f64::consts::TAU;
-        let alpha_p = TubusCoord { tau: alpha.tau, phi: phi_alpha, r: alpha.r };
+        let alpha_p = TubusCoord {
+            tau: alpha.tau,
+            phi: phi_alpha,
+            r: alpha.r,
+        };
         let beta_p = TubusCoord {
             tau: beta.tau,
             phi: (phi_alpha + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU),
             r: beta.r,
         };
-        let mid_data = DataHelix { tau: 0.0, phi: probe_phi, r: 0.5 };
+        let mid_data = DataHelix {
+            tau: 0.0,
+            phi: probe_phi,
+            r: 0.5,
+        };
         let midpoint_kappa = pse_cascade::mandorla_real(
-            &alpha_p, &beta_p, &mid_data,
-            cfg.carrier.lambda, cfg.carrier.mu_r, cfg.carrier.eta_r,
-        ).kappa;
+            &alpha_p,
+            &beta_p,
+            &mid_data,
+            cfg.carrier.lambda,
+            cfg.carrier.mu_r,
+            cfg.carrier.eta_r,
+        )
+        .kappa;
 
         // The navigator must do *at least* as well as the midpoint —
         // typically it does much better because the spiral covers the
@@ -260,7 +276,11 @@ mod tests {
         let r = resonance_landscape_explorer(&state, &cfg, 20);
         assert_eq!(r.best_point.len(), 2);
         for axis in &r.best_point {
-            assert!((0.0..=1.0).contains(axis), "best point out of [0,1]: {}", axis);
+            assert!(
+                (0.0..=1.0).contains(axis),
+                "best point out of [0,1]: {}",
+                axis
+            );
         }
     }
 

@@ -63,21 +63,26 @@ fn main() {
         })
         .collect();
 
-    let mut nodes: Vec<SwarmNode> = configs
-        .drain(..)
-        .map(|c| SwarmNode::new(c))
-        .collect();
+    let mut nodes: Vec<SwarmNode> = configs.drain(..).map(|c| SwarmNode::new(c)).collect();
 
     // Start all nodes
     for (i, node) in nodes.iter_mut().enumerate() {
         node.start().expect("start node");
         let addr = node.local_addr().expect("addr");
-        let id_hex: String = node.node_id.iter().take(4).map(|b| format!("{:02x}", b)).collect();
+        let id_hex: String = node
+            .node_id
+            .iter()
+            .take(4)
+            .map(|b| format!("{:02x}", b))
+            .collect();
         println!("Node {} started: {} at {}", i + 1, id_hex, addr);
     }
 
     // Connect in ring topology: 1→2, 2→3, 3→1
-    let addrs: Vec<String> = nodes.iter().map(|n| n.local_addr().unwrap().to_string()).collect();
+    let addrs: Vec<String> = nodes
+        .iter()
+        .map(|n| n.local_addr().unwrap().to_string())
+        .collect();
     nodes[0].connect_peer(&addrs[1]).expect("1→2");
     nodes[1].connect_peer(&addrs[2]).expect("2→3");
     nodes[2].connect_peer(&addrs[0]).expect("3→1");
@@ -90,16 +95,23 @@ fn main() {
     println!("Phase 1: Crystal creation and propagation\n");
 
     let crystal_gaps = [
-        vec![0.40, 0.42, 0.41],  // Node 1: tightly aligned
-        vec![0.43, 0.44, 0.42],  // Node 2: tightly aligned, close to node 1
-        vec![0.39, 0.41, 0.40],  // Node 3: tightly aligned, close to others
+        vec![0.40, 0.42, 0.41], // Node 1: tightly aligned
+        vec![0.43, 0.44, 0.42], // Node 2: tightly aligned, close to node 1
+        vec![0.39, 0.41, 0.40], // Node 3: tightly aligned, close to others
     ];
 
     for (node_idx, gaps) in crystal_gaps.iter().enumerate() {
         for (j, &gap) in gaps.iter().enumerate() {
             let crystal = make_crystal(gap, vec![(node_idx * 10 + j) as u64], j as u64 + 1);
-            let sent = nodes[node_idx].propagate_crystal(crystal).expect("propagate");
-            println!("  Node {} created crystal (gap={:.2}, sent to {} peers)", node_idx + 1, gap, sent);
+            let sent = nodes[node_idx]
+                .propagate_crystal(crystal)
+                .expect("propagate");
+            println!(
+                "  Node {} created crystal (gap={:.2}, sent to {} peers)",
+                node_idx + 1,
+                gap,
+                sent
+            );
         }
     }
 
@@ -158,7 +170,10 @@ fn main() {
     println!("  Total local crystals:    {}", total_local);
     println!("  Total network accepted:  {}", total_accepted);
     println!("  Kuramoto order param:    {:.4}", r);
-    println!("  Consensus status:        {}", if r > 0.51 { "ALIGNED" } else { "DIVERGENT" });
+    println!(
+        "  Consensus status:        {}",
+        if r > 0.51 { "ALIGNED" } else { "DIVERGENT" }
+    );
 
     // Stop all nodes
     for node in &nodes {
