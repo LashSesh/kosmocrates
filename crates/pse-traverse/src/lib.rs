@@ -30,6 +30,13 @@ pub mod gate;
 pub mod report;
 pub mod solver;
 pub mod norms;
+pub mod operator;
+pub mod signature;
+pub mod signature_diag;
+pub mod signature_gate;
+pub mod blueprint_search;
+pub mod search_ledger;
+pub mod search_autopilot;
 
 #[cfg(feature = "pse-commit")]
 pub mod bridge;
