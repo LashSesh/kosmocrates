@@ -1,0 +1,1075 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
+\usepackage{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs,longtable,array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit}
+
+\geometry{margin=2.2cm}
+\hypersetup{colorlinks=true, linkcolor=black, urlcolor=blue, citecolor=black}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{PSE-TRAVERSE-PROJECTION-02}
+\rhead{Hypertorus-Gated Finalization Layer v0.2}
+\cfoot{\thepage}
+\setlist[itemize]{topsep=3pt,itemsep=2pt,parsep=0pt,leftmargin=*}
+\setlist[enumerate]{topsep=3pt,itemsep=2pt,parsep=0pt,leftmargin=*}
+\titleformat{\section}{\Large\bfseries}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.8em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{0.8em}{}
+
+\definecolor{codebg}{RGB}{246,246,246}
+\definecolor{rulegray}{RGB}{110,110,110}
+\lstdefinelanguage{RustLike}{
+  morekeywords={pub,struct,enum,fn,let,mut,impl,trait,where,Option,Vec,BTreeMap,BTreeSet,String,bool,u64,u32,u8,i128,Self,return,match,if,else,true,false},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]"
+}
+\lstset{
+  language=RustLike,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  frame=single,
+  rulecolor=\color{rulegray},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false
+}
+
+\newcommand{\MUST}{\textbf{MUST}}
+\newcommand{\MUSTNOT}{\textbf{MUST NOT}}
+\newcommand{\SHOULD}{\textbf{SHOULD}}
+\newcommand{\MAY}{\textbf{MAY}}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+
+\title{\textbf{PSE-TRAVERSE-PROJECTION-02}\\[0.35em]
+Hypertorus-Gated Finalization Layer\\
+Formale Implementierungsspezifikation v0.2}
+\author{Sebastian Klemm\\Technische Ausarbeitung fuer Coding-Agent-Implementierung}
+\date{Mai 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Diese Spezifikation definiert die normative Gesamtschicht \emph{Hypertorus-Gated Finalization Layer} fuer \code{pse-traverse}. Version 0.2 integriert die Universal Projection Fabric aus v0.1 mit einer deterministischen Hypertorus-Taktung, phasenfensterbasierter Ereignishorizont-Logik, Exclusion/Expansion/Finalization-Matrix, Action-Vector-Bildung, FinalizedEmission-Artefakten und einer streng replayfaehigen Gate-Pipeline. Version 0.2 ist als vollstaendige Nachfolgespezifikation zu behandeln: Eine Implementierung kann v0.1 konzeptionell verwerfen, sofern alle v0.1-Kernfunktionen durch die hier definierten Typen, Operatoren, Reports, Gates und Tests abgedeckt werden. Die Schicht erzeugt keine \code{SemanticCrystal}-Instanzen. Sie erzeugt ausschliesslich finalisierte, gate-gepruefte, content-addressed Emissions- und Zertifikatsobjekte, die optional an die bestehende PSE-Bridge weitergereicht werden.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Status, Geltungsbereich und normative Einordnung}
+
+\subsection{Status}
+Dieses Dokument ist eine normative Implementierungsspezifikation. Die Begriffe \MUST, \MUSTNOT, \SHOULD{} und \MAY{} sind verbindlich im Sinne technischer Konformitaet.
+
+\subsection{Versionierung}
+\code{PSE-TRAVERSE-PROJECTION-02} ersetzt \code{PSE-TRAVERSE-PROJECTION-01} als normative Zielarchitektur. Version 0.1 bleibt historisch nachvollziehbar, ist fuer Implementierungsentscheidungen jedoch nur noch als abgedeckte Teilmenge zu behandeln.
+
+\begin{center}
+\begin{tabular}{p{0.23\linewidth}p{0.68\linewidth}}
+\toprule
+Version & Rolle \\
+\midrule
+v0.1 & Universal Projection Fabric: NullCenter, MirrorSeam, Telescope, Loopback, PathExcision, TopologicalWitness, RealityCut, GatedEmission. \\
+v0.2 & Vollstaendige Projektions- und Finalisierungsschicht: alle v0.1-Funktionen plus HypertorusScheduler, PhaseHorizonWindow, EpochCounter, ExclusionAxis, ExpansionAxis, FinalizationCore, HolisticMatrixGate und FinalizedEmission. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Ziel}
+Ziel ist eine deterministische, auditierbare, phasengetaktete Projektions- und Finalisierungsschicht fuer stabilisierte Traversal-Zustaende. Ein Zustand darf nur dann externalisiert und finalisiert werden, wenn:
+
+\begin{enumerate}
+  \item sein Nullzentrum kanonisch und replayfaehig ist;
+  \item seine Projektionen ueber Mirror-Seams zum selben Nullzentrum zurueckfuehren;
+  \item ein deklarierter Hypertorus-Phasenhorizont offen ist;
+  \item Exclusion, Expansion und Finalization gleichzeitig bestanden sind;
+  \item RealityCut, TopologicalWitness, QualityCascade und ReplayReady bestanden sind;
+  \item alle gate-relevanten Daten content-addressed und deterministisch serialisiert sind.
+\end{enumerate}
+
+\subsection{Nicht-Zweck}
+Die Schicht ist nicht:
+\begin{itemize}
+  \item ein Ersatz fuer \code{pse-core};
+  \item ein Erzeuger von \code{SemanticCrystal};
+  \item ein LLM-Wrapper;
+  \item ein physikalisches Singularitaets-, Kosmologie- oder Raumzeitmodell;
+  \item ein Quantum-Hardware-System;
+  \item ein Riemann-, Zeta-, Trading-, Hardware-, Fahrzeug- oder Cyber-Defense-Kern;
+  \item ein probabilistischer Scheduler ohne Replay-Garantie.
+\end{itemize}
+
+\section{Systemrolle innerhalb der Gesamtarchitektur}
+
+\subsection{Schichtmodell}
+\begin{longtable}{p{0.28\linewidth}p{0.62\linewidth}}
+\toprule
+Schicht & Rolle \\
+\midrule
+\endhead
+\code{pse-core} & Evidence-, Gate-, Crystal- und Commit-Kern. Nur diese Schicht darf \code{SemanticCrystal} erzeugen. \\
+\code{pse-traverse-core} & \code{ProblemSpec}, \code{FieldCube}, \code{DoFGraph}, \code{CollapsePlan}, \code{Candidate}, \code{GateReport}, \code{CommitOutcome}. \\
+\code{pse-traverse-signature} & Operator- und Signaturdiagnostik struktureller Raeume. \\
+\code{pse-traverse-dynamics} & Lift/Projection, Field Absorption, Guidance Field, Compressor, TransitionProof. \\
+\code{pse-traverse-reactive} & TriTemporalClock, ZeroPointCoupling, ResidualZero, ReactiveGate. \\
+\code{pse-traverse-projection-v0.2} & Hypertorus-Gated Finalization Layer: NullCenterProjection, MirrorSeam, HypertorusScheduler, PhaseHorizonWindow, ExclusionAxis, ExpansionAxis, FinalizationCore, HolisticMatrixGate, FinalizedEmission. \\
+\bottomrule
+\end{longtable}
+
+\subsection{Harte Architekturregel}
+\begin{quote}
+\textbf{Normative Regel.} Diese Schicht \MUSTNOT{} eine \code{SemanticCrystal}-Instanz erzeugen. Sie \MAY{} ein \code{FinalizedEmission}, ein \code{ProjectionCertificate}, ein \code{FinalizationCertificate} und maschinenlesbare Reports erzeugen. Ein Crystal entsteht ausschliesslich ueber die bestehende PSE-Bridge.
+\end{quote}
+
+\section{Reinkristall der Projektion}
+
+\subsection{Neutralisierte Topologie}
+Die implementierbare Struktur lautet:
+\[
+\text{NullCenter}
+\rightarrow \text{PhaseCarrierSet}
+\rightarrow \text{EventHorizonWindow}
+\rightarrow \text{ProjectionCone}
+\rightarrow \text{Exclusion/Expansion/Finalization}
+\rightarrow \text{FinalizedEmission}.
+\]
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.4cm,>=Latex, every node/.style={font=\small}]
+\node[draw,rounded corners,align=center,fill=gray!8] (n) {NullCenter\\canonical origin};
+\node[draw,rounded corners,align=center,fill=gray!8,right=of n] (p) {PhaseCarrierSet\\Hypertorus};
+\node[draw,rounded corners,align=center,fill=gray!8,right=of p] (h) {PhaseHorizon\\Gate window};
+\node[draw,rounded corners,align=center,fill=gray!8,right=of h] (c) {ProjectionCone\\target views};
+\node[draw,rounded corners,align=center,fill=gray!8,below=of c] (m) {HolisticMatrix\\Exclusion + Expansion + Finalization};
+\node[draw,rounded corners,align=center,fill=gray!8,left=of m] (e) {FinalizedEmission\\irreversible output node};
+\draw[->] (n) -- (p);
+\draw[->] (p) -- (h);
+\draw[->] (h) -- (c);
+\draw[->] (c) -- (m);
+\draw[->] (m) -- (e);
+\draw[->,dashed] (e) to[bend left=40] node[below]{replay / certificate} (n);
+\end{tikzpicture}
+\end{center}
+
+\subsection{Singularitaets-View als technisches Modell}
+Die bildhafte Formulierung einer First-Person-Sicht aus einer Singularitaet wird rein technisch modelliert:
+
+\begin{longtable}{p{0.32\linewidth}p{0.58\linewidth}}
+\toprule
+Bildbegriff & Implementierbarer Begriff \\
+\midrule
+\endhead
+Singularitaet & \code{NullCenterObject}: kanonischer Digest-/Self-Metadata-Kern. \\
+Ereignishorizont & \code{PhaseHorizonWindow}: phasen- und epochengebundenes Gate-Fenster. \\
+Zeitlinien / Phasenlinien & \code{PhaseCarrier}: deterministische Phasentraeger im Hypertorus. \\
+Ferne / Ausdehnung & \code{ProjectionCone}: Menge erlaubter Zielraum- und Artefaktprojektionen. \\
+Kollaps & \code{FinalizationCore}: irreversible Emissionsentscheidung nach Gate-Pass. \\
+\bottomrule
+\end{longtable}
+
+Diese Begriffe sind keine Physikbehauptungen. Sie sind Namen fuer Datenstrukturen und Operatoren innerhalb einer deterministischen Kontrollarchitektur.
+
+\section{Mathematische Basisschicht: Phase, Torus und Hypertorus}
+
+\subsection{Zeit zu Phase}
+Jeder PhaseCarrier besitzt eine diskrete oder kontinuierlich approximierte Phasenentwicklung. Im Audit-Pfad \MUST{} die diskrete Version verwendet werden.
+\[
+\theta(k) = \theta_0 + \sum_{j=0}^{k-1} \omega(j) \Delta k.
+\]
+Bei konstantem Takt:
+\[
+\theta(k) = \theta_0 + k \omega.
+\]
+Die normalisierte Phase ist:
+\[
+\widetilde{\theta}(k) = \theta(k) \bmod 2\pi.
+\]
+
+\subsection{Hypertorus}
+Ein \(n\)-phasiger Hypertorus ist:
+\[
+T^n = S^1 \times \cdots \times S^1.
+\]
+Ein Zustand wird als Phasenvektor repraesentiert:
+\[
+\Theta(k) = (\theta_1(k),\dots,\theta_n(k)).
+\]
+Fuer Implementierungen wird die Einbettung in \(\mathbb{R}^{2n}\) verwendet:
+\[
+U(k)=\left(\cos\theta_1,\sin\theta_1,\dots,\cos\theta_n,\sin\theta_n\right).
+\]
+
+\subsection{Epochen und Phasenfenster}
+Ein Epochenzaehler ist:
+\[
+\operatorname{epoch}_i(k)=\left\lfloor\frac{\theta_i(k)}{2\pi}\right\rfloor.
+\]
+Ein Fensterindikator ist:
+\[
+\mathbf{1}_{[\alpha,\beta]}(\widetilde{\theta}_i)=
+\begin{cases}
+1, & \widetilde{\theta}_i \in [\alpha,\beta],\\
+0, & \text{sonst.}
+\end{cases}
+\]
+
+\subsection{Inkommensurable Scheduler}
+Fuer mehrere Carrier \(i,j\) \SHOULD{} gelten:
+\[
+\frac{\omega_i}{\omega_j}\notin \mathbb{Q}
+\]
+als deklarierte Designintention. Da Irrationalitaet auf Maschinen nur approximiert werden kann, \MUST{} die Implementierung rational kodierte Frequenzen mit deterministischer Perioden- und Kollisionsanalyse verwenden. Der Audit-Pfad \MUST{} die verwendeten rationalen Approximationen speichern.
+
+\section{Normative Begriffe}
+
+\begin{longtable}{p{0.26\linewidth}p{0.64\linewidth}}
+\toprule
+Begriff & Normative Bedeutung \\
+\midrule
+\endhead
+\code{NullCenterObject} & Kanonischer Ursprung der Projektion, gebunden an Input, RunDescriptor, Operatorversionen und Evidence. \\
+\code{PhaseCarrier} & Deterministischer Phasentraeger mit Frequenz, Startphase, Epoche, Quantisierung und Replay-ID. \\
+\code{HypertorusScheduler} & Scheduler ueber mehreren PhaseCarriern; erzeugt Fenster, Adressen, Quantisierungsklassen und nicht-wiederholende Zugriffsmuster. \\
+\code{PhaseHorizonWindow} & Gate-Fenster, in dem Projektion, Expansion oder Finalisierung erlaubt sein kann. \\
+\code{ExclusionAxis} & Gate-Achse zur Eliminierung instabiler Pfade; entspricht neutralisiertem RealityCut/PoR/Telescope. \\
+\code{ExpansionAxis} & Gate-Achse zur Erzeugung eines gerichteten Handlungspotentials aus stabiler Resonanz. \\
+\code{FinalizationCore} & Entscheidungskern, der gueltige Projektion und Handlungspotential in ein irreversibles Emissionsobjekt ueberfuehrt. \\
+\code{HolisticMatrixGate} & Gesamtes Gate: Exclusion, Expansion, Finalization, UPF-Gate, Horizon, Replay und Evidence muessen gleichzeitig bestehen. \\
+\code{FinalizedEmission} & Finales, content-addressed, replayfaehiges Emissionsobjekt; kein SemanticCrystal. \\
+\bottomrule
+\end{longtable}
+
+\section{Kanonisches Datenmodell}
+
+\subsection{Primitive}
+\begin{lstlisting}
+pub type Hash256 = [u8; 32];
+pub type StableId = String;
+pub type Fixed = i128; // Q64.64 or project-wide fixed-point type
+
+pub struct EvidenceRef {
+    pub kind: String,
+    pub address: Hash256,
+    pub relation: String,
+}
+\end{lstlisting}
+
+Alle gate-relevanten numerischen Werte \MUST{} als Fixed-Point, Integer-Rational oder dokumentierte plattforminvariante Repräsentation implementiert werden. Plattform-Floats \MUSTNOT{} Teil des Gate-, Audit- oder Digest-Pfades sein.
+
+\subsection{ProjectionRunDescriptor v0.2}
+\begin{lstlisting}
+pub struct ProjectionRunDescriptorV2 {
+    pub run_id: StableId,
+    pub problem_spec_hash: Hash256,
+    pub traversal_report_hash: Option<Hash256>,
+    pub seed: u64,
+    pub operator_versions: BTreeMap<String, String>,
+    pub thresholds: ProjectionThresholdsV2,
+    pub policies: ProjectionPoliciesV2,
+    pub hypertorus: HypertorusSchedulerSpec,
+    pub finalization: FinalizationPolicy,
+    pub canonicalization_version: String,
+}
+\end{lstlisting}
+
+\subsection{Thresholds}
+\begin{lstlisting}
+pub struct ProjectionThresholdsV2 {
+    pub max_null_distance: Fixed,
+    pub min_mirror_consistency: Fixed,
+    pub min_por: Fixed,
+    pub min_loopback: Fixed,
+    pub min_topological_witness: Fixed,
+    pub max_reality_cut_delta: Fixed,
+    pub max_path_excision_delta: Fixed,
+    pub min_projection_quality: Fixed,
+    pub min_exclusion_score: Fixed,
+    pub min_expansion_score: Fixed,
+    pub min_finalization_score: Fixed,
+    pub min_horizon_alignment: Fixed,
+    pub max_phase_jitter: Fixed,
+    pub max_steps: u64,
+}
+\end{lstlisting}
+
+\subsection{Policies}
+\begin{lstlisting}
+pub struct ProjectionPoliciesV2 {
+    pub seam_selection: SeamSelectionPolicy,
+    pub mount_order: Vec<MountSpec>,
+    pub telescope_policy: TelescopePolicy,
+    pub condensation_policy: CondensationPolicy,
+    pub path_excision_policy: PathExcisionPolicy,
+    pub reality_cut_policy: RealityCutPolicy,
+    pub emission_policy: EmissionPolicy,
+    pub horizon_policy: HorizonPolicy,
+    pub finalization_policy: FinalizationPolicy,
+}
+
+pub enum SeamSelectionPolicy { Star, Clique, Explicit(Vec<(StableId, StableId)>) }
+pub enum EmissionPolicy { HoldOnly, ProjectionBundle, FinalizedEmission }
+pub enum HorizonPolicy { StrictWindow, EpochAligned, CarrierQuorum, DisabledForTests }
+\end{lstlisting}
+
+\section{Hypertorus Scheduler}
+
+\subsection{Datenstrukturen}
+\begin{lstlisting}
+pub struct RationalFixed {
+    pub numerator: i128,
+    pub denominator: i128,
+}
+
+pub struct PhaseCarrierSpec {
+    pub carrier_id: StableId,
+    pub omega: RationalFixed,
+    pub theta0: RationalFixed,
+    pub quantization: PhaseQuantization,
+    pub epoch_policy: EpochPolicy,
+    pub role: PhaseCarrierRole,
+}
+
+pub enum PhaseCarrierRole {
+    PrimaryClock,
+    IntrinsicPhase,
+    ExtrinsicPhase,
+    SeamClock,
+    HorizonClock,
+    FinalizationClock,
+    AddressShuffle,
+}
+
+pub enum PhaseQuantization {
+    ContinuousFixed,
+    KPolar { k: u32 },
+    Tripolar { low: Fixed, high: Fixed },
+    Quadrupolar,
+}
+
+pub enum EpochPolicy {
+    FloorTurns,
+    SaturatingTurns { max_epoch: u64 },
+    Windowed { period: u64 },
+}
+\end{lstlisting}
+
+\begin{lstlisting}
+pub struct HypertorusSchedulerSpec {
+    pub scheduler_id: StableId,
+    pub carriers: Vec<PhaseCarrierSpec>,
+    pub collision_policy: CollisionPolicy,
+    pub address_policy: AddressPolicy,
+    pub replay_policy: ReplayPolicy,
+}
+
+pub enum CollisionPolicy { Reject, StableTieBreakByHash, AllowWithDiagnostics }
+pub enum AddressPolicy { Sequential, IrrationalPermutation, CarrierProduct }
+pub enum ReplayPolicy { ByteIdenticalRequired, DiagnosticOnly }
+\end{lstlisting}
+
+\subsection{Scheduler-Zustand}
+\begin{lstlisting}
+pub struct PhaseCarrierState {
+    pub carrier_id: StableId,
+    pub step: u64,
+    pub theta: Fixed,
+    pub theta_mod_tau: Fixed,
+    pub epoch: u64,
+    pub quantized: PhaseBin,
+}
+
+pub enum PhaseBin {
+    Continuous(Fixed),
+    KPolar(u32),
+    Tripolar(i8),
+    Quadrupolar(i8, i8),
+}
+
+pub struct HypertorusSchedulerState {
+    pub state_id: Hash256,
+    pub spec_hash: Hash256,
+    pub step: u64,
+    pub carriers: Vec<PhaseCarrierState>,
+    pub address_index: Option<u64>,
+    pub diagnostics: Vec<SchedulerDiagnostic>,
+}
+\end{lstlisting}
+
+\subsection{Normative Anforderungen}
+\begin{enumerate}
+  \item Carrier \MUST{} nach \code{carrier_id} sortiert canonicalisiert werden.
+  \item Phasenfortschreibung \MUST{} deterministisch aus \code{step}, \code{omega}, \code{theta0} und \code{epoch_policy} berechnet werden.
+  \item Scheduler-Entscheidungen \MUST{} replayfaehig sein.
+  \item Nicht-wiederholende Shuffles \MUST{} deterministisch sein; echte Zufallsquellen sind im Audit-Pfad unzulaessig.
+\end{enumerate}
+
+\section{Phase Horizon und Event-Horizon-Gate}
+
+\subsection{Datenstrukturen}
+\begin{lstlisting}
+pub struct PhaseHorizonWindowSpec {
+    pub horizon_id: StableId,
+    pub carrier_id: StableId,
+    pub phase_start: Fixed,
+    pub phase_end: Fixed,
+    pub allowed_epochs: Option<Vec<u64>>,
+    pub duty_cycle_min: Fixed,
+    pub duty_cycle_max: Fixed,
+    pub required_alignment: Fixed,
+}
+
+pub struct PhaseHorizonReport {
+    pub report_id: Hash256,
+    pub horizon_id: StableId,
+    pub carrier_id: StableId,
+    pub step: u64,
+    pub epoch: u64,
+    pub theta_mod_tau: Fixed,
+    pub open: bool,
+    pub alignment_score: Fixed,
+    pub jitter_score: Fixed,
+    pub passed: bool,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+\end{lstlisting}
+
+\subsection{Gate-Regel}
+Ein Horizon-Fenster ist offen, wenn:
+\[
+G_{horizon}=1 \Longleftrightarrow
+\widetilde{\theta}_i(k)\in [\alpha,\beta]
+\wedge \operatorname{epoch}_i(k)\in E_{allowed}
+\wedge A_h(k)\ge \theta_h
+\wedge J_h(k)\le \epsilon_j.
+\]
+
+Falls \code{HorizonPolicy = StrictWindow}, \MUST{} jede Finalisierung bei geschlossenem Fenster scheitern und \code{Hold} erzeugen.
+
+\section{Exclusion Axis}
+
+\subsection{Bedeutung}
+Die ExclusionAxis ist die neutrale Implementierung der Realitaetssicherung: instabile, nichtkohärente, nicht-rueckfuehrbare oder kontinutitaetsverletzende Pfade werden entfernt, bevor Expansion oder Finalisierung erlaubt ist.
+
+\subsection{Datenstrukturen}
+\begin{lstlisting}
+pub struct ExclusionAxisReport {
+    pub report_id: Hash256,
+    pub por_score: Fixed,
+    pub telescope_focus_score: Fixed,
+    pub reality_cut_passed: bool,
+    pub excision_count: u64,
+    pub retained_count: u64,
+    pub exclusion_score: Fixed,
+    pub passed: bool,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+\end{lstlisting}
+
+\subsection{Gate-Regel}
+\[
+G_{exclusion}=1 \Longleftrightarrow
+PoR=1 \wedge T_\gamma\text{ stabil} \wedge RealityCut=1 \wedge Score_E\ge \theta_E.
+\]
+
+\section{Expansion Axis}
+
+\subsection{Bedeutung}
+Die ExpansionAxis erzeugt aus einem gueltigen, stabilisierten Zustand ein gerichtetes Handlungspotential. Sie ersetzt keine Emission; sie berechnet nur, ob der Zustand ein finales Output-Ereignis tragen kann.
+
+\subsection{Resonanzkanal}
+Jeder Kanal \(i\) besitzt:
+\[
+D_i(k)=\psi_i(k)\cdot\rho_i(k)\cdot\omega_i(k)\cdot\Lambda_i(k).
+\]
+Hier sind \(\psi\), \(\rho\), \(\omega\) neutrale Scores fuer Bedeutung/Signifikanz, Strukturkohärenz und Phasenbereitschaft. \(\Lambda_i\) ist eine deterministische Huelle, z. B. aus einem PhaseCarrier.
+
+\subsection{Gesamtdynamik}
+\[
+D_{total}(k)=\left(\prod_{i=1}^{N}D_i(k)\right)\cdot\Omega(k).
+\]
+Die Implementierung \MUST{} eine overflow-sichere, fixed-point-kompatible Aggregation verwenden. Direktes Produkt \MAY{} durch Log-Summe oder saturierende Multiplikation ersetzt werden, sofern das Verfahren dokumentiert und replayfaehig ist.
+
+\subsection{Datenstrukturen}
+\begin{lstlisting}
+pub struct ResonanceTriple {
+    pub semantic_density: Fixed,   // psi
+    pub structural_coherence: Fixed, // rho
+    pub phase_readiness: Fixed,    // omega
+}
+
+pub struct ResonanceChannel {
+    pub channel_id: StableId,
+    pub triple: ResonanceTriple,
+    pub envelope: Fixed,
+    pub channel_score: Fixed,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+
+pub struct ExpansionAxisReport {
+    pub report_id: Hash256,
+    pub channels: Vec<ResonanceChannel>,
+    pub total_dynamic_score: Fixed,
+    pub threshold: Fixed,
+    pub spike: bool,
+    pub expansion_score: Fixed,
+    pub passed: bool,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+\end{lstlisting}
+
+\subsection{Gate-Regel}
+\[
+G_{expansion}=1 \Longleftrightarrow D_{total}(k)>\Theta(k) \wedge Score_X\ge \theta_X.
+\]
+
+\section{Finalization Core}
+
+\subsection{Bedeutung}
+Der FinalizationCore fuehrt gueltige Projektion und Expansion in einen irreversiblen, content-addressed Handlungsknoten zusammen. Irreversibel bedeutet hier: Nach Erzeugung des finalen Artefakts darf dessen Hash nicht ohne neuen RunDescriptor veraendert werden.
+
+\subsection{Konvergenzfeld}
+Ein finales Konvergenzfeld wird als aggregierter Vektor modelliert:
+\[
+C(k)=\operatorname{canon\_aggregate}(V_{view},V_{seam},V_{witness},V_{quality},V_{horizon}).
+\]
+
+\subsection{Action Vector}
+\begin{lstlisting}
+pub struct ActionVector {
+    pub vector_id: Hash256,
+    pub source_bundle_id: Hash256,
+    pub convergence_hash: Hash256,
+    pub direction_hash: Hash256,
+    pub magnitude: Fixed,
+    pub target_kind: String,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+\end{lstlisting}
+
+\subsection{Finalization Report}
+\begin{lstlisting}
+pub struct FinalizationCoreReport {
+    pub report_id: Hash256,
+    pub exclusion_passed: bool,
+    pub expansion_passed: bool,
+    pub convergence_score: Fixed,
+    pub finalization_score: Fixed,
+    pub action_vector: Option<ActionVector>,
+    pub passed: bool,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+\end{lstlisting}
+
+\subsection{Gate-Regel}
+\[
+G_{finalization}=1 \Longleftrightarrow
+G_{exclusion}=1 \wedge G_{expansion}=1 \wedge K_C(k)\ge \theta_C \wedge Score_F\ge \theta_F.
+\]
+
+\section{Holistic Matrix Gate}
+
+\subsection{Matrixlogik}
+Die finale Matrix ist:
+\[
+M(k)=
+\begin{cases}
+E(k), & G_{exclusion}=1 \wedge G_{expansion}=1 \wedge G_{finalization}=1,\\
+\varnothing, & \text{sonst.}
+\end{cases}
+\]
+
+\subsection{Gesamtgate}
+Die v0.2-Gesamtbedingung lautet:
+\[
+G_{HGF}=1 \Longleftrightarrow
+G_{UPF}=1
+\wedge G_{horizon}=1
+\wedge G_{exclusion}=1
+\wedge G_{expansion}=1
+\wedge G_{finalization}=1
+\wedge ReplayReady=1.
+\]
+
+\code{G_UPF} umfasst NullCenter, MirrorSeam, Telescope, Loopback, TopologicalWitness, ProjectionQuality, RealityCut und PathExcision-Sicherheit aus v0.1.
+
+\subsection{Report}
+\begin{lstlisting}
+pub struct HolisticMatrixGateReport {
+    pub report_id: Hash256,
+    pub upf_passed: bool,
+    pub horizon_passed: bool,
+    pub exclusion_passed: bool,
+    pub expansion_passed: bool,
+    pub finalization_passed: bool,
+    pub replay_ready: bool,
+    pub passed: bool,
+    pub failure_policy: FailurePolicyV2,
+    pub reasons: Vec<String>,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+
+pub enum FailurePolicyV2 {
+    Hold,
+    RefineProjection,
+    SplitPhase,
+    MigrateCarrier,
+    WaitForHorizon,
+    StrengthenExclusion,
+    SuppressExpansion,
+    RecomputeFinalization,
+    RequireHumanReview,
+    Abort,
+}
+\end{lstlisting}
+
+\section{Finalized Emission}
+
+\subsection{Datenstruktur}
+\begin{lstlisting}
+pub struct FinalizedEmission {
+    pub emission_id: Hash256,
+    pub rd_hash: Hash256,
+    pub source_projection_bundle_id: Hash256,
+    pub null_center_id: Hash256,
+    pub scheduler_state_hash: Hash256,
+    pub horizon_report_hash: Hash256,
+    pub exclusion_report_hash: Hash256,
+    pub expansion_report_hash: Hash256,
+    pub finalization_report_hash: Hash256,
+    pub holistic_gate_report_hash: Hash256,
+    pub action_vector: ActionVector,
+    pub target_artifacts: Vec<TargetArtifact>,
+    pub ledger_entry_hash: Hash256,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+\end{lstlisting}
+
+\subsection{Normative Anforderungen}
+\begin{enumerate}
+  \item \code{FinalizedEmission} \MUST{} nur bei bestandenem \code{HolisticMatrixGate} erzeugt werden.
+  \item \code{FinalizedEmission} \MUST{} alle Hashes enthalten, die zur Wiederholung der Entscheidung erforderlich sind.
+  \item \code{FinalizedEmission} \MUSTNOT{} als \code{SemanticCrystal} serialisiert werden.
+  \item \code{FinalizedEmission} \MAY{} an die PSE-Bridge uebergeben werden, falls Feature \code{projection-pse-bridge} aktiv ist.
+\end{enumerate}
+
+\section{Projektions-Pipeline v0.2}
+
+\subsection{Referenzablauf}
+\begin{enumerate}
+  \item Lade \code{ProjectionRunDescriptorV2} und internen Zustand.
+  \item Canonicalize Input und berechne \code{NullCenterObject}.
+  \item Erzeuge \code{HypertorusSchedulerState} fuer Step \(k\).
+  \item Evaluiere \code{PhaseHorizonWindow}.
+  \item Fuehre UPF-v0.1-Kernpipeline aus: Mount, Telescope, Loopback, W/K/T/P, MirrorSeam, Witness, RealityCut, Quality, ProjectionGate.
+  \item Erzeuge bei UPF-Gate-Pass ein \code{ProjectionEmissionBundle}; bei Fail ein \code{ProjectionHoldReport}.
+  \item Evaluiere \code{ExclusionAxisReport}.
+  \item Evaluiere \code{ExpansionAxisReport}.
+  \item Evaluiere \code{FinalizationCoreReport}.
+  \item Evaluiere \code{HolisticMatrixGateReport}.
+  \item Bei Gate-Pass: erzeuge \code{FinalizedEmission} und \code{FinalizationCertificate}.
+  \item Bei Gate-Fail: erzeuge \code{ProjectionHoldReport} mit v0.2-FailurePolicy.
+  \item Schreibe Ledger, Manifest und Replay-Material.
+\end{enumerate}
+
+\subsection{Pseudocode}
+\begin{lstlisting}
+fn run_projection_v2(input: ProjectionInput, rd: ProjectionRunDescriptorV2)
+    -> ProjectionV2Outcome
+{
+    let canonical = canonicalize(input, rd.canonicalization_version);
+    let null_center = null_center_project(&canonical, &rd);
+
+    let scheduler = hypertorus_step(&rd.hypertorus, rd.step());
+    let horizon = evaluate_phase_horizon(&scheduler, &rd);
+
+    let upf = run_upf_v1_core(canonical, null_center, &scheduler, &rd);
+    if !upf.gate_passed() {
+        return ProjectionV2Outcome::Hold(make_v2_hold(upf, horizon, &rd));
+    }
+
+    if !horizon.passed {
+        return ProjectionV2Outcome::HoldWithPolicy(
+            make_wait_for_horizon_hold(upf, horizon, &rd)
+        );
+    }
+
+    let exclusion = evaluate_exclusion_axis(&upf, &rd);
+    let expansion = evaluate_expansion_axis(&upf, &scheduler, &rd);
+    let finalization = evaluate_finalization_core(&upf, &exclusion, &expansion, &rd);
+
+    let matrix_gate = holistic_matrix_gate(
+        &upf, &horizon, &exclusion, &expansion, &finalization, &rd
+    );
+
+    if matrix_gate.passed {
+        ProjectionV2Outcome::Finalized(make_finalized_emission(
+            upf, scheduler, horizon, exclusion, expansion, finalization, matrix_gate, rd
+        ))
+    } else {
+        ProjectionV2Outcome::Hold(make_v2_hold_from_matrix(
+            upf, horizon, exclusion, expansion, finalization, matrix_gate, rd
+        ))
+    }
+}
+\end{lstlisting}
+
+\section{Reports und Zertifikate}
+
+\subsection{Outcome}
+\begin{lstlisting}
+pub enum ProjectionV2Outcome {
+    Finalized(FinalizedEmission),
+    ProjectionOnly(ProjectionEmissionBundle),
+    Hold(ProjectionHoldReportV2),
+    WaitForHorizon(ProjectionHoldReportV2),
+    ExcisionOnly(RealityCutReport),
+    NeedsCarrierMigration(ProjectionHoldReportV2),
+    InvalidInput(ProjectionDiagnostic),
+    DeterminismViolation(ProjectionDiagnostic),
+}
+\end{lstlisting}
+
+\subsection{HoldReport v0.2}
+\begin{lstlisting}
+pub struct ProjectionHoldReportV2 {
+    pub hold_id: Hash256,
+    pub rd_hash: Hash256,
+    pub source_state_id: Hash256,
+    pub scheduler_state_hash: Hash256,
+    pub horizon_report: PhaseHorizonReport,
+    pub upf_gate_report: ProjectionGateReport,
+    pub matrix_gate_report: HolisticMatrixGateReport,
+    pub diagnostics: Vec<ProjectionDiagnostic>,
+    pub recommended_next_policy: Option<FailurePolicyV2>,
+}
+\end{lstlisting}
+
+\subsection{FinalizationCertificate}
+\begin{lstlisting}
+pub struct FinalizationCertificate {
+    pub certificate_id: Hash256,
+    pub rd_hash: Hash256,
+    pub input_hash: Hash256,
+    pub null_center_id: Hash256,
+    pub scheduler_state_hash: Hash256,
+    pub horizon_report_hash: Hash256,
+    pub projection_certificate_hash: Hash256,
+    pub exclusion_report_hash: Hash256,
+    pub expansion_report_hash: Hash256,
+    pub finalization_report_hash: Hash256,
+    pub holistic_gate_report_hash: Hash256,
+    pub finalized_emission_hash: Hash256,
+}
+\end{lstlisting}
+
+\section{CLI-Schnittstelle}
+
+\subsection{Subcommands}
+\begin{lstlisting}
+pse-traverse-projection inspect <input.json>
+pse-traverse-projection schedule <input.json> --rd rd.json --step <k> --out scheduler.json
+pse-traverse-projection horizon <scheduler.json> --rd rd.json --out horizon.json
+pse-traverse-projection project <input.json> --rd rd.json --out projection.json
+pse-traverse-projection gate <projection.json> --out gate.json
+pse-traverse-projection emit <projection.json> --out bundle.json
+pse-traverse-projection finalize <bundle.json> --rd rd.json --out final.json
+pse-traverse-projection replay <bundle-or-final-or-hold.json>
+pse-traverse-projection verify <certificate.json>
+\end{lstlisting}
+
+\subsection{CLI-Anforderungen}
+\begin{itemize}
+  \item \code{schedule} \MUST{} SchedulerState byte-identisch aus RD und Step erzeugen.
+  \item \code{horizon} \MUST{} PhaseHorizonReport erzeugen, ohne Projektion oder Emission auszufuehren.
+  \item \code{project} \MUST{} die UPF-Kernpipeline bis ProjectionGateReport ausfuehren.
+  \item \code{emit} \MUST{} fehlschlagen, wenn UPF-Gate nicht bestanden ist.
+  \item \code{finalize} \MUST{} fehlschlagen, wenn Horizon, Exclusion, Expansion oder Finalization nicht bestanden ist.
+  \item \code{replay} \MUST{} kanonische Byte-Identitaet pruefen.
+  \item \code{verify} \MUST{} alle Zertifikatshashes, RD-Hash, SchedulerState, HorizonReport, MatrixGateReport und Emission validieren.
+\end{itemize}
+
+\section{Determinismus und Canonicalization}
+
+\subsection{Audit-Pfad}
+Der v0.2-Audit-Pfad umfasst:
+\begin{itemize}
+  \item \code{ProjectionRunDescriptorV2};
+  \item canonical input bytes;
+  \item \code{NullCenterObject};
+  \item \code{HypertorusSchedulerSpec} und \code{HypertorusSchedulerState};
+  \item \code{PhaseHorizonReport};
+  \item ProjectionLayerSpec-Liste und Mount-Reihenfolge;
+  \item TelescopeView und LoopbackReport;
+  \item MirrorSeamReports;
+  \item TopologicalWitness;
+  \item RealityCutReport;
+  \item ProjectionGateReport;
+  \item ExclusionAxisReport;
+  \item ExpansionAxisReport;
+  \item FinalizationCoreReport;
+  \item HolisticMatrixGateReport;
+  \item FinalizedEmission oder HoldReport.
+\end{itemize}
+
+Im Audit-Pfad sind verboten:
+\begin{itemize}
+  \item Wall-clock timestamps;
+  \item Plattform-Floats;
+  \item ungeordnete HashMap-Iteration;
+  \item OS-abhaengige Pfadnormalisierung;
+  \item nicht gespeicherte RNG-Entscheidungen;
+  \item externe Netzwerkzustaende;
+  \item unstabile Approximationen irrationaler Frequenzen.
+\end{itemize}
+
+\section{Integration mit bestehenden Crates}
+
+\subsection{Datei- und Modulzuschnitt}
+\begin{lstlisting}
+crates/pse-traverse/src/projection/
+  mod.rs
+  null_center.rs
+  projection_layer.rs
+  mount.rs
+  telescope.rs
+  loopback.rs
+  mirror_seam.rs
+  phase_carrier.rs
+  phase_ladder.rs
+  hypertorus_scheduler.rs
+  phase_horizon.rs
+  resonance_triple.rs
+  exclusion_axis.rs
+  expansion_axis.rs
+  finalization_core.rs
+  holistic_matrix_gate.rs
+  finalized_emission.rs
+  consensus_cycle.rs
+  path_excision.rs
+  nullpoint_detection.rs
+  topology_witness.rs
+  projection_quality.rs
+  reality_cut.rs
+  gated_emission.rs
+  report.rs
+  certificate.rs
+  replay.rs
+
+tools/pse-traverse-projection-cli/src/main.rs
+\end{lstlisting}
+
+\subsection{Feature Flags}
+\begin{longtable}{p{0.28\linewidth}p{0.62\linewidth}}
+\toprule
+Feature & Bedeutung \\
+\midrule
+\endhead
+\code{projection} & Aktiviert Projektionskern. \\
+\code{projection-cli} & Baut CLI-Tool. \\
+\code{projection-topology} & Aktiviert TopologicalWitness-Schicht. \\
+\code{projection-hypertorus} & Aktiviert HypertorusScheduler, PhaseCarrier und HorizonWindow. \\
+\code{projection-finalization} & Aktiviert Exclusion/Expansion/Finalization-Matrix und FinalizedEmission. \\
+\code{projection-pse-bridge} & Erlaubt Weitergabe finalisierter Emissionen an bestehende PSE-Bridge. \\
+\code{projection-adapters} & Aktiviert optionale DomainAdapter; Kern bleibt domänenneutral. \\
+\bottomrule
+\end{longtable}
+
+\section{Fehlersemantik}
+
+\subsection{Fail-Closed-Regel}
+Jede Unsicherheit in NullCenter, Scheduler, Horizon, Seam, Witness, RealityCut, Expansion, Finalization, Canonicalization oder Replay \MUST{} zu \code{Hold} oder haerterem Fail fuehren. Kein unsicheres Ergebnis darf emittiert oder finalisiert werden.
+
+\subsection{Migration bei Phase-Failure}
+Bei Horizon-Failure \SHOULD{} das System nicht blind abbrechen. Es \SHOULD{} eine maschinenlesbare Empfehlung erzeugen:
+\begin{itemize}
+  \item \code{WaitForHorizon}, falls der naechste gueltige Step berechenbar ist;
+  \item \code{MigrateCarrier}, falls alternative Carrier im RD deklariert sind;
+  \item \code{SplitPhase}, falls Jitter oder Kollisionsdiagnostik ein Phasenproblem zeigt;
+  \item \code{Abort}, falls RD oder Scheduler inkonsistent ist.
+\end{itemize}
+
+\section{Testplan}
+
+\subsection{Unit Tests}
+\begin{enumerate}
+  \item \code{hypertorus_scheduler_is_deterministic}
+  \item \code{phase_carriers_are_sorted_before_hashing}
+  \item \code{phase_epoch_counter_matches_turns}
+  \item \code{phase_window_opens_only_in_declared_interval}
+  \item \code{phase_window_rejects_wrong_epoch}
+  \item \code{k_polar_quantization_is_stable}
+  \item \code{tripolar_dead_zone_is_stable}
+  \item \code{address_shuffle_replays_identically}
+  \item \code{horizon_gate_fails_closed}
+  \item \code{exclusion_without_por_fails}
+  \item \code{expansion_without_spike_fails}
+  \item \code{finalization_without_convergence_fails}
+  \item \code{holistic_matrix_requires_all_axes}
+  \item \code{finalized_emission_only_after_matrix_gate}
+  \item \code{finalized_emission_changes_when_epoch_changes}
+  \item \code{finalization_certificate_changes_when_action_vector_changes}
+\end{enumerate}
+
+\subsection{Integration Tests}
+\begin{enumerate}
+  \item \code{cli_schedule_writes_scheduler_state}
+  \item \code{cli_horizon_writes_horizon_report}
+  \item \code{cli_finalize_refuses_closed_horizon}
+  \item \code{cli_finalize_refuses_failed_exclusion}
+  \item \code{cli_finalize_refuses_failed_expansion}
+  \item \code{cli_finalize_refuses_failed_finalization}
+  \item \code{cli_finalize_writes_finalized_emission}
+  \item \code{cli_replay_byte_identical_finalized_emission}
+  \item \code{cli_verify_detects_modified_scheduler_state}
+  \item \code{pse_bridge_receives_finalized_emission_but_not_crystal}
+\end{enumerate}
+
+\subsection{Property Tests}
+\begin{enumerate}
+  \item Permutierte Carrier-Eingaben erzeugen identische SchedulerSpec-Hashes.
+  \item Gate-Pass ist monoton falsch bei Verschaerfung einzelner Schwellen, sofern Messwerte unveraendert bleiben.
+  \item HorizonReports sind Funktionen von RD, Step und SchedulerSpec.
+  \item FinalizedEmission-ID ist Funktion aller referenzierten Hashes.
+  \item Geschlossene HorizonWindows koennen keine FinalizedEmission erzeugen.
+  \item Ein einzelnes fehlgeschlagenes Pflichtgate verhindert Finalisierung.
+\end{enumerate}
+
+\section{Definition of Done}
+Eine Implementierung von \code{PSE-TRAVERSE-PROJECTION-02} ist abgeschlossen, wenn:
+\begin{enumerate}
+  \item \code{cargo test --workspace} besteht.
+  \item Der Projektionskern ohne Netzwerkabhaengigkeit kompiliert.
+  \item Alle oeffentlichen Typen dokumentiert sind.
+  \item Alle Gates fail-closed sind.
+  \item Kein gate-relevanter Wert Plattform-Floats im Audit-Pfad nutzt.
+  \item \code{NullCenterObject} content-addressed und replayfaehig ist.
+  \item \code{HypertorusSchedulerState} byte-identisch replayfaehig ist.
+  \item \code{PhaseHorizonWindow} Finalisierung bei geschlossenem Fenster verhindert.
+  \item \code{ExclusionAxisReport}, \code{ExpansionAxisReport} und \code{FinalizationCoreReport} gate-wirksam sind.
+  \item \code{HolisticMatrixGate} bei einem einzigen fehlgeschlagenen Pflichtgate Hold erzeugt.
+  \item \code{FinalizedEmission} nur bei Gate-Pass erzeugt wird.
+  \item \code{ProjectionHoldReportV2} maschinenlesbare Gruende und FailurePolicy enthaelt.
+  \item \code{RealityCut} instabile Pfade deterministisch exzidiert.
+  \item \code{TopologicalWitness} optional konfigurierbar, bei Aktivierung aber gate-wirksam ist.
+  \item \code{PathExcisionJump} nur bei Kairos-/Gate-Pass erlaubt ist.
+  \item CLI \code{schedule}, \code{horizon}, \code{project}, \code{emit}, \code{finalize}, \code{replay}, \code{verify} end-to-end funktioniert.
+  \item Zwei identische Runs byte-identische Reports, Bundles und FinalizedEmission-IDs erzeugen.
+  \item Certificate-Verification veraenderte RD, SchedulerState, Reports oder Artifacts erkennt.
+  \item PSE-Bridge einziger Pfad zu \code{SemanticCrystal} bleibt.
+\end{enumerate}
+
+\section{Coding-Agent-Auftrag}
+
+\begin{lstlisting}
+PATCH-ID: PSE-TRAVERSE-PROJECTION-02
+TITLE: Hypertorus-Gated Finalization Layer
+
+GOAL:
+Implementiere die v0.2-Gesamtschicht fuer pse-traverse-projection.
+Die Schicht ersetzt v0.1 normativ, indem sie alle v0.1-Funktionen
+abdeckt und um HypertorusScheduler, PhaseHorizonWindow,
+ExclusionAxis, ExpansionAxis, FinalizationCore, HolisticMatrixGate
+und FinalizedEmission erweitert.
+
+MUST:
+- neue Module unter crates/pse-traverse/src/projection/ anlegen;
+- ProjectionRunDescriptorV2, ProjectionThresholdsV2 und Policies implementieren;
+- HypertorusSchedulerSpec/State deterministisch und replayfaehig implementieren;
+- PhaseHorizonWindow und HorizonReport implementieren;
+- ExclusionAxisReport, ExpansionAxisReport und FinalizationCoreReport implementieren;
+- HolisticMatrixGate fail-closed implementieren;
+- FinalizedEmission und FinalizationCertificate content-addressed erzeugen;
+- CLI um schedule, horizon und finalize erweitern;
+- Tests gemaess Testplan liefern;
+- PSE SemanticCrystal-Erzeugung ausschliesslich bestehender PSE-Bridge ueberlassen.
+
+MUST NOT:
+- Kosmologie, Zeta, Riemann, Trading, Quantum-Hardware oder Hardware-Fahrzeugsemantik in den Core einbauen;
+- nichtdeterministische RNG- oder Wall-clock-Werte in Digests schreiben;
+- Plattform-Floats fuer Gate-/Audit-Hashes verwenden;
+- bei fehlgeschlagenem Horizon/Gate finalisieren;
+- SemanticCrystal in dieser Schicht erzeugen.
+
+SHOULD:
+- BTreeMap/BTreeSet fuer kanonische Strukturen verwenden;
+- Feature Flags projection-hypertorus und projection-finalization anlegen;
+- goldene Replay-Fixtures fuer offene/geschlossene HorizonWindows liefern;
+- v0.1-Kompatibilitaet ueber Adapter oder Re-Exports abdecken.
+\end{lstlisting}
+
+\section{Referenz-Zustandsmaschine}
+
+\begin{longtable}{p{0.22\linewidth}p{0.23\linewidth}p{0.45\linewidth}}
+\toprule
+Von & Nach & Bedingung \\
+\midrule
+\endhead
+Idle & Loading & Input und RD vorhanden. \\
+Loading & Canonicalizing & Dateien gelesen und Schema gueltig. \\
+Canonicalizing & NullProjecting & Canonical bytes erzeugt. \\
+NullProjecting & Scheduling & NullCenterObject erzeugt. \\
+Scheduling & HorizonEvaluating & SchedulerState erzeugt. \\
+HorizonEvaluating & Mounting & Horizon offen oder Policy erlaubt ProjectionOnly. \\
+HorizonEvaluating & Holding & Horizon geschlossen und Finalisierung verlangt. \\
+Mounting & Focusing & Alle ProjectionLayers gemountet. \\
+Focusing & LoopbackTesting & TelescopeView bestimmt. \\
+LoopbackTesting & Condensing & Loopback instabil. \\
+LoopbackTesting & SeamEvaluating & Loopback stabil. \\
+Condensing & SeamEvaluating & W/K/T/P-Zyklus abgeschlossen. \\
+SeamEvaluating & Witnessing & Alle SeamReports erzeugt. \\
+Witnessing & RealityCutting & Witness optional oder bestanden. \\
+RealityCutting & QualityScoring & Pfade exzidiert/erhalten. \\
+QualityScoring & ProjectionGating & QualityCascade berechnet. \\
+ProjectionGating & ExclusionEvaluating & UPF-Gate bestanden. \\
+ProjectionGating & Holding & UPF-Gate fehlgeschlagen. \\
+ExclusionEvaluating & ExpansionEvaluating & Exclusion bestanden. \\
+ExclusionEvaluating & Holding & Exclusion fehlgeschlagen. \\
+ExpansionEvaluating & FinalizationEvaluating & Expansion bestanden. \\
+ExpansionEvaluating & Holding & Expansion fehlgeschlagen. \\
+FinalizationEvaluating & MatrixGating & Finalization bestanden. \\
+FinalizationEvaluating & Holding & Finalization fehlgeschlagen. \\
+MatrixGating & Finalized & HolisticMatrixGate bestanden. \\
+MatrixGating & Holding & MatrixGate fehlgeschlagen. \\
+Finalized & Certified & FinalizedEmission und Certificate erzeugt. \\
+Holding & Certified & HoldReport und Certificate erzeugt. \\
+Certified & Replayed & Replay erfolgreich. \\
+jede Phase & Failed & Schema-, Determinismus-, Invarianz- oder Hashverletzung. \\
+\bottomrule
+\end{longtable}
+
+\section{Schlussformel}
+Die v0.2-Bedingung lautet:
+\[
+HGF(s,RD,k)=FinalizedEmission(s)
+\]
+\[
+\text{nur wenn}\quad
+\delta(s)\text{ kanonisch}
+\wedge G_{UPF}=1
+\wedge G_{horizon}=1
+\wedge G_{exclusion}=1
+\wedge G_{expansion}=1
+\wedge G_{finalization}=1
+\wedge ReplayReady=1.
+\]
+
+Andernfalls gilt:
+\[
+HGF(s,RD,k)=Hold(s,diagnostics).
+\]
+
+\end{document}
