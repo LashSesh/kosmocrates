@@ -20,5 +20,25 @@ pse-core = { path = "../pse-core", optional = true }
 pse-graph = { path = "../pse-graph", optional = true }
 
 [features]
-default = ["pse-commit"]
+default = ["pse-commit", "horizon"]
 pse-commit = ["dep:pse-core", "dep:pse-graph"]
+
+# ── PSE-TRAVERSE-HORIZON-03 (v0.3 null-centered horizon geometry) ──
+# `horizon`              — enables the v0.3 kernel (HorizonChart,
+#                          PhaseRay, ProjectionCone, CausalAdmissibility,
+#                          CollapseEmissionDuality, HorizonCrossingGate,
+#                          HorizonCertificate, run_horizon_v3).
+# `horizon-projection-v2`— forward-compat flag: when v0.2 lands, links
+#                          its outcome into the combined gate (today the
+#                          horizon layer accepts a `ProjectionV2OutcomeRef`
+#                          stub from callers).
+# `horizon-pse-bridge`   — forward-compat flag: routes finalized
+#                          emissions through the existing PSE-Bridge.
+# `horizon-adapters`     — forward-compat flag for optional domain
+#                          adapters; the v0.3 kernel itself stays
+#                          domain-neutral.
+horizon = []
+horizon-cli = ["horizon"]
+horizon-projection-v2 = ["horizon"]
+horizon-pse-bridge = ["horizon", "pse-commit"]
+horizon-adapters = ["horizon"]

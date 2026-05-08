@@ -47,6 +47,15 @@ pub mod solver;
 pub mod spec;
 pub mod transition_proof;
 
+/// Null-Centered Horizon Geometry (PSE-TRAVERSE-HORIZON-03).
+///
+/// Optional v0.3 layer that adds a hypertoroidal phase-space, phase
+/// rays, projection cones, causal admissibility, collapse–emission
+/// duality and a fail-closed `HorizonCrossingGate`. Activated with the
+/// `horizon` feature (default-on). See `horizon::pipeline::run_horizon_v3`.
+#[cfg(feature = "horizon")]
+pub mod horizon;
+
 #[cfg(feature = "pse-commit")]
 pub mod bridge;
 

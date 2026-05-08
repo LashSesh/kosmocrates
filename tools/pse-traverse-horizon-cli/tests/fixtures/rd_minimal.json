@@ -1,0 +1,54 @@
+{
+  "run_id": "horizon.cli.smoke",
+  "projection_v2_report_hash": null,
+  "problem_spec_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "seed": 0,
+  "operator_versions": {
+    "NullCenterUnfold": "horizon-v0.3-1",
+    "PhaseRayLift": "horizon-v0.3-1",
+    "ProjectionConeCheck": "horizon-v0.3-1",
+    "CausalOrderCheck": "horizon-v0.3-1",
+    "CollapseEmissionDualityCheck": "horizon-v0.3-1",
+    "HorizonCrossingGate": "horizon-v0.3-1"
+  },
+  "canonicalization_version": "horizon-v0.3",
+  "thresholds": {
+    "max_null_distance": { "kind": "FixedI64", "raw": 1000000000, "scale": 9 },
+    "min_horizon_visibility": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "max_boundary_tension": { "kind": "FixedI64", "raw": 1000000000, "scale": 9 },
+    "max_attenuation": { "kind": "FixedI64", "raw": 1000000000, "scale": 9 },
+    "min_causal_admissibility": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "min_projection_cone_score": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "min_duality_score": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "max_roundtrip_delta": { "kind": "FixedI64", "raw": 100000000, "scale": 9 },
+    "min_crossing_score": { "kind": "FixedI64", "raw": 500000000, "scale": 9 },
+    "max_phase_jitter": { "kind": "FixedI64", "raw": 10000000, "scale": 9 },
+    "max_steps": 1024
+  },
+  "policies": {
+    "hypertorus_dimension": 4,
+    "carrier_policy": {
+      "GenerateHypertorus": {
+        "dimension": 4,
+        "rational_frequencies": [
+          { "num": "1", "den": "1" },
+          { "num": "1", "den": "2" },
+          { "num": "1", "den": "3" },
+          { "num": "1", "den": "5" }
+        ]
+      }
+    },
+    "horizon_window_policy": "AcceptAll",
+    "projection_cone_policy": "Strict",
+    "causal_policy": "DeclaredOrderRequired",
+    "duality_policy": "SameNullCenter",
+    "crossing_policy": "AllGatesRequired",
+    "failure_policy_order": [
+      "WaitForHorizon",
+      "RefineProjectionCone",
+      "MigrateCarrier",
+      "Recondense",
+      "Hold"
+    ]
+  }
+}
