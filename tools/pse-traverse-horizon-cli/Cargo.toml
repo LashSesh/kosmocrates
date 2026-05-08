@@ -1,0 +1,17 @@
+[package]
+name = "pse-traverse-horizon-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI for PSE-TRAVERSE-HORIZON-03 — null-centered horizon geometry (inspect / chart / rays / crossing / finalize / replay / verify)"
+
+[dependencies]
+pse-traverse = { path = "../../crates/pse-traverse", default-features = false, features = ["horizon", "horizon-cli"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+
+[[bin]]
+name = "pse-traverse-horizon"
+path = "src/main.rs"

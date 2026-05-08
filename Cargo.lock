@@ -1797,6 +1797,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-traverse-horizon-cli"
+version = "0.1.0"
+dependencies = [
+ "pse-traverse",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-types"
 version = "0.1.0"
 dependencies = [

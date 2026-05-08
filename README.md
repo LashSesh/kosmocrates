@@ -44,6 +44,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **PSE Traversal Agent v0.1** (post-symbolic agent layer) | **Complete** |
 | **Signature layer** (PSE-TRAVERSE-SIGNATURE-01) | **Shipped** |
 | **Dynamics layer** (PSE-TRAVERSE-DYNAMICS-01) | **Shipped** |
+| **Horizon layer** (PSE-TRAVERSE-HORIZON-03) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -54,7 +55,7 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
 | `B15` `macro_step` end-to-end | **43–110 µs** |
 | `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **695 / 695** passing |
+| Workspace test suite | **737 / 737** passing |
 
 The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
 and matched on the full pipeline. See `cargo run --release --example
@@ -183,6 +184,43 @@ embeds the `DynamicRunReport` as an optional field in `TraversalRunReport`.
 density-based adaption (POLICY-01). No SemanticCrystals are produced by the
 dynamics layer — PSE-bridge remains the sole commit path.
 
+The optional **horizon layer** (PSE-TRAVERSE-HORIZON-03) wraps a
+projection-capable state in a null-centered hypertoroidal phase-space
+geometry and only finalises when every conjunctive sub-gate
+(`G_visible ∧ G_cone ∧ G_causal ∧ G_dual`) plus the upstream
+Projection-v0.2 outcome is satisfied:
+
+```text
+StableState   →  NullCenter         (canonical reference id)
+              →  HorizonChart       (carriers, rays, cones, causal order)
+              →  PhaseRays          (deterministic carrier traces, T^n)
+              →  EventHorizonWindowV3
+                                    (phase / epoch / amplitude / jitter / visibility)
+              →  ProjectionCone     (angle, focus, dispersion bounds)
+              →  CausalAdmissibility
+                                    (declared vs observed carrier order)
+              →  CollapseEmissionDuality
+                                    (round-trip back to the same NullCenter)
+              →  HorizonCrossingGate
+                                    (G_visible ∧ G_cone ∧ G_causal ∧ G_dual)
+              →  CombinedGate       (G_v0.2 ∧ G_v0.3 ∧ ReplayReady)
+              →  FinalizedEmissionV3
+                                    (emitted only on Pass)
+              →  HorizonCertificate (chain hash over rd / chart / crossing /
+                                     v0.2 cert / emission / replay)
+```
+
+Every gate-relevant scalar is a `CanonicalNumber` (no platform floats);
+every keyed structure is `BTreeMap`; every list is sorted before
+hashing. Two runs with byte-identical descriptors and inputs produce
+byte-identical reports and certificates. **The horizon layer never
+produces a `SemanticCrystal`** — the existing PSE-Bridge remains the
+only commit path. Failure modes resolve to a deterministic
+`HorizonFailurePolicy` (`WaitForHorizon` / `RefineProjectionCone` /
+`MigrateCarrier` / `Recondense` / `Hold` / `Abort`) and a corresponding
+`HorizonV3Outcome` variant; no fabricated emissions ever leak past
+`G_v0.3 = 0`.
+
 Spec compliance highlights:
 
 * **Determinism.** Every keyed collection is `BTreeMap`, every list
@@ -235,6 +273,23 @@ cargo run --release -p pse-traverse-cli -- replay \
 cargo run --release -p pse-traverse-cli -- search \
     --problem crates/pse-traverse/examples/problem_minimal.json \
     --n 8 --out target/traverse/blueprints.json
+
+# Build a content-addressed HorizonChart (PSE-TRAVERSE-HORIZON-03)
+cargo run --release -p pse-traverse-horizon-cli -- chart \
+    tools/pse-traverse-horizon-cli/tests/fixtures/input_minimal.json \
+    --rd tools/pse-traverse-horizon-cli/tests/fixtures/rd_minimal.json \
+    --out target/horizon/chart.json
+
+# Run the horizon pipeline and finalize (only when G_v0.2 ∧ G_v0.3 = 1)
+cargo run --release -p pse-traverse-horizon-cli -- finalize \
+    tools/pse-traverse-horizon-cli/tests/fixtures/input_minimal.json \
+    --rd tools/pse-traverse-horizon-cli/tests/fixtures/rd_minimal.json \
+    --out target/horizon/final.json
+
+# Verify byte-identical replay of the certificate
+cargo run --release -p pse-traverse-horizon-cli -- replay \
+    target/horizon/final.json \
+    --rd tools/pse-traverse-horizon-cli/tests/fixtures/rd_minimal.json
 ```
 
 The MVP solver in `run` is a one-value-per-dimension template — by
@@ -242,8 +297,10 @@ design. Real solvers (template / LLM / tool / human) plug in via the
 `Candidate`-producing surface; the gating, fail-closed conversion and
 PSE binding are the same regardless.
 
-See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf` and
-`pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01) for the
+See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`,
+`pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01),
+`pse_traverse_dynamics_spec_v0_1.pdf` (PSE-TRAVERSE-DYNAMICS-01) and
+`pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03) for the
 specs this layer realises, and
 `topologisches_traversierungsframework_v3.pdf` for the underlying
 topological framework.
@@ -252,7 +309,7 @@ topological framework.
 
 ## Architecture
 
-The workspace ships **24 crates**, **10 domain adapters**, **4 tool
+The workspace ships **24 crates**, **10 domain adapters**, **5 tool
 binaries**:
 
 ```
@@ -283,15 +340,20 @@ crates/
   pse-core        Engine orchestrator (`macro_step`), DomainAdapter trait,
                   AdaptiveCalibrator, operator algebra, falsifier
   pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8)
-  pse-traverse    PSE Traversal Agent v0.1 + Signature Layer + Dynamics Layer
-                  (PSE-TRAVERSE-SIGNATURE-01, PSE-TRAVERSE-DYNAMICS-01):
+  pse-traverse    PSE Traversal Agent v0.1 + Signature + Dynamics + Horizon
+                  (PSE-TRAVERSE-SIGNATURE-01, PSE-TRAVERSE-DYNAMICS-01,
+                  PSE-TRAVERSE-HORIZON-03):
                   ProblemSpec → FieldCube → DoFGraph → CollapsePlan →
                   StructuralOperator → Signature → SignatureDiagnostics →
                   SignatureGate → [optional: BaseState→LiftedState→FieldSignal→
                   GuidanceField→Compressor→TransitionProof→DynamicGate] →
+                  [optional: NullCenter→HorizonChart→PhaseRays→ProjectionCone→
+                  CausalAdmissibility→DualityCheck→HorizonCrossingGate→
+                  HorizonCertificate] →
                   Candidate → GateReport → PSE-bridge (fail-closed);
                   BlueprintSearch, SearchLedger, SearchAutopilot,
-                  dynamic_tick / dynamic_run for multi-cycle stabilisation
+                  dynamic_tick / dynamic_run for multi-cycle stabilisation,
+                  run_horizon_v3 for null-centered horizon finalisation
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -313,6 +375,10 @@ tools/
   pse-traverse-cli    Traversal Agent CLI: inspect / plan [--signature] /
                       run [--signature-gate] / replay / search /
                       dynamics (init | tick | run | replay | inspect)
+  pse-traverse-horizon-cli
+                      PSE-TRAVERSE-HORIZON-03 CLI:
+                      inspect / chart / rays / crossing / finalize /
+                      replay / verify (binary: pse-traverse-horizon)
 ```
 
 ---
@@ -371,7 +437,34 @@ short version of what changed:
   Fire/Hold), `dynamic_tick` (total — valid on empty input, TICK-01),
   `dynamic_run` (tick loop with configurable stop conditions).
   `DynamicRunReport` embedded optionally in `TraversalRunReport`.
-  CLI: `dynamics init|tick|run|replay|inspect`. 87 pse-traverse tests pass.
+  CLI: `dynamics init|tick|run|replay|inspect`.
+
+* **Horizon layer (PSE-TRAVERSE-HORIZON-03)** — optional null-centered
+  horizon geometry that makes Projection-v0.2 finalisation strictly
+  more rigorous: `HorizonRunDescriptorV3` (canonicalisation version,
+  thresholds, policies — `HorizonThresholdsV3` /
+  `HorizonPoliciesV3`), `NullCenterUnfold` (`N → HorizonChart`,
+  content-addressed, replay-stable), `PhaseRayLift`
+  (deterministic `(carrier, epoch) → PhaseRay` over a hypertorus T^n,
+  default n = 4), `EventHorizonWindowV3` + `HorizonVisibility`,
+  `ProjectionCone` + `ProjectionConeCheck`,
+  `CausalAdmissibilityReport` (declared vs observed carrier order),
+  `CollapseEmissionDuality` (round-trip back to the same NullCenter),
+  `HorizonCrossingGate`
+  (`G_visible ∧ G_cone ∧ G_causal ∧ G_dual ∧ tension ∧ attenuation`),
+  combined gate `G_v0.3 = G_projection_v2 ∧ G_cross ∧ ReplayReady`,
+  `HorizonV3Outcome` (`Finalized` / `Hold` / `WaitForHorizon` /
+  `RefineCone` / `NeedsCarrierMigration` / `Recondense` /
+  `ProjectionOnly` / `InvalidInput` / `DeterminismViolation`),
+  `HorizonCertificate` (chain hash over rd, chart, crossing, v0.2 cert
+  and emission), `replay_hash_of` for byte-identity audit. Feature
+  flags: `horizon` (default-on), `horizon-cli`,
+  `horizon-projection-v2`, `horizon-pse-bridge`, `horizon-adapters`.
+  Float-free in every audit path; `BTreeMap`-only for keyed
+  collections; sorted lists; JCS-canonicalised reports.
+  CLI: `pse-traverse-horizon inspect|chart|rays|crossing|finalize|replay|verify`.
+  No `SemanticCrystal` is constructed inside the horizon modules — the
+  PSE-Bridge remains the only commit path.
 
 The 8-fold Kairos AND, falsifier gating, content-address scheme, and
 EU-AI-Act compliance proof are unchanged across all of the above —
@@ -403,7 +496,7 @@ calibration moves; the *contract* doesn't.
 | Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
 | Format | `cargo fmt --all -- --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
-| Tests | `cargo test --workspace --locked` | 695 / 695 passing |
+| Tests | `cargo test --workspace --locked` | 737 / 737 passing |
 | Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
 | Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
 | CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |
