@@ -72,7 +72,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
 aes-gcm = "0.10"
-hkdf = "0.12"
+hkdf = "0.13"
 rusqlite = { version = "0.32", features = ["bundled"] }
 axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors"] }
