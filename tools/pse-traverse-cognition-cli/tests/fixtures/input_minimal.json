@@ -1,0 +1,29 @@
+{
+  "null_center_id": "0000000000000000000000000000000000000000000000000000000000000000",
+  "cognitive_components": {
+    "psi": { "kind": "FixedI64", "raw": 500000000, "scale": 9 },
+    "rho": { "kind": "FixedI64", "raw": 700000000, "scale": 9 },
+    "omega": { "kind": "FixedI64", "raw": 500000000, "scale": 9 },
+    "chi": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "tau": { "kind": "FixedI64", "raw": 200000000, "scale": 9 }
+  },
+  "source_traversal_report_hash": null,
+  "source_projection_report_hash": null,
+  "spiral_memory_candidates": [
+    {
+      "psi_semantic_phase": { "kind": "FixedI64", "raw": 500000000, "scale": 9 },
+      "rho_coherence_density": { "kind": "FixedI64", "raw": 700000000, "scale": 9 },
+      "omega_phase_readiness": { "kind": "FixedI64", "raw": 500000000, "scale": 9 },
+      "chi_topological_curvature": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+      "tau_entropy_symmetry": { "kind": "FixedI64", "raw": 100000000, "scale": 9 },
+      "potential": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+      "energy": { "kind": "FixedI64", "raw": 700000000, "scale": 9 },
+      "entropy": { "kind": "FixedI64", "raw": 100000000, "scale": 9 },
+      "stability_index": { "kind": "FixedI64", "raw": 875000000, "scale": 9 }
+    }
+  ],
+  "constraint_count": 4,
+  "support_strength": { "kind": "FixedI64", "raw": 500000000, "scale": 9 },
+  "logical_step": 1,
+  "carrier_ids": ["c.0", "c.1"]
+}

@@ -43,6 +43,7 @@ members = [
     "tools/pse-demo",
     "tools/pse-traverse-cli",
     "tools/pse-traverse-horizon-cli",
+    "tools/pse-traverse-cognition-cli",
 ]
 
 [workspace.package]

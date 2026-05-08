@@ -20,7 +20,7 @@ pse-core = { path = "../pse-core", optional = true }
 pse-graph = { path = "../pse-graph", optional = true }
 
 [features]
-default = ["pse-commit", "horizon"]
+default = ["pse-commit", "horizon", "cognition"]
 pse-commit = ["dep:pse-core", "dep:pse-graph"]
 
 # ── PSE-TRAVERSE-HORIZON-03 (v0.3 null-centered horizon geometry) ──
@@ -42,3 +42,29 @@ horizon-cli = ["horizon"]
 horizon-projection-v2 = ["horizon"]
 horizon-pse-bridge = ["horizon", "pse-commit"]
 horizon-adapters = ["horizon"]
+
+# ── PSE-TRAVERSE-COGNITION-01 (v0.1 panoptic phase cognition kernel) ──
+# `cognition`               — enables the v0.1 kernel (CanonicalCognitionState,
+#                             CognitiveState5D, SpiralMemory, ConstraintLattice,
+#                             HypercubePuzzle, PhasePanorama,
+#                             ScorpioPhaseScheduler, WormholeHypernet,
+#                             SelfModelTensor, FixpointCalibration,
+#                             SingularityTrigger, CognitionCandidateBundle,
+#                             run_cognition).
+# `cognition-cli`           — builds the `pse-traverse-cognition` CLI.
+# `cognition-simulation`    — feature-gates 5D simulation / stability probes.
+# `cognition-spiral-memory` — feature-gates spiral memory + resonance addressing.
+# `cognition-hypercube`     — feature-gates constraint lattice + hypercube puzzle.
+# `cognition-scorpio-phase` — feature-gates the scorpio phase scheduler.
+# `cognition-wormholes`     — feature-gates governed shortcuts.
+# `cognition-calibration`   — feature-gates fixpoint calibration.
+# `cognition-projection-handoff` — forward-compat flag to projection-v0.2.
+cognition = []
+cognition-cli = ["cognition"]
+cognition-simulation = ["cognition"]
+cognition-spiral-memory = ["cognition"]
+cognition-hypercube = ["cognition"]
+cognition-scorpio-phase = ["cognition"]
+cognition-wormholes = ["cognition"]
+cognition-calibration = ["cognition"]
+cognition-projection-handoff = ["cognition"]
