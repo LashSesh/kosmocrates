@@ -15,6 +15,75 @@ note explicitly says so.
 
 ### Added
 
+* **PSE-TRAVERSE-COGNITION-01** — panoptic phase cognition kernel
+  layer in `crates/pse-traverse/src/cognition/`:
+  * Layered data model `C0–C10`: `CognitionRunDescriptor`,
+    `CanonicalCognitionState`, `CognitiveState5D`
+    (`ψ, ρ, ω, χ, τ` + derived potential / energy / entropy /
+    stability_index), `SingularityDetectorReport`,
+    typed `OperatorDeclaration` / `OperatorFamily` / `OperatorType` /
+    `IntegrationMode` / `IntegratorKind` / `CognitionSimulationSpec`,
+    `SpiralMemoryAddress` / `SpiralMemoryHitSet` / `SpiralSegment`,
+    `ConstraintLatticeCognition` / `Resonite` / `Infogene` /
+    `AdmissibleRegion` / `InfogenePolicy`,
+    `HypercubePuzzleState` / `CognitiveDimension` /
+    `PartialAssignment` / `CandidateSet` / `HiddenSingle` /
+    `BoundaryContract` / `NegativeTopologyWitness` /
+    `EntropyCollapseCertificate`,
+    `PhasePanorama` / `Horizon360` / `PhasePath` /
+    `AttractorCandidate` / `RecognitionBoundary` /
+    `ChoiceGeometryReport`,
+    `ScorpioPhaseScheduler` / `ActivationWindow` / `ResonanceOffset` /
+    `TransportPolicy` / `VectorTunnelTransport` / `ReasonCode`,
+    `GovernedWormhole`,
+    `SelfModelTensor` / `ReflexiveModulation` /
+    `DualTriggerFeedbackGate`,
+    `FixpointCalibrationShell` / `PerformanceTriplet` /
+    `ResonanceImpulse` / `CarrierMigrationPlan`,
+    `AttractorMap` / `AttractorEntry`,
+    `SingularityTriggerReport`,
+    `CognitionHandoffGate` / `ProjectionHandoffPolicy` /
+    `CognitionCandidate` / `CognitionCandidateBundle`,
+    `CognitionReport` / `CognitionHoldReport` /
+    `CognitionDiagnostic` / `CognitionRecoveryAction` /
+    `CognitionOutcome`.
+  * Operators: `null_center_unfold`-style derivations,
+    `detect_singularity`, `spiral_memory_query`,
+    `build_lattice_minimal`, `evaluate_perkolation`,
+    `build_puzzle_minimal`, `build_panorama_minimal`,
+    `build_scheduler_minimal`, `admit_wormhole`, `build_self_model`,
+    `evaluate_dual_trigger`, `calibrate`, `evaluate_por_acceptance`,
+    `evaluate_migration`, `evaluate_singularity_trigger`,
+    `CognitionHandoffGate::evaluate`.
+  * `pipeline::run_cognition` — total reference pipeline (per §16:
+    canonicalize → 5D state → spiral memory query → constraint
+    lattice → hypercube puzzle → perkolation → scheduler → panorama
+    → wormholes → self-model → dual-trigger feedback → fixpoint
+    calibration → carrier migration → attractor ranking →
+    singularity trigger → handoff gate → bundle-or-hold → report →
+    replay).
+  * `replay_hash_of` / `assert_replay_match` for byte-identity audit.
+  * Feature flags: `cognition` (default-on), `cognition-cli`,
+    `cognition-simulation`, `cognition-spiral-memory`,
+    `cognition-hypercube`, `cognition-scorpio-phase`,
+    `cognition-wormholes`, `cognition-calibration`,
+    `cognition-projection-handoff`.
+  * Float-free everywhere: gate-relevant scalars are `Fixed`
+    (`CanonicalNumber`); rationals are normalised by gcd to keep
+    i128 arithmetic safe under composition; keyed structures are
+    `BTreeMap`; lists are sorted before hashing; reports are
+    JCS-canonicalised.
+  * **No `SemanticCrystal` and no `FinalizedEmission`** are
+    constructed in any cognition module — the kernel hands a
+    `CognitionCandidateBundle` to projection-v0.2, which alone may
+    finalise; the PSE-Bridge remains the only commit path.
+* **`pse-traverse-cognition-cli`** tool binary (binary name
+  `pse-traverse-cognition`) with the spec's twelve subcommands
+  (§18): `inspect`, `observe`, `state5`, `memory-query`, `lattice`,
+  `puzzle`, `panorama`, `calibrate`, `trigger`, `bundle`, `replay`,
+  `verify`. Golden fixtures in
+  `tools/pse-traverse-cognition-cli/tests/fixtures/` and
+  end-to-end CLI smoke tests for every subcommand.
 * **PSE-TRAVERSE-HORIZON-03** — null-centered horizon geometry layer
   in `crates/pse-traverse/src/horizon/`:
   * Data model: `HorizonRunDescriptorV3`, `HorizonThresholdsV3`,
@@ -77,12 +146,12 @@ note explicitly says so.
   `RUSTFLAGS="-D warnings"`.
 * `Cargo.lock` is now committed. The workspace ships binaries
   (`pse-cli`, `pse-demo`, `pse-traverse-cli`,
-  `pse-traverse-horizon`, `pse-bench-bbo`) where a reproducible
-  build is a hard requirement.
+  `pse-traverse-horizon`, `pse-traverse-cognition`,
+  `pse-bench-bbo`) where a reproducible build is a hard requirement.
 * `cargo fmt --all` applied across the workspace; CI now enforces it.
-* README and CHANGELOG document the horizon layer alongside the
-  existing signature and dynamics layers; workspace test suite now
-  reports **737 / 737** passing.
+* README and CHANGELOG document the cognition and horizon layers
+  alongside the existing signature and dynamics layers; workspace
+  test suite now reports **780 / 780** passing.
 
 ### Fixed
 

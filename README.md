@@ -45,6 +45,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **Signature layer** (PSE-TRAVERSE-SIGNATURE-01) | **Shipped** |
 | **Dynamics layer** (PSE-TRAVERSE-DYNAMICS-01) | **Shipped** |
 | **Horizon layer** (PSE-TRAVERSE-HORIZON-03) | **Shipped** |
+| **Cognition layer** (PSE-TRAVERSE-COGNITION-01) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -55,7 +56,7 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
 | `B15` `macro_step` end-to-end | **43–110 µs** |
 | `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **737 / 737** passing |
+| Workspace test suite | **780 / 780** passing |
 
 The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
 and matched on the full pipeline. See `cargo run --release --example
@@ -221,6 +222,51 @@ only commit path. Failure modes resolve to a deterministic
 `HorizonV3Outcome` variant; no fabricated emissions ever leak past
 `G_v0.3 = 0`.
 
+The optional **cognition layer** (PSE-TRAVERSE-COGNITION-01) wraps the
+problem's reachable solvability landscape in a panoptic phase space.
+Instead of asking *"may this state finalise?"* (the projection layer's
+question) it asks *"which states, constraints, phases, memory paths,
+attractors, carriers, non-local routes and finalisation candidates are
+visible, latent, blocked or dominant?"*:
+
+```text
+ProblemSpec/Traversal/Projection inputs
+  →  CanonicalCognitionState
+  →  CognitiveState5D            (ψ, ρ, ω, χ, τ + potential / energy /
+                                  entropy / stability)
+  →  SpiralMemoryHitSet          (resonance addressing, sorted by
+                                  resonance then hash)
+  →  ConstraintLatticeCognition  (weighted mass, entropy reduction,
+                                  feasible-set uniqueness, percolation)
+  →  HypercubePuzzleState        (hidden singles, boundary contracts,
+                                  EntropyCollapseCertificate)
+  →  PhasePanorama               (current + counterfactual 360° horizons
+                                  → 720° total)
+  →  ScorpioPhaseScheduler       (deterministic activation windows,
+                                  no steganography)
+  →  GovernedWormhole            (admitted only with ReasonCode + TTL +
+                                  budget + audit_trace)
+  →  SelfModelTensor             (reflexive modulation, drift bound)
+  →  DualTriggerFeedbackGate     (ordered (t1 ∧ t2 ∧ Δϕ) sequence)
+  →  FixpointCalibrationShell    (PoR-acceptance triplet)
+  →  CarrierMigrationPlan        (anti-drift, friction, shock)
+  →  SingularityTriggerReport    (degenerate stability spectrum)
+  →  CognitionHandoffGate        (G_perc ∧ G_panorama ∧ G_self ∧
+                                  G_trigger ∧ ReplayReady)
+  →  CognitionCandidateBundle    (pass) | CognitionHoldReport (fail)
+  →  CognitionReport             (content-addressed, replay-stable)
+```
+
+The cognition kernel **never** finalises, **never** commits, and
+**never** constructs a `SemanticCrystal` or `FinalizedEmission`. It
+hands `CognitionCandidateBundle`s off to projection-v0.2 *only* when
+every sub-gate fires; otherwise it emits a deterministic
+`CognitionHoldReport` with a `CognitionFailurePolicy` and a
+`CognitionRecoveryAction`. Every audit input — 5D state, operator
+declarations, hit-sets, lattice, puzzle, panorama, scheduler,
+wormholes, self-model, calibration, trigger, bundle — is float-free,
+`BTreeMap`-keyed, sorted-before-hashing, and JCS-canonicalised.
+
 Spec compliance highlights:
 
 * **Determinism.** Every keyed collection is `BTreeMap`, every list
@@ -290,6 +336,23 @@ cargo run --release -p pse-traverse-horizon-cli -- finalize \
 cargo run --release -p pse-traverse-horizon-cli -- replay \
     target/horizon/final.json \
     --rd tools/pse-traverse-horizon-cli/tests/fixtures/rd_minimal.json
+
+# Run the panoptic phase cognition kernel (PSE-TRAVERSE-COGNITION-01)
+cargo run --release -p pse-traverse-cognition-cli -- observe \
+    tools/pse-traverse-cognition-cli/tests/fixtures/input_minimal.json \
+    --rd tools/pse-traverse-cognition-cli/tests/fixtures/rd_minimal.json \
+    --out target/cognition/run.json
+
+# Inspect the 720° panorama (current + counterfactual horizons)
+cargo run --release -p pse-traverse-cognition-cli -- panorama \
+    tools/pse-traverse-cognition-cli/tests/fixtures/input_minimal.json \
+    --rd tools/pse-traverse-cognition-cli/tests/fixtures/rd_minimal.json \
+    --out target/cognition/panorama.json
+
+# Hand off the candidate bundle (only when every sub-gate fires)
+cargo run --release -p pse-traverse-cognition-cli -- bundle \
+    target/cognition/run.json \
+    --out target/cognition/bundle.json
 ```
 
 The MVP solver in `run` is a one-value-per-dimension template — by
@@ -299,9 +362,10 @@ PSE binding are the same regardless.
 
 See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`,
 `pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01),
-`pse_traverse_dynamics_spec_v0_1.pdf` (PSE-TRAVERSE-DYNAMICS-01) and
-`pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03) for the
-specs this layer realises, and
+`pse_traverse_dynamics_spec_v0_1.pdf` (PSE-TRAVERSE-DYNAMICS-01),
+`pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03) and
+`pse_traverse_cognition_spec_v0_1.pdf` (PSE-TRAVERSE-COGNITION-01) for
+the specs this layer realises, and
 `topologisches_traversierungsframework_v3.pdf` for the underlying
 topological framework.
 
@@ -309,7 +373,7 @@ topological framework.
 
 ## Architecture
 
-The workspace ships **24 crates**, **10 domain adapters**, **5 tool
+The workspace ships **24 crates**, **10 domain adapters**, **6 tool
 binaries**:
 
 ```
@@ -341,8 +405,9 @@ crates/
                   AdaptiveCalibrator, operator algebra, falsifier
   pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8)
   pse-traverse    PSE Traversal Agent v0.1 + Signature + Dynamics + Horizon
-                  (PSE-TRAVERSE-SIGNATURE-01, PSE-TRAVERSE-DYNAMICS-01,
-                  PSE-TRAVERSE-HORIZON-03):
+                  + Cognition (PSE-TRAVERSE-SIGNATURE-01,
+                  PSE-TRAVERSE-DYNAMICS-01, PSE-TRAVERSE-HORIZON-03,
+                  PSE-TRAVERSE-COGNITION-01):
                   ProblemSpec → FieldCube → DoFGraph → CollapsePlan →
                   StructuralOperator → Signature → SignatureDiagnostics →
                   SignatureGate → [optional: BaseState→LiftedState→FieldSignal→
@@ -350,10 +415,16 @@ crates/
                   [optional: NullCenter→HorizonChart→PhaseRays→ProjectionCone→
                   CausalAdmissibility→DualityCheck→HorizonCrossingGate→
                   HorizonCertificate] →
+                  [optional: CognitiveState5D→SpiralMemory→ConstraintLattice→
+                  HypercubePuzzle→PhasePanorama→ScorpioPhaseScheduler→
+                  GovernedWormhole→SelfModelTensor→FixpointCalibration→
+                  SingularityTrigger→CognitionHandoffGate→
+                  CognitionCandidateBundle] →
                   Candidate → GateReport → PSE-bridge (fail-closed);
                   BlueprintSearch, SearchLedger, SearchAutopilot,
                   dynamic_tick / dynamic_run for multi-cycle stabilisation,
-                  run_horizon_v3 for null-centered horizon finalisation
+                  run_horizon_v3 for null-centered horizon finalisation,
+                  run_cognition for panoptic phase cognition
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -379,6 +450,12 @@ tools/
                       PSE-TRAVERSE-HORIZON-03 CLI:
                       inspect / chart / rays / crossing / finalize /
                       replay / verify (binary: pse-traverse-horizon)
+  pse-traverse-cognition-cli
+                      PSE-TRAVERSE-COGNITION-01 CLI:
+                      inspect / observe / state5 / memory-query /
+                      lattice / puzzle / panorama / calibrate /
+                      trigger / bundle / replay / verify
+                      (binary: pse-traverse-cognition)
 ```
 
 ---
@@ -466,6 +543,48 @@ short version of what changed:
   No `SemanticCrystal` is constructed inside the horizon modules — the
   PSE-Bridge remains the only commit path.
 
+* **Cognition layer (PSE-TRAVERSE-COGNITION-01)** — optional panoptic
+  phase cognition kernel that turns problem / traversal / dynamics /
+  reactive / projection state into a canonical, replayable map of the
+  reachable solvability landscape:
+  `CognitionRunDescriptor`, `CanonicalCognitionState`,
+  `CognitiveState5D` (5-tuple `(ψ, ρ, ω, χ, τ)` plus derived potential
+  / energy / entropy / stability), typed operator algebra
+  (`DoubleKick / ThresholdSweep / PathInvariance / WormholeFunnel`
+  with explicit domain/codomain type-checking),
+  `SpiralMemoryAddress` / `SpiralMemoryHitSet` (resonance-distance
+  addressing, sorted by `(resonance, hash)`),
+  `ConstraintLatticeCognition` (weighted constraint mass, entropy
+  reduction, feasible-set uniqueness, perkolation gate),
+  `HypercubePuzzleState` with hidden-single detection and
+  `EntropyCollapseCertificate`,
+  `PhasePanorama` (current + counterfactual 360° horizons → 720°
+  total) and `ChoiceGeometryReport`,
+  `ScorpioPhaseScheduler` (deterministic activation windows; **no**
+  steganography, **no** hidden channels),
+  `GovernedWormhole` admission gate
+  (`Budget ∧ TTL ∧ ReasonCode ∧ ReplayTrace`),
+  `SelfModelTensor` + `DualTriggerFeedbackGate` (ordered
+  `(t1 ∧ t2 ∧ Δϕ)` sequence),
+  `FixpointCalibrationShell` with PoR-acceptance and
+  `CarrierMigrationPlan` (anti-drift),
+  `SingularityTriggerReport` over a deterministic stability proxy,
+  `CognitionHandoffGate`
+  (`G_perc ∧ G_panorama ∧ G_self ∧ G_trigger ∧ ReplayReady`),
+  `CognitionCandidateBundle` for handoff to projection-v0.2,
+  `CognitionReport` and `CognitionHoldReport` (with
+  `CognitionFailurePolicy` and `CognitionRecoveryAction`).
+  Feature flags: `cognition` (default-on), `cognition-cli`,
+  `cognition-simulation`, `cognition-spiral-memory`,
+  `cognition-hypercube`, `cognition-scorpio-phase`,
+  `cognition-wormholes`, `cognition-calibration`,
+  `cognition-projection-handoff`. Float-free in every audit path;
+  `BTreeMap` keyed; lists sorted before hashing; JCS-canonicalised
+  reports; **no `SemanticCrystal`, no `FinalizedEmission`** inside the
+  cognition modules — the kernel hands `CognitionCandidateBundle`s to
+  projection-v0.2, which alone may finalise.
+  CLI: `pse-traverse-cognition inspect|observe|state5|memory-query|lattice|puzzle|panorama|calibrate|trigger|bundle|replay|verify`.
+
 The 8-fold Kairos AND, falsifier gating, content-address scheme, and
 EU-AI-Act compliance proof are unchanged across all of the above —
 calibration moves; the *contract* doesn't.
@@ -496,7 +615,7 @@ calibration moves; the *contract* doesn't.
 | Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
 | Format | `cargo fmt --all -- --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
-| Tests | `cargo test --workspace --locked` | 737 / 737 passing |
+| Tests | `cargo test --workspace --locked` | 780 / 780 passing |
 | Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
 | Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
 | CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |

@@ -56,6 +56,18 @@ pub mod transition_proof;
 #[cfg(feature = "horizon")]
 pub mod horizon;
 
+/// Panoptic Phase Cognition Kernel (PSE-TRAVERSE-COGNITION-01).
+///
+/// Optional v0.1 layer that maps a problem's reachable solvability
+/// landscape into a canonical phase space: 5D state geometry, spiral
+/// memory, constraint lattice, hypercube puzzle, 720° phase panorama,
+/// scorpio phase scheduler, governed wormholes, self-model tensor,
+/// fixpoint calibration, singularity trigger and a `CognitionCandidateBundle`
+/// handoff to projection-v0.2. Activated with the `cognition` feature
+/// (default-on). See `cognition::pipeline::run_cognition`.
+#[cfg(feature = "cognition")]
+pub mod cognition;
+
 #[cfg(feature = "pse-commit")]
 pub mod bridge;
 

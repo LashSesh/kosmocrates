@@ -1,0 +1,47 @@
+{
+  "run_id": "cognition.cli.smoke",
+  "problem_spec_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "traversal_report_hash": null,
+  "projection_v2_hash": null,
+  "seed": 0,
+  "operator_versions": {
+    "NullCenter": "cognition-v0.1-1",
+    "DoubleKick": "cognition-v0.1-1",
+    "ThresholdSweep": "cognition-v0.1-1",
+    "PathInvariance": "cognition-v0.1-1",
+    "WormholeFunnel": "cognition-v0.1-1",
+    "ScorpioPhaseScheduler": "cognition-v0.1-1",
+    "SingularityTrigger": "cognition-v0.1-1"
+  },
+  "thresholds": {
+    "min_resonance": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "max_entropy": { "kind": "FixedI64", "raw": 2000000000, "scale": 9 },
+    "min_constraint_mass": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "min_entropy_reduction": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "min_feasible_uniqueness": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "min_panorama_coverage": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "min_self_model_coherence": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "max_drift": { "kind": "FixedI64", "raw": 2000000000, "scale": 9 },
+    "min_attractor_score": { "kind": "FixedI64", "raw": 0, "scale": 9 },
+    "min_trigger_score": { "kind": "FixedI64", "raw": 0, "scale": 9 }
+  },
+  "policies": {
+    "spiral_dimension": 5,
+    "hypercube_dimensions": 4,
+    "panorama_arc_count": 8,
+    "wormhole_budget": { "kind": "FixedI64", "raw": 1000000000, "scale": 9 },
+    "wormhole_max_ttl": 16,
+    "failure_policy_order": [
+      "WaitForPhaseWindow",
+      "RefineConstraints",
+      "ExpandPanorama",
+      "QuerySpiralMemory",
+      "SplitHypercube",
+      "AdmitWormhole",
+      "MigrateCarrier",
+      "CalibrateOperators",
+      "Hold"
+    ]
+  },
+  "canonicalization_version": "cognition-v0.1"
+}
