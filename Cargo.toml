@@ -37,6 +37,7 @@ members = [
     "adapters/pse-adapter-tabular",
     "adapters/pse-adapter-modelmon",
     "crates/pse-traverse",
+    "crates/pse-eval-matrix",
     "tools/pse-audit",
     "tools/pse-bench-bbo",
     "tools/pse-bench-gt",
@@ -44,6 +45,7 @@ members = [
     "tools/pse-traverse-cli",
     "tools/pse-traverse-horizon-cli",
     "tools/pse-traverse-cognition-cli",
+    "tools/pse-eval-matrix-cli",
 ]
 
 [workspace.package]

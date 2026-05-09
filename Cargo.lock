@@ -1579,6 +1579,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-eval-matrix"
+version = "0.1.0"
+dependencies = [
+ "pse-traverse",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "pse-eval-matrix-cli"
+version = "0.1.0"
+dependencies = [
+ "pse-eval-matrix",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-evidence"
 version = "0.1.0"
 dependencies = [

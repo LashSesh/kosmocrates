@@ -15,6 +15,68 @@ note explicitly says so.
 
 ### Added
 
+* **PSE-EVAL-MATRIX-01** — empirical benchmark matrix for
+  post-symbolic cognition systems. New crate `pse-eval-matrix` and
+  CLI tool `pse-eval-matrix-cli` (binary: `pse-eval-matrix`).
+  * Data model: `EvaluationSpec` (content-addressed, validatable),
+    `SystemVariantSpec` over the B0 → B7 variant ladder with
+    explicit `LayerMask` bitset, `WorkloadSpec` over nine mandatory
+    families (`StreamEvent` / `AnomalyRegime` / `TraversalPuzzle` /
+    `CodeAgentPatch` / `DocSynthesis` / `MemoryReuse` /
+    `HorizonFinalization` / `CognitionPanorama` / `MultiAgent`),
+    `DatasetManifest` with `calibration` / `validation` / `test`
+    splits, `GroundTruthProfile` (synthetic-exact, semi-synthetic
+    injection, historical, unit-test oracle, human-adjudicated),
+    `MetricSpec` (family / direction / primary flag / aggregation /
+    invalidation rules), `MetricObservation`,
+    `EvaluationRunLedger` (append-only, hash-chained) with
+    `EvaluationRunEntry` and `RunStatus`, `TrialReport` with
+    `TrialOutputs` / `GateObservationSet` / `ReplayObservation` /
+    `DiagnosticRecord`, `EvaluationSummaryReport`,
+    `CapabilityProfile`, `AblationSummary` + `MetricDelta` +
+    `AblationConclusion`, `StatisticalSummary`,
+    `ReviewerReport` (qualitative rubric), `FailureRecord` /
+    `FailureKind` (replay mismatch, false crystal, missed event,
+    false handoff, over-hold, under-hold, memory mislead, wormhole
+    abuse, calibration leakage), `CalibrationLedgerEntry` /
+    `CalibrationProfile` / `CalibrationReason`.
+  * Operators: `plan_runs` (deterministic plan), `run_trial` +
+    `TrialExecutor` trait (pluggable, with reference
+    `SyntheticTrialExecutor`), `init_ledger` / `append_to_ledger` /
+    `verify_ledger_chain` (rolling chain hash),
+    `verify_trial_replay` (byte-identity check), `score_ledger`
+    (aggregates strictly from declared `MetricObservation`s — never
+    recomputes), `score_capability_profile` (`U_task / U_replay /
+    U_safety / U_cognition / U_efficiency / U_calibration /
+    U_robustness` + Safety-Adjusted Utility),
+    `safety_adjusted_utility`, `cognition_uplift`,
+    `layer_marginal_utility`, `summarize_ablation`,
+    `build_ablation_ladder` (eight ablation rungs per §3.2),
+    `bootstrap_mean_ci` (deterministic seeded LCG — no platform
+    RNG), `exact_binomial_ci`, `paired_mean_diff`,
+    `render_markdown_summary`, `render_json_summary`.
+  * Three built-in presets (§18): `agent-cognition`,
+    `streaming-event-detection`, `post-symbolic-ablation`. Each
+    preset stamps a content-addressed spec; the CLI's `init
+    --template <preset>` is the canonical entry point.
+  * Feature flags: `eval-matrix` (default-on), `eval-cli`,
+    `eval-agent`, `eval-cognition`, `eval-streams`,
+    `eval-statistics`, `eval-reports`.
+  * Float-free in every score / metric / gate hash:
+    `CanonicalNumber` only, gcd-normalised rationals to keep i128
+    arithmetic safe under composition, `BTreeMap` keyed,
+    sorted lists before hashing, JCS-canonical reports, no
+    wall-clock timestamps in the audit pathway, no platform RNG.
+  * `Schlussformel` (§23) enforced: a system counts as *empirically
+    improved* only when `ΔU_task > 0 ∧ ΔU_safety ≥ 0 ∧
+    ReplayIdentity = 1 ∧ InvalidRunRate ≤ ε ∧ LMU_target > 0`,
+    surfaced as `ConclusionFlag::EmpiricalImprovement` vs.
+    `DiagnosticFinding` / `InvalidatedByReplay` /
+    `InvalidatedByLeakage`.
+  * CLI: `pse-eval-matrix init|validate|plan|run|replay|score|ablate|compare|report`.
+  * 49 unit tests + 6 end-to-end integration tests + 4 CLI smoke
+    tests; workspace test count rises to **839 / 839** passing.
+
 * **PSE-TRAVERSE-COGNITION-01** — panoptic phase cognition kernel
   layer in `crates/pse-traverse/src/cognition/`:
   * Layered data model `C0–C10`: `CognitionRunDescriptor`,
@@ -147,11 +209,12 @@ note explicitly says so.
 * `Cargo.lock` is now committed. The workspace ships binaries
   (`pse-cli`, `pse-demo`, `pse-traverse-cli`,
   `pse-traverse-horizon`, `pse-traverse-cognition`,
-  `pse-bench-bbo`) where a reproducible build is a hard requirement.
+  `pse-eval-matrix`, `pse-bench-bbo`) where a reproducible build is
+  a hard requirement.
 * `cargo fmt --all` applied across the workspace; CI now enforces it.
-* README and CHANGELOG document the cognition and horizon layers
-  alongside the existing signature and dynamics layers; workspace
-  test suite now reports **780 / 780** passing.
+* README and CHANGELOG document the eval matrix, cognition and
+  horizon layers alongside the existing signature and dynamics
+  layers; workspace test suite now reports **839 / 839** passing.
 
 ### Fixed
 

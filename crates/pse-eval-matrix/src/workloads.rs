@@ -1,0 +1,206 @@
+//! `WorkloadSpec` + the mandatory workload families (§4).
+
+use serde::{Deserialize, Serialize};
+
+use crate::primitives::{content_address, EvalError, Hash256};
+
+/// Mandatory workload families per §4.1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum WorkloadFamily {
+    /// Detect structural events in observation streams.
+    StreamEvent,
+    /// Detect regime shifts / drift / state breaks.
+    AnomalyRegime,
+    /// Collapse structured problem spaces.
+    TraversalPuzzle,
+    /// Coding-agent tasks with tests + repo context.
+    CodeAgentPatch,
+    /// Document → spec extraction.
+    DocSynthesis,
+    /// Find prior solution paths in memory.
+    MemoryReuse,
+    /// Finalise candidates correctly or hold them.
+    HorizonFinalization,
+    /// Map visible / latent / blocked paths.
+    CognitionPanorama,
+    /// Multi-agent coordination with wormholes + budgets.
+    MultiAgent,
+}
+
+/// Canonical list of mandatory families. The matrix MUST cover several
+/// families per §4.1 — a single demo is not sufficient.
+pub const MANDATORY_WORKLOAD_FAMILIES: &[WorkloadFamily] = &[
+    WorkloadFamily::StreamEvent,
+    WorkloadFamily::AnomalyRegime,
+    WorkloadFamily::TraversalPuzzle,
+    WorkloadFamily::CodeAgentPatch,
+    WorkloadFamily::DocSynthesis,
+    WorkloadFamily::MemoryReuse,
+    WorkloadFamily::HorizonFinalization,
+    WorkloadFamily::CognitionPanorama,
+    WorkloadFamily::MultiAgent,
+];
+
+/// Per-task budget (limits how many iterations / how much wallclock-equivalent
+/// each variant may spend on a workload).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct TaskBudget {
+    /// Maximum iterations per task.
+    pub max_iterations: u32,
+    /// Maximum logical step count per trial (no wall-clock).
+    pub max_logical_steps: u64,
+    /// Maximum input tokens / observations per trial.
+    pub max_input_units: u64,
+}
+
+impl TaskBudget {
+    /// Permissive default — used by golden fixtures.
+    pub fn permissive() -> Self {
+        TaskBudget {
+            max_iterations: 4,
+            max_logical_steps: 1024,
+            max_input_units: 1024,
+        }
+    }
+}
+
+/// Single declarative success criterion. Multiple criteria are
+/// AND-combined.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum SuccessCriterion {
+    /// All declared tests must pass (`tests_passed_ratio == 1.0`).
+    AllTestsPass,
+    /// Detected events must match ground truth events.
+    DetectionMatchesGroundTruth,
+    /// Replay byte-identity must hold.
+    ReplayByteIdentical,
+    /// No `false_commit` events permitted.
+    NoFalseCommit,
+    /// Hold/Wait/Abort decisions must be correct.
+    HoldsAreCorrect,
+}
+
+/// `WorkloadSpec` (§10.3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkloadSpec {
+    /// Stable workload id (e.g. `"w.stream_minimal"`).
+    pub workload_id: String,
+    /// Workload family.
+    pub family: WorkloadFamily,
+    /// Hash of the input dataset manifest.
+    pub input_manifest_hash: Hash256,
+    /// Optional ground-truth profile id (mandatory if `success_criteria`
+    /// is non-empty).
+    pub ground_truth_profile: Option<Hash256>,
+    /// Per-task budget.
+    pub task_budget: TaskBudget,
+    /// Success criteria.
+    pub success_criteria: Vec<SuccessCriterion>,
+}
+
+impl WorkloadSpec {
+    /// Build a stream-event workload with a default budget and
+    /// detection-matching + replay criteria.
+    pub fn stream_event(
+        id: impl Into<String>,
+        dataset_id: Hash256,
+        ground_truth_profile: Option<Hash256>,
+    ) -> Self {
+        WorkloadSpec {
+            workload_id: id.into(),
+            family: WorkloadFamily::StreamEvent,
+            input_manifest_hash: dataset_id,
+            ground_truth_profile,
+            task_budget: TaskBudget::permissive(),
+            success_criteria: vec![
+                SuccessCriterion::DetectionMatchesGroundTruth,
+                SuccessCriterion::NoFalseCommit,
+                SuccessCriterion::ReplayByteIdentical,
+            ],
+        }
+    }
+
+    /// Build a code-agent workload.
+    pub fn code_agent_patch(
+        id: impl Into<String>,
+        dataset_id: Hash256,
+        ground_truth_profile: Option<Hash256>,
+    ) -> Self {
+        WorkloadSpec {
+            workload_id: id.into(),
+            family: WorkloadFamily::CodeAgentPatch,
+            input_manifest_hash: dataset_id,
+            ground_truth_profile,
+            task_budget: TaskBudget::permissive(),
+            success_criteria: vec![
+                SuccessCriterion::AllTestsPass,
+                SuccessCriterion::ReplayByteIdentical,
+            ],
+        }
+    }
+
+    /// Build a horizon-finalisation workload.
+    pub fn horizon_finalization(
+        id: impl Into<String>,
+        dataset_id: Hash256,
+        ground_truth_profile: Option<Hash256>,
+    ) -> Self {
+        WorkloadSpec {
+            workload_id: id.into(),
+            family: WorkloadFamily::HorizonFinalization,
+            input_manifest_hash: dataset_id,
+            ground_truth_profile,
+            task_budget: TaskBudget::permissive(),
+            success_criteria: vec![
+                SuccessCriterion::HoldsAreCorrect,
+                SuccessCriterion::NoFalseCommit,
+                SuccessCriterion::ReplayByteIdentical,
+            ],
+        }
+    }
+
+    /// Build a cognition-panorama workload.
+    pub fn cognition_panorama(
+        id: impl Into<String>,
+        dataset_id: Hash256,
+        ground_truth_profile: Option<Hash256>,
+    ) -> Self {
+        WorkloadSpec {
+            workload_id: id.into(),
+            family: WorkloadFamily::CognitionPanorama,
+            input_manifest_hash: dataset_id,
+            ground_truth_profile,
+            task_budget: TaskBudget::permissive(),
+            success_criteria: vec![
+                SuccessCriterion::DetectionMatchesGroundTruth,
+                SuccessCriterion::ReplayByteIdentical,
+            ],
+        }
+    }
+
+    /// Stable content hash of the workload spec (not stored on the
+    /// type itself — used by the runner to anchor `RunDescriptor`s).
+    pub fn content_hash(&self) -> Result<Hash256, EvalError> {
+        content_address(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mandatory_families_cover_spec_table() {
+        // §4.1 lists nine families.
+        assert_eq!(MANDATORY_WORKLOAD_FAMILIES.len(), 9);
+    }
+
+    #[test]
+    fn stream_event_workload_has_replay_criterion() {
+        let w = WorkloadSpec::stream_event("w.s", Hash256::zero(), None);
+        assert!(w
+            .success_criteria
+            .iter()
+            .any(|c| *c == SuccessCriterion::ReplayByteIdentical));
+    }
+}
