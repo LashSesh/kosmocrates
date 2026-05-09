@@ -1,0 +1,34 @@
+[package]
+name = "pse-eval-matrix"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PSE-EVAL-MATRIX-01 — empirical benchmark matrix for post-symbolic cognition systems (variants × workloads × domains × metrics × calibration; replay-verified, fail-closed)"
+
+[dependencies]
+# We reuse Hash256 / CanonicalNumber / canonical-bytes utilities from
+# pse-traverse so the entire workspace shares one float-free, JCS-canonical
+# numeric and addressing domain.
+pse-traverse = { path = "../pse-traverse", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+sha2 = { workspace = true }
+
+[features]
+# `eval-matrix`        — kernel schemas, metrics, ledger, scoring (default).
+# `eval-cli`           — flag for the companion CLI tool.
+# `eval-agent`         — agent / code workload metrics + task classes.
+# `eval-cognition`     — cognition-specific metrics (panorama, memory, lattice, self-model).
+# `eval-streams`       — streaming / event-detection workloads.
+# `eval-statistics`    — bootstrap CI, exact binomial intervals, paired comparisons.
+# `eval-reports`       — markdown / JSON / (stub) PDF export.
+default = ["eval-matrix", "eval-agent", "eval-cognition", "eval-streams", "eval-statistics", "eval-reports"]
+eval-matrix = []
+eval-cli = ["eval-matrix"]
+eval-agent = ["eval-matrix"]
+eval-cognition = ["eval-matrix"]
+eval-streams = ["eval-matrix"]
+eval-statistics = ["eval-matrix"]
+eval-reports = ["eval-matrix"]

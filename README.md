@@ -46,6 +46,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **Dynamics layer** (PSE-TRAVERSE-DYNAMICS-01) | **Shipped** |
 | **Horizon layer** (PSE-TRAVERSE-HORIZON-03) | **Shipped** |
 | **Cognition layer** (PSE-TRAVERSE-COGNITION-01) | **Shipped** |
+| **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -56,7 +57,7 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
 | `B15` `macro_step` end-to-end | **43–110 µs** |
 | `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **780 / 780** passing |
+| Workspace test suite | **839 / 839** passing |
 
 The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
 and matched on the full pipeline. See `cargo run --release --example
@@ -267,6 +268,51 @@ declarations, hit-sets, lattice, puzzle, panorama, scheduler,
 wormholes, self-model, calibration, trigger, bundle — is float-free,
 `BTreeMap`-keyed, sorted-before-hashing, and JCS-canonicalised.
 
+The optional **eval-matrix layer** (PSE-EVAL-MATRIX-01) wraps every
+post-symbolic layer above into a structural research instrument —
+**not** a benchmark harness. It binds system variants (B0_Baseline …
+B7_FullStack), workload families (StreamEvent, AnomalyRegime,
+TraversalPuzzle, CodeAgentPatch, DocSynthesis, MemoryReuse,
+HorizonFinalization, CognitionPanorama, MultiAgent), domain datasets,
+metric specs (primary outcome / post-symbolic structural / system /
+cognition / agent), calibration states, ablations, replay
+verification, statistical aggregation, and qualitative reviewer
+rubrics into one reproducible tensor:
+
+```text
+EvaluationSpec ─┐
+                ├─ plan ──► EvaluationPlan
+DatasetManifest┤            │
+GroundTruthProf┤            ├─ run ──► EvaluationRunLedger (append-only,
+SystemVariant  │            │            hash-chained)
+WorkloadSpec   │            │
+MetricSpec     │            └─ TrialReport[]  (content-addressed,
+CalibrationProf┘                              JCS-canonical, replayable)
+                                              │
+                                              ├─ replay  ── byte-identity check
+                                              ├─ score   ── CapabilityProfile,
+                                              │            Safety-Adjusted Utility,
+                                              │            Layer Marginal Utility
+                                              ├─ ablate  ── B6 → noCognition,
+                                              │            noSpiralMemory,
+                                              │            noConstraintLattice, …
+                                              └─ report  ── Markdown / JSON
+                                                           (no metric recompute)
+```
+
+The crate provides three built-in presets (§18): `agent-cognition`,
+`streaming-event-detection`, `post-symbolic-ablation`. A
+`TrialExecutor` trait lets external pipelines (PSE, pse-traverse,
+horizon, cognition, or third-party systems) plug in; the bundled
+`SyntheticTrialExecutor` is what golden fixtures and the property
+tests use. Every score / metric / gate value is a `CanonicalNumber`
+(no platform floats), the ledger is append-only with a rolling chain
+hash, and the spec's `Schlussformel` is enforced: a system counts as
+*empirically improved* only when
+`ΔU_task > 0 ∧ ΔU_safety ≥ 0 ∧ ReplayIdentity = 1 ∧ InvalidRunRate ≤ ε
+∧ LMU_target > 0` — otherwise the result is a *diagnostic finding*,
+not an improvement claim.
+
 Spec compliance highlights:
 
 * **Determinism.** Every keyed collection is `BTreeMap`, every list
@@ -353,6 +399,17 @@ cargo run --release -p pse-traverse-cognition-cli -- panorama \
 cargo run --release -p pse-traverse-cognition-cli -- bundle \
     target/cognition/run.json \
     --out target/cognition/bundle.json
+
+# Stamp an evaluation spec from a built-in preset (PSE-EVAL-MATRIX-01)
+cargo run --release -p pse-eval-matrix-cli -- init \
+    --template agent-cognition --out target/eval/spec.json
+
+# Plan, run, replay, score and report the full pipeline
+cargo run --release -p pse-eval-matrix-cli -- plan   --spec target/eval/spec.json   --out target/eval/plan.json
+cargo run --release -p pse-eval-matrix-cli -- run    --spec target/eval/spec.json   --plan target/eval/plan.json   --out target/eval/bundle.json
+cargo run --release -p pse-eval-matrix-cli -- replay --bundle target/eval/bundle.json
+cargo run --release -p pse-eval-matrix-cli -- score  --spec target/eval/spec.json   --bundle target/eval/bundle.json --out target/eval/summary.json
+cargo run --release -p pse-eval-matrix-cli -- report --summary target/eval/summary.json --format md --out target/eval/summary.md
 ```
 
 The MVP solver in `run` is a one-value-per-dimension template — by
@@ -363,17 +420,17 @@ PSE binding are the same regardless.
 See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`,
 `pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01),
 `pse_traverse_dynamics_spec_v0_1.pdf` (PSE-TRAVERSE-DYNAMICS-01),
-`pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03) and
-`pse_traverse_cognition_spec_v0_1.pdf` (PSE-TRAVERSE-COGNITION-01) for
-the specs this layer realises, and
-`topologisches_traversierungsframework_v3.pdf` for the underlying
-topological framework.
+`pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03),
+`pse_traverse_cognition_spec_v0_1.pdf` (PSE-TRAVERSE-COGNITION-01)
+and `PSE_EVAL_MATRIX_01.pdf` (PSE-EVAL-MATRIX-01) for the specs this
+layer realises, and `topologisches_traversierungsframework_v3.pdf`
+for the underlying topological framework.
 
 ---
 
 ## Architecture
 
-The workspace ships **24 crates**, **10 domain adapters**, **6 tool
+The workspace ships **25 crates**, **10 domain adapters**, **7 tool
 binaries**:
 
 ```
@@ -456,6 +513,10 @@ tools/
                       lattice / puzzle / panorama / calibrate /
                       trigger / bundle / replay / verify
                       (binary: pse-traverse-cognition)
+  pse-eval-matrix-cli  PSE-EVAL-MATRIX-01 CLI:
+                      init / validate / plan / run / replay / score /
+                      ablate / compare / report
+                      (binary: pse-eval-matrix)
 ```
 
 ---
@@ -585,6 +646,48 @@ short version of what changed:
   projection-v0.2, which alone may finalise.
   CLI: `pse-traverse-cognition inspect|observe|state5|memory-query|lattice|puzzle|panorama|calibrate|trigger|bundle|replay|verify`.
 
+* **Eval matrix (PSE-EVAL-MATRIX-01)** — empirical benchmark matrix
+  for post-symbolic cognition systems. New `pse-eval-matrix` crate
+  + `pse-eval-matrix` CLI:
+  * Data model: `EvaluationSpec` (content-addressed, validatable),
+    `SystemVariantSpec` over the B0 → B7 layer ladder (with explicit
+    `LayerMask` bitset), `WorkloadSpec` over nine mandatory families,
+    `DatasetManifest` with `calibration` / `validation` / `test`
+    splits, `GroundTruthProfile` (synthetic-exact / unit-test-oracle
+    / historical / human-adjudicated), `MetricSpec` with declared
+    direction + aggregation + invalidation rules, `MetricObservation`,
+    `EvaluationRunLedger` (append-only, hash-chained),
+    `EvaluationRunEntry`, `TrialReport`, `ReplayObservation`,
+    `EvaluationSummaryReport`, `CapabilityProfile`, `AblationSummary`,
+    `StatisticalSummary`, `ReviewerReport` (qualitative rubric),
+    `FailureRecord` over the spec's failure taxonomy.
+  * Operators: `plan_runs` (deterministic plan from spec),
+    `run_trial` + `TrialExecutor` trait (pluggable;
+    `SyntheticTrialExecutor` is the reference implementation),
+    `init_ledger` + `append_to_ledger` + `verify_ledger_chain`
+    (rolling chain hash), `verify_trial_replay` (byte-identity),
+    `score_ledger` (no metric recompute), `score_capability_profile`
+    (`U_task / U_replay / U_safety / U_cognition / U_efficiency /
+    U_calibration / U_robustness` + `Safety-Adjusted Utility`),
+    `cognition_uplift`, `layer_marginal_utility`,
+    `summarize_ablation`, `bootstrap_mean_ci` (deterministic seeded
+    LCG, no platform RNG), `exact_binomial_ci`, `paired_mean_diff`.
+  * Three built-in presets (§18): `agent-cognition`,
+    `streaming-event-detection`, `post-symbolic-ablation`.
+  * Feature flags: `eval-matrix` (default-on), `eval-cli`,
+    `eval-agent`, `eval-cognition`, `eval-streams`,
+    `eval-statistics`, `eval-reports`.
+  * Float-free in every score / metric / gate path:
+    `CanonicalNumber` only, gcd-normalised rationals, `BTreeMap`
+    keyed, sorted lists before hashing, JCS-canonical reports;
+    no wall-clock timestamps in audit hashes; no platform RNG;
+    `score` aggregates strictly from declared `MetricObservation`s.
+  * **Schlussformel** (§23): a system counts as *empirically improved*
+    only when `ΔU_task > 0 ∧ ΔU_safety ≥ 0 ∧ ReplayIdentity = 1 ∧
+    InvalidRunRate ≤ ε ∧ LMU_target > 0` — otherwise the result is a
+    *diagnostic finding*, surfaced as a `ConclusionFlag`.
+  * CLI: `pse-eval-matrix init|validate|plan|run|replay|score|ablate|compare|report`.
+
 The 8-fold Kairos AND, falsifier gating, content-address scheme, and
 EU-AI-Act compliance proof are unchanged across all of the above —
 calibration moves; the *contract* doesn't.
@@ -615,7 +718,7 @@ calibration moves; the *contract* doesn't.
 | Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
 | Format | `cargo fmt --all -- --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
-| Tests | `cargo test --workspace --locked` | 780 / 780 passing |
+| Tests | `cargo test --workspace --locked` | 839 / 839 passing |
 | Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
 | Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
 | CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |
