@@ -1,9 +1,10 @@
-//! Cycle-report summary helpers used by the CLI report subcommand.
+//! Cycle-report summary helpers and `StitcherReport`
+//! (PHASEMATRIX-HIVEMIND-03.1 §10).
 
 use serde::{Deserialize, Serialize};
 
 use super::pipeline::CellSubstrateOutcome;
-use super::primitives::{Fixed, Hash256};
+use super::primitives::{content_address, EvidenceRef, Fixed, Hash256, PhaseError};
 
 /// Compact summary of a single cell-substrate cycle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,5 +84,56 @@ impl CycleReportSummary {
                 produced_dissolution: false,
             },
         }
+    }
+}
+
+/// Top-level report produced by one stitch cycle (§10).
+///
+/// `StitcherReport` is content-addressed and captures the full before/after
+/// tensor state, accepted updates, rejected candidates, gate reports and
+/// the `FieldTensorTrace`.  It is the replay anchor for the Stitch layer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StitcherReport {
+    /// Content address of this report.
+    pub report_id: Hash256,
+    /// Content address of the `StitchRunDescriptor`.
+    pub rd_hash: Hash256,
+    /// Content address of `ResonanceFabricState` (Fabric-H snapshot).
+    pub fabric_h_hash: Hash256,
+    /// Content address of `FieldTensorState` before this cycle.
+    pub tensor_before_hash: Hash256,
+    /// Content address of `FieldTensorState` after this cycle.
+    pub tensor_after_hash: Hash256,
+    /// Content address of the sorted set of `StitchCandidate`s.
+    pub stitch_candidates_hash: Hash256,
+    /// Content addresses of accepted `CouplingUpdate`s (sorted).
+    pub accepted_updates: Vec<Hash256>,
+    /// Content addresses of rejected `StitchCandidate`s (sorted).
+    pub rejected_candidates: Vec<Hash256>,
+    /// Content addresses of `StitcherGateReport`s (sorted).
+    pub gate_reports: Vec<Hash256>,
+    /// Content address of the `TensorDeltaReport`.
+    pub tensor_delta_report_hash: Hash256,
+    /// Content address of the `FieldTensorTrace`.
+    pub field_tensor_trace_hash: Hash256,
+    /// True iff at least one update was accepted.
+    pub passed: bool,
+    /// Evidence references.
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+
+impl StitcherReport {
+    /// Recompute `report_id`.
+    ///
+    /// Sorts `accepted_updates`, `rejected_candidates` and `gate_reports`
+    /// before hashing (Invariant 9).
+    pub fn with_id(mut self) -> Result<Self, PhaseError> {
+        self.accepted_updates.sort();
+        self.rejected_candidates.sort();
+        self.gate_reports.sort();
+        let mut probe = self.clone();
+        probe.report_id = Hash256::zero();
+        self.report_id = content_address(&probe)?;
+        Ok(self)
     }
 }

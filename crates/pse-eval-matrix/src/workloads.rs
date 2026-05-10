@@ -29,6 +29,10 @@ pub enum WorkloadFamily {
     /// — cluster formation rate, morphology gate compliance,
     /// dissolution trace preservation, intent generation.
     MorphoCellSubstrate,
+    /// PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric Field-Tensor Stitch Layer
+    /// — StitcherGate compliance, coupling-update trace preservation,
+    /// tensor-revision monotonicity, replay byte-identity.
+    DualFabricStitch,
 }
 
 /// Canonical list of mandatory families. The matrix MUST cover several
@@ -46,6 +50,7 @@ pub const MANDATORY_WORKLOAD_FAMILIES: &[WorkloadFamily] = &[
     WorkloadFamily::CognitionPanorama,
     WorkloadFamily::MultiAgent,
     WorkloadFamily::MorphoCellSubstrate,
+    WorkloadFamily::DualFabricStitch,
 ];
 
 /// Per-task budget (limits how many iterations / how much wallclock-equivalent
@@ -208,6 +213,29 @@ impl WorkloadSpec {
         }
     }
 
+    /// Build a `DualFabricStitch` workload (PHASEMATRIX-HIVEMIND-03.1).
+    /// Success criteria: StitcherGate compliance (`HoldsAreCorrect`),
+    /// no direct Fabric-H→Fabric-T mutation (`NoFalseCommit`), replay
+    /// byte-identity.
+    pub fn dual_fabric_stitch(
+        id: impl Into<String>,
+        dataset_id: Hash256,
+        ground_truth_profile: Option<Hash256>,
+    ) -> Self {
+        WorkloadSpec {
+            workload_id: id.into(),
+            family: WorkloadFamily::DualFabricStitch,
+            input_manifest_hash: dataset_id,
+            ground_truth_profile,
+            task_budget: TaskBudget::permissive(),
+            success_criteria: vec![
+                SuccessCriterion::HoldsAreCorrect,
+                SuccessCriterion::NoFalseCommit,
+                SuccessCriterion::ReplayByteIdentical,
+            ],
+        }
+    }
+
     /// Stable content hash of the workload spec (not stored on the
     /// type itself — used by the runner to anchor `RunDescriptor`s).
     pub fn content_hash(&self) -> Result<Hash256, EvalError> {
@@ -221,10 +249,12 @@ mod tests {
 
     #[test]
     fn mandatory_families_cover_spec_table() {
-        // §4.1 lists nine families; the eval matrix extends to ten by
-        // adding the PHASEMATRIX-HIVEMIND-03 MorphoCellSubstrate family.
-        assert_eq!(MANDATORY_WORKLOAD_FAMILIES.len(), 10);
+        // §4.1 lists nine families; the eval matrix extends to eleven by
+        // adding PHASEMATRIX-HIVEMIND-03 MorphoCellSubstrate and the
+        // PHASEMATRIX-HIVEMIND-03.1 DualFabricStitch families.
+        assert_eq!(MANDATORY_WORKLOAD_FAMILIES.len(), 11);
         assert!(MANDATORY_WORKLOAD_FAMILIES.contains(&WorkloadFamily::MorphoCellSubstrate));
+        assert!(MANDATORY_WORKLOAD_FAMILIES.contains(&WorkloadFamily::DualFabricStitch));
     }
 
     #[test]

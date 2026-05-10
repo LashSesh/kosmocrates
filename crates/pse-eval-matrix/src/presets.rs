@@ -1,6 +1,6 @@
 //! Benchmark-matrix presets (§18).
 //!
-//! Four canonical presets that the CLI's `init` subcommand can stamp:
+//! Five canonical presets that the CLI's `init` subcommand can stamp:
 //!
 //! 1. `agent_cognition` — variants B0/B2/B5/B6/B7 over CodeAgentPatch /
 //!    DocSynthesis / TraversalPuzzle / MemoryReuse.
@@ -11,10 +11,13 @@
 //! 4. `phase_matrix_substrate` — B0 / B7 / B8 over the
 //!    `MorphoCellSubstrate` workload (PHASEMATRIX-HIVEMIND-03), with
 //!    the cell-substrate metric set added to the matrix.
+//! 5. `dual_fabric_stitch` — B0 / B8 / B9 over the `DualFabricStitch`
+//!    workload (PHASEMATRIX-HIVEMIND-03.1), scored against the full
+//!    Dual-Fabric Stitch metric set.
 
 use std::collections::BTreeMap;
 
-use crate::cell_substrate_metrics::cell_substrate_metric_specs;
+use crate::cell_substrate_metrics::{b9_metric_specs, cell_substrate_metric_specs};
 use crate::datasets::DatasetManifest;
 use crate::ground_truth::GroundTruthProfile;
 use crate::metrics::MetricSpec;
@@ -38,17 +41,20 @@ pub enum Preset {
     /// `phase-matrix-substrate` — PHASEMATRIX-HIVEMIND-03 closure
     /// preset.
     PhaseMatrixSubstrate,
+    /// `dual-fabric-stitch` — PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric
+    /// Field-Tensor Stitch Layer closure preset.
+    DualFabricStitch,
 }
 
 impl Preset {
-    /// Parse a CLI tag (`"agent-cognition"`, `"streaming-event-detection"`,
-    /// `"post-symbolic-ablation"`, `"phase-matrix-substrate"`).
+    /// Parse a CLI tag.
     pub fn from_tag(s: &str) -> Option<Self> {
         match s {
             "agent-cognition" => Some(Preset::AgentCognition),
             "streaming-event-detection" => Some(Preset::StreamingEventDetection),
             "post-symbolic-ablation" => Some(Preset::PostSymbolicAblation),
             "phase-matrix-substrate" => Some(Preset::PhaseMatrixSubstrate),
+            "dual-fabric-stitch" => Some(Preset::DualFabricStitch),
             _ => None,
         }
     }
@@ -60,6 +66,7 @@ impl Preset {
             Preset::StreamingEventDetection => Ok(preset_streaming_event_detection()?),
             Preset::PostSymbolicAblation => Ok(preset_post_symbolic_ablation()?),
             Preset::PhaseMatrixSubstrate => Ok(preset_phase_matrix_substrate()?),
+            Preset::DualFabricStitch => Ok(preset_dual_fabric_stitch()?),
         }
     }
 }
@@ -83,6 +90,9 @@ fn workload_for(
         }
         WorkloadFamily::MorphoCellSubstrate => {
             WorkloadSpec::morpho_cell_substrate(id, dataset.dataset_id.clone(), gt_id)
+        }
+        WorkloadFamily::DualFabricStitch => {
+            WorkloadSpec::dual_fabric_stitch(id, dataset.dataset_id.clone(), gt_id)
         }
         // The other families share the StreamEvent shape for the
         // built-in presets — production callers should author their own
@@ -301,6 +311,50 @@ pub fn preset_phase_matrix_substrate() -> Result<EvaluationSpec, EvalError> {
     .with_id()
 }
 
+/// `dual-fabric-stitch` preset.
+///
+/// Empirical closure for PHASEMATRIX-HIVEMIND-03.1: variants B0 / B8 / B9
+/// over the `DualFabricStitch` workload.  Scored against the full B9
+/// metric set (all cell-substrate metrics + all Dual-Fabric Stitch metrics)
+/// so the stitch-layer uplift is comparable against B8.
+pub fn preset_dual_fabric_stitch() -> Result<EvaluationSpec, EvalError> {
+    let dataset = DatasetManifest::synthetic("d.dual_fabric_stitch");
+    let gt = GroundTruthProfile::synthetic_exact();
+    let workloads = vec![workload_for(
+        WorkloadFamily::DualFabricStitch,
+        "w.dual_fabric_stitch",
+        &dataset,
+        Some(&gt),
+    )];
+    let variants = vec![
+        SystemVariantSpec::baseline(),
+        SystemVariantSpec::phase_matrix_substrate(),
+        SystemVariantSpec::dual_fabric_stitch(),
+    ];
+    let mut metrics = vec![
+        MetricSpec::task_success(),
+        MetricSpec::replay_identity(),
+        MetricSpec::hold_correctness(),
+        MetricSpec::false_commit_rate(),
+    ];
+    metrics.extend(b9_metric_specs());
+    EvaluationSpec {
+        spec_id: crate::primitives::Hash256::zero(),
+        schema_version: "eval-matrix-v0.1".into(),
+        purpose: EvaluationPurpose::Composite,
+        variants,
+        workloads,
+        datasets: vec![dataset],
+        metrics,
+        experiment_design: ExperimentDesign::default_design(),
+        statistical_plan: StatisticalPlan::default_plan(),
+        determinism_policy: DeterminismPolicy::default(),
+        output_policy: OutputPolicy::default_policy(),
+        tags: BTreeMap::from_iter([("preset".to_string(), "dual-fabric-stitch".to_string())]),
+    }
+    .with_id()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,7 +391,26 @@ mod tests {
             Preset::from_tag("phase-matrix-substrate"),
             Some(Preset::PhaseMatrixSubstrate)
         );
+        assert_eq!(
+            Preset::from_tag("dual-fabric-stitch"),
+            Some(Preset::DualFabricStitch)
+        );
         assert!(Preset::from_tag("nonsense").is_none());
+    }
+
+    #[test]
+    fn dual_fabric_stitch_preset_includes_b9_and_stitch_metrics() {
+        let s = preset_dual_fabric_stitch().unwrap();
+        assert!(s.validate().is_ok());
+        let ids: Vec<_> = s.variants.iter().map(|v| v.variant_id.as_str()).collect();
+        assert!(ids.contains(&"B0_Baseline"));
+        assert!(ids.contains(&"B8_PhaseMatrix"));
+        assert!(ids.contains(&"B9_DualFabricStitch"));
+        let mids: Vec<_> = s.metrics.iter().map(|m| m.metric_id.as_str()).collect();
+        assert!(mids.contains(&"stitcher_gate_pass_rate"));
+        assert!(mids.contains(&"stitch_replay_identity"));
+        assert!(mids.contains(&"fabric_h_isolation_rate"));
+        assert!(mids.contains(&"cluster_formation_rate"));
     }
 
     #[test]

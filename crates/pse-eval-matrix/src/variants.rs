@@ -43,6 +43,9 @@ impl LayerMask {
     /// Bit for the morphodynamic resonance cell substrate
     /// (PHASEMATRIX-HIVEMIND-03).
     pub const CELL_SUBSTRATE: u32 = 1 << 12;
+    /// Bit for the Dual-Fabric Field-Tensor Stitch Layer
+    /// (PHASEMATRIX-HIVEMIND-03.1).
+    pub const DUAL_FABRIC_STITCH: u32 = 1 << 13;
 
     /// `B0_Baseline` — naive baseline / classical detector.
     pub const B0_BASELINE: LayerMask = LayerMask(0);
@@ -92,6 +95,10 @@ impl LayerMask {
     /// `B8_PhaseMatrix` — full stack plus the morphodynamic resonance
     /// cell substrate (PHASEMATRIX-HIVEMIND-03).
     pub const B8_PHASE_MATRIX: LayerMask = LayerMask(Self::B7_FULL_STACK.0 | Self::CELL_SUBSTRATE);
+    /// `B9_DualFabricStitch` — B8 plus the Dual-Fabric Field-Tensor
+    /// Stitch Layer (PHASEMATRIX-HIVEMIND-03.1).
+    pub const B9_DUAL_FABRIC_STITCH: LayerMask =
+        LayerMask(Self::B8_PHASE_MATRIX.0 | Self::DUAL_FABRIC_STITCH);
 
     /// True iff every bit in `bits` is set.
     pub fn has(self, bits: u32) -> bool {
@@ -222,6 +229,16 @@ impl SystemVariantSpec {
         )
     }
 
+    /// `B9_DualFabricStitch` — B8 plus the Dual-Fabric Field-Tensor
+    /// Stitch Layer (PHASEMATRIX-HIVEMIND-03.1).
+    pub fn dual_fabric_stitch() -> Self {
+        Self::from_ladder(
+            "B9_DualFabricStitch",
+            LayerMask::B9_DUAL_FABRIC_STITCH,
+            SolverProfile::Template,
+        )
+    }
+
     fn from_ladder(name: &str, mask: LayerMask, solver: SolverProfile) -> Self {
         let probe = (name, mask, solver);
         let config_hash = content_address(&probe).unwrap_or_else(|_| Hash256::zero());
@@ -276,6 +293,15 @@ impl VariantLadder {
     pub fn full_with_phase_matrix() -> Vec<SystemVariantSpec> {
         let mut ladder = Self::full();
         ladder.push(SystemVariantSpec::phase_matrix_substrate());
+        ladder
+    }
+
+    /// Returns the extended B0…B9 ladder including both the
+    /// PHASEMATRIX-HIVEMIND-03 cell-substrate rung and the
+    /// PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric Stitch rung.
+    pub fn full_with_dual_fabric_stitch() -> Vec<SystemVariantSpec> {
+        let mut ladder = Self::full_with_phase_matrix();
+        ladder.push(SystemVariantSpec::dual_fabric_stitch());
         ladder
     }
 }
