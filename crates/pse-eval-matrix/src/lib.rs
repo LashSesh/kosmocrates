@@ -57,6 +57,7 @@ pub mod failure_taxonomy;
 pub mod ground_truth;
 pub mod ledger;
 pub mod metrics;
+pub mod nctcs_metrics;
 pub mod presets;
 pub mod primitives;
 pub mod replay;
@@ -65,9 +66,9 @@ pub mod runner;
 pub mod scoring;
 pub mod spec;
 pub mod statistics;
+pub mod topology_metrics;
 pub mod variants;
 pub mod workloads;
-pub mod topology_metrics;
 
 #[cfg(feature = "eval-agent")]
 pub mod agent_tasks;
@@ -82,7 +83,6 @@ pub use cell_substrate_metrics::{
     CellSubstrateMetricKind,
 };
 pub use cognition_metrics::{cognition_metric_specs, CognitionMetricKind};
-pub use topology_metrics::{topology_metric_specs, TopologyMetricKind};
 pub use datasets::{DatasetManifest, DatasetSplit, DatasetSplitKind};
 pub use export::{render_json_summary, render_markdown_summary};
 pub use failure_taxonomy::{FailureKind, FailureRecord};
@@ -124,6 +124,7 @@ pub use spec::{
 pub use statistics::{
     bootstrap_mean_ci, exact_binomial_ci, paired_mean_diff, BootstrapResult, ConfidenceInterval,
 };
+pub use topology_metrics::{topology_metric_specs, TopologyMetricKind};
 pub use variants::{LayerMask, SolverProfile, SystemVariantSpec, VariantLadder};
 pub use workloads::{
     SuccessCriterion, TaskBudget, WorkloadFamily, WorkloadSpec, MANDATORY_WORKLOAD_FAMILIES,

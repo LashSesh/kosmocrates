@@ -57,16 +57,66 @@ impl TopologyMetricKind {
 pub fn topology_metric_specs() -> Vec<MetricSpec> {
     use TopologyMetricKind::*;
     let all = [
-        (AdapterTotalityRate, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, true),
-        (AxisBridgeValidity, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, true),
-        (MeshDeterminismIdentity, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, true),
-        (TopologyRobustness, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, false),
-        (MicroLiftCoverage, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, true),
-        (SeamConsistencyRate, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, false),
-        (CarrierContinuity, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, false),
-        (FalseCrystalRate, MetricDirection::LowerIsBetter, MetricFamily::PostSymbolicStructural, true),
-        (TraceCompleteness, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, false),
-        (ReplayIdentity, MetricDirection::HigherIsBetter, MetricFamily::PostSymbolicStructural, true),
+        (
+            AdapterTotalityRate,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            true,
+        ),
+        (
+            AxisBridgeValidity,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            true,
+        ),
+        (
+            MeshDeterminismIdentity,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            true,
+        ),
+        (
+            TopologyRobustness,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            false,
+        ),
+        (
+            MicroLiftCoverage,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            true,
+        ),
+        (
+            SeamConsistencyRate,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            false,
+        ),
+        (
+            CarrierContinuity,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            false,
+        ),
+        (
+            FalseCrystalRate,
+            MetricDirection::LowerIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            true,
+        ),
+        (
+            TraceCompleteness,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            false,
+        ),
+        (
+            ReplayIdentity,
+            MetricDirection::HigherIsBetter,
+            MetricFamily::PostSymbolicStructural,
+            true,
+        ),
     ];
 
     all.iter()

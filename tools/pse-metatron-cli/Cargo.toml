@@ -1,0 +1,16 @@
+[package]
+name = "pse-metatron-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI for PSE-METATRON-MONOLITH-01 — Holistic Eigenmode Closure Layer (binary: pse-metatron)"
+
+[dependencies]
+pse-metatron = { path = "../../crates/pse-metatron" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[bin]]
+name = "pse-metatron"
+path = "src/main.rs"

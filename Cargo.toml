@@ -51,6 +51,7 @@ members = [
     "tools/pse-phase-matrix-cli",
     "crates/pse-validation-runner",
     "tools/pse-validation-runner-cli",
+    "tools/pse-metatron-cli",
 ]
 
 [workspace.package]
