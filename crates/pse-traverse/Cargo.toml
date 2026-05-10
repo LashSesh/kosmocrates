@@ -20,7 +20,7 @@ pse-core = { path = "../pse-core", optional = true }
 pse-graph = { path = "../pse-graph", optional = true }
 
 [features]
-default = ["pse-commit", "horizon", "cognition"]
+default = ["pse-commit", "horizon", "cognition", "topology"]
 pse-commit = ["dep:pse-core", "dep:pse-graph"]
 
 # ── PSE-TRAVERSE-HORIZON-03 (v0.3 null-centered horizon geometry) ──
@@ -68,3 +68,19 @@ cognition-scorpio-phase = ["cognition"]
 cognition-wormholes = ["cognition"]
 cognition-calibration = ["cognition"]
 cognition-projection-handoff = ["cognition"]
+
+# ── PSE-TRAVERSE-TPT-MTL-04 (Topological Panoptic Triangulation & Möbius-Tripolar Micro-Lift) ──
+# `topology`             — base types, PhaseSpaceWindow, MeshHolo, gates.
+# `topology-cli`         — builds the `pse-traverse-topology` CLI.
+# `topology-mtl`         — MicroFiber, MTL-D1 dualization, SeamComponent, MicroLiftGate.
+# `topology-refine`      — recursive DK/SW/PI/WT/Press refinement under budget.
+# `topology-carrier`     — CarrierGate, KairosGate, CarrierMigrationReports.
+# `topology-reinterpret` — reinterpretation into Claims/Horizons/GateSignals.
+# `topology-handoff`     — handoff candidates without external commit.
+topology = []
+topology-cli = ["topology"]
+topology-mtl = ["topology"]
+topology-refine = ["topology"]
+topology-carrier = ["topology"]
+topology-reinterpret = ["topology"]
+topology-handoff = ["topology"]

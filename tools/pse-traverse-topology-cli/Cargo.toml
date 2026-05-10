@@ -1,0 +1,16 @@
+[package]
+name = "pse-traverse-topology-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI for the PSE-TRAVERSE-TPT-MTL-04 topology layer"
+
+[[bin]]
+name = "pse-traverse-topology"
+path = "src/main.rs"
+
+[dependencies]
+pse-traverse = { path = "../../crates/pse-traverse", features = ["topology"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

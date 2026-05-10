@@ -71,6 +71,21 @@ pub mod cognition;
 #[cfg(feature = "pse-commit")]
 pub mod bridge;
 
+/// Topological Panoptic Triangulation and Möbius-Tripolar Micro-Lift
+/// (PSE-TRAVERSE-TPT-MTL-04).
+///
+/// Additive topology-orientation layer above the Cognition / PhaseMatrix /
+/// Dual-Fabric-Stitch stack. Converts panoptic cognitive states into
+/// deterministic topological orientation artefacts:
+/// `PhaseSpaceWindow`, `MeshHolo`, `MicroFiberSet`, `ReinterpretationReport`,
+/// `TopologicalCrystalCandidate` and `TptMtlBundle`.
+///
+/// The layer generates **no** `SemanticCrystal` and triggers **no** external
+/// commits. Activated with the `topology` feature (default-on).
+/// See [`topology::pipeline::run_tpt_mtl`] for the canonical end-to-end pass.
+#[cfg(feature = "topology")]
+pub mod topology;
+
 pub use canonical::{canonical_bytes, content_address, hex_address};
 pub use dof::{DoFEdge, DoFGraph, DoFNode, DoFNodeKind, NodeId, NodeStatus};
 pub use excision::{detect_path_excision, OperationalImpact, PathExcision};

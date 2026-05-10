@@ -1,0 +1,52 @@
+{
+  "rdver": "TPT-MTL-0.4",
+  "seed": "deterministic-0",
+  "canonicalization": "jcs-rfc8785",
+  "numeric_policy": {"kind": "Fixed"},
+  "tie_break": "DigestLexicographic",
+  "domain_profile": "default",
+  "source_boundaries": [],
+  "operator_versions": {},
+  "budgets": {
+    "max_depth": 8,
+    "max_steps": 4096,
+    "max_vertices": 1024,
+    "max_simplices": 4096,
+    "max_time_ms": 30000,
+    "max_memory_kb": 512000
+  },
+  "axis_policy": {
+    "semantic_axes": ["R", "F", "T", "S", "E"],
+    "runtime_axes": ["psi", "rho", "omega", "chi", "tau"],
+    "carrier_axes": ["n0", "t2", "t1", "alpha", "beta", "mandorla", "lambda"],
+    "translation_policy": "identity"
+  },
+  "mesh_policy": {
+    "alpha_symmetry": {"kind": "FixedI64", "raw": 1000000000, "scale": 9},
+    "alpha_resolution": {"kind": "FixedI64", "raw": 1000000000, "scale": 9},
+    "alpha_topo_stab": {"kind": "FixedI64", "raw": 1000000000, "scale": 9},
+    "alpha_seam": {"kind": "FixedI64", "raw": 1000000000, "scale": 9},
+    "alpha_carrier": {"kind": "FixedI64", "raw": 1000000000, "scale": 9},
+    "alpha_entropy_penalty": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "alpha_complexity": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "max_betti_shift": [2, 2, 2, 2, 2],
+    "max_pd_wasserstein": {"kind": "FixedI64", "raw": 1000000000000, "scale": 9}
+  },
+  "micro_lift_policy": {
+    "dualization_rule": "MTL-D1",
+    "neighborhood_metric": "euclidean",
+    "k_or_radius": "k=5",
+    "epsilon": {"kind": "FixedI64", "raw": 1, "scale": 9}
+  },
+  "gate_thresholds": {
+    "min_adapter_totality": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "min_axis_bridge_validity": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "min_mesh_determinism": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "min_micro_lift_coverage": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "min_seam_consistency": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "min_carrier_continuity": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "max_false_crystal_rate": {"kind": "FixedI64", "raw": 1000000000, "scale": 9},
+    "min_trace_completeness": {"kind": "FixedI64", "raw": 0, "scale": 9},
+    "min_replay_identity": {"kind": "FixedI64", "raw": 0, "scale": 9}
+  }
+}
