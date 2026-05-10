@@ -1,0 +1,19 @@
+[package]
+name = "pse-validation-runner-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI for PSE-VALIDATION-RUNNER-01 — one-button validation singularity (binary: pse-validate)"
+
+[dependencies]
+pse-validation-runner = { path = "../../crates/pse-validation-runner", features = ["validation-runner"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[bin]]
+name = "pse-validate"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"

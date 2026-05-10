@@ -49,6 +49,8 @@ members = [
     "tools/pse-traverse-topology-cli",
     "tools/pse-eval-matrix-cli",
     "tools/pse-phase-matrix-cli",
+    "crates/pse-validation-runner",
+    "tools/pse-validation-runner-cli",
 ]
 
 [workspace.package]

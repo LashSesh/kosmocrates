@@ -1,0 +1,27 @@
+[package]
+name = "pse-validation-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PSE-VALIDATION-RUNNER-01 — One-Button Validation Singularity library"
+
+[features]
+default = ["validation-runner"]
+validation-runner = []
+validation-cli = []
+validation-domain = []
+validation-reports = []
+validation-archive = []
+validation-github = []
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4"
+pse-traverse = { path = "../pse-traverse", default-features = false, features = ["horizon", "topology"] }
+
+[dev-dependencies]
+tempfile = "3"
