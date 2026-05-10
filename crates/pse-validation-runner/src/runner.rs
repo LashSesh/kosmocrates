@@ -137,9 +137,16 @@ pub fn run(
         "",
     );
 
-    let (missing_presets, eval_obligations) =
-        assess_presets(&profile.eval_matrix.presets, profile.eval_matrix.report_missing_topology_preset);
-    let eval_summary = build_eval_summary(&eval_exits, &eval_replay_ok, missing_presets, eval_obligations);
+    let (missing_presets, eval_obligations) = assess_presets(
+        &profile.eval_matrix.presets,
+        profile.eval_matrix.report_missing_topology_preset,
+    );
+    let eval_summary = build_eval_summary(
+        &eval_exits,
+        &eval_replay_ok,
+        missing_presets,
+        eval_obligations,
+    );
 
     let replay_identity = eval_summary.preset_results.iter().all(|r| r.replay_passed);
 
@@ -191,7 +198,9 @@ pub fn run(
         ));
     }
     std::fs::write(final_dir.join("open_obligations.md"), &obligations_md).map_err(|e| {
-        ValidationError::Io { reason: format!("write open_obligations.md: {e}") }
+        ValidationError::Io {
+            reason: format!("write open_obligations.md: {e}"),
+        }
     })?;
 
     // Write ledger.
@@ -225,15 +234,12 @@ fn make_run_id(snapshot_hash: &Hash256, profile_hash: &Hash256) -> StableId {
 }
 
 fn create_dirs(out_dir: &Path) -> Result<(), ValidationError> {
-    for sub in &[
-        "",
-        "quality",
-        "bench",
-        "eval",
-        "domain",
-        "final",
-    ] {
-        let dir = if sub.is_empty() { out_dir.to_path_buf() } else { out_dir.join(sub) };
+    for sub in &["", "quality", "bench", "eval", "domain", "final"] {
+        let dir = if sub.is_empty() {
+            out_dir.to_path_buf()
+        } else {
+            out_dir.join(sub)
+        };
         std::fs::create_dir_all(&dir).map_err(|e| ValidationError::Io {
             reason: format!("create dir {}: {e}", dir.display()),
         })?;
@@ -247,8 +253,10 @@ fn write_json<T: serde::Serialize>(
     value: &T,
 ) -> Result<(), ValidationError> {
     let path = dir.join(name);
-    let bytes = serde_json::to_vec_pretty(value)
-        .map_err(|e| ValidationError::Canonicalization { reason: e.to_string() })?;
+    let bytes =
+        serde_json::to_vec_pretty(value).map_err(|e| ValidationError::Canonicalization {
+            reason: e.to_string(),
+        })?;
     std::fs::write(&path, &bytes).map_err(|e| ValidationError::Io {
         reason: format!("write {}: {e}", path.display()),
     })

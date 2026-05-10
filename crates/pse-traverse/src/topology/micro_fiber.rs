@@ -36,11 +36,12 @@ pub fn lift_micro_fiber(
     point_idx: usize,
     rd: &TptMtlRunDescriptor,
 ) -> Result<MicroFiber, TopologyError> {
-    let point = window.points.get(point_idx).ok_or_else(|| {
-        TopologyError::InvalidMicroFiber {
+    let point = window
+        .points
+        .get(point_idx)
+        .ok_or_else(|| TopologyError::InvalidMicroFiber {
             reason: format!("point_idx {} out of bounds", point_idx),
-        }
-    })?;
+        })?;
 
     // Build subwindow.
     let subwindow = build_local_subwindow(window, mesh, &point.point_id, rd)?;
@@ -83,7 +84,10 @@ pub fn lift_micro_fiber(
         trace_ref: window.trace_ref.clone(),
     };
     let fiber_id = tpt_content_address(&partial)?;
-    Ok(MicroFiber { fiber_id, ..partial })
+    Ok(MicroFiber {
+        fiber_id,
+        ..partial
+    })
 }
 
 /// Lift MicroFibers for all active (non-Blocked) points in the window.

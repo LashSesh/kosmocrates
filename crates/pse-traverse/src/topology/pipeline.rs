@@ -19,7 +19,7 @@ use super::phase_window::{build_phase_space_window, PhaseSpaceWindow, TptMtlInpu
 use super::primitives::{tpt_content_address, Hash256, TopologyError};
 use super::refine::refine_recursive;
 use super::reinterpret::{reinterpret_mesh_to_panoptic, ReinterpretationReport};
-use super::replay::{ReplayManifest};
+use super::replay::ReplayManifest;
 use super::run_descriptor::TptMtlRunDescriptor;
 
 /// The complete outcome of a `run_tpt_mtl` call.
@@ -212,7 +212,16 @@ fn early_outcome(
         },
         trace_ref: window.trace_ref.clone(),
     };
-    early_outcome_with_mesh(kind, input, rd, rd_hash, window, axis_report, dummy_mesh, reason)
+    early_outcome_with_mesh(
+        kind,
+        input,
+        rd,
+        rd_hash,
+        window,
+        axis_report,
+        dummy_mesh,
+        reason,
+    )
 }
 
 fn early_outcome_with_mesh(
@@ -328,8 +337,7 @@ mod tests {
         let r1 = run_tpt_mtl(&input, &rd).unwrap();
         let r2 = run_tpt_mtl(&input, &rd).unwrap();
         assert_eq!(
-            r1.outcome.bundle.bundle_id,
-            r2.outcome.bundle.bundle_id,
+            r1.outcome.bundle.bundle_id, r2.outcome.bundle.bundle_id,
             "pipeline MUST be deterministic"
         );
     }

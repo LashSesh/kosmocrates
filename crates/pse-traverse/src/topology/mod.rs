@@ -72,12 +72,10 @@ pub use artifact::{
 pub use axis_bridge::{build_axis_bridge_report, AxisBridgeReport, AxisLayer, AxisOriginDecl};
 pub use carrier::{evaluate_carrier, CarrierContext, CarrierReport};
 pub use dual_antiphase::{apply_mtl_d1, DualAntiphase, DualizationFailure, DualizationProof};
-pub use gates::{
-    gate_all, FailurePolicy, GateResult, TptMtlGateReport, TptMtlOutcomeKind,
-};
+pub use gates::{gate_all, FailurePolicy, GateResult, TptMtlGateReport, TptMtlOutcomeKind};
 pub use mesh_holo::{
-    evolve_mesh, seed_mesh_holo, EntropyClass, MeshEdge, MeshHolo, MeshProof, MeshVertex,
-    Simplex, TopologicalInvariants,
+    evolve_mesh, seed_mesh_holo, EntropyClass, MeshEdge, MeshHolo, MeshProof, MeshVertex, Simplex,
+    TopologicalInvariants,
 };
 pub use mesh_weights::weight_mesh_with_microfibers;
 pub use micro_fiber::{gate_micro_lift, lift_micro_fiber, lift_micro_fibers, MicroFiber};
@@ -88,7 +86,9 @@ pub use phase_window::{
 };
 pub use pipeline::{run_tpt_mtl, TptMtlOutcome, TptMtlPipelineResult};
 pub use primary_phase::{compute_primary_phase, PrimaryPhase};
-pub use primitives::{tpt_content_address, Fixed, Hash256, RationalFixed, TptEvidenceRef, TopologyError};
+pub use primitives::{
+    tpt_content_address, Fixed, Hash256, RationalFixed, TopologyError, TptEvidenceRef,
+};
 pub use refine::{refine_recursive, BudgetState};
 pub use reinterpret::{
     reinterpret_mesh_to_panoptic, ClaimCandidate, ClaimStatus, HorizonUpdate, HorizonUpdateKind,

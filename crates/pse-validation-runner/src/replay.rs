@@ -89,7 +89,10 @@ pub fn verify_replay(
         failure_reasons: reasons,
     };
     let replay_id = content_address(&partial)?;
-    Ok(ReplayResult { replay_id, ..partial })
+    Ok(ReplayResult {
+        replay_id,
+        ..partial
+    })
 }
 
 #[cfg(test)]
@@ -112,7 +115,9 @@ mod tests {
             stderr_len: 0,
             stdout_path: None,
         };
-        ledger.append(ValidationPhase::Quality, &result, vec![]).unwrap();
+        ledger
+            .append(ValidationPhase::Quality, &result, vec![])
+            .unwrap();
         let replay = verify_replay(&ledger, None).unwrap();
         assert!(replay.replay_identity);
     }
@@ -130,13 +135,14 @@ mod tests {
             stderr_len: 0,
             stdout_path: None,
         };
-        ledger.append(ValidationPhase::Quality, &result, vec![]).unwrap();
+        ledger
+            .append(ValidationPhase::Quality, &result, vec![])
+            .unwrap();
         // Break the chain hash.
         ledger.chain_hash = Hash256::zero();
         // chain_hash is now wrong (unless the single entry happened to produce zero).
         // Only fails if chain_hash diverges; let's force it:
-        ledger.entries[0].entry_id =
-            Hash256::from_hex(&"ff".repeat(32)).unwrap_or(Hash256::zero());
+        ledger.entries[0].entry_id = Hash256::from_hex(&"ff".repeat(32)).unwrap_or(Hash256::zero());
         let replay = verify_replay(&ledger, None).unwrap();
         assert!(!replay.replay_identity);
     }

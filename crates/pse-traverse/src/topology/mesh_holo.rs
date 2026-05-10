@@ -134,7 +134,8 @@ pub fn seed_mesh_holo(
             coordinates: point.x.clone(),
             weight,
         };
-        let vertex_id = tpt_content_address(&("mesh-vertex", &partial.point_ref, &partial.coordinates))?;
+        let vertex_id =
+            tpt_content_address(&("mesh-vertex", &partial.point_ref, &partial.coordinates))?;
         vertices.push(MeshVertex {
             vertex_id,
             ..partial
@@ -157,10 +158,7 @@ pub fn seed_mesh_holo(
                 weight: dist,
             };
             let edge_id = tpt_content_address(&("mesh-edge", &partial.v1, &partial.v2))?;
-            edges.push(MeshEdge {
-                edge_id,
-                ..partial
-            });
+            edges.push(MeshEdge { edge_id, ..partial });
         }
     }
     edges.sort();
@@ -294,7 +292,9 @@ pub fn evolve_mesh(
 /// Euclidean distance in 5D using Fixed arithmetic.
 fn euclidean5d(a: &[Fixed; 5], b: &[Fixed; 5]) -> Fixed {
     use super::dual_antiphase::{f64_to_fixed, fixed_to_f64};
-    let sum: f64 = (0..5).map(|i| (fixed_to_f64(&a[i]) - fixed_to_f64(&b[i])).abs()).sum();
+    let sum: f64 = (0..5)
+        .map(|i| (fixed_to_f64(&a[i]) - fixed_to_f64(&b[i])).abs())
+        .sum();
     f64_to_fixed(sum)
 }
 

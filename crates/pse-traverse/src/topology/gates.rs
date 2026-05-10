@@ -159,11 +159,7 @@ fn gate_symmetry(mesh: &MeshHolo) -> GateResult {
 /// Check the TopologyGate: Betti/persistence stable or allowed shift with proof.
 fn gate_topology(mesh: &MeshHolo) -> GateResult {
     let has_guard = !mesh.proof.topology_guard_proofs.is_empty();
-    let all_guard_passed = mesh
-        .proof
-        .topology_guard_proofs
-        .iter()
-        .all(|p| p.passed);
+    let all_guard_passed = mesh.proof.topology_guard_proofs.iter().all(|p| p.passed);
     let passed = has_guard && all_guard_passed;
     let mut diagnostics = Vec::new();
     if !has_guard {
@@ -256,7 +252,10 @@ fn gate_truth(reinterp: &ReinterpretationReport) -> GateResult {
 
     for claim in &reinterp.claim_candidates {
         if claim.evidence_refs.is_empty() {
-            diagnostics.push(format!("claim {} has no evidence_refs", claim.claim_id.hex()));
+            diagnostics.push(format!(
+                "claim {} has no evidence_refs",
+                claim.claim_id.hex()
+            ));
         }
         if claim.scope.is_empty() {
             diagnostics.push(format!("claim {} has empty scope", claim.claim_id.hex()));
@@ -274,17 +273,12 @@ fn gate_truth(reinterp: &ReinterpretationReport) -> GateResult {
 }
 
 /// Check the BoundaryGate: data/domain/security/action/scope boundaries respected.
-fn gate_boundary(
-    window: &PhaseSpaceWindow,
-    rd: &TptMtlRunDescriptor,
-) -> GateResult {
+fn gate_boundary(window: &PhaseSpaceWindow, rd: &TptMtlRunDescriptor) -> GateResult {
     let mut diagnostics = Vec::new();
 
     // Every declared source boundary must appear in input_refs or boundary_ref.
     for (i, src_boundary) in rd.source_boundaries.iter().enumerate() {
-        if !window.input_refs.contains(src_boundary)
-            && window.boundary_ref != *src_boundary
-        {
+        if !window.input_refs.contains(src_boundary) && window.boundary_ref != *src_boundary {
             diagnostics.push(format!(
                 "source_boundary[{}] {} not found in window input_refs or boundary_ref",
                 i,
@@ -377,10 +371,7 @@ fn gate_matrix(
 }
 
 /// Check the EmissionGate: output in allowed scope, full provenance, no external action.
-fn gate_emission(
-    reinterp: &ReinterpretationReport,
-    mesh: &MeshHolo,
-) -> GateResult {
+fn gate_emission(reinterp: &ReinterpretationReport, mesh: &MeshHolo) -> GateResult {
     let mut diagnostics = Vec::new();
 
     // Check emission is only for emission-capable entropy classes.

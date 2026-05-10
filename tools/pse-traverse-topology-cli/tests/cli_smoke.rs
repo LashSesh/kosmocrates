@@ -105,10 +105,8 @@ fn cli_run_is_deterministic() {
         assert!(status.success());
     }
 
-    let b1: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&out1).unwrap()).unwrap();
-    let b2: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&out2).unwrap()).unwrap();
+    let b1: serde_json::Value = serde_json::from_slice(&std::fs::read(&out1).unwrap()).unwrap();
+    let b2: serde_json::Value = serde_json::from_slice(&std::fs::read(&out2).unwrap()).unwrap();
 
     assert_eq!(
         b1["bundle_id"], b2["bundle_id"],

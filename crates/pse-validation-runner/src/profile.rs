@@ -201,7 +201,10 @@ impl ValidationProfile {
             extra_env: BTreeMap::new(),
         };
         let id = content_address(&partial)?;
-        Ok(ValidationProfile { profile_id: id, ..partial })
+        Ok(ValidationProfile {
+            profile_id: id,
+            ..partial
+        })
     }
 
     /// Structural profile: complete internal validation without real data.
@@ -223,7 +226,10 @@ impl ValidationProfile {
             extra_env: BTreeMap::new(),
         };
         let id = content_address(&partial)?;
-        Ok(ValidationProfile { profile_id: id, ..partial })
+        Ok(ValidationProfile {
+            profile_id: id,
+            ..partial
+        })
     }
 
     /// Full profile: structural plus all available benchmarks.
@@ -241,7 +247,10 @@ impl ValidationProfile {
             extra_env: BTreeMap::new(),
         };
         let id = content_address(&partial)?;
-        Ok(ValidationProfile { profile_id: id, ..partial })
+        Ok(ValidationProfile {
+            profile_id: id,
+            ..partial
+        })
     }
 
     /// Domain profile: full plus real offline domain.
@@ -253,13 +262,19 @@ impl ValidationProfile {
             quality: QualityGateConfig::default(),
             benchmarks: BenchmarkConfig::default(),
             eval_matrix: EvalMatrixRunConfig::default(),
-            domain: Some(DomainValidationConfig { dataset_manifest_path: manifest_path, domain_name }),
+            domain: Some(DomainValidationConfig {
+                dataset_manifest_path: manifest_path,
+                domain_name,
+            }),
             timeouts: TimeoutConfig::default(),
             output_policy: OutputPolicy::default(),
             extra_env: BTreeMap::new(),
         };
         let id = content_address(&partial)?;
-        Ok(ValidationProfile { profile_id: id, ..partial })
+        Ok(ValidationProfile {
+            profile_id: id,
+            ..partial
+        })
     }
 
     /// CI profile: short timeouts, machine-readable exit code.
@@ -284,7 +299,10 @@ impl ValidationProfile {
             extra_env: BTreeMap::new(),
         };
         let id = content_address(&partial)?;
-        Ok(ValidationProfile { profile_id: id, ..partial })
+        Ok(ValidationProfile {
+            profile_id: id,
+            ..partial
+        })
     }
 
     /// Build from a named profile string.

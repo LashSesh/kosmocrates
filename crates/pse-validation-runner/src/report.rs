@@ -82,7 +82,10 @@ impl FinalValidationReport {
             open_obligations,
         };
         let report_id = content_address(&partial)?;
-        Ok(FinalValidationReport { report_id, ..partial })
+        Ok(FinalValidationReport {
+            report_id,
+            ..partial
+        })
     }
 
     pub fn content_hash(&self) -> Result<Hash256, ValidationError> {
@@ -141,10 +144,7 @@ impl FinalValidationReport {
             pass(q.doc_pass),
         ));
         if let Some(n) = q.test_count {
-            md.push_str(&format!(
-                "Tests: **{}** passed",
-                n
-            ));
+            md.push_str(&format!("Tests: **{}** passed", n));
             if let Some(f) = q.failed_count {
                 md.push_str(&format!(", **{}** failed", f));
             }
@@ -247,7 +247,11 @@ impl FinalValidationReport {
 }
 
 fn pass(ok: bool) -> &'static str {
-    if ok { "✓ PASS" } else { "✗ FAIL" }
+    if ok {
+        "✓ PASS"
+    } else {
+        "✗ FAIL"
+    }
 }
 
 #[cfg(test)]

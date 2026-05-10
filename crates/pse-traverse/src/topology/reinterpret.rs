@@ -117,11 +117,8 @@ pub fn reinterpret_mesh_to_panoptic(
             "cycle",
             &mesh.mesh_id,
         )?;
-        let update = make_horizon_update(
-            HorizonUpdateKind::Counter,
-            "beta1-cycle",
-            &claim.claim_id,
-        )?;
+        let update =
+            make_horizon_update(HorizonUpdateKind::Counter, "beta1-cycle", &claim.claim_id)?;
         counter_horizon_updates.push(update);
         claim_candidates.push(claim);
     }
@@ -139,14 +136,23 @@ pub fn reinterpret_mesh_to_panoptic(
         "entropy-zone",
         &mesh.mesh_id,
     )?;
-    gate_signals.push(tpt_content_address(&(&entropy_claim.claim_id, "entropy-gate"))?);
+    gate_signals.push(tpt_content_address(&(
+        &entropy_claim.claim_id,
+        "entropy-gate",
+    ))?);
     claim_candidates.push(entropy_claim);
 
     // Carrier continuity gate signal.
     if carrier_report.passed {
-        gate_signals.push(tpt_content_address(&(&carrier_report.report_id, "carrier-ok"))?);
+        gate_signals.push(tpt_content_address(&(
+            &carrier_report.report_id,
+            "carrier-ok",
+        ))?);
     } else {
-        gate_signals.push(tpt_content_address(&(&carrier_report.report_id, "carrier-fail"))?);
+        gate_signals.push(tpt_content_address(&(
+            &carrier_report.report_id,
+            "carrier-fail",
+        ))?);
     }
 
     // Sort all for determinism.

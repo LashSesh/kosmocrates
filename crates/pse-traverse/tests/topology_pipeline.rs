@@ -21,8 +21,9 @@ mod topology_tests {
             build_phase_space_window, PhaseSpaceWindow, PointMeta, PointStatus, SamplePoint,
             TptMtlInput, TptPoint,
         },
+        pipeline::run_tpt_mtl,
         primary_phase::compute_primary_phase,
-        primitives::{tpt_content_address, Fixed, Hash256, TptEvidenceRef, TopologyError},
+        primitives::{tpt_content_address, Fixed, Hash256, TopologyError, TptEvidenceRef},
         refine::refine_recursive,
         reinterpret::reinterpret_mesh_to_panoptic,
         replay::ReplayManifest,
@@ -30,7 +31,6 @@ mod topology_tests {
         seam::compute_seam,
         subwindow::LocalSubwindow,
         topology_guard::check_topology_guard,
-        pipeline::run_tpt_mtl,
     };
 
     fn minimal_rd() -> TptMtlRunDescriptor {
@@ -164,7 +164,10 @@ mod topology_tests {
         let pd = PersistenceDiagram::empty();
         let result = check_topology_guard(&old, &new, &pd, &pd, &rd, Hash256::zero()).unwrap();
         assert!(
-            matches!(result, pse_traverse::topology::TopologyGuardResult::Failure(_)),
+            matches!(
+                result,
+                pse_traverse::topology::TopologyGuardResult::Failure(_)
+            ),
             "unallowed betti shift must be rejected"
         );
     }
@@ -206,7 +209,15 @@ mod topology_tests {
         // Inject a wrong expected hash → ReplayGate fails → not Emit.
         let wrong = tpt_content_address(&"wrong-hash").unwrap();
         let gate = gate_all(
-            &window, &axis, &evolved, &fibers, &carrier, &reinterp, &rd, Some(&wrong), None,
+            &window,
+            &axis,
+            &evolved,
+            &fibers,
+            &carrier,
+            &reinterp,
+            &rd,
+            Some(&wrong),
+            None,
         )
         .unwrap();
         assert!(!gate.replay);
@@ -244,8 +255,7 @@ mod topology_tests {
         let r1 = run_tpt_mtl(&input, &rd).unwrap();
         let r2 = run_tpt_mtl(&input, &rd).unwrap();
         assert_eq!(
-            r1.outcome.bundle.bundle_id,
-            r2.outcome.bundle.bundle_id,
+            r1.outcome.bundle.bundle_id, r2.outcome.bundle.bundle_id,
             "replay identity must hold"
         );
     }

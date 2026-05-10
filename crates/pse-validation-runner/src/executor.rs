@@ -67,7 +67,9 @@ impl CommandExecutor for ProcessExecutor {
 
         let argv = &command.argv;
         if argv.is_empty() {
-            return Err(ValidationError::CommandFailed { reason: "empty argv".into() });
+            return Err(ValidationError::CommandFailed {
+                reason: "empty argv".into(),
+            });
         }
 
         let mut child = std::process::Command::new(&argv[0]);
@@ -80,7 +82,9 @@ impl CommandExecutor for ProcessExecutor {
         let timeout = Duration::from_secs(command.timeout_seconds);
 
         let output = run_with_timeout(child, timeout).map_err(|e| match e {
-            RunError::Timeout => ValidationError::Timeout { command: argv[0].clone() },
+            RunError::Timeout => ValidationError::Timeout {
+                command: argv[0].clone(),
+            },
             RunError::Io(msg) => ValidationError::CommandFailed { reason: msg },
         })?;
 
@@ -134,9 +138,19 @@ fn write_log(
     let log_name = command
         .output_paths
         .first()
-        .and_then(|p| std::path::Path::new(p).file_name()?.to_str().map(String::from))
+        .and_then(|p| {
+            std::path::Path::new(p)
+                .file_name()?
+                .to_str()
+                .map(String::from)
+        })
         .unwrap_or_else(|| {
-            command.argv.first().cloned().unwrap_or_else(|| "cmd".into()) + ".log"
+            command
+                .argv
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "cmd".into())
+                + ".log"
         });
 
     let log_path = log_dir.join(&log_name);

@@ -73,11 +73,7 @@ pub fn build_local_subwindow(
         }
     });
 
-    let mut point_ids: Vec<Hash256> = distances
-        .into_iter()
-        .take(k)
-        .map(|(id, _)| id)
-        .collect();
+    let mut point_ids: Vec<Hash256> = distances.into_iter().take(k).map(|(id, _)| id).collect();
     // Always include center.
     point_ids.push(center_point_id.clone());
     point_ids.sort();
@@ -99,12 +95,13 @@ pub fn build_local_subwindow(
 }
 
 fn parse_k(s: &str) -> Option<usize> {
-    s.strip_prefix("k=")
-        .and_then(|n| n.parse::<usize>().ok())
+    s.strip_prefix("k=").and_then(|n| n.parse::<usize>().ok())
 }
 
 fn l1_distance5d(a: &[Fixed; 5], b: &[Fixed; 5]) -> Fixed {
-    let sum: f64 = (0..5).map(|i| (fixed_to_f64(&a[i]) - fixed_to_f64(&b[i])).abs()).sum();
+    let sum: f64 = (0..5)
+        .map(|i| (fixed_to_f64(&a[i]) - fixed_to_f64(&b[i])).abs())
+        .sum();
     f64_to_fixed(sum)
 }
 

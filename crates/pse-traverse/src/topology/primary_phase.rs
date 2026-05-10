@@ -70,7 +70,13 @@ mod tests {
         let val = Fixed::quantize(v, 9).unwrap();
         TptPoint {
             point_id: Hash256::zero(),
-            x: [val.clone(), val.clone(), val.clone(), val.clone(), val.clone()],
+            x: [
+                val.clone(),
+                val.clone(),
+                val.clone(),
+                val.clone(),
+                val.clone(),
+            ],
             meta: PointMeta {
                 semantic_axis_labels: rd.axis_policy.semantic_axes.clone(),
                 runtime_axis_labels: rd.axis_policy.runtime_axes.clone(),

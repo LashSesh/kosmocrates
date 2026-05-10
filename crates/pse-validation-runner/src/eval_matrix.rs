@@ -66,7 +66,9 @@ pub fn assess_presets(
             description: "topology-tpt-mtl eval preset not yet registered in pse-eval-matrix. \
                 TPT-MTL metrics exist (tpt_*) but no preset runs them end-to-end."
                 .into(),
-            failure_kind: ValidationFailureKind::MissingPreset.recovery_instruction().into(),
+            failure_kind: ValidationFailureKind::MissingPreset
+                .recovery_instruction()
+                .into(),
             recovery: "Add topology-tpt-mtl preset to pse-eval-matrix presets.rs.".into(),
         });
     }

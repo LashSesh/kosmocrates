@@ -76,7 +76,10 @@ impl ValidationCommand {
             output_paths,
         };
         let command_id = content_address(&partial)?;
-        Ok(ValidationCommand { command_id, ..partial })
+        Ok(ValidationCommand {
+            command_id,
+            ..partial
+        })
     }
 }
 
@@ -186,7 +189,15 @@ pub fn build_command_plan(
     if profile.benchmarks.run_bench_full {
         commands.push(make_cmd(
             ValidationPhase::Benchmark,
-            vec!["cargo", "run", "--release", "--example", "bench_full", "-p", "pse-core"],
+            vec![
+                "cargo",
+                "run",
+                "--release",
+                "--example",
+                "bench_full",
+                "-p",
+                "pse-core",
+            ],
             &root,
             profile.timeouts.benchmark_seconds,
             &profile.extra_env,
@@ -206,7 +217,15 @@ pub fn build_command_plan(
     if profile.benchmarks.run_bench_gt {
         commands.push(make_cmd(
             ValidationPhase::Benchmark,
-            vec!["cargo", "run", "--release", "-p", "pse-bench-gt", "--bin", "bench_gt"],
+            vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-bench-gt",
+                "--bin",
+                "bench_gt",
+            ],
             &root,
             profile.timeouts.benchmark_seconds,
             &profile.extra_env,
@@ -219,7 +238,14 @@ pub fn build_command_plan(
         let eval_dir = format!("{}/eval/{preset}", out_dir.display());
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
-            vec!["pse-eval-matrix", "init", "--template", preset, "--out", &format!("{eval_dir}/spec.json")],
+            vec![
+                "pse-eval-matrix",
+                "init",
+                "--template",
+                preset,
+                "--out",
+                &format!("{eval_dir}/spec.json"),
+            ],
             &root,
             profile.timeouts.eval_preset_seconds,
             &profile.extra_env,
@@ -227,7 +253,14 @@ pub fn build_command_plan(
         )?);
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
-            vec!["pse-eval-matrix", "plan", "--spec", &format!("{eval_dir}/spec.json"), "--out", &format!("{eval_dir}/plan.json")],
+            vec![
+                "pse-eval-matrix",
+                "plan",
+                "--spec",
+                &format!("{eval_dir}/spec.json"),
+                "--out",
+                &format!("{eval_dir}/plan.json"),
+            ],
             &root,
             profile.timeouts.eval_preset_seconds,
             &profile.extra_env,
@@ -235,7 +268,16 @@ pub fn build_command_plan(
         )?);
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
-            vec!["pse-eval-matrix", "run", "--spec", &format!("{eval_dir}/spec.json"), "--plan", &format!("{eval_dir}/plan.json"), "--out", &format!("{eval_dir}/bundle.json")],
+            vec![
+                "pse-eval-matrix",
+                "run",
+                "--spec",
+                &format!("{eval_dir}/spec.json"),
+                "--plan",
+                &format!("{eval_dir}/plan.json"),
+                "--out",
+                &format!("{eval_dir}/bundle.json"),
+            ],
             &root,
             profile.timeouts.eval_preset_seconds,
             &profile.extra_env,
@@ -243,7 +285,14 @@ pub fn build_command_plan(
         )?);
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
-            vec!["pse-eval-matrix", "replay", "--bundle", &format!("{eval_dir}/bundle.json"), "--out", &format!("{eval_dir}/replay.json")],
+            vec![
+                "pse-eval-matrix",
+                "replay",
+                "--bundle",
+                &format!("{eval_dir}/bundle.json"),
+                "--out",
+                &format!("{eval_dir}/replay.json"),
+            ],
             &root,
             profile.timeouts.eval_preset_seconds,
             &profile.extra_env,
@@ -251,7 +300,16 @@ pub fn build_command_plan(
         )?);
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
-            vec!["pse-eval-matrix", "score", "--spec", &format!("{eval_dir}/spec.json"), "--bundle", &format!("{eval_dir}/bundle.json"), "--out", &format!("{eval_dir}/summary.json")],
+            vec![
+                "pse-eval-matrix",
+                "score",
+                "--spec",
+                &format!("{eval_dir}/spec.json"),
+                "--bundle",
+                &format!("{eval_dir}/bundle.json"),
+                "--out",
+                &format!("{eval_dir}/summary.json"),
+            ],
             &root,
             profile.timeouts.eval_preset_seconds,
             &profile.extra_env,
@@ -259,7 +317,16 @@ pub fn build_command_plan(
         )?);
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
-            vec!["pse-eval-matrix", "report", "--summary", &format!("{eval_dir}/summary.json"), "--format", "md", "--out", &format!("{eval_dir}/summary.md")],
+            vec![
+                "pse-eval-matrix",
+                "report",
+                "--summary",
+                &format!("{eval_dir}/summary.json"),
+                "--format",
+                "md",
+                "--out",
+                &format!("{eval_dir}/summary.md"),
+            ],
             &root,
             profile.timeouts.eval_preset_seconds,
             &profile.extra_env,

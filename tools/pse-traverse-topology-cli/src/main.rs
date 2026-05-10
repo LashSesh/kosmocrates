@@ -26,13 +26,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use pse_traverse::topology::{
-    build_axis_bridge_report, build_phase_space_window, carrier::evaluate_carrier,
-    evolve_mesh, gate_all, lift_micro_fibers, materialize_bundle,
-    reinterpret_mesh_to_panoptic, replay::ReplayManifest, run_tpt_mtl, seed_mesh_holo,
-    weight_mesh_with_microfibers, form_topological_crystal_candidate, refine_recursive,
-    AxisBridgeReport, CarrierContext, MeshHolo, MicroFiber, PhaseSpaceWindow,
-    ReinterpretationReport, TptMtlBundle, TptMtlGateReport, TptMtlInput,
-    TptMtlRunDescriptor,
+    build_axis_bridge_report, build_phase_space_window, carrier::evaluate_carrier, evolve_mesh,
+    form_topological_crystal_candidate, gate_all, lift_micro_fibers, materialize_bundle,
+    refine_recursive, reinterpret_mesh_to_panoptic, replay::ReplayManifest, run_tpt_mtl,
+    seed_mesh_holo, weight_mesh_with_microfibers, AxisBridgeReport, CarrierContext, MeshHolo,
+    MicroFiber, PhaseSpaceWindow, ReinterpretationReport, TptMtlBundle, TptMtlGateReport,
+    TptMtlInput, TptMtlRunDescriptor,
 };
 
 fn main() -> ExitCode {
@@ -123,8 +122,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &str) -> CliResult<T> {
 }
 
 fn write_json<T: serde::Serialize>(path: &str, value: &T) -> CliResult<()> {
-    let bytes =
-        serde_json::to_vec_pretty(value).map_err(|e| format!("serialize: {e}"))?;
+    let bytes = serde_json::to_vec_pretty(value).map_err(|e| format!("serialize: {e}"))?;
     fs::write(PathBuf::from(path), bytes).map_err(|e| format!("write {path}: {e}"))
 }
 
@@ -140,9 +138,7 @@ fn cmd_inspect(args: &[String]) -> CliResult<()> {
     }
     let input: TptMtlInput = read_json(&args[0])?;
     let rd = default_rd();
-    let rd_hash = rd
-        .content_hash()
-        .map_err(|e| format!("rd hash: {e}"))?;
+    let rd_hash = rd.content_hash().map_err(|e| format!("rd hash: {e}"))?;
     let summary = serde_json::json!({
         "state_digest": input.state_digest,
         "sample_points": input.sample_points.len(),
@@ -186,10 +182,8 @@ fn cmd_triangulate(args: &[String]) -> CliResult<()> {
     let out_path = flag_value(args, "--out")?;
     let window: PhaseSpaceWindow = read_json(&window_path)?;
     let rd = default_rd();
-    let mesh = seed_mesh_holo(&window, &rd)
-        .map_err(|e| format!("seed_mesh_holo: {e}"))?;
-    let (evolved, _) =
-        evolve_mesh(mesh, &rd).map_err(|e| format!("evolve_mesh: {e}"))?;
+    let mesh = seed_mesh_holo(&window, &rd).map_err(|e| format!("seed_mesh_holo: {e}"))?;
+    let (evolved, _) = evolve_mesh(mesh, &rd).map_err(|e| format!("evolve_mesh: {e}"))?;
     write_json(&out_path, &evolved)
 }
 
@@ -198,11 +192,10 @@ fn cmd_lift(args: &[String]) -> CliResult<()> {
     let out_path = flag_value(args, "--out")?;
     let window: PhaseSpaceWindow = read_json(&window_path)?;
     let rd = default_rd();
-    let mesh = seed_mesh_holo(&window, &rd)
-        .map_err(|e| format!("seed_mesh: {e}"))?;
+    let mesh = seed_mesh_holo(&window, &rd).map_err(|e| format!("seed_mesh: {e}"))?;
     let (evolved, _) = evolve_mesh(mesh, &rd).map_err(|e| format!("evolve: {e}"))?;
-    let fibers = lift_micro_fibers(&window, &evolved, &rd)
-        .map_err(|e| format!("lift_micro_fibers: {e}"))?;
+    let fibers =
+        lift_micro_fibers(&window, &evolved, &rd).map_err(|e| format!("lift_micro_fibers: {e}"))?;
     write_json(&out_path, &fibers)
 }
 
@@ -266,12 +259,19 @@ fn cmd_gate(args: &[String]) -> CliResult<()> {
     let fibers: Vec<MicroFiber> = read_json(&fibers_path)?;
     let reinterp: ReinterpretationReport = read_json(&reinterp_path)?;
     let rd = default_rd();
-    let axis_report = build_axis_bridge_report(&window, &rd)
-        .map_err(|e| format!("axis: {e}"))?;
-    let carrier_report = evaluate_carrier(&window.carrier, &rd, false)
-        .map_err(|e| format!("carrier: {e}"))?;
+    let axis_report = build_axis_bridge_report(&window, &rd).map_err(|e| format!("axis: {e}"))?;
+    let carrier_report =
+        evaluate_carrier(&window.carrier, &rd, false).map_err(|e| format!("carrier: {e}"))?;
     let gate_report = gate_all(
-        &window, &axis_report, &mesh, &fibers, &carrier_report, &reinterp, &rd, None, None,
+        &window,
+        &axis_report,
+        &mesh,
+        &fibers,
+        &carrier_report,
+        &reinterp,
+        &rd,
+        None,
+        None,
     )
     .map_err(|e| format!("gate_all: {e}"))?;
     write_json(&out_path, &gate_report)
@@ -293,8 +293,7 @@ fn cmd_bundle(args: &[String]) -> CliResult<()> {
 fn cmd_replay(args: &[String]) -> CliResult<()> {
     let bundle_path = flag_value(args, "--bundle")?;
     let bundle: TptMtlBundle = read_json(&bundle_path)?;
-    let manifest = ReplayManifest::from_bundle(&bundle)
-        .map_err(|e| format!("manifest: {e}"))?;
+    let manifest = ReplayManifest::from_bundle(&bundle).map_err(|e| format!("manifest: {e}"))?;
     // Verify the bundle against its own manifest (identity check).
     manifest
         .verify(&bundle)

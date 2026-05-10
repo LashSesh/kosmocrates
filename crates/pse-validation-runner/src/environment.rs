@@ -28,7 +28,9 @@ impl EnvironmentFingerprint {
         let rustc_version = run_tool("rustc", &["--version"])?;
         let cargo_version = run_tool("cargo", &["--version"])?;
 
-        let logical_cores = std::thread::available_parallelism().ok().map(|n| n.get() as u32);
+        let logical_cores = std::thread::available_parallelism()
+            .ok()
+            .map(|n| n.get() as u32);
 
         let fp = EnvironmentFingerprint {
             os: std::env::consts::OS.to_string(),
@@ -52,7 +54,9 @@ fn run_tool(binary: &str, args: &[&str]) -> Result<String, ValidationError> {
     let out = std::process::Command::new(binary)
         .args(args)
         .output()
-        .map_err(|e| ValidationError::MissingBinary { binary: format!("{binary}: {e}") })?;
+        .map_err(|e| ValidationError::MissingBinary {
+            binary: format!("{binary}: {e}"),
+        })?;
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 

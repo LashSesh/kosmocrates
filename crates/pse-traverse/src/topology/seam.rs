@@ -95,11 +95,13 @@ pub fn compute_seam(
         digest: Hash256::zero(),
     };
     let digest = tpt_content_address(&partial_seam)?;
-    let seam = SeamComponent { digest, ..partial_seam };
+    let seam = SeamComponent {
+        digest,
+        ..partial_seam
+    };
 
     Ok((seam, proof))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -129,7 +131,13 @@ mod tests {
         let val = Fixed::quantize(v, 9).unwrap();
         TptPoint {
             point_id: Hash256::zero(),
-            x: [val.clone(), val.clone(), val.clone(), val.clone(), val.clone()],
+            x: [
+                val.clone(),
+                val.clone(),
+                val.clone(),
+                val.clone(),
+                val.clone(),
+            ],
             meta: PointMeta {
                 semantic_axis_labels: rd.axis_policy.semantic_axes.clone(),
                 runtime_axis_labels: rd.axis_policy.runtime_axes.clone(),
@@ -153,8 +161,14 @@ mod tests {
         let sw = zero_sw();
         let coords = vec![point.x.clone()];
         let primary = compute_primary_phase(&point, &sw, &coords).unwrap();
-        let (dual, _) =
-            apply_mtl_d1(&point, &primary, &sw, &coords, &rd.micro_lift_policy.epsilon).unwrap();
+        let (dual, _) = apply_mtl_d1(
+            &point,
+            &primary,
+            &sw,
+            &coords,
+            &rd.micro_lift_policy.epsilon,
+        )
+        .unwrap();
         let carrier = CarrierContext::new_minimal(1);
         let (seam, proof) = compute_seam(&primary, &dual, &carrier, &rd).unwrap();
         assert_ne!(seam.digest, Hash256::zero());
@@ -168,8 +182,14 @@ mod tests {
         let sw = zero_sw();
         let coords = vec![point.x.clone()];
         let primary = compute_primary_phase(&point, &sw, &coords).unwrap();
-        let (dual, _) =
-            apply_mtl_d1(&point, &primary, &sw, &coords, &rd.micro_lift_policy.epsilon).unwrap();
+        let (dual, _) = apply_mtl_d1(
+            &point,
+            &primary,
+            &sw,
+            &coords,
+            &rd.micro_lift_policy.epsilon,
+        )
+        .unwrap();
         let carrier = CarrierContext::new_minimal(1);
         let (s1, _) = compute_seam(&primary, &dual, &carrier, &rd).unwrap();
         let (s2, _) = compute_seam(&primary, &dual, &carrier, &rd).unwrap();

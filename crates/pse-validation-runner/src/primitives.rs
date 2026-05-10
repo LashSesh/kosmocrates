@@ -13,12 +13,13 @@ pub use pse_traverse::dynamic_state::Hash256;
 pub fn content_address<T: Serialize>(value: &T) -> Result<Hash256, ValidationError> {
     pse_traverse::canonical::content_address(value)
         .map(Hash256)
-        .map_err(|e| ValidationError::Canonicalization { reason: e.to_string() })
+        .map_err(|e| ValidationError::Canonicalization {
+            reason: e.to_string(),
+        })
 }
 
 /// Stable run identifier — human-readable, not part of any audit hash.
 pub type StableId = String;
-
 
 /// Total error surface for the validation runner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
