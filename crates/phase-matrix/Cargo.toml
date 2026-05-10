@@ -22,9 +22,11 @@ sha2 = { workspace = true }
 # `cell-morphodynamics`— MorphodynamicField + MorphologyEvents.
 # `cell-convergence`   — ConvergenceField + TensionToIntentOperator.
 # `cell-handoff`       — IntentCandidate-to-handoff adapter (no commits).
+# `cell-stitch`        — Dual-Fabric Field-Tensor Stitch Layer
+#                        (PHASEMATRIX-HIVEMIND-03.1).
 default = [
   "cell-substrate", "cell-funnel-graph", "cell-morphodynamics",
-  "cell-convergence", "cell-handoff",
+  "cell-convergence", "cell-handoff", "cell-stitch",
 ]
 cell-substrate = []
 cell-cli = ["cell-substrate"]
@@ -32,3 +34,4 @@ cell-funnel-graph = ["cell-substrate"]
 cell-morphodynamics = ["cell-substrate"]
 cell-convergence = ["cell-substrate"]
 cell-handoff = ["cell-substrate"]
+cell-stitch = ["cell-substrate", "cell-funnel-graph", "cell-morphodynamics", "cell-convergence"]

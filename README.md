@@ -48,6 +48,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **Cognition layer** (PSE-TRAVERSE-COGNITION-01) | **Shipped** |
 | **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
 | **Phase matrix layer** (PHASEMATRIX-HIVEMIND-03) | **Shipped** |
+| **Dual-Fabric Stitch Layer** (PHASEMATRIX-HIVEMIND-03.1) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -290,13 +291,31 @@ two runs over the same `(input, rd)` are byte-identical, and the
 `phase-matrix` CLI exposes `cluster-cycle` / `cluster-replay` /
 `cluster-verify` / `cell-pool` for audits and golden fixtures.
 
+The additive **Dual-Fabric Field-Tensor Stitch Layer**
+(PHASEMATRIX-HIVEMIND-03.1) extends the phase-matrix layer with a
+persistent `FieldTensorState` (Fabric-T) and an ephemeral
+`ResonanceFabricState` (Fabric-H). Fabric-H is derived deterministically
+from each `CellSubstrateCycleReport` and may never directly mutate
+Fabric-T (Invariant 1 / isolation guarantee). Fabric-T evolves
+exclusively through accepted `CouplingUpdate`s, gated by the
+seven-sub-gate `StitcherGate` conjunction
+`G_stitch = G_conv ∧ G_mci ∧ G_delta ∧ G_budget ∧ G_trace ∧ G_boundary ∧ G_evidence`
+(fail-closed). Every accepted update increments `tensor_revision` and
+extends the `FieldTensorTrace` append-only audit log (the
+**Dissolution-Grundsatz** equivalent for the stitch layer). The
+`StitchCycleBundle` is the replay anchor: same `StitchRunDescriptor`
++ same `tensor_before` + same `CellSubstrateCycleReport` →
+byte-identical `StitcherReport`. The `phase-matrix` CLI gains seven
+new subcommands: `stitch-fabric`, `stitch-candidates`, `stitch-gate`,
+`stitch-apply`, `stitch-cycle`, `stitch-replay`, and `tensor-inspect`.
+
 The optional **eval-matrix layer** (PSE-EVAL-MATRIX-01) wraps every
 post-symbolic layer above into a structural research instrument —
 **not** a benchmark harness. It binds system variants (B0_Baseline …
 B7_FullStack, plus B8_PhaseMatrix when the substrate is enabled),
 workload families (StreamEvent, AnomalyRegime, TraversalPuzzle,
 CodeAgentPatch, DocSynthesis, MemoryReuse, HorizonFinalization,
-CognitionPanorama, MultiAgent, MorphoCellSubstrate), domain datasets,
+CognitionPanorama, MultiAgent, MorphoCellSubstrate, DualFabricStitch), domain datasets,
 metric specs (primary outcome / post-symbolic structural / system /
 cognition / agent), calibration states, ablations, replay
 verification, statistical aggregation, and qualitative reviewer
@@ -323,11 +342,13 @@ CalibrationProf┘                              JCS-canonical, replayable)
                                                            (no metric recompute)
 ```
 
-The crate provides four built-in presets (§18): `agent-cognition`,
-`streaming-event-detection`, `post-symbolic-ablation`, and
-`phase-matrix-substrate` (B0 / B7 / B8 over the new
-`MorphoCellSubstrate` workload, scored against the full
-PHASEMATRIX-HIVEMIND-03 cell-substrate metric set). A `TrialExecutor`
+The crate provides five built-in presets (§18): `agent-cognition`,
+`streaming-event-detection`, `post-symbolic-ablation`,
+`phase-matrix-substrate` (B0 / B7 / B8 over the `MorphoCellSubstrate`
+workload, scored against the full PHASEMATRIX-HIVEMIND-03 cell-substrate
+metric set), and `dual-fabric-stitch` (B0 / B8 / B9 over the
+`DualFabricStitch` workload, scored against all 16 B9 metrics: the 10
+cell-substrate metrics plus the 6 Dual-Fabric Stitch metrics). A `TrialExecutor`
 trait lets external pipelines (PSE, pse-traverse, horizon, cognition,
 phase-matrix, or third-party systems) plug in; the bundled
 `SyntheticTrialExecutor` is what golden fixtures and the property

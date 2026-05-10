@@ -83,6 +83,95 @@ note explicitly says so.
   * Tests: 34 unit tests + 6 end-to-end integration tests + 4 CLI
     smoke tests.
 
+* **PHASEMATRIX-HIVEMIND-03.1** — Dual-Fabric Field-Tensor Stitch
+  Layer. Additive patch on the PHASEMATRIX-HIVEMIND-03 cell-substrate
+  implementation. Plugs cleanly into the existing `phase-matrix` crate
+  without duplicating or parallelising any existing architecture.
+  * **Data model**: `FieldTensorState` (Fabric-T — persistent;
+    content-addressed; carries `tensor_revision`, `coupling_matrix_hash`,
+    `previous_tensor_hash` chain, `trace_head`), `CouplingMatrix` +
+    `CouplingEntry` (five coupling kinds: Structural / Resonance /
+    Temporal / Semantic / Boundary), `ResonanceFabricState` (Fabric-H
+    — ephemeral; derived deterministically from each
+    `CellSubstrateCycleReport`; carries mandatory `trace_hash` per §5.2
+    Invariant), `EphemeralResonanceLink` (source / target / resonance_score
+    / phase_alignment / ttl_ticks), `StitchCandidate` (proposed coupling
+    change; never touches Fabric-T directly), `CouplingUpdate` (accepted
+    change; references exactly one `StitcherGateReport`),
+    `MirrorConsistencyReport` (MCI per candidate), `TensorDeltaReport`
+    (cumulative L1 norm + per-edge max + hypothetical tensor-after hash),
+    `StitcherGateReport` (per candidate; all seven sub-gate booleans),
+    `FieldTensorTrace` (append-only audit log; sorted before hashing),
+    `StitcherReport` (content-addressed outcome; sorted accepted_updates
+    / rejected_candidates / gate_reports before hashing),
+    `StitcherOutcome` (Completed / Hold / Rejected — all carry the report),
+    `StitchRunDescriptor` (replay anchor), `StitchThresholds` /
+    `StitchPolicies`, `StitchCycleBundle` (replay-ready artefact containing
+    rd, fabric_h, tensor_before, tensor_after, outcome,
+    source_cluster_trace_hash).
+  * **Key invariants**:
+    * Invariant 1 — Fabric-H isolation: Fabric-H MUST NEVER directly
+      mutate Fabric-T; all changes route through the StitcherGate.
+    * Invariant 2 — StitcherGate is fail-closed:
+      `G_stitch = G_conv ∧ G_mci ∧ G_delta ∧ G_budget ∧ G_trace ∧ G_boundary ∧ G_evidence`.
+    * Invariant 3 — tensor_revision increments exactly once per
+      accepted batch.
+    * Invariant 4 — previous_tensor_hash chain is preserved.
+    * Invariant 5 — when no updates accepted, tensor_after is
+      byte-identical to tensor_before (no trace_head mutation).
+    * Invariant 9 — `CouplingUpdate`s sorted before hashing when
+      `sort_updates_before_hash = true`.
+  * **Pipeline** (`run_stitch_cycle`): validate descriptor → build
+    Fabric-H → derive candidates → mirror consistency → tensor delta →
+    gate evaluation → collect accepted updates → apply to Fabric-T →
+    write FieldTensorTrace → write StitcherReport. Replay path
+    (`verify_stitch_replay`) reuses the stored Fabric-H directly
+    (bypassing `build_resonance_fabric`) for byte-identity verification.
+  * **New modules** in `crates/phase-matrix/src/cell/`:
+    `field_tensor`, `resonance_fabric`, `coupling_update`, `stitcher`,
+    `stitcher_gate`, `mirror_consistency`, `tensor_delta`,
+    `field_tensor_trace`, `stitch_pipeline`.
+  * **New CLI subcommands** in `pse-phase-matrix-cli`:
+    `stitch-fabric`, `stitch-candidates`, `stitch-gate`, `stitch-apply`,
+    `stitch-cycle`, `stitch-replay`, `tensor-inspect`.
+  * **New Cargo feature**: `cell-stitch` (default-on; depends on all
+    four prior cell features).
+  * Float-free in every gate / score path (all `Fixed`); no wall-clock;
+    `BTreeMap` for all keyed collections; sorted-before-hashing for all
+    lists; JCS-canonical reports.
+  * 9 unit tests in `stitch_pipeline.rs`; 5 integration tests in
+    `end_to_end.rs`; 3 CLI smoke tests in `cli_smoke.rs`.
+
+* **PSE-EVAL-MATRIX-01 — PHASEMATRIX-HIVEMIND-03.1 closure.** Extended
+  the eval matrix so the system stays empirically closed across the
+  new stitch layer (additive on top of the HIVEMIND-03 closure):
+  * New `WorkloadFamily::DualFabricStitch` (the matrix now lists eleven
+    mandatory families) plus `WorkloadSpec::dual_fabric_stitch`
+    constructor with hold-correctness / no-false-commit /
+    replay-byte-identical success criteria.
+  * Six new `CellSubstrateMetricKind` variants for the stitch layer:
+    `StitcherGatePassRate`, `CouplingUpdateTraceCoverage`,
+    `TensorRevisionMonotonicity`, `MirrorConsistencyCompliance`,
+    `StitchReplayIdentity`, `FabricHIsolationRate`.  Three are primary:
+    `StitcherGatePassRate`, `StitchReplayIdentity`,
+    `FabricHIsolationRate`. `FabricHIsolationRate` is always 1.0 (hard
+    invariant; any deviation would be a critical failure).
+  * New `dual_fabric_stitch_metric_specs()` (6 metrics) and
+    `b9_metric_specs()` (16 metrics: 10 cell-substrate + 6 stitch).
+  * New `LayerMask::DUAL_FABRIC_STITCH` bit (1 << 13) and
+    `B9_DualFabricStitch` ladder rung (= `B8_PhaseMatrix |
+    DUAL_FABRIC_STITCH`), `SystemVariantSpec::dual_fabric_stitch()`
+    constructor, and `VariantLadder::full_with_dual_fabric_stitch()`.
+  * New `dual-fabric-stitch` preset (B0 / B8 / B9 over the
+    `DualFabricStitch` workload, scored against all 16 B9 metrics).
+  * `SyntheticTrialExecutor` now emits stitch-layer metric observations
+    for `DualFabricStitch` workloads: the six stitch metrics for
+    stitch-active variants (B9); the ten cell-substrate metrics for
+    substrate-active variants (B8+); `FabricHIsolationRate = 1.0`
+    always.
+  * `preset_dual_fabric_stitch` exported from `pse-eval-matrix` crate root.
+  * 4 new tests in `presets.rs` and `cell_substrate_metrics.rs`.
+
 * **PSE-EVAL-MATRIX-01 — PHASEMATRIX-HIVEMIND-03 closure.** Extended
   the eval matrix so the system stays empirically closed across the
   new substrate:

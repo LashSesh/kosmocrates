@@ -1,8 +1,10 @@
-//! PHASEMATRIX-HIVEMIND-03 — Morphodynamic Resonance Cell Substrate.
+//! PHASEMATRIX-HIVEMIND-03 / 03.1 — Morphodynamic Resonance Cell Substrate
+//! with Dual-Fabric Field-Tensor Stitch Layer.
 //!
-//! See `PHASEMATRIX_HIVEMIND_03.pdf` for the normative specification
-//! and `ADAMANT_v1.0.0.pdf` for the constitutional architectural
-//! contract this crate aligns to.
+//! See `PHASEMATRIX_HIVEMIND_03.pdf` for the v0.3 normative specification,
+//! `phasematrix_hivemind_dual_fabric_stitch_spec_v0_3_1.pdf` for the v0.3.1
+//! additive patch, and `ADAMANT_v1.0.0.pdf` for the constitutional
+//! architectural contract this crate aligns to.
 //!
 //! The cell substrate is **not** a static graph layer. It is a
 //! controlled morphodynamic field:
@@ -27,9 +29,25 @@
 //!                                              │                                              candidate
 //!                                              ▼                                              (no commit)
 //!                                       MatrixClaim
+//!
+//! ── PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric Stitch Layer ──────────────────
+//!
+//! CellSubstrateCycleReport
+//!         │
+//!         ▼
+//!  ResonanceFabricState (Fabric-H — ephemeral)
+//!         │
+//!         ▼  StitcherGate (G_conv ∧ G_mci ∧ G_delta ∧ G_budget ∧ G_trace
+//!         ▼               ∧ G_boundary ∧ G_evidence)
+//!         │
+//!         ▼
+//!  CouplingUpdate[] ──► FieldTensorState (Fabric-T — persistent)
+//!         │
+//!         ▼
+//!  StitcherReport + FieldTensorTrace (replay-ready)
 //! ```
 //!
-//! ## Hard rules (PHASEMATRIX-HIVEMIND-03 §5.1, ADAMANT §2)
+//! ## Hard rules (PHASEMATRIX-HIVEMIND-03 §5.1 / 03.1 §3, ADAMANT §2)
 //!
 //! * Every gate-relevant scalar is a [`primitives::Fixed`]
 //!   (`CanonicalNumber`) — no platform floats touch the audit
@@ -39,6 +57,9 @@
 //! * Every report is content-addressed and JCS-canonical.
 //! * Cluster formation, morphology events, intent emission, dissolution
 //!   and matrix-boundary checks are **fail-closed**.
+//! * **Fabric-H events MUST NOT mutate Fabric-T directly** (Invariant 1).
+//!   Fabric-T may only change via an accepted `CouplingUpdate` that
+//!   references a passed `StitcherGateReport`.
 //! * Dissolution may compact working state but **must** preserve trace,
 //!   evidence and gate history (the spec's *Dissolution-Grundsatz*).
 //! * Handoff produces only candidates; it **never** creates external

@@ -173,3 +173,133 @@ fn cli_cell_pool_inspects_subnet_membership() {
     assert!(stdout.contains("seed_cell_count"));
     assert!(stdout.contains("member_nodes"));
 }
+
+// ── PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric Stitch Layer CLI smoke tests ────────
+
+use phase_matrix::cell::stitcher::StitchRunDescriptor;
+
+fn stitch_rd() -> StitchRunDescriptor {
+    StitchRunDescriptor::default_for(&run_descriptor()).unwrap()
+}
+
+#[test]
+fn cli_stitch_cycle_produces_bundle() {
+    let dir = tempdir::TempDir::new("stitch-cycle");
+    let rd_path = dir.join("rd.json");
+    let stitch_rd_path = dir.join("stitch_rd.json");
+    let input_path = dir.join("input.json");
+    let cycle_path = dir.join("cycle.json");
+    let bundle_path = dir.join("bundle.json");
+
+    std::fs::write(&rd_path, serde_json::to_vec(&run_descriptor()).unwrap()).unwrap();
+    std::fs::write(&stitch_rd_path, serde_json::to_vec(&stitch_rd()).unwrap()).unwrap();
+    std::fs::write(&input_path, serde_json::to_vec(&synthetic_input()).unwrap()).unwrap();
+
+    // First produce a cell cycle output.
+    let (ok, _, e) = run(&[
+        "cluster-cycle",
+        input_path.to_str().unwrap(),
+        "--rd",
+        rd_path.to_str().unwrap(),
+        "--out",
+        cycle_path.to_str().unwrap(),
+    ]);
+    assert!(ok, "cluster-cycle failed: {e}");
+
+    // Now run the stitch cycle against that cell output.
+    let (ok, _, e) = run(&[
+        "stitch-cycle",
+        cycle_path.to_str().unwrap(),
+        "--rd",
+        stitch_rd_path.to_str().unwrap(),
+        "--out",
+        bundle_path.to_str().unwrap(),
+    ]);
+    assert!(ok, "stitch-cycle failed: {e}");
+    assert!(bundle_path.exists(), "stitch bundle must be written");
+}
+
+#[test]
+fn cli_stitch_replay_passes_for_fresh_bundle() {
+    let dir = tempdir::TempDir::new("stitch-replay");
+    let rd_path = dir.join("rd.json");
+    let stitch_rd_path = dir.join("stitch_rd.json");
+    let input_path = dir.join("input.json");
+    let cycle_path = dir.join("cycle.json");
+    let bundle_path = dir.join("bundle.json");
+
+    std::fs::write(&rd_path, serde_json::to_vec(&run_descriptor()).unwrap()).unwrap();
+    std::fs::write(&stitch_rd_path, serde_json::to_vec(&stitch_rd()).unwrap()).unwrap();
+    std::fs::write(&input_path, serde_json::to_vec(&synthetic_input()).unwrap()).unwrap();
+
+    let (ok, _, e) = run(&[
+        "cluster-cycle",
+        input_path.to_str().unwrap(),
+        "--rd",
+        rd_path.to_str().unwrap(),
+        "--out",
+        cycle_path.to_str().unwrap(),
+    ]);
+    assert!(ok, "cluster-cycle failed: {e}");
+
+    let (ok, _, e) = run(&[
+        "stitch-cycle",
+        cycle_path.to_str().unwrap(),
+        "--rd",
+        stitch_rd_path.to_str().unwrap(),
+        "--out",
+        bundle_path.to_str().unwrap(),
+    ]);
+    assert!(ok, "stitch-cycle failed: {e}");
+
+    let (ok, stdout, e) = run(&["stitch-replay", bundle_path.to_str().unwrap()]);
+    assert!(ok, "stitch-replay failed: {e}");
+    assert!(
+        stdout.contains("stitch-replay ok"),
+        "expected 'stitch-replay ok' in: {stdout}"
+    );
+}
+
+#[test]
+fn cli_stitch_cycle_replay_is_byte_identical() {
+    let dir = tempdir::TempDir::new("stitch-idem");
+    let rd_path = dir.join("rd.json");
+    let stitch_rd_path = dir.join("stitch_rd.json");
+    let input_path = dir.join("input.json");
+    let cycle_path = dir.join("cycle.json");
+    let bundle_a = dir.join("bundle_a.json");
+    let bundle_b = dir.join("bundle_b.json");
+
+    std::fs::write(&rd_path, serde_json::to_vec(&run_descriptor()).unwrap()).unwrap();
+    std::fs::write(&stitch_rd_path, serde_json::to_vec(&stitch_rd()).unwrap()).unwrap();
+    std::fs::write(&input_path, serde_json::to_vec(&synthetic_input()).unwrap()).unwrap();
+
+    let (ok, _, e) = run(&[
+        "cluster-cycle",
+        input_path.to_str().unwrap(),
+        "--rd",
+        rd_path.to_str().unwrap(),
+        "--out",
+        cycle_path.to_str().unwrap(),
+    ]);
+    assert!(ok, "cluster-cycle failed: {e}");
+
+    for out in [&bundle_a, &bundle_b] {
+        let (ok, _, e) = run(&[
+            "stitch-cycle",
+            cycle_path.to_str().unwrap(),
+            "--rd",
+            stitch_rd_path.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ]);
+        assert!(ok, "stitch-cycle failed: {e}");
+    }
+
+    let a = std::fs::read(&bundle_a).unwrap();
+    let b = std::fs::read(&bundle_b).unwrap();
+    assert_eq!(
+        a, b,
+        "two stitch cycles over the same (cell_report, rd) must be byte-identical"
+    );
+}

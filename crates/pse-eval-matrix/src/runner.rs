@@ -427,6 +427,110 @@ impl TrialExecutor for SyntheticTrialExecutor {
                     self_coherence,
                 ));
             }
+            WorkloadFamily::DualFabricStitch => {
+                // PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric Stitch observations.
+                // Variants without the DUAL_FABRIC_STITCH bit produce floor
+                // values (stitch layer is not active). Variants with the bit
+                // set produce monotone uplift. CELL_SUBSTRATE must also be
+                // active for any stitch metric to exceed its floor.
+                let active_substrate = variant.layer_mask.has(LayerMask::CELL_SUBSTRATE);
+                let active_stitch = variant.layer_mask.has(LayerMask::DUAL_FABRIC_STITCH);
+
+                // ── Cell-substrate base metrics (required also for B9) ──
+                let cluster_formation = if active_substrate {
+                    Fixed::Rational {
+                        num: 70 + 2 * layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let dissolution_pres = if active_substrate {
+                    Fixed::Rational { num: 1, den: 1 }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                let boundary_violation = if active_substrate {
+                    Fixed::Rational {
+                        num: 1,
+                        den: 1000 + 100 * layer_count,
+                    }
+                } else {
+                    Fixed::Rational { num: 80, den: 100 }
+                };
+                metrics.push(MetricObservation::ok(
+                    "cluster_formation_rate",
+                    cluster_formation,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "dissolution_trace_preservation",
+                    dissolution_pres,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "matrix_boundary_violation_rate",
+                    boundary_violation,
+                ));
+
+                // ── Dual-Fabric Stitch metrics ──────────────────────────
+                let gate_pass_rate = if active_stitch {
+                    Fixed::Rational {
+                        num: 80 + 2 * layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let trace_coverage = if active_stitch {
+                    Fixed::Rational { num: 1, den: 1 }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                let revision_monotone = if active_stitch {
+                    Fixed::Rational { num: 1, den: 1 }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                let mirror_compliance = if active_stitch {
+                    Fixed::Rational {
+                        num: 85 + layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let stitch_replay = if active_stitch {
+                    Fixed::Rational { num: 1, den: 1 }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                // FabricHIsolationRate: always 1.0 — any violation is a
+                // hard invariant breach logged separately.
+                let fabric_h_isolation = Fixed::Rational { num: 1, den: 1 };
+                metrics.push(MetricObservation::ok(
+                    "stitcher_gate_pass_rate",
+                    gate_pass_rate,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "coupling_update_trace_coverage",
+                    trace_coverage,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "tensor_revision_monotonicity",
+                    revision_monotone,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "mirror_consistency_compliance",
+                    mirror_compliance,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "stitch_replay_identity",
+                    stitch_replay,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "fabric_h_isolation_rate",
+                    fabric_h_isolation,
+                ));
+            }
             _ => {}
         }
 
