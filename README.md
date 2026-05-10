@@ -50,6 +50,8 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **Phase matrix layer** (PHASEMATRIX-HIVEMIND-03) | **Shipped** |
 | **Dual-Fabric Stitch Layer** (PHASEMATRIX-HIVEMIND-03.1) | **Shipped** |
 | **Topology layer** (PSE-TRAVERSE-TPT-MTL-04) | **Shipped** |
+| **NCTCS closure layer** (PSE-NCTCS-CONFORMANCE-01) | **Shipped** |
+| **Holistic eigenmode layer** (PSE-METATRON-MONOLITH-01) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -60,7 +62,7 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
 | `B15` `macro_step` end-to-end | **43–110 µs** |
 | `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **890 / 890** passing |
+| Workspace test suite | **928 / 928** passing |
 
 The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
 and matched on the full pipeline. See `cargo run --release --example
@@ -518,6 +520,23 @@ cargo run --release -p pse-phase-matrix-cli -- cluster-cycle \
     --out target/phase/cycle.json
 cargo run --release -p pse-phase-matrix-cli -- cluster-replay \
     target/phase/cycle.json
+
+# Run the NCTCS closure layer (PSE-NCTCS-CONFORMANCE-01)
+cargo run --release -p pse-validation-runner-cli -- nctcs-close \
+    target/run_dir/ --out target/run_dir/nctcs_closure_bundle.json
+cargo run --release -p pse-validation-runner-cli -- nctcs-replay \
+    target/run_dir/nctcs_closure_bundle.json
+cargo run --release -p pse-validation-runner-cli -- nctcs-verify \
+    target/run_dir/nctcs_closure_bundle.json
+
+# Run the Metatron holistic eigenmode closure (PSE-METATRON-MONOLITH-01)
+cargo run --release -p pse-metatron-cli -- inspect target/run_dir/
+cargo run --release -p pse-metatron-cli -- close   target/run_dir/ \
+    --out target/run_dir/metatron_closure_report.json
+cargo run --release -p pse-metatron-cli -- verify  \
+    target/run_dir/holistic_eigenmode_state.json
+cargo run --release -p pse-metatron-cli -- replay  \
+    target/run_dir/metatron_closure_report.json
 ```
 
 The MVP solver in `run` is a one-value-per-dimension template — by
@@ -525,7 +544,9 @@ design. Real solvers (template / LLM / tool / human) plug in via the
 `Candidate`-producing surface; the gating, fail-closed conversion and
 PSE binding are the same regardless.
 
-See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`,
+See `pse_nctcs_conformance_spec_v0_1.pdf.pdf` (PSE-NCTCS-CONFORMANCE-01),
+`PSE-METATRON-MONOLITH-01.pdf` (PSE-METATRON-MONOLITH-01),
+`pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`,
 `pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01),
 `pse_traverse_dynamics_spec_v0_1.pdf` (PSE-TRAVERSE-DYNAMICS-01),
 `pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03),
@@ -541,7 +562,7 @@ topological framework.
 
 ## Architecture
 
-The workspace ships **28 crates**, **10 domain adapters**, **9 tool
+The workspace ships **28 crates**, **10 domain adapters**, **11 tool
 binaries**:
 
 ```
@@ -571,7 +592,14 @@ crates/
   pse             Meta-crate
   pse-core        Engine orchestrator (`macro_step`), DomainAdapter trait,
                   AdaptiveCalibrator, operator algebra, falsifier
-  pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8)
+  pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8) +
+                  PSE-METATRON-MONOLITH-01 Holistic Eigenmode Closure
+                  Layer (closure/ submodule): LocalMonolithProjection →
+                  IsomorphicProjectionReport → SpectralGapStitchReport →
+                  MetatronGateReport (G_meta = G_nctcs ∧ G_trace ∧
+                  G_replay ∧ G_iso ∧ G_gap ∧ G_eval ∧ G_drift,
+                  fail-closed) → HolisticEigenmodeState (only on pass;
+                  content-addressed, replayable, M0–M5 conformance class)
   phase-matrix    PHASEMATRIX-HIVEMIND-03 morphodynamic resonance cell
                   substrate: PhaseSubnet / PhaseCell / CellPool →
                   LocalResonanceProcessor → ResonancePulse →
@@ -589,6 +617,15 @@ crates/
                   G_intent, G_dissolve, plus matrix-boundary check);
                   run_cell_substrate_cycle drives the full
                   deterministic cycle.
+  pse-validation-runner
+                  Validation runner + PSE-NCTCS-CONFORMANCE-01 closure
+                  layer (nctcs/ submodule): NullCenterRef →
+                  NullProjectionAudit → PhaseVisibilityAudit →
+                  CandidateFormationAudit → MaterializationAudit →
+                  TraceReplayContractReport → classify_conformance (C0–C4)
+                  → MacroControlState (C4 only) → NctcsClosureBundle
+                  (content-addressed, replayable); fail-closed gate
+                  semantics; 8 NCTCS metrics in pse-eval-matrix
   pse-traverse    PSE Traversal Agent v0.1 + Signature + Dynamics + Horizon
                   + Cognition (PSE-TRAVERSE-SIGNATURE-01,
                   PSE-TRAVERSE-DYNAMICS-01, PSE-TRAVERSE-HORIZON-03,
@@ -649,6 +686,14 @@ tools/
                       cell-pool / cluster-cycle / cluster-replay /
                       cluster-verify
                       (binary: phase-matrix)
+  pse-validation-runner-cli
+                      Validation runner CLI (extended with NCTCS commands):
+                      nctcs-close / nctcs-replay / nctcs-verify
+                      (binary: pse-validation-runner)
+  pse-metatron-cli    PSE-METATRON-MONOLITH-01 CLI:
+                      inspect / project-local / isomorphism /
+                      spectral-gap / close / replay / verify
+                      (binary: pse-metatron)
 ```
 
 ---
@@ -820,6 +865,33 @@ short version of what changed:
     *diagnostic finding*, surfaced as a `ConclusionFlag`.
   * CLI: `pse-eval-matrix init|validate|plan|run|replay|score|ablate|compare|report`.
 
+* **NCTCS closure layer (PSE-NCTCS-CONFORMANCE-01)** — Null-Centered
+  Toroidal Control Closure Layer as a submodule of `pse-validation-runner`.
+  Classifies conformance C0–C4 from a deterministic pipeline:
+  `NullCenterRef` (exogenous, not a phase state, not an agent) →
+  `NullProjectionAudit` (K0 ≠ π0(K0)) → `PhaseVisibilityAudit` →
+  `CandidateFormationAudit` → `MaterializationAudit` (no direct
+  fabric→tensor mutation; fail-closed gate semantics) →
+  `TraceReplayContractReport` → two-pass `classify_conformance` →
+  `MacroControlState` (C4 only; derived from null_center + tensor +
+  trace, NEVER from resonance or coherence alone) → `NctcsClosureBundle`
+  (content-addressed, byte-identical replay). Eight NCTCS metrics
+  registered in `pse-eval-matrix`. CLI: `nctcs-close / nctcs-replay /
+  nctcs-verify`.
+
+* **Holistic eigenmode layer (PSE-METATRON-MONOLITH-01)** — Holistic
+  Eigenmode Closure Layer as a submodule of `pse-metatron`. Evaluates
+  the fail-closed composite gate G_meta = G_nctcs ∧ G_trace ∧ G_replay
+  ∧ G_iso ∧ G_gap ∧ G_eval ∧ G_drift over the full PSE stack.
+  `HolisticEigenmodeState` (M0–M5 conformance, content-addressed,
+  replayable) is produced only when G_meta = 1; gate failure yields
+  a `MetatronDiagnosticReport` (fail-closed). G_iso requires ≥ 1
+  `IsomorphicProjectionReport` with `passed = true` (no vacuous pass
+  on empty input). Self-contained `closure/primitives.rs` avoids the
+  cyclic crate dependency via pse-traverse. Binary `pse-metatron`
+  (new tool `pse-metatron-cli`): `inspect / project-local / isomorphism /
+  spectral-gap / close / replay / verify` (7 subcommands).
+
 The 8-fold Kairos AND, falsifier gating, content-address scheme, and
 EU-AI-Act compliance proof are unchanged across all of the above —
 calibration moves; the *contract* doesn't.
@@ -850,7 +922,7 @@ calibration moves; the *contract* doesn't.
 | Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
 | Format | `cargo fmt --all -- --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
-| Tests | `cargo test --workspace --locked` | 839 / 839 passing |
+| Tests | `cargo test --workspace --locked` | 928 / 928 passing |
 | Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
 | Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
 | CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |

@@ -15,6 +15,104 @@ note explicitly says so.
 
 ### Added
 
+* **PSE-NCTCS-CONFORMANCE-01** — Null-Centered Toroidal Control Closure
+  Layer. New submodule `crates/pse-validation-runner/src/nctcs/` (14
+  modules) inside the existing `pse-validation-runner` crate.
+
+  Implements a C0–C4 conformance ladder and produces a content-addressed
+  `NctcsClosureBundle` (byte-identical replay). The pipeline:
+
+  ```text
+  NctcsRunDescriptor + NctcsClosureInput
+    → NullCenterRef         (C0: exogenous, not_phase_state, not_agent)
+    → NullProjectionAudit   (K0 ≠ π0(K0): projection distinction)
+    → ToroidalPhaseFlowAudit (phase-flow timing, visibility-only)
+    → PhaseVisibilityAudit  (C1: phase-gated visibility, coverage ≥ θ)
+    → CandidateFormationAudit (C2: candidate_requires_visibility_passed)
+    → MaterializationAudit  (C2: no direct fabric→tensor mutation,
+                              Dissolution-Grundsatz preserved)
+    → TraceReplayContractReport (ReplayIdentity ≥ threshold,
+                              replay_ready_required_for_gate_pass)
+    → classify_conformance  (two-pass: pre-macro, then with MacroControlState)
+    → MacroControlState?    (C4 only, from null_center + tensor + trace
+                              — NEVER from resonance or ephemeral fabric)
+    → NctcsClosureBundle    (content-addressed, JCS + SHA-256)
+  ```
+
+  **Conformance ladder**: `C0FormalTyped` (exogenous null center) →
+  `C1PhaseGatedVisibility` (phase-gated candidate visibility) →
+  `C2GateBoundMaterialization` (gate-bound tensor revisions) →
+  `C3AuditableTensor` (auditable tensor history + trace) →
+  `C4MacroControl` (full macro control state).
+
+  **Gate semantics** (fail-closed): `NctcsGateOutcome::Pass` is the
+  only materializing outcome; `Hold / Reject / Quarantine / NoUpdate /
+  HandoffReady` all produce a non-materializing decision record.
+  `ValidationClosureStatus` never reaches `EmpiricalImprovement`
+  without a real domain validation result.
+
+  Eight NCTCS metrics registered in `pse-eval-matrix`
+  (`nctcs_conformance_class_score`, `nctcs_visibility_candidate_compliance`,
+  `nctcs_no_direct_persistence_rate`, `nctcs_gate_bound_revision_rate`,
+  `nctcs_trace_replay_contract_rate`, `nctcs_macro_state_validity`,
+  `nctcs_coherence_truth_separation_rate`,
+  `nctcs_domain_validation_required_compliance`).
+
+  CLI commands added to `pse-validation-runner-cli`:
+  `nctcs-close` (full closure pipeline → `nctcs_closure_bundle.json`),
+  `nctcs-replay` (byte-identity verification),
+  `nctcs-verify` (declared bundle_id recomputation).
+
+  Tests: 10 unit tests, 2 integration tests, 3 negative tests (25 total
+  in `nctcs/tests.rs`).
+
+* **PSE-METATRON-MONOLITH-01** — Holistic Eigenmode Closure Layer. New
+  submodule `crates/pse-metatron/src/closure/` (11 modules) inside the
+  existing `pse-metatron` crate, plus a new `pse-metatron-cli` binary.
+
+  Evaluates a composite fail-closed gate over the full PSE stack and
+  produces a content-addressed `HolisticEigenmodeState` only when every
+  sub-gate passes:
+
+  ```text
+  MetatronRunDescriptor + MetatronClosureInput
+    → LocalMonolithProjection[]  (content-addressed per projection)
+    → IsomorphicProjectionReport[]  (operator-path + gate-order +
+                                     trace + replay dependency checks)
+    → SpectralGapStitchReport    (prior_gap, post_gap, delta_gap,
+                                  improved_or_preserved)
+    → MetatronGateReport         (G_meta = G_nctcs ∧ G_trace ∧ G_replay
+                                  ∧ G_iso ∧ G_gap ∧ G_eval ∧ G_drift)
+    → MetatronClosureOutcome:
+        Closed(HolisticEigenmodeState)  ← gate passed
+        Diagnostic(MetatronGateReport)  ← gate failed (fail-closed)
+        Rejected(reason)                ← pre-flight policy violation
+  ```
+
+  **Gate semantics** (fail-closed): `G_iso` requires at least one
+  `IsomorphicProjectionReport` with `passed = true` (vacuously-empty
+  does NOT pass). No `HolisticEigenmodeState` with productive status
+  is ever produced when `G_meta = 0`.
+
+  **Metatron conformance classes** `M0–M5` classify how many gates of
+  the composite passed. `HolisticEigenmodeState` is content-addressed
+  (JCS + SHA-256, self-referential `state_id` computed from the
+  zero-initialized form). Replay verification zeroes the ID before
+  recomputing, matching `build()` — same fix applied to
+  `verify_nctcs_bundle`.
+
+  Self-contained `closure/primitives.rs` re-implements `Hash256`,
+  `CanonicalNumber`, and `content_address()` using `serde_jcs` +
+  `sha2` directly to avoid the cyclic crate dependency
+  `pse-traverse → pse-core → pse-cascade → pse-metatron → pse-traverse`.
+
+  `pse-metatron-cli` binary (new tool `tools/pse-metatron-cli/`):
+  `inspect` / `project-local` / `isomorphism` / `spectral-gap` /
+  `close` / `replay` / `verify` (7 subcommands).
+
+  Tests: 8 unit tests, 2 integration tests, 3 negative tests (13 total
+  in `closure/tests.rs`).
+
 * **PSE-TRAVERSE-TPT-MTL-04** — Topological Panoptic Triangulation and
   Möbius-Tripolar Micro-Lift topology layer (conformance class TPTM-5).
   New module `crates/pse-traverse/src/topology/` (feature `topology`)
