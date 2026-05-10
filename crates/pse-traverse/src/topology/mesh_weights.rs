@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::mesh_holo::{MeshHolo, MeshEdge};
+use super::mesh_holo::{MeshEdge, MeshHolo};
 use super::micro_fiber::MicroFiber;
 use super::persistence::add_fixed;
 use super::primitives::{tpt_content_address, Fixed, Hash256, TopologyError};

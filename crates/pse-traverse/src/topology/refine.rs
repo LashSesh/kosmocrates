@@ -7,10 +7,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::mesh_holo::MeshHolo;
+use super::persistence::PersistenceDiagram;
 use super::primitives::{tpt_content_address, Hash256, TopologyError};
 use super::run_descriptor::TptMtlRunDescriptor;
 use super::topology_guard::{check_topology_guard, TopologyGuardResult};
-use super::persistence::PersistenceDiagram;
 
 /// Budget tracking state for recursive refinement.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,7 +45,10 @@ impl BudgetState {
         }
         if self.vertices > b.max_vertices {
             return Err(TopologyError::BudgetExhausted {
-                reason: format!("vertices {} > max_vertices {}", self.vertices, b.max_vertices),
+                reason: format!(
+                    "vertices {} > max_vertices {}",
+                    self.vertices, b.max_vertices
+                ),
             });
         }
         if self.simplices > b.max_simplices {
@@ -101,9 +104,7 @@ pub fn refine_recursive(
             TopologyGuardResult::Failure(p) => {
                 // Guard failure during refinement → stop, return current mesh.
                 // Budget is not exhausted, but topology is unstable.
-                return Err(TopologyError::TopologyGuardFailure {
-                    reason: p.reason,
-                });
+                return Err(TopologyError::TopologyGuardFailure { reason: p.reason });
             }
         };
 

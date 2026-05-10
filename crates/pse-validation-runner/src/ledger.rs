@@ -45,7 +45,10 @@ impl ValidationRunEntry {
             previous_entry_hash,
         };
         let entry_id = content_address(&partial)?;
-        Ok(ValidationRunEntry { entry_id, ..partial })
+        Ok(ValidationRunEntry {
+            entry_id,
+            ..partial
+        })
     }
 }
 
@@ -76,7 +79,10 @@ impl ValidationRunLedger {
             chain_hash: Hash256::zero(),
         };
         let ledger_id = content_address(&partial)?;
-        Ok(ValidationRunLedger { ledger_id, ..partial })
+        Ok(ValidationRunLedger {
+            ledger_id,
+            ..partial
+        })
     }
 
     /// Append the result of one command execution.
@@ -141,8 +147,9 @@ fn chain_extend(prev: &Hash256, entry_id: &Hash256) -> Result<Hash256, Validatio
     hasher.update(prev.hex().as_bytes());
     hasher.update(entry_id.hex().as_bytes());
     let digest = hasher.finalize();
-    Hash256::from_hex(&hex::encode(digest))
-        .map_err(|e| ValidationError::Canonicalization { reason: e.to_string() })
+    Hash256::from_hex(&hex::encode(digest)).map_err(|e| ValidationError::Canonicalization {
+        reason: e.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -165,14 +172,14 @@ mod tests {
 
     #[test]
     fn ledger_chain_detects_modified_entry() {
-        let mut ledger = ValidationRunLedger::new(
-            "run_001".into(),
-            Hash256::zero(),
-            Hash256::zero(),
-        )
-        .unwrap();
-        ledger.append(ValidationPhase::Quality, &dummy_result("1"), vec![]).unwrap();
-        ledger.append(ValidationPhase::Quality, &dummy_result("2"), vec![]).unwrap();
+        let mut ledger =
+            ValidationRunLedger::new("run_001".into(), Hash256::zero(), Hash256::zero()).unwrap();
+        ledger
+            .append(ValidationPhase::Quality, &dummy_result("1"), vec![])
+            .unwrap();
+        ledger
+            .append(ValidationPhase::Quality, &dummy_result("2"), vec![])
+            .unwrap();
         assert!(ledger.verify_chain().is_ok());
 
         // Tamper with an entry's exit code.
@@ -194,14 +201,14 @@ mod tests {
 
     #[test]
     fn ledger_entry_links_are_consistent() {
-        let mut ledger = ValidationRunLedger::new(
-            "run_002".into(),
-            Hash256::zero(),
-            Hash256::zero(),
-        )
-        .unwrap();
-        ledger.append(ValidationPhase::Quality, &dummy_result("a"), vec![]).unwrap();
-        ledger.append(ValidationPhase::Benchmark, &dummy_result("b"), vec![]).unwrap();
+        let mut ledger =
+            ValidationRunLedger::new("run_002".into(), Hash256::zero(), Hash256::zero()).unwrap();
+        ledger
+            .append(ValidationPhase::Quality, &dummy_result("a"), vec![])
+            .unwrap();
+        ledger
+            .append(ValidationPhase::Benchmark, &dummy_result("b"), vec![])
+            .unwrap();
         assert!(ledger.verify_entry_links().is_ok());
     }
 }

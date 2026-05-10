@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::carrier::CarrierContext;
-use super::primitives::{tpt_content_address, Fixed, Hash256, TptEvidenceRef, TopologyError};
+use super::primitives::{tpt_content_address, Fixed, Hash256, TopologyError, TptEvidenceRef};
 use super::run_descriptor::TptMtlRunDescriptor;
 
 /// Status of a TptPoint in the topology layer.

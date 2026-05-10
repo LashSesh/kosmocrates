@@ -57,21 +57,26 @@ pub fn create_bundle(
         total_files,
     };
     let manifest_id = content_address(&partial)?;
-    Ok(BundleManifest { manifest_id, ..partial })
+    Ok(BundleManifest {
+        manifest_id,
+        ..partial
+    })
 }
 
 /// Verify a bundle: recompute all file hashes and compare to manifest.
-pub fn verify_bundle(
-    out_dir: &Path,
-    manifest: &BundleManifest,
-) -> Result<(), ValidationError> {
+pub fn verify_bundle(out_dir: &Path, manifest: &BundleManifest) -> Result<(), ValidationError> {
     let mut current_files = collect_files(out_dir)?;
     current_files.sort();
 
-    let current_map: BTreeMap<&str, &BundleFileEntry> =
-        current_files.iter().map(|e| (e.relative_path.as_str(), e)).collect();
-    let expected_map: BTreeMap<&str, &BundleFileEntry> =
-        manifest.files.iter().map(|e| (e.relative_path.as_str(), e)).collect();
+    let current_map: BTreeMap<&str, &BundleFileEntry> = current_files
+        .iter()
+        .map(|e| (e.relative_path.as_str(), e))
+        .collect();
+    let expected_map: BTreeMap<&str, &BundleFileEntry> = manifest
+        .files
+        .iter()
+        .map(|e| (e.relative_path.as_str(), e))
+        .collect();
 
     for (path, expected) in &expected_map {
         match current_map.get(path) {
@@ -122,9 +127,13 @@ fn collect_recursive(
     })?;
 
     for entry in read_dir {
-        let entry = entry.map_err(|e| ValidationError::Io { reason: e.to_string() })?;
+        let entry = entry.map_err(|e| ValidationError::Io {
+            reason: e.to_string(),
+        })?;
         let path = entry.path();
-        let ft = entry.file_type().map_err(|e| ValidationError::Io { reason: e.to_string() })?;
+        let ft = entry.file_type().map_err(|e| ValidationError::Io {
+            reason: e.to_string(),
+        })?;
 
         if ft.is_dir() {
             collect_recursive(root, &path, entries)?;

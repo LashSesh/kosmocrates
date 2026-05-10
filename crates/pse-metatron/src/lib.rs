@@ -22,6 +22,7 @@ pub mod analysis;
 pub mod bitgraph;
 pub mod bitgraph_n;
 pub mod catalog;
+pub mod closure;
 pub mod complement;
 pub mod embed;
 pub mod error;

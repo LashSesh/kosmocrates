@@ -30,22 +30,36 @@ fn run_validate(args: &[&str]) -> std::process::Output {
 #[test]
 fn cli_help_exits_zero() {
     let out = run_validate(&["--help"]);
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("pse-validate"), "help output missing tool name");
+    assert!(
+        stdout.contains("pse-validate"),
+        "help output missing tool name"
+    );
 }
 
 #[test]
 fn cli_init_writes_profile() {
     let dir = tempfile::tempdir().unwrap();
-    let profile_path = dir.path().join("default.json").to_string_lossy().to_string();
+    let profile_path = dir
+        .path()
+        .join("default.json")
+        .to_string_lossy()
+        .to_string();
     let out = run_validate(&["init", "--profile", "smoke", "--out", &profile_path]);
     assert!(
         out.status.success(),
         "stderr: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(Path::new(&profile_path).exists(), "profile file not written");
+    assert!(
+        Path::new(&profile_path).exists(),
+        "profile file not written"
+    );
     let content = std::fs::read_to_string(&profile_path).unwrap();
     assert!(content.contains("smoke"), "profile JSON missing name");
 }
@@ -66,7 +80,10 @@ fn cli_inspect_reads_profile() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("profile_name"), "inspect output missing fields");
+    assert!(
+        stdout.contains("profile_name"),
+        "inspect output missing fields"
+    );
 }
 
 #[test]
@@ -110,8 +127,14 @@ fn cli_report_writes_markdown() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("# PSE Validation Report"), "markdown missing header");
-    assert!(stdout.contains("## 9. Conclusion"), "markdown missing conclusion section");
+    assert!(
+        stdout.contains("# PSE Validation Report"),
+        "markdown missing header"
+    );
+    assert!(
+        stdout.contains("## 9. Conclusion"),
+        "markdown missing conclusion section"
+    );
 }
 
 #[test]
@@ -130,5 +153,8 @@ fn cli_replay_validates_bundle() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("PASSED"), "replay should pass for untampered bundle");
+    assert!(
+        stdout.contains("PASSED"),
+        "replay should pass for untampered bundle"
+    );
 }

@@ -72,9 +72,15 @@ pub fn check_topology_guard(
     let reason = if passed {
         "topology guard passed".into()
     } else if !betti_ok {
-        format!("betti shift {:?} exceeds allowed {:?}", betti_shift, allowed_shift)
+        format!(
+            "betti shift {:?} exceeds allowed {:?}",
+            betti_shift, allowed_shift
+        )
     } else {
-        format!("pd_distance {:?} exceeds threshold {:?}", pd_dist, pd_threshold)
+        format!(
+            "pd_distance {:?} exceeds threshold {:?}",
+            pd_dist, pd_threshold
+        )
     };
 
     let partial = TopologyGuardProof {
@@ -112,8 +118,7 @@ mod tests {
         let rd = TptMtlRunDescriptor::default_permissive();
         let betti = vec![1i64, 0, 0, 0, 0];
         let pd = PersistenceDiagram::empty();
-        let result =
-            check_topology_guard(&betti, &betti, &pd, &pd, &rd, Hash256::zero()).unwrap();
+        let result = check_topology_guard(&betti, &betti, &pd, &pd, &rd, Hash256::zero()).unwrap();
         assert!(matches!(result, TopologyGuardResult::Pass(_)));
     }
 

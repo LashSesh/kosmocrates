@@ -47,7 +47,10 @@ impl RepositorySnapshot {
             workspace_manifest_hash,
         };
         let repo_root_hash = content_address(&partial)?;
-        Ok(RepositorySnapshot { repo_root_hash, ..partial })
+        Ok(RepositorySnapshot {
+            repo_root_hash,
+            ..partial
+        })
     }
 
     pub fn content_hash(&self) -> Result<Hash256, ValidationError> {
@@ -60,7 +63,9 @@ fn run_git(repo_root: &Path, args: &[&str]) -> Result<String, ValidationError> {
         .args(args)
         .current_dir(repo_root)
         .output()
-        .map_err(|e| ValidationError::MissingBinary { binary: format!("git: {e}") })?;
+        .map_err(|e| ValidationError::MissingBinary {
+            binary: format!("git: {e}"),
+        })?;
     if !out.status.success() {
         return Err(ValidationError::CommandFailed {
             reason: format!(

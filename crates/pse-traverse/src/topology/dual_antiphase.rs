@@ -132,12 +132,8 @@ pub fn apply_mtl_d1(
 pub(crate) fn fixed_to_f64(x: &Fixed) -> f64 {
     use crate::dynamic_state::CanonicalNumber;
     match x {
-        CanonicalNumber::FixedI64 { raw, scale } => {
-            *raw as f64 / 10f64.powi(*scale as i32)
-        }
-        CanonicalNumber::Rational { num, den } => {
-            *num as f64 / *den as f64
-        }
+        CanonicalNumber::FixedI64 { raw, scale } => *raw as f64 / 10f64.powi(*scale as i32),
+        CanonicalNumber::Rational { num, den } => *num as f64 / *den as f64,
     }
 }
 
@@ -175,7 +171,13 @@ mod tests {
         let val = Fixed::quantize(v, 9).unwrap();
         TptPoint {
             point_id: Hash256::zero(),
-            x: [val.clone(), val.clone(), val.clone(), val.clone(), val.clone()],
+            x: [
+                val.clone(),
+                val.clone(),
+                val.clone(),
+                val.clone(),
+                val.clone(),
+            ],
             meta: PointMeta {
                 semantic_axis_labels: rd.axis_policy.semantic_axes.clone(),
                 runtime_axis_labels: rd.axis_policy.runtime_axes.clone(),
@@ -213,8 +215,14 @@ mod tests {
         let sw = zero_sw();
         let coords = vec![point.x.clone()];
         let primary = compute_primary_phase(&point, &sw, &coords).unwrap();
-        let (antiphase, proof) =
-            apply_mtl_d1(&point, &primary, &sw, &coords, &rd.micro_lift_policy.epsilon).unwrap();
+        let (antiphase, proof) = apply_mtl_d1(
+            &point,
+            &primary,
+            &sw,
+            &coords,
+            &rd.micro_lift_policy.epsilon,
+        )
+        .unwrap();
         assert_eq!(antiphase.rule_id, "MTL-D1");
         assert_eq!(proof.rule_id, "MTL-D1");
         assert_ne!(proof.proof_id, Hash256::zero());
@@ -227,8 +235,14 @@ mod tests {
         let sw = zero_sw();
         let coords = vec![point.x.clone()];
         let primary = compute_primary_phase(&point, &sw, &coords).unwrap();
-        let (antiphase, _) =
-            apply_mtl_d1(&point, &primary, &sw, &coords, &rd.micro_lift_policy.epsilon).unwrap();
+        let (antiphase, _) = apply_mtl_d1(
+            &point,
+            &primary,
+            &sw,
+            &coords,
+            &rd.micro_lift_policy.epsilon,
+        )
+        .unwrap();
         for v in &antiphase.vector {
             let vf = fixed_to_f64(v);
             assert!(vf >= 0.0 && vf <= 1.0, "reflected value {vf} out of [0,1]");

@@ -1916,8 +1916,19 @@ dependencies = [
  "pse-types",
  "rayon",
  "serde",
+ "serde_jcs",
  "serde_json",
+ "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "pse-metatron-cli"
+version = "0.1.0"
+dependencies = [
+ "pse-metatron",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2119,6 +2130,7 @@ dependencies = [
 name = "pse-validation-runner-cli"
 version = "0.1.0"
 dependencies = [
+ "pse-traverse",
  "pse-validation-runner",
  "serde",
  "serde_json",

@@ -11,7 +11,7 @@ use super::gates::{TptMtlGateReport, TptMtlOutcomeKind};
 use super::mesh_holo::MeshHolo;
 use super::micro_fiber::MicroFiber;
 use super::phase_window::PhaseSpaceWindow;
-use super::primitives::{tpt_content_address, Hash256, TptEvidenceRef, TopologyError};
+use super::primitives::{tpt_content_address, Hash256, TopologyError, TptEvidenceRef};
 use super::reinterpret::ReinterpretationReport;
 use super::run_descriptor::TptMtlRunDescriptor;
 
@@ -222,19 +222,53 @@ mod tests {
         let carrier = evaluate_carrier(&window.carrier, &rd, false).unwrap();
         let reinterp = reinterpret_mesh_to_panoptic(&evolved, &carrier, &rd).unwrap();
         let gate_report = gate_all(
-            &window, &axis_report, &evolved, &fibers, &carrier, &reinterp, &rd, None, None,
+            &window,
+            &axis_report,
+            &evolved,
+            &fibers,
+            &carrier,
+            &reinterp,
+            &rd,
+            None,
+            None,
         )
         .unwrap();
-        let candidate =
-            form_topological_crystal_candidate(&window, &evolved, &fibers, &carrier, &reinterp, &gate_report)
-                .unwrap();
+        let candidate = form_topological_crystal_candidate(
+            &window,
+            &evolved,
+            &fibers,
+            &carrier,
+            &reinterp,
+            &gate_report,
+        )
+        .unwrap();
         let replay_hash = Hash256::zero();
-        let b1 =
-            materialize_bundle(&rd, &window, &axis_report, &evolved, &fibers, &carrier, &reinterp, &gate_report, &candidate, &replay_hash)
-                .unwrap();
-        let b2 =
-            materialize_bundle(&rd, &window, &axis_report, &evolved, &fibers, &carrier, &reinterp, &gate_report, &candidate, &replay_hash)
-                .unwrap();
+        let b1 = materialize_bundle(
+            &rd,
+            &window,
+            &axis_report,
+            &evolved,
+            &fibers,
+            &carrier,
+            &reinterp,
+            &gate_report,
+            &candidate,
+            &replay_hash,
+        )
+        .unwrap();
+        let b2 = materialize_bundle(
+            &rd,
+            &window,
+            &axis_report,
+            &evolved,
+            &fibers,
+            &carrier,
+            &reinterp,
+            &gate_report,
+            &candidate,
+            &replay_hash,
+        )
+        .unwrap();
         assert_eq!(b1.bundle_id, b2.bundle_id);
     }
 }

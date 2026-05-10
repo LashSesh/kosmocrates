@@ -120,6 +120,9 @@ mod tests {
     fn test_split_missing_invalidates_domain_run() {
         let mut manifest = make_manifest(0xaa, 0xcc);
         manifest.test_split.size = 0;
-        assert!(matches!(manifest.verify_splits(), Err(ValidationError::TestSplitMissing)));
+        assert!(matches!(
+            manifest.verify_splits(),
+            Err(ValidationError::TestSplitMissing)
+        ));
     }
 }

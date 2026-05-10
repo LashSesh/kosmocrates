@@ -42,13 +42,7 @@ pub struct AxisPolicy {
 impl AxisPolicy {
     pub fn default_profile() -> Self {
         AxisPolicy {
-            semantic_axes: [
-                "R".into(),
-                "F".into(),
-                "T".into(),
-                "S".into(),
-                "E".into(),
-            ],
+            semantic_axes: ["R".into(), "F".into(), "T".into(), "S".into(), "E".into()],
             runtime_axes: [
                 "psi".into(),
                 "rho".into(),

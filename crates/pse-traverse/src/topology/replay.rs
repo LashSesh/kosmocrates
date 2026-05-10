@@ -152,9 +152,32 @@ mod tests {
         let fibers = lift_micro_fibers(&window, &evolved, &rd).unwrap();
         let carrier = evaluate_carrier(&window.carrier, &rd, false).unwrap();
         let reinterp = reinterpret_mesh_to_panoptic(&evolved, &carrier, &rd).unwrap();
-        let gate_report = gate_all(&window, &axis, &evolved, &fibers, &carrier, &reinterp, &rd, None, None).unwrap();
-        let candidate = form_topological_crystal_candidate(&window, &evolved, &fibers, &carrier, &reinterp, &gate_report).unwrap();
-        materialize_bundle(&rd, &window, &axis, &evolved, &fibers, &carrier, &reinterp, &gate_report, &candidate, &Hash256::zero()).unwrap()
+        let gate_report = gate_all(
+            &window, &axis, &evolved, &fibers, &carrier, &reinterp, &rd, None, None,
+        )
+        .unwrap();
+        let candidate = form_topological_crystal_candidate(
+            &window,
+            &evolved,
+            &fibers,
+            &carrier,
+            &reinterp,
+            &gate_report,
+        )
+        .unwrap();
+        materialize_bundle(
+            &rd,
+            &window,
+            &axis,
+            &evolved,
+            &fibers,
+            &carrier,
+            &reinterp,
+            &gate_report,
+            &candidate,
+            &Hash256::zero(),
+        )
+        .unwrap()
     }
 
     #[test]

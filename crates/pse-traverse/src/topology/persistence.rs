@@ -92,10 +92,12 @@ impl PersistenceDiagram {
         for (dim, birth, death) in triples {
             pairs.push(PersistencePair {
                 dimension: dim,
-                birth: Fixed::quantize(birth, 9)
-                    .map_err(|e| TopologyError::Canonicalization { reason: e.to_string() })?,
-                death: Fixed::quantize(death, 9)
-                    .map_err(|e| TopologyError::Canonicalization { reason: e.to_string() })?,
+                birth: Fixed::quantize(birth, 9).map_err(|e| TopologyError::Canonicalization {
+                    reason: e.to_string(),
+                })?,
+                death: Fixed::quantize(death, 9).map_err(|e| TopologyError::Canonicalization {
+                    reason: e.to_string(),
+                })?,
             });
         }
         // Sort for determinism.
