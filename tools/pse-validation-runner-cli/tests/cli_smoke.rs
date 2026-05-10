@@ -158,3 +158,67 @@ fn cli_replay_validates_bundle() {
         "replay should pass for untampered bundle"
     );
 }
+
+#[test]
+fn domain_profile_requires_manifest_flag() {
+    // Running with --profile domain but no --domain-manifest must fail with a clear error.
+    let dir = tempfile::tempdir().unwrap();
+    let out_dir = dir.path().join("run_out").to_string_lossy().to_string();
+
+    let out = run_validate(&["run", "--profile", "domain", "--out", &out_dir]);
+    assert!(
+        !out.status.success(),
+        "domain profile without --domain-manifest should fail"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("domain-manifest") || stderr.contains("domain manifest"),
+        "error message should mention domain-manifest, got: {stderr}"
+    );
+}
+
+#[test]
+fn domain_profile_nonexistent_manifest_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let out_dir = dir.path().join("run_out").to_string_lossy().to_string();
+
+    let out = run_validate(&[
+        "run",
+        "--profile",
+        "domain",
+        "--domain-manifest",
+        "/nonexistent/path/manifest.json",
+        "--out",
+        &out_dir,
+    ]);
+    assert!(
+        !out.status.success(),
+        "domain profile with missing manifest path should fail"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not found") || stderr.contains("manifest"),
+        "error should mention missing manifest, got: {stderr}"
+    );
+}
+
+#[test]
+fn smoke_run_writes_verdict_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let out_dir = dir.path().join("run_out").to_string_lossy().to_string();
+
+    let out = run_validate(&["run", "--profile", "smoke", "--out", &out_dir, "--dry-run"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let verdict_path = Path::new(&out_dir).join("verdict.json");
+    assert!(verdict_path.exists(), "verdict.json should be written");
+
+    let content = std::fs::read_to_string(&verdict_path).unwrap();
+    assert!(
+        content.contains("conclusion"),
+        "verdict.json should contain 'conclusion'"
+    );
+}

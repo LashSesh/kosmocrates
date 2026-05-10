@@ -75,8 +75,7 @@ impl MetatronGateReport {
             reason: "ReplayIdentity ≥ minimum threshold".into(),
         };
 
-        let iso_all_passed =
-            !iso_reports.is_empty() && iso_reports.iter().all(|r| r.passed);
+        let iso_all_passed = !iso_reports.is_empty() && iso_reports.iter().all(|r| r.passed);
         let g_iso = GateResult {
             gate_id: "G_iso".into(),
             passed: iso_all_passed,

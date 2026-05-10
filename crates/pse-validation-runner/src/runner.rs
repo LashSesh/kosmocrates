@@ -11,15 +11,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::bundle::{create_bundle, BundleManifest};
 use crate::command_plan::{build_command_plan, ValidationPhase};
+use crate::domain::{BenchGtRecord, DatasetManifest, DomainValidationSummary};
 use crate::environment::EnvironmentFingerprint;
 use crate::eval_matrix::{assess_presets, build_eval_summary};
-use crate::executor::{CommandExecutor, CommandResult};
+use crate::executor::CommandExecutor;
 use crate::ledger::ValidationRunLedger;
 use crate::parsers::{BenchmarkSummary, QualitySummary};
-use crate::primitives::{content_address, Hash256, StableId, ValidationError};
+use crate::primitives::{Hash256, StableId, ValidationError};
 use crate::profile::ValidationProfile;
 use crate::replay::{verify_replay, ReplayResult};
-use crate::report::{FinalValidationReport, ValidationConclusion};
+use crate::report::FinalValidationReport;
 use crate::scoring::{derive_conclusion, ScoringInputs};
 use crate::snapshot::RepositorySnapshot;
 
@@ -80,6 +81,7 @@ pub fn run(
     let mut eval_exits: BTreeMap<String, i32> = BTreeMap::new();
     let mut eval_replay_ok: BTreeMap<String, bool> = BTreeMap::new();
     let mut quality_failed = false;
+    let mut domain_phase_exits: BTreeMap<ValidationPhase, i32> = BTreeMap::new();
 
     // Execute commands phase by phase.
     let log_dir = out_dir.to_path_buf();
@@ -112,6 +114,11 @@ pub fn run(
                         eval_exits.entry(preset).or_insert(result.exit_code);
                     }
                 }
+            }
+            ValidationPhase::DomainCalibration
+            | ValidationPhase::DomainValidation
+            | ValidationPhase::DomainTest => {
+                domain_phase_exits.insert(command.phase, result.exit_code);
             }
             _ => {}
         }
@@ -150,14 +157,79 @@ pub fn run(
 
     let replay_identity = eval_summary.preset_results.iter().all(|r| r.replay_passed);
 
+    // ── L3 Domain post-processing ─────────────────────────────────────────────
+    let domain_dir = out_dir.join("domain");
+    let (domain_summary_opt, domain_leakage_free, domain_test_completed) = if let Some(domain_cfg) =
+        &profile.domain
+    {
+        // Load manifest from configured path.
+        let manifest: Option<DatasetManifest> = load_json_opt(&domain_cfg.dataset_manifest_path);
+
+        // Try to load bench_gt JSON outputs produced by the domain phases.
+        let records: Vec<BenchGtRecord> = load_domain_records(&domain_dir);
+
+        let leakage_free = manifest
+            .as_ref()
+            .map(|m| m.verify_splits().is_ok())
+            .unwrap_or(false);
+
+        let test_completed = records.iter().any(|r| r.scenario.contains("binance"))
+            && domain_phase_exits
+                .get(&ValidationPhase::DomainTest)
+                .copied()
+                .unwrap_or(1)
+                == 0;
+
+        let summary = if let Some(manifest) = &manifest {
+            let manifest_hash = manifest.content_hash().unwrap_or_else(|_| Hash256::zero());
+            DomainValidationSummary::build_from_records(
+                domain_cfg.domain_name.clone(),
+                manifest_hash,
+                records,
+                manifest,
+            )
+            .ok()
+        } else {
+            None
+        };
+
+        (summary, leakage_free, test_completed)
+    } else {
+        (None, true, false)
+    };
+
+    // Write domain summary artifacts.
+    if let Some(ref summary) = domain_summary_opt {
+        write_json(&domain_dir, "domain_summary.json", summary)?;
+        if let Some(ref bc) = summary.baseline_comparison {
+            write_json(&domain_dir, "baseline_comparison.json", bc)?;
+        }
+    }
+
+    let domain_available = profile.domain.is_some() && domain_summary_opt.is_some();
+
     let conclusion = derive_conclusion(&ScoringInputs {
         quality: &quality_summary,
         benchmarks: &benchmark_summary,
         eval_matrix: &eval_summary,
         replay_identity,
-        domain_available: profile.domain.is_some(),
-        domain_leakage_free: true,
+        domain_available,
+        domain_leakage_free,
+        domain_test_completed,
     });
+
+    // Write verdict.json.
+    write_json(
+        out_dir,
+        "verdict.json",
+        &serde_json::json!({
+            "conclusion": conclusion.as_str(),
+            "domain_available": domain_available,
+            "domain_leakage_free": domain_leakage_free,
+            "domain_test_completed": domain_test_completed,
+            "replay_identity": replay_identity,
+        }),
+    )?;
 
     // Build final report.
     let report = FinalValidationReport::build(
@@ -223,6 +295,24 @@ pub fn run(
         bundle,
         replay,
     })
+}
+
+/// Try to load a JSON file; returns None on missing or parse error.
+fn load_json_opt<T: serde::de::DeserializeOwned>(path: &str) -> Option<T> {
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Load all bench_gt JSON output files from the domain directory.
+fn load_domain_records(domain_dir: &Path) -> Vec<BenchGtRecord> {
+    let mut records = Vec::new();
+    for name in &["seismo.json", "vitals.json", "binance.json"] {
+        let path = domain_dir.join(name);
+        if let Some(record) = load_json_opt::<BenchGtRecord>(path.to_str().unwrap_or("")) {
+            records.push(record);
+        }
+    }
+    records
 }
 
 /// Generate a deterministic run ID from snapshot + profile hashes.
@@ -291,6 +381,7 @@ mod tests {
         assert!(out.join("final/final_report.json").exists());
         assert!(out.join("final/final_report.md").exists());
         assert!(out.join("bundle_manifest.json").exists());
+        assert!(out.join("verdict.json").exists());
         assert!(!output.run_id.is_empty());
     }
 

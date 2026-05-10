@@ -16,6 +16,89 @@ pub mod baselines;
 pub mod runner;
 pub mod scenarios;
 
+// ─── BenchGtJsonOutput ───────────────────────────────────────────────────────
+
+/// Machine-readable JSON output for one bench_gt scenario run.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BenchGtJsonOutput {
+    pub scenario: String,
+    pub n_observations: u64,
+    pub tolerance_ticks: u64,
+    pub ground_truth_events: Vec<GroundTruthEvent>,
+    pub metrics_per_source: std::collections::BTreeMap<String, Metrics>,
+    pub pse_metrics: Option<Metrics>,
+    pub stl_zscore_metrics: Option<Metrics>,
+    pub isoforest_metrics: Option<Metrics>,
+    pub aggregate_metrics: Metrics,
+    /// SHA-256 hex of the serialized Config.
+    pub config_hash: String,
+    /// SHA-256 hex of the serialized ground-truth event list.
+    pub data_hash: String,
+}
+
+/// Build a `BenchGtJsonOutput` from a `ScenarioResult`.
+///
+/// `config_bytes` is the canonical JSON serialization of the `Config` used for
+/// the run; `ground_truth_bytes` is the canonical JSON of the GT event list.
+pub fn build_json_output(
+    result: &scenarios::ScenarioResult,
+    config_bytes: &[u8],
+) -> BenchGtJsonOutput {
+    let per_source = metrics_by_source(
+        &result.ground_truth,
+        &result.detections,
+        result.tolerance_ticks,
+    );
+
+    let pse_metrics = {
+        // Merge crystal + memory_hit detections into a single PSE combined view.
+        let pse_dets: Vec<Detection> = result
+            .detections
+            .iter()
+            .filter(|d| d.source.starts_with("pse_"))
+            .cloned()
+            .collect();
+        if pse_dets.is_empty() {
+            None
+        } else {
+            Some(score_detections(
+                &result.ground_truth,
+                &pse_dets,
+                result.tolerance_ticks,
+            ))
+        }
+    };
+    let stl_zscore_metrics = per_source.get("stl_zscore").cloned();
+    let isoforest_metrics = per_source.get("isoforest").cloned();
+
+    // Hash the config bytes.
+    let config_hash = sha256_hex(config_bytes);
+
+    // Hash the ground-truth event list (canonical JSON).
+    let gt_bytes = serde_json::to_vec(&result.ground_truth).unwrap_or_default();
+    let data_hash = sha256_hex(&gt_bytes);
+
+    BenchGtJsonOutput {
+        scenario: result.scenario.clone(),
+        n_observations: result.n_observations,
+        tolerance_ticks: result.tolerance_ticks,
+        ground_truth_events: result.ground_truth.clone(),
+        metrics_per_source: per_source,
+        pse_metrics,
+        stl_zscore_metrics,
+        isoforest_metrics,
+        aggregate_metrics: result.metrics.clone(),
+        config_hash,
+        data_hash,
+    }
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(data);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 // ─── Ground-Truth Event ──────────────────────────────────────────────────────
 
 /// A canonical ground-truth event, normalized across adapters.

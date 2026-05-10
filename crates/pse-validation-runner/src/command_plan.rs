@@ -335,17 +335,83 @@ pub fn build_command_plan(
     }
 
     // L3: Domain (optional)
-    if let Some(domain) = &profile.domain {
+    if let Some(_domain) = &profile.domain {
         let domain_dir = format!("{}/domain", out_dir.display());
+
+        // DomainCalibration → seismo scenario
         commands.push(make_cmd(
             ValidationPhase::DomainCalibration,
-            vec!["true"], // domain calibration is external; runner records manifest
+            vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-bench-gt",
+                "--bin",
+                "bench_gt",
+                "--",
+                "--scenario",
+                "seismo",
+                "--format",
+                "json",
+                "--out",
+                &format!("{domain_dir}/seismo.json"),
+            ],
             &root,
             profile.timeouts.domain_seconds,
             &profile.extra_env,
-            vec![format!("{domain_dir}/calibration_report.json")],
+            vec![format!("{domain_dir}/seismo.json")],
         )?);
-        let _ = domain;
+
+        // DomainValidation → vitals scenario
+        commands.push(make_cmd(
+            ValidationPhase::DomainValidation,
+            vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-bench-gt",
+                "--bin",
+                "bench_gt",
+                "--",
+                "--scenario",
+                "vitals",
+                "--format",
+                "json",
+                "--out",
+                &format!("{domain_dir}/vitals.json"),
+            ],
+            &root,
+            profile.timeouts.domain_seconds,
+            &profile.extra_env,
+            vec![format!("{domain_dir}/vitals.json")],
+        )?);
+
+        // DomainTest → binance scenario
+        commands.push(make_cmd(
+            ValidationPhase::DomainTest,
+            vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-bench-gt",
+                "--bin",
+                "bench_gt",
+                "--",
+                "--scenario",
+                "binance",
+                "--format",
+                "json",
+                "--out",
+                &format!("{domain_dir}/binance.json"),
+            ],
+            &root,
+            profile.timeouts.domain_seconds,
+            &profile.extra_env,
+            vec![format!("{domain_dir}/binance.json")],
+        )?);
     }
 
     // Scoring and Reporting

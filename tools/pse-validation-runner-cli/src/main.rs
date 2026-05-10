@@ -84,12 +84,23 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let profile_name = flag(args, "--profile").unwrap_or_else(|| "structural".into());
     let out = flag(args, "--out").unwrap_or_else(|| "validation_runs/latest".into());
     let dry_run = args.contains(&"--dry-run".to_string());
+    let domain_manifest = flag(args, "--domain-manifest");
 
     // Resolve repo root: parent of the crate root (walk up to find Cargo.lock).
     let repo_root = find_repo_root()?;
 
     let profile = if Path::new(&profile_name).exists() {
         read_json_file(&profile_name)?
+    } else if profile_name == "domain" {
+        // Fail-closed: domain profile requires --domain-manifest.
+        let manifest_path = domain_manifest.ok_or(
+            "domain profile requires --domain-manifest <path>; \
+             use: pse-validate run --profile domain --domain-manifest <manifest.json>",
+        )?;
+        if !Path::new(&manifest_path).exists() {
+            return Err(format!("domain manifest not found: {manifest_path}").into());
+        }
+        ValidationProfile::domain(manifest_path, "embedded_ground_truth".into())?
     } else {
         ValidationProfile::from_name(&profile_name)?
     };
@@ -109,6 +120,7 @@ fn cmd_run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("  report: {}/final/final_report.json", out);
     println!("  bundle: {}/bundle_manifest.json", out);
+    println!("  verdict: {}/verdict.json", out);
 
     // CI mode: exit non-zero for Invalid.
     if profile.profile_name == "ci"
@@ -454,11 +466,12 @@ PROFILES: smoke | structural | full | domain | ci
   (or path to a profile JSON file)
 
 OPTIONS:
-  --profile <name|path>   Validation profile (default: structural)
-  --out <dir>             Output directory
-  --run <dir>             Existing run directory
-  --format <md|json>      Report format (for report subcommand)
-  --dry-run               Plan commands without executing them
+  --profile <name|path>          Validation profile (default: structural)
+  --out <dir>                    Output directory
+  --run <dir>                    Existing run directory
+  --format <md|json>             Report format (for report subcommand)
+  --dry-run                      Plan commands without executing them
+  --domain-manifest <path>       Path to DatasetManifest JSON (required for domain profile)
 "#
     );
 }
