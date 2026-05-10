@@ -40,6 +40,9 @@ impl LayerMask {
     pub const SELF_MODEL: u32 = 1 << 10;
     /// Bit for adaptive calibration.
     pub const ADAPTIVE_CALIBRATION: u32 = 1 << 11;
+    /// Bit for the morphodynamic resonance cell substrate
+    /// (PHASEMATRIX-HIVEMIND-03).
+    pub const CELL_SUBSTRATE: u32 = 1 << 12;
 
     /// `B0_Baseline` — naive baseline / classical detector.
     pub const B0_BASELINE: LayerMask = LayerMask(0);
@@ -86,6 +89,9 @@ impl LayerMask {
             | Self::SELF_MODEL
             | Self::ADAPTIVE_CALIBRATION,
     );
+    /// `B8_PhaseMatrix` — full stack plus the morphodynamic resonance
+    /// cell substrate (PHASEMATRIX-HIVEMIND-03).
+    pub const B8_PHASE_MATRIX: LayerMask = LayerMask(Self::B7_FULL_STACK.0 | Self::CELL_SUBSTRATE);
 
     /// True iff every bit in `bits` is set.
     pub fn has(self, bits: u32) -> bool {
@@ -206,6 +212,16 @@ impl SystemVariantSpec {
         )
     }
 
+    /// `B8_PhaseMatrix` — full stack plus the morphodynamic resonance
+    /// cell substrate.
+    pub fn phase_matrix_substrate() -> Self {
+        Self::from_ladder(
+            "B8_PhaseMatrix",
+            LayerMask::B8_PHASE_MATRIX,
+            SolverProfile::Template,
+        )
+    }
+
     fn from_ladder(name: &str, mask: LayerMask, solver: SolverProfile) -> Self {
         let probe = (name, mask, solver);
         let config_hash = content_address(&probe).unwrap_or_else(|_| Hash256::zero());
@@ -254,6 +270,14 @@ impl VariantLadder {
             SystemVariantSpec::full_stack(),
         ]
     }
+
+    /// Returns the extended B0…B8 ladder including the
+    /// PHASEMATRIX-HIVEMIND-03 cell-substrate rung.
+    pub fn full_with_phase_matrix() -> Vec<SystemVariantSpec> {
+        let mut ladder = Self::full();
+        ladder.push(SystemVariantSpec::phase_matrix_substrate());
+        ladder
+    }
 }
 
 #[cfg(test)]
@@ -285,5 +309,25 @@ mod tests {
         let m = LayerMask::B6_COGNITION.without(LayerMask::SPIRAL_MEMORY);
         assert!(!m.has(LayerMask::SPIRAL_MEMORY));
         assert!(m.has(LayerMask::COGNITION));
+    }
+
+    #[test]
+    fn b8_phase_matrix_implies_b7_plus_cell_substrate() {
+        let m = LayerMask::B8_PHASE_MATRIX;
+        assert!(m.has(LayerMask::CELL_SUBSTRATE));
+        assert!(m.has(LayerMask::ADAPTIVE_CALIBRATION));
+        assert!(m.has(LayerMask::COGNITION));
+    }
+
+    #[test]
+    fn extended_ladder_is_monotone() {
+        let ladder = VariantLadder::full_with_phase_matrix();
+        let mut prev = 0;
+        for v in &ladder {
+            let c = v.layer_mask.count_layers();
+            assert!(c >= prev);
+            prev = c;
+        }
+        assert_eq!(ladder.len(), 9);
     }
 }

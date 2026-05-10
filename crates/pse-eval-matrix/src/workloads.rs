@@ -25,10 +25,16 @@ pub enum WorkloadFamily {
     CognitionPanorama,
     /// Multi-agent coordination with wormholes + budgets.
     MultiAgent,
+    /// PHASEMATRIX-HIVEMIND-03 morphodynamic resonance cell substrate
+    /// — cluster formation rate, morphology gate compliance,
+    /// dissolution trace preservation, intent generation.
+    MorphoCellSubstrate,
 }
 
 /// Canonical list of mandatory families. The matrix MUST cover several
-/// families per §4.1 — a single demo is not sufficient.
+/// families per §4.1 — a single demo is not sufficient. The eval matrix
+/// extends to ten families to cover the PHASEMATRIX-HIVEMIND-03
+/// substrate alongside the original nine.
 pub const MANDATORY_WORKLOAD_FAMILIES: &[WorkloadFamily] = &[
     WorkloadFamily::StreamEvent,
     WorkloadFamily::AnomalyRegime,
@@ -39,6 +45,7 @@ pub const MANDATORY_WORKLOAD_FAMILIES: &[WorkloadFamily] = &[
     WorkloadFamily::HorizonFinalization,
     WorkloadFamily::CognitionPanorama,
     WorkloadFamily::MultiAgent,
+    WorkloadFamily::MorphoCellSubstrate,
 ];
 
 /// Per-task budget (limits how many iterations / how much wallclock-equivalent
@@ -178,6 +185,29 @@ impl WorkloadSpec {
         }
     }
 
+    /// Build a `MorphoCellSubstrate` workload (PHASEMATRIX-HIVEMIND-03
+    /// `cluster-cycle`). Success criteria: holds correctness (the
+    /// formation gate fires only when warranted), no false commit,
+    /// replay byte-identity.
+    pub fn morpho_cell_substrate(
+        id: impl Into<String>,
+        dataset_id: Hash256,
+        ground_truth_profile: Option<Hash256>,
+    ) -> Self {
+        WorkloadSpec {
+            workload_id: id.into(),
+            family: WorkloadFamily::MorphoCellSubstrate,
+            input_manifest_hash: dataset_id,
+            ground_truth_profile,
+            task_budget: TaskBudget::permissive(),
+            success_criteria: vec![
+                SuccessCriterion::HoldsAreCorrect,
+                SuccessCriterion::NoFalseCommit,
+                SuccessCriterion::ReplayByteIdentical,
+            ],
+        }
+    }
+
     /// Stable content hash of the workload spec (not stored on the
     /// type itself — used by the runner to anchor `RunDescriptor`s).
     pub fn content_hash(&self) -> Result<Hash256, EvalError> {
@@ -191,8 +221,10 @@ mod tests {
 
     #[test]
     fn mandatory_families_cover_spec_table() {
-        // §4.1 lists nine families.
-        assert_eq!(MANDATORY_WORKLOAD_FAMILIES.len(), 9);
+        // §4.1 lists nine families; the eval matrix extends to ten by
+        // adding the PHASEMATRIX-HIVEMIND-03 MorphoCellSubstrate family.
+        assert_eq!(MANDATORY_WORKLOAD_FAMILIES.len(), 10);
+        assert!(MANDATORY_WORKLOAD_FAMILIES.contains(&WorkloadFamily::MorphoCellSubstrate));
     }
 
     #[test]

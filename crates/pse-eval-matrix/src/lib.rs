@@ -49,6 +49,7 @@
 
 pub mod ablation;
 pub mod calibration;
+pub mod cell_substrate_metrics;
 pub mod cognition_metrics;
 pub mod datasets;
 pub mod export;
@@ -75,6 +76,7 @@ pub use ablation::{
     MetricDelta,
 };
 pub use calibration::{CalibrationLedgerEntry, CalibrationProfile, CalibrationReason};
+pub use cell_substrate_metrics::{cell_substrate_metric_specs, CellSubstrateMetricKind};
 pub use cognition_metrics::{cognition_metric_specs, CognitionMetricKind};
 pub use datasets::{DatasetManifest, DatasetSplit, DatasetSplitKind};
 pub use export::{render_json_summary, render_markdown_summary};
@@ -90,7 +92,8 @@ pub use metrics::{
     MetricSpec,
 };
 pub use presets::{
-    preset_agent_cognition, preset_post_symbolic_ablation, preset_streaming_event_detection, Preset,
+    preset_agent_cognition, preset_phase_matrix_substrate, preset_post_symbolic_ablation,
+    preset_streaming_event_detection, Preset,
 };
 pub use primitives::{
     fixed_abs_diff, fixed_ge, fixed_le, fixed_sub, EvalError, EvidenceRef, Fixed,

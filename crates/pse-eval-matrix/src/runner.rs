@@ -305,6 +305,128 @@ impl TrialExecutor for SyntheticTrialExecutor {
                     },
                 ));
             }
+            WorkloadFamily::MorphoCellSubstrate => {
+                // PHASEMATRIX-HIVEMIND-03 cell-substrate observations.
+                // Variants without the CELL_SUBSTRATE bit register
+                // floor values (i.e. they do not run the substrate, so
+                // every primary substrate metric stays at the
+                // fail-closed floor and the boundary-violation rate is
+                // pinned high). Variants with the bit set produce a
+                // monotone uplift in layer count.
+                let active = variant.layer_mask.has(LayerMask::CELL_SUBSTRATE);
+                let cluster_formation = if active {
+                    Fixed::Rational {
+                        num: 70 + 2 * layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let morpho_compliance = if active {
+                    Fixed::Rational {
+                        num: 80 + layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let convergence_stability = if active {
+                    Fixed::Rational {
+                        num: 75 + layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let intent_rate = if active {
+                    Fixed::Rational {
+                        num: 60 + 2 * layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let dissolution_pres = if active {
+                    Fixed::Rational { num: 1, den: 1 }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                let funnel_acyclic = if active {
+                    Fixed::Rational { num: 1, den: 1 }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                let boundary_violation = if active {
+                    Fixed::Rational {
+                        num: 1,
+                        den: 1000 + 100 * layer_count,
+                    }
+                } else {
+                    Fixed::Rational { num: 80, den: 100 }
+                };
+                let compaction_eff = if active {
+                    Fixed::Rational {
+                        num: 32 + 4 * layer_count,
+                        den: 1,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                let handoff_utility = if active {
+                    Fixed::Rational {
+                        num: 70 + 2 * layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let self_coherence = if active {
+                    Fixed::Rational {
+                        num: 80 + layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+
+                metrics.push(MetricObservation::ok(
+                    "cluster_formation_rate",
+                    cluster_formation,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "morphology_gate_compliance",
+                    morpho_compliance,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "convergence_stability",
+                    convergence_stability,
+                ));
+                metrics.push(MetricObservation::ok("intent_generation_rate", intent_rate));
+                metrics.push(MetricObservation::ok(
+                    "dissolution_trace_preservation",
+                    dissolution_pres,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "funnel_acyclicity_rate",
+                    funnel_acyclic,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "matrix_boundary_violation_rate",
+                    boundary_violation,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "working_state_compaction_efficiency",
+                    compaction_eff,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "handoff_candidate_utility",
+                    handoff_utility,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "substrate_self_coherence",
+                    self_coherence,
+                ));
+            }
             _ => {}
         }
 
@@ -324,6 +446,13 @@ impl TrialExecutor for SyntheticTrialExecutor {
         if variant.layer_mask.has(LayerMask::COGNITION) {
             gates.push(GateObservation {
                 gate_name: "cognition_handoff".into(),
+                passed: true,
+                reason: None,
+            });
+        }
+        if variant.layer_mask.has(LayerMask::CELL_SUBSTRATE) {
+            gates.push(GateObservation {
+                gate_name: "cell_substrate_dissolution".into(),
                 passed: true,
                 reason: None,
             });
@@ -545,6 +674,89 @@ mod tests {
         for (a, b) in r1.iter().zip(r2.iter()) {
             assert_eq!(a.trial_id, b.trial_id);
         }
+    }
+
+    fn morpho_spec() -> EvaluationSpec {
+        let dataset = DatasetManifest::synthetic("d.morpho");
+        let gt = crate::ground_truth::GroundTruthProfile::synthetic_exact();
+        let workload = WorkloadSpec::morpho_cell_substrate(
+            "w.morpho",
+            dataset.dataset_id.clone(),
+            Some(gt.profile_id.clone()),
+        );
+        EvaluationSpec {
+            spec_id: Hash256::zero(),
+            schema_version: "eval-matrix-v0.1".into(),
+            purpose: EvaluationPurpose::AblationStudy,
+            variants: vec![
+                SystemVariantSpec::baseline(),
+                SystemVariantSpec::full_stack(),
+                SystemVariantSpec::phase_matrix_substrate(),
+            ],
+            workloads: vec![workload],
+            datasets: vec![dataset],
+            metrics: {
+                let mut m = vec![MetricSpec::task_success(), MetricSpec::replay_identity()];
+                m.extend(crate::cell_substrate_metrics::cell_substrate_metric_specs());
+                m
+            },
+            experiment_design: ExperimentDesign::default_design(),
+            statistical_plan: StatisticalPlan::default_plan(),
+            determinism_policy: DeterminismPolicy::default(),
+            output_policy: OutputPolicy::default_policy(),
+            tags: BTreeMap::new(),
+        }
+        .with_id()
+        .unwrap()
+    }
+
+    #[test]
+    fn b8_phase_matrix_uplifts_cluster_formation_over_b7() {
+        let spec = morpho_spec();
+        let plan = plan_runs(&spec).unwrap();
+        let (_, reports) = run_plan(&spec, &plan, &SyntheticTrialExecutor).unwrap();
+        let pick = |variant: &str| -> Fixed {
+            reports
+                .iter()
+                .find(|r| r.variant_id == variant)
+                .unwrap()
+                .metrics
+                .iter()
+                .find(|m| m.metric_id == "cluster_formation_rate")
+                .unwrap()
+                .value
+                .clone()
+        };
+        let b0 = pick("B0_Baseline");
+        let b7 = pick("B7_FullStack");
+        let b8 = pick("B8_PhaseMatrix");
+        // B0 / B7 do not own the substrate, so cluster_formation_rate is
+        // pinned to the floor; B8 must strictly outperform both.
+        assert_eq!(b0.cmp(&b7), std::cmp::Ordering::Equal);
+        assert_eq!(b8.cmp(&b7), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn b8_phase_matrix_lowers_boundary_violation_over_b7() {
+        let spec = morpho_spec();
+        let plan = plan_runs(&spec).unwrap();
+        let (_, reports) = run_plan(&spec, &plan, &SyntheticTrialExecutor).unwrap();
+        let pick = |variant: &str| -> Fixed {
+            reports
+                .iter()
+                .find(|r| r.variant_id == variant)
+                .unwrap()
+                .metrics
+                .iter()
+                .find(|m| m.metric_id == "matrix_boundary_violation_rate")
+                .unwrap()
+                .value
+                .clone()
+        };
+        let b7 = pick("B7_FullStack");
+        let b8 = pick("B8_PhaseMatrix");
+        // Lower-is-better: substrate-aware variant must be lower.
+        assert_eq!(b8.cmp(&b7), std::cmp::Ordering::Less);
     }
 
     #[test]
