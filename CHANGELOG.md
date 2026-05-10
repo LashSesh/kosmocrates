@@ -15,6 +15,46 @@ note explicitly says so.
 
 ### Added
 
+* **PSE-VALIDATION-RUNNER-DOMAIN-01** — Domain validation layer for the PSE workspace.
+
+  Adds a complete L3 domain validation pipeline that runs embedded
+  ground-truth benchmark scenarios (seismo/vitals/binance) and derives a
+  formal `ValidationConclusion` from real run artifacts.
+
+  Key components:
+
+  - **`pse-bench-gt` JSON output**: `--scenario <seismo|vitals|binance>`,
+    `--format json`, `--out <path>` flags added to the `bench_gt` binary.
+    Produces machine-readable `BenchGtJsonOutput` with P/R/F1, PSE vs
+    STL-zscore vs IsoForest metrics, and `config_hash` / `data_hash`.
+
+  - **`DomainValidationSummary`**: Built from real bench_gt JSON outputs.
+    Includes `BaselineComparisonReport` (PSE F1 vs baselines per scenario),
+    leakage check, and test-split completion status.
+
+  - **Scoring gate tightened**: `ScoringInputs` gains `domain_test_completed`
+    field. `EmpiricalImprovement` requires `domain_test_completed = true`;
+    domain available but test not done → `DiagnosticFinding`.
+
+  - **Domain CLI**: `pse-validate run --profile domain --domain-manifest <path>`
+    with fail-closed behavior (error if `--domain-manifest` is missing).
+
+  - **`verdict.json`**: Written to every run output directory, records
+    conclusion, domain flags, and replay identity.
+
+  - **Command plan**: Domain phases now invoke real
+    `cargo run -p pse-bench-gt --bin bench_gt -- --scenario <name> --format json`
+    commands (DomainCalibration→seismo, DomainValidation→vitals, DomainTest→binance).
+
+  - **Embedded fixture**: `validation_domains/embedded_ground_truth/manifest.json`
+    with three non-overlapping splits (distinct data hashes) for
+    seismo/vitals/binance scenarios.
+
+  - **8 new tests**: domain profile requires manifest, missing manifest fails,
+    domain summary from records, baseline comparison wins, no domain→no
+    empirical improvement, test not completed→diagnostic finding, leakage
+    invalidates, verdict.json written.
+
 * **PSE-NCTCS-CONFORMANCE-01** — Null-Centered Toroidal Control Closure
   Layer. New submodule `crates/pse-validation-runner/src/nctcs/` (14
   modules) inside the existing `pse-validation-runner` crate.

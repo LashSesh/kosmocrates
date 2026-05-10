@@ -9,6 +9,7 @@ description = "Ground-truth precision/recall benchmark suite for the Post-Symbol
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+sha2 = { workspace = true }
 pse-core = { path = "../../crates/pse-core" }
 pse-types = { path = "../../crates/pse-types" }
 pse-graph = { path = "../../crates/pse-graph" }

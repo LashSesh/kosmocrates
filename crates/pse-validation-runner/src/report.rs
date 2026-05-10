@@ -30,7 +30,7 @@ impl ValidationConclusion {
 }
 
 /// The canonical final report (§12.1).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FinalValidationReport {
     pub report_id: Hash256,
     pub run_id: StableId,

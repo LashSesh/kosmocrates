@@ -52,6 +52,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **Topology layer** (PSE-TRAVERSE-TPT-MTL-04) | **Shipped** |
 | **NCTCS closure layer** (PSE-NCTCS-CONFORMANCE-01) | **Shipped** |
 | **Holistic eigenmode layer** (PSE-METATRON-MONOLITH-01) | **Shipped** |
+| **Domain validation layer** (PSE-VALIDATION-RUNNER-DOMAIN-01) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -537,6 +538,17 @@ cargo run --release -p pse-metatron-cli -- verify  \
     target/run_dir/holistic_eigenmode_state.json
 cargo run --release -p pse-metatron-cli -- replay  \
     target/run_dir/metatron_closure_report.json
+
+# Run the domain validation layer (PSE-VALIDATION-RUNNER-DOMAIN-01)
+# Embedded ground-truth fixture (seismo / vitals / binance scenarios):
+cargo run --release -p pse-validation-runner-cli -- run \
+    --profile domain \
+    --domain-manifest validation_domains/embedded_ground_truth/manifest.json \
+    --out validation_runs/domain_run
+
+# Bench_gt JSON output for a single scenario:
+cargo run --release -p pse-bench-gt --bin bench_gt -- \
+    --scenario seismo --format json --out /tmp/seismo.json
 ```
 
 The MVP solver in `run` is a one-value-per-dimension template — by

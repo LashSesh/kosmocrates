@@ -3,8 +3,6 @@
 //! Schlussformel: ΔU_task > 0 ∧ ΔU_safety ≥ 0 ∧ ReplayIdentity = 1
 //!                ∧ InvalidRunRate ≤ ε ∧ LMU_target > 0
 
-use serde::{Deserialize, Serialize};
-
 use crate::eval_matrix::EvalMatrixSummary;
 use crate::parsers::{BenchmarkSummary, QualitySummary};
 use crate::primitives::ValidationError;
@@ -19,6 +17,8 @@ pub struct ScoringInputs<'a> {
     pub replay_identity: bool,
     pub domain_available: bool,
     pub domain_leakage_free: bool,
+    /// True only when the DomainTest (binance) scenario completed successfully.
+    pub domain_test_completed: bool,
 }
 
 /// Derive `ValidationConclusion` from scoring inputs (§9.1).
@@ -55,8 +55,12 @@ pub fn derive_conclusion(inputs: &ScoringInputs<'_>) -> ValidationConclusion {
         return ValidationConclusion::Invalid;
     }
 
-    // With domain data: classify as PartialImprovement or EmpiricalImprovement.
-    // For now, EmpiricalImprovement requires all eval presets to pass with replay.
+    // Domain available but test split not yet completed → DiagnosticFinding.
+    if !inputs.domain_test_completed {
+        return ValidationConclusion::DiagnosticFinding;
+    }
+
+    // With domain data and completed test split: classify by eval replay status.
     let eval_all_replay_ok = inputs
         .eval_matrix
         .preset_results
@@ -113,6 +117,7 @@ mod tests {
             replay_identity: false, // replay broken
             domain_available: true,
             domain_leakage_free: true,
+            domain_test_completed: true,
         };
         // Replay failure → Invalid.
         assert_eq!(derive_conclusion(&inputs), ValidationConclusion::Invalid);
@@ -135,6 +140,7 @@ mod tests {
             replay_identity: true,
             domain_available: false,
             domain_leakage_free: true,
+            domain_test_completed: false,
         };
         assert_eq!(
             derive_conclusion(&inputs),
@@ -159,7 +165,57 @@ mod tests {
             replay_identity: true,
             domain_available: false,
             domain_leakage_free: true,
+            domain_test_completed: false,
         };
         assert_eq!(derive_conclusion(&inputs), ValidationConclusion::Invalid);
+    }
+
+    #[test]
+    fn diagnostic_finding_when_domain_available_but_test_not_completed() {
+        let quality = QualitySummary::all_pass();
+        let bench = BenchmarkSummary::skipped();
+        let eval = EvalMatrixSummary {
+            preset_results: vec![],
+            missing_presets: vec![],
+            open_obligations: vec![],
+            all_required_passed: true,
+        };
+        let inputs = ScoringInputs {
+            quality: &quality,
+            benchmarks: &bench,
+            eval_matrix: &eval,
+            replay_identity: true,
+            domain_available: true,
+            domain_leakage_free: true,
+            domain_test_completed: false, // test not done
+        };
+        assert_eq!(
+            derive_conclusion(&inputs),
+            ValidationConclusion::DiagnosticFinding
+        );
+    }
+
+    #[test]
+    fn no_empirical_improvement_without_domain_test() {
+        let quality = QualitySummary::all_pass();
+        let bench = BenchmarkSummary::skipped();
+        let eval = EvalMatrixSummary {
+            preset_results: vec![],
+            missing_presets: vec![],
+            open_obligations: vec![],
+            all_required_passed: true,
+        };
+        // domain_available=true but domain_test_completed=false
+        let inputs = ScoringInputs {
+            quality: &quality,
+            benchmarks: &bench,
+            eval_matrix: &eval,
+            replay_identity: true,
+            domain_available: true,
+            domain_leakage_free: true,
+            domain_test_completed: false,
+        };
+        let conclusion = derive_conclusion(&inputs);
+        assert_ne!(conclusion, ValidationConclusion::EmpiricalImprovement);
     }
 }

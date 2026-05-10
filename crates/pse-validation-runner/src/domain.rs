@@ -60,8 +60,73 @@ impl DatasetManifest {
     }
 }
 
+// ─── BenchGtRecord ───────────────────────────────────────────────────────────
+
+/// Metrics record mirroring `BenchGtJsonOutput::metrics_per_source` values.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BenchGtMetrics {
+    pub tp: u64,
+    pub fp: u64,
+    pub fn_: u64,
+    pub precision: f64,
+    pub recall: f64,
+    pub f1: f64,
+    pub auprc: Option<f64>,
+}
+
+/// Deserialized form of a `bench_gt --format json` output file.
+///
+/// Field names and JSON keys match `BenchGtJsonOutput` in `pse-bench-gt` so
+/// that `serde_json::from_str` deserializes directly.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BenchGtRecord {
+    pub scenario: String,
+    pub n_observations: u64,
+    pub tolerance_ticks: u64,
+    pub pse_metrics: Option<BenchGtMetrics>,
+    pub stl_zscore_metrics: Option<BenchGtMetrics>,
+    pub isoforest_metrics: Option<BenchGtMetrics>,
+    pub aggregate_metrics: BenchGtMetrics,
+    pub config_hash: String,
+    pub data_hash: String,
+}
+
+// ─── BaselineComparisonReport ─────────────────────────────────────────────────
+
+/// Per-scenario comparison of PSE vs baselines.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScenarioComparison {
+    pub scenario: String,
+    pub pse_f1: f64,
+    pub stl_zscore_f1: f64,
+    pub isoforest_f1: f64,
+    /// PSE F1 > best baseline F1.
+    pub pse_wins: bool,
+}
+
+/// Aggregate baseline comparison across all domain scenarios.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BaselineComparisonReport {
+    pub scenarios: Vec<ScenarioComparison>,
+    /// PSE wins on ≥ 50 % of scenarios.
+    pub pse_majority_wins: bool,
+}
+
+impl BaselineComparisonReport {
+    pub fn build(scenarios: Vec<ScenarioComparison>) -> Self {
+        let wins = scenarios.iter().filter(|s| s.pse_wins).count();
+        let pse_majority_wins = !scenarios.is_empty() && wins * 2 >= scenarios.len();
+        BaselineComparisonReport {
+            scenarios,
+            pse_majority_wins,
+        }
+    }
+}
+
+// ─── DomainValidationSummary ──────────────────────────────────────────────────
+
 /// Summary of a domain validation run.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DomainValidationSummary {
     pub domain: String,
     pub manifest_hash: Hash256,
@@ -69,7 +134,79 @@ pub struct DomainValidationSummary {
     pub validation_completed: bool,
     pub test_completed: bool,
     pub leakage_check_passed: bool,
-    pub metrics: std::collections::BTreeMap<String, String>,
+    /// Per-scenario metrics from the real bench_gt runs.
+    pub scenario_metrics: Vec<BenchGtRecord>,
+    /// Aggregate P/R/F1 across the test scenario (binance).
+    pub test_f1: Option<f64>,
+    pub test_precision: Option<f64>,
+    pub test_recall: Option<f64>,
+    /// Comparison report (PSE vs STL-zscore vs IsoForest).
+    pub baseline_comparison: Option<BaselineComparisonReport>,
+}
+
+impl DomainValidationSummary {
+    /// Build a summary from loaded `BenchGtRecord`s.
+    pub fn build_from_records(
+        domain: String,
+        manifest_hash: Hash256,
+        records: Vec<BenchGtRecord>,
+        manifest: &DatasetManifest,
+    ) -> Result<Self, ValidationError> {
+        let leakage_check_passed = manifest.verify_splits().is_ok();
+
+        let calibration_completed = records.iter().any(|r| r.scenario.contains("seismo"));
+        let validation_completed = records.iter().any(|r| r.scenario.contains("vitals"));
+        let test_completed = records.iter().any(|r| r.scenario.contains("binance"));
+
+        // Test F1 from the binance (test-split) scenario.
+        let test_record = records.iter().find(|r| r.scenario.contains("binance"));
+        let test_f1 = test_record
+            .and_then(|r| r.pse_metrics.as_ref())
+            .map(|m| m.f1);
+        let test_precision = test_record
+            .and_then(|r| r.pse_metrics.as_ref())
+            .map(|m| m.precision);
+        let test_recall = test_record
+            .and_then(|r| r.pse_metrics.as_ref())
+            .map(|m| m.recall);
+
+        // Build baseline comparison.
+        let scenario_comparisons: Vec<ScenarioComparison> = records
+            .iter()
+            .map(|r| {
+                let pse_f1 = r.pse_metrics.as_ref().map(|m| m.f1).unwrap_or(0.0);
+                let stl_f1 = r.stl_zscore_metrics.as_ref().map(|m| m.f1).unwrap_or(0.0);
+                let iso_f1 = r.isoforest_metrics.as_ref().map(|m| m.f1).unwrap_or(0.0);
+                let best_baseline = stl_f1.max(iso_f1);
+                ScenarioComparison {
+                    scenario: r.scenario.clone(),
+                    pse_f1,
+                    stl_zscore_f1: stl_f1,
+                    isoforest_f1: iso_f1,
+                    pse_wins: pse_f1 > best_baseline,
+                }
+            })
+            .collect();
+        let baseline_comparison = if scenario_comparisons.is_empty() {
+            None
+        } else {
+            Some(BaselineComparisonReport::build(scenario_comparisons))
+        };
+
+        Ok(DomainValidationSummary {
+            domain,
+            manifest_hash,
+            calibration_completed,
+            validation_completed,
+            test_completed,
+            leakage_check_passed,
+            scenario_metrics: records,
+            test_f1,
+            test_precision,
+            test_recall,
+            baseline_comparison,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -124,5 +261,85 @@ mod tests {
             manifest.verify_splits(),
             Err(ValidationError::TestSplitMissing)
         ));
+    }
+
+    fn make_record(scenario: &str, pse_f1: f64, stl_f1: f64, iso_f1: f64) -> BenchGtRecord {
+        let mk = |f1: f64| BenchGtMetrics {
+            tp: 1,
+            fp: 0,
+            fn_: 0,
+            precision: f1,
+            recall: f1,
+            f1,
+            auprc: None,
+        };
+        BenchGtRecord {
+            scenario: scenario.into(),
+            n_observations: 100,
+            tolerance_ticks: 5,
+            pse_metrics: Some(mk(pse_f1)),
+            stl_zscore_metrics: Some(mk(stl_f1)),
+            isoforest_metrics: Some(mk(iso_f1)),
+            aggregate_metrics: mk(pse_f1),
+            config_hash: "aa".into(),
+            data_hash: "bb".into(),
+        }
+    }
+
+    #[test]
+    fn domain_summary_detects_test_completed() {
+        let manifest = make_manifest(0xaa, 0xcc);
+        let records = vec![
+            make_record("seismo_mainshock", 0.8, 0.5, 0.4),
+            make_record("vitals_afib", 0.7, 0.6, 0.5),
+            make_record("binance_regime", 0.9, 0.7, 0.6),
+        ];
+        let summary = DomainValidationSummary::build_from_records(
+            "test".into(),
+            Hash256::zero(),
+            records,
+            &manifest,
+        )
+        .unwrap();
+        assert!(summary.calibration_completed);
+        assert!(summary.validation_completed);
+        assert!(summary.test_completed);
+        assert!(summary.leakage_check_passed);
+        assert!(summary.test_f1.is_some());
+    }
+
+    #[test]
+    fn baseline_comparison_pse_wins_majority() {
+        let manifest = make_manifest(0xaa, 0xcc);
+        let records = vec![
+            make_record("seismo_mainshock", 0.9, 0.5, 0.4),
+            make_record("vitals_afib", 0.8, 0.6, 0.5),
+            make_record("binance_regime", 0.3, 0.7, 0.6), // PSE loses here
+        ];
+        let summary = DomainValidationSummary::build_from_records(
+            "test".into(),
+            Hash256::zero(),
+            records,
+            &manifest,
+        )
+        .unwrap();
+        let bc = summary.baseline_comparison.unwrap();
+        // 2 of 3 wins → majority
+        assert!(bc.pse_majority_wins);
+    }
+
+    #[test]
+    fn no_domain_summary_without_records() {
+        let manifest = make_manifest(0xaa, 0xcc);
+        let summary = DomainValidationSummary::build_from_records(
+            "test".into(),
+            Hash256::zero(),
+            vec![],
+            &manifest,
+        )
+        .unwrap();
+        assert!(!summary.calibration_completed);
+        assert!(!summary.test_completed);
+        assert!(summary.baseline_comparison.is_none());
     }
 }
