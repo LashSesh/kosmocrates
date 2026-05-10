@@ -2064,6 +2064,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-traverse-topology-cli"
+version = "0.1.0"
+dependencies = [
+ "pse-traverse",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-types"
 version = "0.1.0"
 dependencies = [

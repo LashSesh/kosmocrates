@@ -49,6 +49,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
 | **Phase matrix layer** (PHASEMATRIX-HIVEMIND-03) | **Shipped** |
 | **Dual-Fabric Stitch Layer** (PHASEMATRIX-HIVEMIND-03.1) | **Shipped** |
+| **Topology layer** (PSE-TRAVERSE-TPT-MTL-04) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -308,6 +309,52 @@ extends the `FieldTensorTrace` append-only audit log (the
 byte-identical `StitcherReport`. The `phase-matrix` CLI gains seven
 new subcommands: `stitch-fabric`, `stitch-candidates`, `stitch-gate`,
 `stitch-apply`, `stitch-cycle`, `stitch-replay`, and `tensor-inspect`.
+
+The optional **topology layer** (PSE-TRAVERSE-TPT-MTL-04) adds a
+**Topological Panoptic Triangulation and Möbius-Tripolar Micro-Lift**
+(TPT-MTL) substrate. Instead of point-wise projections it triangulates
+a 5D phase-space window into a `MeshHolo`, lifts each point through a
+`PrimaryPhase` → `DualAntiphase` (MTL-D1 Möbius reflection) →
+`SeamComponent` triple, guards every mesh mutation with a
+`TopologyGuard` (Betti-shift ∈ AllowedShift ∧ W_p ≤ θ\_PD), and
+gates the resulting `TopologicalCrystalCandidate` through thirteen
+fail-closed gates before materialising a `TptMtlBundle`:
+
+```text
+PhaseSpaceWindow  →  AxisBridgeReport  (semantic / runtime / carrier separation)
+                  →  MeshHolo          (seeded + evolved under TopologyGuard)
+                  →  MicroFiber[]      (primary + dual + seam per point)
+                  →  CarrierReport     (I-06: null_center is stateless)
+                  →  ReinterpretationReport  (Betti numbers → claim candidates)
+                  →  TptMtlGateReport  (13 gates: Adapter/Axis/Symmetry/Topology/
+                                        Entropy/MicroLift/Carrier/Kairos/Truth/
+                                        Boundary/Replay/Matrix/Emission)
+                  →  TopologicalCrystalCandidate  (NOT a SemanticCrystal)
+                  →  TptMtlBundle      (content-addressed, fully replayable)
+                  →  ReplayManifest    (5-digest verification anchor)
+```
+
+Conformance class **TPTM-5**. Ten invariants (I-01 … I-10) are enforced
+at every stage: state-before-topology, window-before-point,
+axis-separation (I-03), topology-before-claim, gate-before-emission,
+ephemeral-exploration/persistent-proof, stateless null-center (I-06),
+antiphase-by-declared-proof (I-07), TopologyGuard-on-mutation (I-08),
+budgeted recursion (I-09), replay-identity (I-10). The layer **never**
+produces a `SemanticCrystal`; the existing PSE-Bridge remains the sole
+commit path.
+
+Feature flags: `topology` (core), `topology-cli`, `topology-mtl`,
+`topology-refine`, `topology-carrier`, `topology-reinterpret`,
+`topology-handoff`. The `pse-traverse-topology-cli` binary exposes
+fourteen subcommands: `inspect window axis triangulate lift weight
+refine carrier reinterpret gate bundle replay verify run`.
+
+Ten TPT-MTL metrics are registered with `pse-eval-matrix`:
+`tpt_adapter_totality_rate`, `tpt_axis_bridge_validity`,
+`tpt_mesh_determinism_identity`, `tpt_topology_robustness`,
+`tpt_micro_lift_coverage`, `tpt_seam_consistency_rate`,
+`tpt_carrier_continuity`, `tpt_false_crystal_rate`,
+`tpt_trace_completeness`, `tpt_replay_identity`.
 
 The optional **eval-matrix layer** (PSE-EVAL-MATRIX-01) wraps every
 post-symbolic layer above into a structural research instrument —

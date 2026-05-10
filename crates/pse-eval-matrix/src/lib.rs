@@ -67,6 +67,7 @@ pub mod spec;
 pub mod statistics;
 pub mod variants;
 pub mod workloads;
+pub mod topology_metrics;
 
 #[cfg(feature = "eval-agent")]
 pub mod agent_tasks;
@@ -81,6 +82,7 @@ pub use cell_substrate_metrics::{
     CellSubstrateMetricKind,
 };
 pub use cognition_metrics::{cognition_metric_specs, CognitionMetricKind};
+pub use topology_metrics::{topology_metric_specs, TopologyMetricKind};
 pub use datasets::{DatasetManifest, DatasetSplit, DatasetSplitKind};
 pub use export::{render_json_summary, render_markdown_summary};
 pub use failure_taxonomy::{FailureKind, FailureRecord};

@@ -15,6 +15,33 @@ note explicitly says so.
 
 ### Added
 
+* **PSE-TRAVERSE-TPT-MTL-04** — Topological Panoptic Triangulation and
+  Möbius-Tripolar Micro-Lift topology layer (conformance class TPTM-5).
+  New module `crates/pse-traverse/src/topology/` (feature `topology`)
+  and CLI binary `pse-traverse-topology-cli` (14 subcommands).
+
+  Core pipeline: `PhaseSpaceWindow` → `AxisBridgeReport` (I-03 axis
+  separation) → `MeshHolo` (seed + evolve under `TopologyGuard`) →
+  `MicroFiber[]` (primary + MTL-D1 dual + seam per point) →
+  `CarrierReport` (I-06 stateless null-center) →
+  `ReinterpretationReport` (Betti numbers → claim candidates) →
+  `TptMtlGateReport` (13 fail-closed gates) →
+  `TopologicalCrystalCandidate` (not a SemanticCrystal) →
+  `TptMtlBundle` → `ReplayManifest` (5-digest replay anchor).
+
+  Ten invariants enforced (I-01 … I-10). MTL-D1 dualization uses f64
+  for intermediate arithmetic to avoid rational overflow; results are
+  quantized to Fixed(scale=9) before any hashing, preserving
+  audit-pathway determinism. All 24 topology integration tests and 218
+  total pse-traverse tests pass.
+
+  Ten TPT-MTL metrics registered in `pse-eval-matrix`:
+  `tpt_adapter_totality_rate`, `tpt_axis_bridge_validity`,
+  `tpt_mesh_determinism_identity`, `tpt_topology_robustness`,
+  `tpt_micro_lift_coverage`, `tpt_seam_consistency_rate`,
+  `tpt_carrier_continuity`, `tpt_false_crystal_rate`,
+  `tpt_trace_completeness`, `tpt_replay_identity`.
+
 * **PHASEMATRIX-HIVEMIND-03** — morphodynamic resonance cell substrate.
   New crate `phase-matrix` and CLI tool `pse-phase-matrix-cli` (binary:
   `phase-matrix`). Implements the spec's full cell-pool → pulses →
