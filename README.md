@@ -47,6 +47,7 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | **Horizon layer** (PSE-TRAVERSE-HORIZON-03) | **Shipped** |
 | **Cognition layer** (PSE-TRAVERSE-COGNITION-01) | **Shipped** |
 | **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
+| **Phase matrix layer** (PHASEMATRIX-HIVEMIND-03) | **Shipped** |
 | Calibration on real production data | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
@@ -57,7 +58,7 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
 | `B15` `macro_step` end-to-end | **43–110 µs** |
 | `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **839 / 839** passing |
+| Workspace test suite | **890 / 890** passing |
 
 The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
 and matched on the full pipeline. See `cargo run --release --example
@@ -268,12 +269,34 @@ declarations, hit-sets, lattice, puzzle, panorama, scheduler,
 wormholes, self-model, calibration, trigger, bundle — is float-free,
 `BTreeMap`-keyed, sorted-before-hashing, and JCS-canonicalised.
 
+The optional **phase-matrix layer** (PHASEMATRIX-HIVEMIND-03) is the
+morphodynamic resonance cell substrate that sits below the cognition
+kernel. It instantiates `PhaseCell`s in a `CellPool` over a
+`PhaseSubnet` (with matrix-boundary enforcement at insertion: foreign
+parents are rejected), runs each cell's `LocalResonanceProcessor` to
+emit `ResonancePulse`s, forms `ResonanceCluster`s through five
+fail-closed gates (`G_cluster`, `G_morph`, `G_intent`, `G_dissolve`
+plus the matrix-boundary check), composes a four-edge `FunnelGraph`
+(Spatial / Temporal / Semantic / Resonance, validated acyclic by
+WHITE/GRAY/BLACK DFS), advances a `MorphodynamicField`
+(`H = α · Φ + β · µ`), produces a `ConvergenceField` and an
+`IntentCandidate`, and finally compacts the working state into a
+`ClusterTrace` + `DissolutionReport` while preserving trace, evidence
+and lifecycle history (the **Dissolution-Grundsatz**). The substrate
+emits `CellToHandoffCandidate`s only — no `SemanticCrystal`, no
+`FinalizedEmission` — so the PSE-Bridge remains the only commit
+path. `run_cell_substrate_cycle` drives the full deterministic cycle,
+two runs over the same `(input, rd)` are byte-identical, and the
+`phase-matrix` CLI exposes `cluster-cycle` / `cluster-replay` /
+`cluster-verify` / `cell-pool` for audits and golden fixtures.
+
 The optional **eval-matrix layer** (PSE-EVAL-MATRIX-01) wraps every
 post-symbolic layer above into a structural research instrument —
 **not** a benchmark harness. It binds system variants (B0_Baseline …
-B7_FullStack), workload families (StreamEvent, AnomalyRegime,
-TraversalPuzzle, CodeAgentPatch, DocSynthesis, MemoryReuse,
-HorizonFinalization, CognitionPanorama, MultiAgent), domain datasets,
+B7_FullStack, plus B8_PhaseMatrix when the substrate is enabled),
+workload families (StreamEvent, AnomalyRegime, TraversalPuzzle,
+CodeAgentPatch, DocSynthesis, MemoryReuse, HorizonFinalization,
+CognitionPanorama, MultiAgent, MorphoCellSubstrate), domain datasets,
 metric specs (primary outcome / post-symbolic structural / system /
 cognition / agent), calibration states, ablations, replay
 verification, statistical aggregation, and qualitative reviewer
@@ -300,12 +323,17 @@ CalibrationProf┘                              JCS-canonical, replayable)
                                                            (no metric recompute)
 ```
 
-The crate provides three built-in presets (§18): `agent-cognition`,
-`streaming-event-detection`, `post-symbolic-ablation`. A
-`TrialExecutor` trait lets external pipelines (PSE, pse-traverse,
-horizon, cognition, or third-party systems) plug in; the bundled
+The crate provides four built-in presets (§18): `agent-cognition`,
+`streaming-event-detection`, `post-symbolic-ablation`, and
+`phase-matrix-substrate` (B0 / B7 / B8 over the new
+`MorphoCellSubstrate` workload, scored against the full
+PHASEMATRIX-HIVEMIND-03 cell-substrate metric set). A `TrialExecutor`
+trait lets external pipelines (PSE, pse-traverse, horizon, cognition,
+phase-matrix, or third-party systems) plug in; the bundled
 `SyntheticTrialExecutor` is what golden fixtures and the property
-tests use. Every score / metric / gate value is a `CanonicalNumber`
+tests use, and pins the cell-substrate metrics to the fail-closed
+floor whenever the variant does not own the `CELL_SUBSTRATE` layer
+bit so the B8 uplift is observable. Every score / metric / gate value is a `CanonicalNumber`
 (no platform floats), the ledger is append-only with a rolling chain
 hash, and the spec's `Schlussformel` is enforced: a system counts as
 *empirically improved* only when
@@ -410,6 +438,18 @@ cargo run --release -p pse-eval-matrix-cli -- run    --spec target/eval/spec.jso
 cargo run --release -p pse-eval-matrix-cli -- replay --bundle target/eval/bundle.json
 cargo run --release -p pse-eval-matrix-cli -- score  --spec target/eval/spec.json   --bundle target/eval/bundle.json --out target/eval/summary.json
 cargo run --release -p pse-eval-matrix-cli -- report --summary target/eval/summary.json --format md --out target/eval/summary.md
+
+# Stamp + close the eval matrix over the new cell-substrate layer
+cargo run --release -p pse-eval-matrix-cli -- init \
+    --template phase-matrix-substrate --out target/eval/phase_spec.json
+
+# Run a full PHASEMATRIX-HIVEMIND-03 cell-substrate cycle and verify
+# byte-identical replay (binary: phase-matrix)
+cargo run --release -p pse-phase-matrix-cli -- cluster-cycle \
+    target/phase/input.json --rd target/phase/rd.json \
+    --out target/phase/cycle.json
+cargo run --release -p pse-phase-matrix-cli -- cluster-replay \
+    target/phase/cycle.json
 ```
 
 The MVP solver in `run` is a one-value-per-dimension template — by
@@ -421,16 +461,19 @@ See `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`,
 `pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01),
 `pse_traverse_dynamics_spec_v0_1.pdf` (PSE-TRAVERSE-DYNAMICS-01),
 `pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03),
-`pse_traverse_cognition_spec_v0_1.pdf` (PSE-TRAVERSE-COGNITION-01)
-and `PSE_EVAL_MATRIX_01.pdf` (PSE-EVAL-MATRIX-01) for the specs this
-layer realises, and `topologisches_traversierungsframework_v3.pdf`
-for the underlying topological framework.
+`pse_traverse_cognition_spec_v0_1.pdf` (PSE-TRAVERSE-COGNITION-01),
+`PSE_EVAL_MATRIX_01.pdf` (PSE-EVAL-MATRIX-01),
+`PHASEMATRIX_HIVEMIND_03.pdf` (PHASEMATRIX-HIVEMIND-03) and
+`ADAMANT_v1.0.0.pdf` (the constitutional architectural contract
+referenced by every layer above) for the specs this layer realises,
+and `topologisches_traversierungsframework_v3.pdf` for the underlying
+topological framework.
 
 ---
 
 ## Architecture
 
-The workspace ships **25 crates**, **10 domain adapters**, **7 tool
+The workspace ships **28 crates**, **10 domain adapters**, **9 tool
 binaries**:
 
 ```
@@ -461,6 +504,23 @@ crates/
   pse-core        Engine orchestrator (`macro_step`), DomainAdapter trait,
                   AdaptiveCalibrator, operator algebra, falsifier
   pse-metatron    Periodic Table of Graphs (Metatron Scan, n ≤ 8)
+  phase-matrix    PHASEMATRIX-HIVEMIND-03 morphodynamic resonance cell
+                  substrate: PhaseSubnet / PhaseCell / CellPool →
+                  LocalResonanceProcessor → ResonancePulse →
+                  ResonanceCluster + ClusterLifecycle → FunnelGraph
+                  (DFS-acyclic over Spatial / Temporal / Semantic /
+                  Resonance edges) → MorphodynamicField (H = α·Φ + β·µ)
+                  + ClusterMorphologyEvent → ConvergenceField →
+                  TensionToIntentOperator → IntentCandidate →
+                  ClusterTrace → DissolutionReport
+                  (Dissolution-Grundsatz: trace + evidence + lifecycle
+                  history are preserved across compaction) →
+                  CellToHandoffCandidate (no commit artefacts —
+                  PSE-Bridge remains the only commit path);
+                  five fail-closed gates (G_cluster, G_morph,
+                  G_intent, G_dissolve, plus matrix-boundary check);
+                  run_cell_substrate_cycle drives the full
+                  deterministic cycle.
   pse-traverse    PSE Traversal Agent v0.1 + Signature + Dynamics + Horizon
                   + Cognition (PSE-TRAVERSE-SIGNATURE-01,
                   PSE-TRAVERSE-DYNAMICS-01, PSE-TRAVERSE-HORIZON-03,
@@ -517,6 +577,10 @@ tools/
                       init / validate / plan / run / replay / score /
                       ablate / compare / report
                       (binary: pse-eval-matrix)
+  pse-phase-matrix-cli PHASEMATRIX-HIVEMIND-03 CLI:
+                      cell-pool / cluster-cycle / cluster-replay /
+                      cluster-verify
+                      (binary: phase-matrix)
 ```
 
 ---

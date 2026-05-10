@@ -1,0 +1,34 @@
+[package]
+name = "phase-matrix"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PHASEMATRIX-HIVEMIND-03 — morphodynamic resonance cell substrate (PhaseCells, ResonanceClusters, FunnelGraphs, ConvergenceFields, ADAMANT-conformant fail-closed gates, trace-preserving dissolution)"
+
+[dependencies]
+# Reuse Hash256 / CanonicalNumber / canonical helpers from pse-traverse so
+# the workspace shares one float-free addressing and numeric domain.
+pse-traverse = { path = "../pse-traverse", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+sha2 = { workspace = true }
+
+[features]
+# `cell-substrate`     — kernel of the morphodynamic cell substrate.
+# `cell-cli`           — flag for the companion CLI tool.
+# `cell-funnel-graph`  — FunnelGraph construction + acyclic validation.
+# `cell-morphodynamics`— MorphodynamicField + MorphologyEvents.
+# `cell-convergence`   — ConvergenceField + TensionToIntentOperator.
+# `cell-handoff`       — IntentCandidate-to-handoff adapter (no commits).
+default = [
+  "cell-substrate", "cell-funnel-graph", "cell-morphodynamics",
+  "cell-convergence", "cell-handoff",
+]
+cell-substrate = []
+cell-cli = ["cell-substrate"]
+cell-funnel-graph = ["cell-substrate"]
+cell-morphodynamics = ["cell-substrate"]
+cell-convergence = ["cell-substrate"]
+cell-handoff = ["cell-substrate"]

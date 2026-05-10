@@ -1218,6 +1218,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "phase-matrix"
+version = "0.1.0"
+dependencies = [
+ "pse-traverse",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1704,6 +1715,16 @@ dependencies = [
  "serde_json",
  "sha2",
  "tracing",
+]
+
+[[package]]
+name = "pse-phase-matrix-cli"
+version = "0.1.0"
+dependencies = [
+ "phase-matrix",
+ "serde",
+ "serde_jcs",
+ "serde_json",
 ]
 
 [[package]]

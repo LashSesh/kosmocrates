@@ -15,6 +15,104 @@ note explicitly says so.
 
 ### Added
 
+* **PHASEMATRIX-HIVEMIND-03** — morphodynamic resonance cell substrate.
+  New crate `phase-matrix` and CLI tool `pse-phase-matrix-cli` (binary:
+  `phase-matrix`). Implements the spec's full cell-pool → pulses →
+  cluster → funnel-graph → morphology → convergence → intent → trace
+  → dissolution pipeline as a deterministic `run_cell_substrate_cycle`
+  that the runner / replay / verify subcommands all share.
+  * Data model: `PhaseCell` (with deterministic `synthetic` factory and
+    `PhaseCellRole` covering Sensor / Resonator / Router / Validator /
+    MemoryProbe / BoundaryGuard / CandidateEmitter /
+    MorphologyRegulator), `CellPool` with matrix-boundary enforcement
+    at insertion (foreign-parent cells are rejected), `TridentVector`
+    (semantic_density × structural_coherence × temporal_phase →
+    activation_potential), `LocalResonanceProcessor` +
+    `ResonanceNonlinearity` (Logistic / TanhApprox / SaturatingLinear
+    / PiecewiseFixed), `ResonancePulse` with `PhaseBin` quantisation
+    (Continuous / KPolar / Tripolar / Quadrupolar), `ResonanceCluster`
+    + `ClusterLifecycle` (Proposed / Forming / Active / Stabilized /
+    Splitting / Fusing / Decaying / Compacted / Dissolved / Rejected)
+    + `ClusterFormationReport`, `FunnelGraph` with four edge families
+    (Spatial / Temporal / Semantic / Resonance) and DFS-based
+    WHITE/GRAY/BLACK acyclicity validation, `MorphodynamicField`
+    (`H = α · Φ + β · µ`) + `ClusterMorphologyEvent` (Grow / Split /
+    Fuse / Decay / Replicate / Stabilize / DissolveWorkingState /
+    CompactToTrace) + `MorphologyDecision`, `ConvergenceField`,
+    `TensionToIntentOperator` + `IntentCandidate` (sorted claim refs),
+    `RecursiveFeedbackReport` (Ouroboros loop with bounded learning
+    rate), `ClusterTrace` tying every artefact hash together,
+    `DissolutionMode` (DropWorkingState / CompactToTrace /
+    PersistEvidenceOnly / PersistClusterSummary / ArchiveFullState) +
+    `DissolutionReport.validate_trace_preservation` enforcing the
+    Dissolution-Grundsatz (working state may be compacted but trace +
+    evidence + lifecycle history MUST be preserved),
+    `CellToHandoffCandidate`, `PhaseSubnet` /
+    `PhaseMatrixNode` / `NodeTrustState`, `MatrixClaim` /
+    `TruthMaintenanceReport` / `MatrixBoundaryReport`,
+    `CycleReportSummary`, `PhaseMatrixRunDescriptorV3` with
+    `CellSubstrateThresholds::permissive()` /
+    `CellSubstratePolicies::strict()` / `MatrixGatePolicy::strict()`,
+    `ReplayObservation` / `verify_cycle_replay`.
+  * Five fail-closed gates: `G_cluster` (phase ∧ coherence ∧ morpho ∧
+    purpose ∧ trace), `G_morph` (endo ∧ exo ∧ boundary-safe),
+    `G_intent` (tension ∧ convergence ∧ conflict ∧ trace-ready),
+    `G_dissolve` (working-state-eligible ∧ trace-persisted ∧
+    evidence-persisted ∧ gate-history-persisted), plus the
+    matrix-boundary check at the pool layer.
+  * `pipeline::run_cell_substrate_cycle` drives the full deterministic
+    cycle and returns a `CellSubstrateOutcome` (Completed / Hold /
+    Rejected / Compacted / MatrixBoundaryViolation /
+    DeterminismViolation). Two runs over the same `(input, rd)` are
+    byte-identical.
+  * **No `SemanticCrystal` and no `FinalizedEmission`** are
+    constructed in any cell-substrate module — the substrate emits
+    handoff candidates only; the PSE-Bridge remains the only commit
+    path. The `no_commit_artefacts_appear_in_outcome_bytes` test
+    guards this invariant against canonical bytes.
+  * Feature flags: `cell-substrate` (default-on), `cell-cli`,
+    `cell-funnel-graph`, `cell-morphodynamics`, `cell-convergence`,
+    `cell-handoff`.
+  * Float-free in every gate / score path: `Fixed` (`CanonicalNumber`)
+    rationals normalised by gcd, JCS-canonical reports, sorted lists
+    before hashing, `BTreeMap`-keyed structures, no wall-clock in the
+    audit pathway, no platform RNG.
+  * CLI `phase-matrix`: `cluster-cycle`, `cluster-replay`,
+    `cluster-verify`, `cell-pool`. Four CLI smoke tests cover the full
+    cycle / replay / verify / pool flow.
+  * Tests: 34 unit tests + 6 end-to-end integration tests + 4 CLI
+    smoke tests.
+
+* **PSE-EVAL-MATRIX-01 — PHASEMATRIX-HIVEMIND-03 closure.** Extended
+  the eval matrix so the system stays empirically closed across the
+  new substrate:
+  * New `WorkloadFamily::MorphoCellSubstrate` (the matrix now lists
+    ten mandatory families) plus `WorkloadSpec::morpho_cell_substrate`
+    constructor with the standard hold-correctness / no-false-commit /
+    replay-byte-identical success criteria.
+  * New `cell_substrate_metrics` module with the canonical
+    PHASEMATRIX-HIVEMIND-03 metric set (ten metrics:
+    `cluster_formation_rate`, `morphology_gate_compliance`,
+    `convergence_stability`, `intent_generation_rate`,
+    `dissolution_trace_preservation`, `funnel_acyclicity_rate`,
+    `matrix_boundary_violation_rate`,
+    `working_state_compaction_efficiency`,
+    `handoff_candidate_utility`, `substrate_self_coherence`).
+  * New `LayerMask::CELL_SUBSTRATE` bit and `B8_PhaseMatrix` ladder
+    rung (= `B7_FullStack | CELL_SUBSTRATE`),
+    `SystemVariantSpec::phase_matrix_substrate()` constructor, and
+    `VariantLadder::full_with_phase_matrix()` for the extended
+    nine-rung ladder.
+  * New `phase-matrix-substrate` preset (B0 / B7 / B8 over the new
+    workload, scored against the full cell-substrate metric set).
+  * `SyntheticTrialExecutor` now emits the cell-substrate metric
+    observations whenever the workload is `MorphoCellSubstrate`,
+    pinned to the fail-closed floor for variants without the
+    `CELL_SUBSTRATE` bit and monotonically uplifted for the B8
+    variant. Two regression tests guard the uplift on
+    `cluster_formation_rate` and the lower-is-better behaviour of
+    `matrix_boundary_violation_rate`.
+
 * **PSE-EVAL-MATRIX-01** — empirical benchmark matrix for
   post-symbolic cognition systems. New crate `pse-eval-matrix` and
   CLI tool `pse-eval-matrix-cli` (binary: `pse-eval-matrix`).
