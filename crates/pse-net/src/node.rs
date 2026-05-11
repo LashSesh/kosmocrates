@@ -433,6 +433,18 @@ mod tests {
     use pse_types::*;
     use std::collections::BTreeMap;
 
+
+    fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if condition() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        condition()
+    }
+
     fn mock_crystal(gap: f64, region: Vec<VertexId>) -> SemanticCrystal {
         SemanticCrystal {
             crystal_id: [0u8; 32],
@@ -484,16 +496,20 @@ mod tests {
         // Connect node2 -> node1
         node2.connect_peer(&addr1.to_string()).expect("connect");
 
-        // Give connection time to establish
-        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            wait_until(Duration::from_secs(2), || node2.peer_count() >= 1),
+            "node2 did not register node1 as peer in time"
+        );
 
         // Propagate crystal from node2
         let crystal = mock_crystal(0.5, vec![1, 2, 3]);
         let sent = node2.propagate_crystal(crystal).expect("propagate");
         assert_eq!(sent, 1);
 
-        // Wait for propagation
-        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            wait_until(Duration::from_secs(2), || node1.accepted_crystals().len() >= 1),
+            "node1 did not receive propagated crystal in time"
+        );
 
         // Check node1 received it
         let accepted = node1.accepted_crystals();
@@ -530,23 +546,22 @@ mod tests {
         node2.connect_peer(&addr1.to_string()).expect("n2→n1");
         node3.connect_peer(&addr2.to_string()).expect("n3→n2");
 
-        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            wait_until(Duration::from_secs(2), || node2.peer_count() >= 1),
+            "node2 did not register node1 as peer in time"
+        );
 
         // Propagate from node3
         let crystal = mock_crystal(0.45, vec![10, 20]);
         node3.propagate_crystal(crystal).expect("propagate");
 
-        // Wait for gossip to propagate through the ring
-        std::thread::sleep(Duration::from_millis(1000));
-
-        // Node2 should have received it directly
-        let acc2 = node2.accepted_crystals();
-        assert!(!acc2.is_empty(), "node2 should have received crystal");
-
-        // Node1 should have received it via forward from node2
-        let acc1 = node1.accepted_crystals();
         assert!(
-            !acc1.is_empty(),
+            wait_until(Duration::from_secs(2), || !node2.accepted_crystals().is_empty()),
+            "node2 should have received crystal"
+        );
+
+        assert!(
+            wait_until(Duration::from_secs(2), || !node1.accepted_crystals().is_empty()),
             "node1 should have received crystal via gossip"
         );
 
@@ -574,13 +589,19 @@ mod tests {
 
         // Connect node2→node1
         node2.connect_peer(&addr1.to_string()).expect("connect");
-        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            wait_until(Duration::from_secs(2), || node2.peer_count() >= 1),
+            "node2 did not register node1 as peer in time"
+        );
 
         // Propagate from node2 with max_hops=0 (TTL=0)
         let crystal = mock_crystal(0.5, vec![1]);
         node2.propagate_crystal(crystal).expect("propagate");
 
-        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            wait_until(Duration::from_secs(2), || !node1.accepted_crystals().is_empty()),
+            "node1 should receive directly"
+        );
 
         // Node1 receives it (direct connection), but TTL was 0 so it won't forward further
         let acc1 = node1.accepted_crystals();
