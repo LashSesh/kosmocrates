@@ -433,7 +433,6 @@ mod tests {
     use pse_types::*;
     use std::collections::BTreeMap;
 
-
     fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
@@ -507,7 +506,8 @@ mod tests {
         assert_eq!(sent, 1);
 
         assert!(
-            wait_until(Duration::from_secs(2), || node1.accepted_crystals().len() >= 1),
+            wait_until(Duration::from_secs(2), || node1.accepted_crystals().len()
+                >= 1),
             "node1 did not receive propagated crystal in time"
         );
 
@@ -556,12 +556,16 @@ mod tests {
         node3.propagate_crystal(crystal).expect("propagate");
 
         assert!(
-            wait_until(Duration::from_secs(2), || !node2.accepted_crystals().is_empty()),
+            wait_until(Duration::from_secs(2), || !node2
+                .accepted_crystals()
+                .is_empty()),
             "node2 should have received crystal"
         );
 
         assert!(
-            wait_until(Duration::from_secs(2), || !node1.accepted_crystals().is_empty()),
+            wait_until(Duration::from_secs(2), || !node1
+                .accepted_crystals()
+                .is_empty()),
             "node1 should have received crystal via gossip"
         );
 
@@ -599,7 +603,9 @@ mod tests {
         node2.propagate_crystal(crystal).expect("propagate");
 
         assert!(
-            wait_until(Duration::from_secs(2), || !node1.accepted_crystals().is_empty()),
+            wait_until(Duration::from_secs(2), || !node1
+                .accepted_crystals()
+                .is_empty()),
             "node1 should receive directly"
         );
 
