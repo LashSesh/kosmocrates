@@ -444,6 +444,24 @@ mod tests {
         condition()
     }
 
+
+    fn connect_and_wait_ready(sender: &SwarmNode, receiver: &SwarmNode, receiver_addr: SocketAddr) {
+        sender
+            .connect_peer(&receiver_addr.to_string())
+            .expect("connect peer");
+
+        assert!(
+            wait_until(Duration::from_secs(2), || sender.peer_count() >= 1),
+            "sender did not register receiver as peer in time"
+        );
+
+        // Also wait for the receiver side to register the inbound peer, so we know
+        // the handler thread processed the handshake fully before propagation checks.
+        assert!(
+            wait_until(Duration::from_secs(2), || receiver.peer_count() >= 1),
+            "receiver did not register sender as peer in time"
+        );
+    }
     fn mock_crystal(gap: f64, region: Vec<VertexId>) -> SemanticCrystal {
         SemanticCrystal {
             crystal_id: [0u8; 32],
@@ -493,12 +511,8 @@ mod tests {
         node2.start().expect("node2 start");
 
         // Connect node2 -> node1
-        node2.connect_peer(&addr1.to_string()).expect("connect");
+        connect_and_wait_ready(&node2, &node1, addr1);
 
-        assert!(
-            wait_until(Duration::from_secs(2), || node2.peer_count() >= 1),
-            "node2 did not register node1 as peer in time"
-        );
 
         // Propagate crystal from node2
         let crystal = mock_crystal(0.5, vec![1, 2, 3]);
@@ -543,13 +557,9 @@ mod tests {
         node3.start().expect("node3 start");
 
         // Ring topology: node2→node1, node3→node2
-        node2.connect_peer(&addr1.to_string()).expect("n2→n1");
-        node3.connect_peer(&addr2.to_string()).expect("n3→n2");
+        connect_and_wait_ready(&node2, &node1, addr1);
+        connect_and_wait_ready(&node3, &node2, addr2);
 
-        assert!(
-            wait_until(Duration::from_secs(2), || node2.peer_count() >= 1),
-            "node2 did not register node1 as peer in time"
-        );
 
         // Propagate from node3
         let crystal = mock_crystal(0.45, vec![10, 20]);
@@ -592,11 +602,7 @@ mod tests {
         node2.start().expect("start");
 
         // Connect node2→node1
-        node2.connect_peer(&addr1.to_string()).expect("connect");
-        assert!(
-            wait_until(Duration::from_secs(2), || node2.peer_count() >= 1),
-            "node2 did not register node1 as peer in time"
-        );
+        connect_and_wait_ready(&node2, &node1, addr1);
 
         // Propagate from node2 with max_hops=0 (TTL=0)
         let crystal = mock_crystal(0.5, vec![1]);
