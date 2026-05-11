@@ -15,6 +15,7 @@ use crate::domain::{BenchGtRecord, DatasetManifest, DomainValidationSummary};
 use crate::environment::EnvironmentFingerprint;
 use crate::eval_matrix::{assess_presets, build_eval_summary};
 use crate::executor::CommandExecutor;
+use crate::executor::CommandResult;
 use crate::ledger::ValidationRunLedger;
 use crate::parsers::{BenchmarkSummary, QualitySummary};
 use crate::primitives::{Hash256, StableId, ValidationError};
@@ -86,7 +87,39 @@ pub fn run(
     // Execute commands phase by phase.
     let log_dir = out_dir.to_path_buf();
     for command in &plan.commands {
-        let result = executor.execute(command, &log_dir)?;
+        let result = match executor.execute(command, &log_dir) {
+            Ok(result) => result,
+            Err(_) => {
+                let failed = CommandResult {
+                    command_id: command.command_id.clone(),
+                    exit_code: -1,
+                    stdout_hash: Hash256::zero(),
+                    stderr_hash: Hash256::zero(),
+                    stdout_len: 0,
+                    stderr_len: 0,
+                    stdout_path: None,
+                };
+                ledger.append(command.phase, &failed, vec![])?;
+                match command.phase {
+                    ValidationPhase::Quality => {
+                        let key = command.argv.get(1).cloned().unwrap_or_default();
+                        quality_exits.insert(key, failed.exit_code);
+                        quality_failed = true;
+                    }
+                    ValidationPhase::Benchmark => {
+                        let key = command.argv.get(4).cloned().unwrap_or_default();
+                        bench_exits.insert(key, failed.exit_code);
+                    }
+                    ValidationPhase::DomainCalibration
+                    | ValidationPhase::DomainValidation
+                    | ValidationPhase::DomainTest => {
+                        domain_phase_exits.insert(command.phase, failed.exit_code);
+                    }
+                    _ => {}
+                }
+                break;
+            }
+        };
         let satisfied = command.expected_exit.is_satisfied(result.exit_code);
 
         ledger.append(command.phase, &result, vec![])?;
@@ -363,7 +396,7 @@ fn extract_preset_from_path(path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::executor::MockExecutor;
+    use crate::executor::{CommandExecutor, MockExecutor};
 
     #[test]
     fn smoke_profile_produces_bundle() {
@@ -403,5 +436,40 @@ mod tests {
         // Same profile + same repo snapshot → same run_id.
         assert_eq!(o1.run_id, o2.run_id);
         assert_eq!(o1.report.report_id, o2.report.report_id);
+    }
+
+    struct FailingExecutor;
+
+    impl CommandExecutor for FailingExecutor {
+        fn execute(
+            &self,
+            _command: &crate::command_plan::ValidationCommand,
+            _log_dir: &std::path::Path,
+        ) -> Result<crate::executor::CommandResult, ValidationError> {
+            Err(ValidationError::CommandFailed {
+                reason: "simulated missing executable".into(),
+            })
+        }
+    }
+
+    #[test]
+    fn run_writes_final_artifacts_when_command_spawn_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("run_out");
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        let profile = ValidationProfile::smoke().unwrap();
+        let output = run(&profile, repo_root, &out, &FailingExecutor).unwrap();
+
+        assert!(out.join("command_log.jsonl").exists());
+        assert!(out.join("verdict.json").exists());
+        assert!(out.join("final/final_report.json").exists());
+        assert_eq!(
+            output.report.conclusion.as_str(),
+            crate::report::ValidationConclusion::Invalid.as_str()
+        );
     }
 }

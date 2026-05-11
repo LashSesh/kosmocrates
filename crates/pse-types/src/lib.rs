@@ -597,9 +597,9 @@ pub struct CarrierConfig {
     /// Strand O.2: when `true`, GlobalState constructs the phase-ladder
     /// from the canonical Metatron-scaffold geometry (1 centre carrier
     /// + 12 cuboctahedron-vertex carriers, total 13). The
-    /// `num_carriers` field is ignored in that case. When `false`
-    /// (default — backward-compat), `num_carriers` evenly-spaced
-    /// carriers are built via `build_phase_ladder`.
+    ///   `num_carriers` field is ignored in that case. When `false`
+    ///   (default — backward-compat), `num_carriers` evenly-spaced
+    ///   carriers are built via `build_phase_ladder`.
     #[serde(default)]
     pub use_metatron_ladder: bool,
 }
@@ -801,9 +801,10 @@ pub struct ArchiveConfig {
 
 /// Strategy for generating surrogate observation streams against which a
 /// crystal candidate's statistical significance is tested.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum SurrogateMethod {
     /// Uniformly shuffle the observation ordering.
+    #[default]
     Shuffle,
     /// Shuffle in contiguous blocks of the given size (preserves local
     /// temporal correlations while breaking long-range structure).
@@ -812,12 +813,6 @@ pub enum SurrogateMethod {
     /// (Added in a later increment; the type is listed here for forward
     /// compatibility.)
     PhaseRandomize,
-}
-
-impl Default for SurrogateMethod {
-    fn default() -> Self {
-        SurrogateMethod::Shuffle
-    }
 }
 
 /// Configuration for the surrogate-data falsification pass (Strand D).

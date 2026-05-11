@@ -118,8 +118,6 @@ pub fn build_command_plan(
         )?);
     }
     if profile.quality.run_clippy {
-        let mut env = profile.extra_env.clone();
-        env.insert("RUSTFLAGS".into(), "-D warnings".into());
         commands.push(ValidationCommand::new(
             ValidationPhase::Quality,
             vec![
@@ -130,15 +128,13 @@ pub fn build_command_plan(
                 "--locked".into(),
             ],
             root.clone(),
-            env,
+            profile.extra_env.clone(),
             profile.timeouts.quality_seconds,
             ExpectedExit::Zero,
             vec![format!("{}/quality/clippy.log", out_dir.display())],
         )?);
     }
     if profile.quality.run_build {
-        let mut env = profile.extra_env.clone();
-        env.insert("RUSTFLAGS".into(), "-D warnings".into());
         commands.push(ValidationCommand::new(
             ValidationPhase::Quality,
             vec![
@@ -149,7 +145,7 @@ pub fn build_command_plan(
                 "--locked".into(),
             ],
             root.clone(),
-            env,
+            profile.extra_env.clone(),
             profile.timeouts.quality_seconds,
             ExpectedExit::Zero,
             vec![format!("{}/quality/build.log", out_dir.display())],
@@ -166,8 +162,6 @@ pub fn build_command_plan(
         )?);
     }
     if profile.quality.run_doc {
-        let mut env = profile.extra_env.clone();
-        env.insert("RUSTDOCFLAGS".into(), "-D warnings".into());
         commands.push(ValidationCommand::new(
             ValidationPhase::Quality,
             vec![
@@ -178,7 +172,7 @@ pub fn build_command_plan(
                 "--locked".into(),
             ],
             root.clone(),
-            env,
+            profile.extra_env.clone(),
             profile.timeouts.quality_seconds,
             ExpectedExit::Zero,
             vec![format!("{}/quality/doc.log", out_dir.display())],
@@ -239,7 +233,14 @@ pub fn build_command_plan(
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
             vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-eval-matrix-cli",
+                "--bin",
                 "pse-eval-matrix",
+                "--",
                 "init",
                 "--template",
                 preset,
@@ -254,7 +255,14 @@ pub fn build_command_plan(
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
             vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-eval-matrix-cli",
+                "--bin",
                 "pse-eval-matrix",
+                "--",
                 "plan",
                 "--spec",
                 &format!("{eval_dir}/spec.json"),
@@ -269,7 +277,14 @@ pub fn build_command_plan(
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
             vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-eval-matrix-cli",
+                "--bin",
                 "pse-eval-matrix",
+                "--",
                 "run",
                 "--spec",
                 &format!("{eval_dir}/spec.json"),
@@ -286,7 +301,14 @@ pub fn build_command_plan(
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
             vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-eval-matrix-cli",
+                "--bin",
                 "pse-eval-matrix",
+                "--",
                 "replay",
                 "--bundle",
                 &format!("{eval_dir}/bundle.json"),
@@ -301,7 +323,14 @@ pub fn build_command_plan(
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
             vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-eval-matrix-cli",
+                "--bin",
                 "pse-eval-matrix",
+                "--",
                 "score",
                 "--spec",
                 &format!("{eval_dir}/spec.json"),
@@ -318,7 +347,14 @@ pub fn build_command_plan(
         commands.push(make_cmd(
             ValidationPhase::EvalMatrix,
             vec![
+                "cargo",
+                "run",
+                "--release",
+                "-p",
+                "pse-eval-matrix-cli",
+                "--bin",
                 "pse-eval-matrix",
+                "--",
                 "report",
                 "--summary",
                 &format!("{eval_dir}/summary.json"),
