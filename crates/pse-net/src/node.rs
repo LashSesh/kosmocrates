@@ -99,6 +99,7 @@ impl SwarmNode {
             while running.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, peer_addr)) => {
+                        let _ = stream.set_nodelay(true);
                         let _ = stream
                             .set_read_timeout(Some(Duration::from_millis(config.read_timeout_ms)));
                         let _ = stream.set_write_timeout(Some(Duration::from_millis(
@@ -315,6 +316,7 @@ impl SwarmNode {
             .parse()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let mut stream = TcpStream::connect_timeout(&socket_addr, timeout)?;
+        stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(Duration::from_millis(self.config.read_timeout_ms)))?;
         stream.set_write_timeout(Some(Duration::from_millis(self.config.connect_timeout_ms)))?;
 
@@ -444,7 +446,6 @@ mod tests {
         condition()
     }
 
-
     fn connect_and_wait_ready(sender: &SwarmNode, receiver: &SwarmNode, receiver_addr: SocketAddr) {
         sender
             .connect_peer(&receiver_addr.to_string())
@@ -513,7 +514,6 @@ mod tests {
         // Connect node2 -> node1
         connect_and_wait_ready(&node2, &node1, addr1);
 
-
         // Propagate crystal from node2
         let crystal = mock_crystal(0.5, vec![1, 2, 3]);
         let sent = node2.propagate_crystal(crystal).expect("propagate");
@@ -559,7 +559,6 @@ mod tests {
         // Ring topology: node2→node1, node3→node2
         connect_and_wait_ready(&node2, &node1, addr1);
         connect_and_wait_ready(&node3, &node2, addr2);
-
 
         // Propagate from node3
         let crystal = mock_crystal(0.45, vec![10, 20]);
