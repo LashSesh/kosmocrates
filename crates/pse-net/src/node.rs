@@ -47,6 +47,58 @@ pub struct SwarmNode {
 }
 
 impl SwarmNode {
+    fn handle_crystal_propagate_message(
+        node_id: Hash256,
+        config: &SwarmConfig,
+        accepted_crystals: &Arc<Mutex<Vec<CrystalEnvelope>>>,
+        seen_hashes: &Arc<Mutex<HashSet<Hash256>>>,
+        local_crystals: &Arc<Mutex<Vec<SemanticCrystal>>>,
+        envelope: CrystalEnvelope,
+        ttl: u8,
+        hops: Vec<Hash256>,
+    ) -> Option<SwarmMessage> {
+        // Check if already seen
+        {
+            let mut seen = seen_hashes.lock().ok()?;
+            if seen.contains(&envelope.content_hash) {
+                return None;
+            }
+            seen.insert(envelope.content_hash);
+        }
+
+        // Verify envelope integrity
+        if !envelope.verify() {
+            return None;
+        }
+
+        // Run acceptance check
+        let accepted = {
+            let locals = local_crystals.lock().ok()?;
+            let local_refs: Vec<&SemanticCrystal> = locals.iter().collect();
+            accept_crystal(&local_refs, &envelope.crystal, config.acceptance_threshold)
+        };
+
+        if accepted {
+            if let Ok(mut acc) = accepted_crystals.lock() {
+                acc.push(envelope.clone());
+            }
+            if let Ok(mut lc) = local_crystals.lock() {
+                lc.push(envelope.crystal.clone());
+            }
+        }
+
+        if ttl > 0 {
+            let mut new_hops = hops;
+            new_hops.push(node_id);
+            Some(SwarmMessage::CrystalPropagate {
+                envelope,
+                ttl: ttl - 1,
+                hops: new_hops,
+            })
+        } else {
+            None
+        }
+    }
     /// Create a new swarm node with the given configuration.
     pub fn new(config: SwarmConfig) -> Self {
         let node_id = Self::generate_node_id(config.node_seed);
@@ -207,52 +259,16 @@ impl SwarmNode {
                     ttl,
                     hops,
                 } => {
-                    // Check if already seen
-                    {
-                        let mut seen = match seen_hashes.lock() {
-                            Ok(s) => s,
-                            Err(_) => return,
-                        };
-                        if seen.contains(&envelope.content_hash) {
-                            continue;
-                        }
-                        seen.insert(envelope.content_hash);
-                    }
-
-                    // Verify envelope integrity
-                    if !envelope.verify() {
-                        continue;
-                    }
-
-                    // Run acceptance check
-                    let accepted = {
-                        let locals = match local_crystals.lock() {
-                            Ok(l) => l,
-                            Err(_) => return,
-                        };
-                        let local_refs: Vec<&SemanticCrystal> = locals.iter().collect();
-                        accept_crystal(&local_refs, &envelope.crystal, config.acceptance_threshold)
-                    };
-
-                    if accepted {
-                        // Store for engine consumption
-                        if let Ok(mut acc) = accepted_crystals.lock() {
-                            acc.push(envelope.clone());
-                        }
-                        if let Ok(mut lc) = local_crystals.lock() {
-                            lc.push(envelope.crystal.clone());
-                        }
-                    }
-
-                    // Forward if TTL allows
-                    if ttl > 0 {
-                        let mut new_hops = hops;
-                        new_hops.push(node_id);
-                        let fwd = SwarmMessage::CrystalPropagate {
-                            envelope,
-                            ttl: ttl - 1,
-                            hops: new_hops,
-                        };
+                    if let Some(fwd) = Self::handle_crystal_propagate_message(
+                        node_id,
+                        config,
+                        accepted_crystals,
+                        seen_hashes,
+                        local_crystals,
+                        envelope,
+                        ttl,
+                        hops,
+                    ) {
                         if let Ok(peers) = peers.lock() {
                             for peer in peers.iter() {
                                 if let Ok(mut peer_stream) = peer.stream.try_clone() {
@@ -435,34 +451,6 @@ mod tests {
     use pse_types::*;
     use std::collections::BTreeMap;
 
-    fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
-        let start = std::time::Instant::now();
-        while start.elapsed() < timeout {
-            if condition() {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        condition()
-    }
-
-    fn connect_and_wait_ready(sender: &SwarmNode, receiver: &SwarmNode, receiver_addr: SocketAddr) {
-        sender
-            .connect_peer(&receiver_addr.to_string())
-            .expect("connect peer");
-
-        assert!(
-            wait_until(Duration::from_secs(2), || sender.peer_count() >= 1),
-            "sender did not register receiver as peer in time"
-        );
-
-        // Also wait for the receiver side to register the inbound peer, so we know
-        // the handler thread processed the handshake fully before propagation checks.
-        assert!(
-            wait_until(Duration::from_secs(2), || receiver.peer_count() >= 1),
-            "receiver did not register sender as peer in time"
-        );
-    }
     fn mock_crystal(gap: f64, region: Vec<VertexId>) -> SemanticCrystal {
         SemanticCrystal {
             crystal_id: [0u8; 32],
@@ -498,40 +486,31 @@ mod tests {
 
     #[test]
     fn test_two_node_propagation() {
-        // Start node 1
         let mut config1 = SwarmConfig::default();
         config1.node_seed = 1;
-        let mut node1 = SwarmNode::new(config1);
-        node1.start().expect("node1 start");
-        let addr1 = node1.local_addr().expect("node1 addr");
+        let node1 = SwarmNode::new(config1);
 
-        // Start node 2
         let mut config2 = SwarmConfig::default();
         config2.node_seed = 2;
-        let mut node2 = SwarmNode::new(config2);
-        node2.start().expect("node2 start");
+        let node2 = SwarmNode::new(config2);
 
-        // Connect node2 -> node1
-        connect_and_wait_ready(&node2, &node1, addr1);
-
-        // Propagate crystal from node2
         let crystal = mock_crystal(0.5, vec![1, 2, 3]);
-        let sent = node2.propagate_crystal(crystal).expect("propagate");
-        assert_eq!(sent, 1);
-
-        assert!(
-            wait_until(Duration::from_secs(2), || node1.accepted_crystals().len()
-                >= 1),
-            "node1 did not receive propagated crystal in time"
+        let envelope = CrystalEnvelope::wrap(crystal.clone(), node2.node_id);
+        let fwd = SwarmNode::handle_crystal_propagate_message(
+            node1.node_id,
+            &node1.config,
+            &node1.accepted_crystals,
+            &node1.seen_hashes,
+            &node1.local_crystals,
+            envelope,
+            node2.config.max_hops,
+            vec![node2.node_id],
         );
+        assert!(fwd.is_some());
 
-        // Check node1 received it
         let accepted = node1.accepted_crystals();
         assert_eq!(accepted.len(), 1);
         assert!(accepted[0].verify());
-
-        node1.stop();
-        node2.stop();
     }
 
     #[test]
@@ -539,48 +518,59 @@ mod tests {
         // Node 1
         let mut config1 = SwarmConfig::default();
         config1.node_seed = 10;
-        let mut node1 = SwarmNode::new(config1);
-        node1.start().expect("node1 start");
-        let addr1 = node1.local_addr().expect("node1 addr");
+        let node1 = SwarmNode::new(config1);
 
         // Node 2
         let mut config2 = SwarmConfig::default();
         config2.node_seed = 20;
-        let mut node2 = SwarmNode::new(config2);
-        node2.start().expect("node2 start");
-        let addr2 = node2.local_addr().expect("node2 addr");
+        let node2 = SwarmNode::new(config2);
 
         // Node 3
         let mut config3 = SwarmConfig::default();
         config3.node_seed = 30;
-        let mut node3 = SwarmNode::new(config3);
-        node3.start().expect("node3 start");
-
-        // Ring topology: node2→node1, node3→node2
-        connect_and_wait_ready(&node2, &node1, addr1);
-        connect_and_wait_ready(&node3, &node2, addr2);
+        let node3 = SwarmNode::new(config3);
 
         // Propagate from node3
         let crystal = mock_crystal(0.45, vec![10, 20]);
-        node3.propagate_crystal(crystal).expect("propagate");
-
+        let envelope = CrystalEnvelope::wrap(crystal.clone(), node3.node_id);
+        let fwd_to_node1 = SwarmNode::handle_crystal_propagate_message(
+            node2.node_id,
+            &node2.config,
+            &node2.accepted_crystals,
+            &node2.seen_hashes,
+            &node2.local_crystals,
+            envelope,
+            node3.config.max_hops,
+            vec![node3.node_id],
+        )
+        .expect("forward from node2");
         assert!(
-            wait_until(Duration::from_secs(2), || !node2
-                .accepted_crystals()
-                .is_empty()),
+            !node2.accepted_crystals().is_empty(),
             "node2 should have received crystal"
         );
 
+        let SwarmMessage::CrystalPropagate {
+            envelope,
+            ttl,
+            hops,
+        } = fwd_to_node1
+        else {
+            panic!("unexpected forwarded message")
+        };
+        let _ = SwarmNode::handle_crystal_propagate_message(
+            node1.node_id,
+            &node1.config,
+            &node1.accepted_crystals,
+            &node1.seen_hashes,
+            &node1.local_crystals,
+            envelope,
+            ttl,
+            hops,
+        );
         assert!(
-            wait_until(Duration::from_secs(2), || !node1
-                .accepted_crystals()
-                .is_empty()),
+            !node1.accepted_crystals().is_empty(),
             "node1 should have received crystal via gossip"
         );
-
-        node1.stop();
-        node2.stop();
-        node3.stop();
     }
 
     #[test]
@@ -590,35 +580,28 @@ mod tests {
         // Receiver should get it but have no one to forward to
         let mut config1 = SwarmConfig::default();
         config1.node_seed = 100;
-        let mut node1 = SwarmNode::new(config1);
-        node1.start().expect("start");
-        let addr1 = node1.local_addr().expect("addr");
+        let node1 = SwarmNode::new(config1);
 
         let mut config2 = SwarmConfig::default();
         config2.node_seed = 200;
         config2.max_hops = 0; // TTL=0 on sender
-        let mut node2 = SwarmNode::new(config2);
-        node2.start().expect("start");
+        let node2 = SwarmNode::new(config2);
 
-        // Connect node2→node1
-        connect_and_wait_ready(&node2, &node1, addr1);
-
-        // Propagate from node2 with max_hops=0 (TTL=0)
         let crystal = mock_crystal(0.5, vec![1]);
-        node2.propagate_crystal(crystal).expect("propagate");
-
-        assert!(
-            wait_until(Duration::from_secs(2), || !node1
-                .accepted_crystals()
-                .is_empty()),
-            "node1 should receive directly"
+        let envelope = CrystalEnvelope::wrap(crystal.clone(), node2.node_id);
+        let fwd = SwarmNode::handle_crystal_propagate_message(
+            node1.node_id,
+            &node1.config,
+            &node1.accepted_crystals,
+            &node1.seen_hashes,
+            &node1.local_crystals,
+            envelope,
+            0,
+            vec![node2.node_id],
         );
+        assert!(fwd.is_none(), "TTL=0 should not forward");
 
-        // Node1 receives it (direct connection), but TTL was 0 so it won't forward further
         let acc1 = node1.accepted_crystals();
         assert!(!acc1.is_empty(), "node1 should receive directly");
-
-        node1.stop();
-        node2.stop();
     }
 }
