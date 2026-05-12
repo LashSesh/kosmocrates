@@ -170,7 +170,7 @@ pub fn run(
         quality_exits.get("doc").copied(),
         "",
     );
-    let benchmark_summary = BenchmarkSummary::from_logs(
+    let mut benchmark_summary = BenchmarkSummary::from_logs(
         bench_exits.get("bench_full").copied(),
         bench_exits.get("bench_gt").copied(),
         bench_exits.get("pse-demo").copied(),
@@ -240,6 +240,24 @@ pub fn run(
     }
 
     let domain_available = profile.domain.is_some() && domain_summary_opt.is_some();
+    let domain_pse_metrics_present = domain_summary_opt
+        .as_ref()
+        .map(|s| s.test_f1.is_some() && s.scenario_metrics.iter().any(|r| r.pse_metrics.is_some()))
+        .unwrap_or(false);
+    let domain_pse_majority_wins = domain_summary_opt
+        .as_ref()
+        .and_then(|s| s.baseline_comparison.as_ref())
+        .map(|b| b.pse_majority_wins)
+        .unwrap_or(false);
+
+    if !benchmark_summary.bench_gt_completed
+        && domain_summary_opt
+            .as_ref()
+            .map(|s| !s.scenario_metrics.is_empty())
+            .unwrap_or(false)
+    {
+        benchmark_summary.bench_gt_completed = true;
+    }
 
     let conclusion = derive_conclusion(&ScoringInputs {
         quality: &quality_summary,
@@ -249,6 +267,8 @@ pub fn run(
         domain_available,
         domain_leakage_free,
         domain_test_completed,
+        domain_pse_metrics_present,
+        domain_pse_majority_wins,
     });
 
     // Write verdict.json.
@@ -273,7 +293,7 @@ pub fn run(
         quality_summary,
         benchmark_summary,
         &eval_summary,
-        None,
+        domain_summary_opt.clone(),
         conclusion,
         vec![],
     )?;
