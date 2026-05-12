@@ -52,21 +52,20 @@ pub fn build_json_output(
 
     let pse_metrics = {
         // Merge crystal + memory_hit detections into a single PSE combined view.
+        // Even when the run emits zero PSE detections, we still serialize
+        // explicit zero-valued metrics so downstream domain summaries can
+        // distinguish "PSE ran with no detections" from "field missing".
         let pse_dets: Vec<Detection> = result
             .detections
             .iter()
             .filter(|d| d.source.starts_with("pse_"))
             .cloned()
             .collect();
-        if pse_dets.is_empty() {
-            None
-        } else {
-            Some(score_detections(
-                &result.ground_truth,
-                &pse_dets,
-                result.tolerance_ticks,
-            ))
-        }
+        Some(score_detections(
+            &result.ground_truth,
+            &pse_dets,
+            result.tolerance_ticks,
+        ))
     };
     let stl_zscore_metrics = per_source.get("stl_zscore").cloned();
     let isoforest_metrics = per_source.get("isoforest").cloned();
@@ -514,5 +513,23 @@ mod tests {
         assert!(ev.contains(10));
         assert!(ev.contains(19));
         assert!(!ev.contains(20));
+    }
+
+    #[test]
+    fn json_output_has_pse_metrics_even_when_no_pse_detections() {
+        let result = scenarios::ScenarioResult {
+            scenario: "no_pse".into(),
+            n_observations: 3,
+            tolerance_ticks: 0,
+            ground_truth: vec![gt(1, 2, "event")],
+            detections: vec![Detection::new(1, 0.9, "stl_zscore")],
+            metrics: Metrics::default(),
+        };
+        let out = build_json_output(&result, br#"{}"#);
+        let pse = out.pse_metrics.expect("pse metrics should be present");
+        assert_eq!(pse.tp, 0);
+        assert_eq!(pse.fp, 0);
+        assert_eq!(pse.fn_, 1);
+        assert_eq!(pse.f1, 0.0);
     }
 }
