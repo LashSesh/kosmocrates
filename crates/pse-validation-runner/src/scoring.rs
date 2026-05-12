@@ -19,6 +19,10 @@ pub struct ScoringInputs<'a> {
     pub domain_leakage_free: bool,
     /// True only when the DomainTest (binance) scenario completed successfully.
     pub domain_test_completed: bool,
+    /// Domain summary exists and includes non-null PSE metrics for domain/test outputs.
+    pub domain_pse_metrics_present: bool,
+    /// Baseline comparison outcome: true iff PSE wins per configured rule (majority).
+    pub domain_pse_majority_wins: bool,
 }
 
 /// Derive `ValidationConclusion` from scoring inputs (§9.1).
@@ -60,7 +64,17 @@ pub fn derive_conclusion(inputs: &ScoringInputs<'_>) -> ValidationConclusion {
         return ValidationConclusion::DiagnosticFinding;
     }
 
-    // With domain data and completed test split: classify by eval replay status.
+    // Domain available but no usable PSE metrics => fail-closed (no empirical claim).
+    if !inputs.domain_pse_metrics_present {
+        return ValidationConclusion::DiagnosticFinding;
+    }
+
+    // Domain available but baseline rule not satisfied => no empirical improvement.
+    if !inputs.domain_pse_majority_wins {
+        return ValidationConclusion::DiagnosticFinding;
+    }
+
+    // With complete domain data and baseline win: classify by eval replay status.
     let eval_all_replay_ok = inputs
         .eval_matrix
         .preset_results
@@ -118,6 +132,8 @@ mod tests {
             domain_available: true,
             domain_leakage_free: true,
             domain_test_completed: true,
+            domain_pse_metrics_present: true,
+            domain_pse_majority_wins: true,
         };
         // Replay failure → Invalid.
         assert_eq!(derive_conclusion(&inputs), ValidationConclusion::Invalid);
@@ -141,6 +157,8 @@ mod tests {
             domain_available: false,
             domain_leakage_free: true,
             domain_test_completed: false,
+            domain_pse_metrics_present: false,
+            domain_pse_majority_wins: false,
         };
         assert_eq!(
             derive_conclusion(&inputs),
@@ -166,6 +184,8 @@ mod tests {
             domain_available: false,
             domain_leakage_free: true,
             domain_test_completed: false,
+            domain_pse_metrics_present: false,
+            domain_pse_majority_wins: false,
         };
         assert_eq!(derive_conclusion(&inputs), ValidationConclusion::Invalid);
     }
@@ -188,6 +208,8 @@ mod tests {
             domain_available: true,
             domain_leakage_free: true,
             domain_test_completed: false, // test not done
+            domain_pse_metrics_present: false,
+            domain_pse_majority_wins: false,
         };
         assert_eq!(
             derive_conclusion(&inputs),
@@ -214,8 +236,64 @@ mod tests {
             domain_available: true,
             domain_leakage_free: true,
             domain_test_completed: false,
+            domain_pse_metrics_present: false,
+            domain_pse_majority_wins: false,
         };
         let conclusion = derive_conclusion(&inputs);
         assert_ne!(conclusion, ValidationConclusion::EmpiricalImprovement);
+    }
+
+    #[test]
+    fn no_empirical_improvement_when_pse_metrics_missing() {
+        let quality = QualitySummary::all_pass();
+        let bench = BenchmarkSummary::skipped();
+        let eval = EvalMatrixSummary {
+            preset_results: vec![],
+            missing_presets: vec![],
+            open_obligations: vec![],
+            all_required_passed: true,
+        };
+        let inputs = ScoringInputs {
+            quality: &quality,
+            benchmarks: &bench,
+            eval_matrix: &eval,
+            replay_identity: true,
+            domain_available: true,
+            domain_leakage_free: true,
+            domain_test_completed: true,
+            domain_pse_metrics_present: false,
+            domain_pse_majority_wins: true,
+        };
+        assert_ne!(
+            derive_conclusion(&inputs),
+            ValidationConclusion::EmpiricalImprovement
+        );
+    }
+
+    #[test]
+    fn no_empirical_improvement_when_majority_wins_false() {
+        let quality = QualitySummary::all_pass();
+        let bench = BenchmarkSummary::skipped();
+        let eval = EvalMatrixSummary {
+            preset_results: vec![],
+            missing_presets: vec![],
+            open_obligations: vec![],
+            all_required_passed: true,
+        };
+        let inputs = ScoringInputs {
+            quality: &quality,
+            benchmarks: &bench,
+            eval_matrix: &eval,
+            replay_identity: true,
+            domain_available: true,
+            domain_leakage_free: true,
+            domain_test_completed: true,
+            domain_pse_metrics_present: true,
+            domain_pse_majority_wins: false,
+        };
+        assert_ne!(
+            derive_conclusion(&inputs),
+            ValidationConclusion::EmpiricalImprovement
+        );
     }
 }
