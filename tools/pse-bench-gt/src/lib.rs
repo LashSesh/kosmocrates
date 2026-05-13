@@ -30,6 +30,7 @@ pub struct BenchGtJsonOutput {
     pub stl_zscore_metrics: Option<Metrics>,
     pub isoforest_metrics: Option<Metrics>,
     pub aggregate_metrics: Metrics,
+    pub pse_debug: PseDebug,
     /// SHA-256 hex of the serialized Config.
     pub config_hash: String,
     /// SHA-256 hex of the serialized ground-truth event list.
@@ -67,6 +68,7 @@ pub fn build_json_output(
             result.tolerance_ticks,
         ))
     };
+    let pse_debug = build_pse_debug(&result.detections);
     let stl_zscore_metrics = per_source.get("stl_zscore").cloned();
     let isoforest_metrics = per_source.get("isoforest").cloned();
 
@@ -87,6 +89,7 @@ pub fn build_json_output(
         stl_zscore_metrics,
         isoforest_metrics,
         aggregate_metrics: result.metrics.clone(),
+        pse_debug,
         config_hash,
         data_hash,
     }
@@ -96,6 +99,47 @@ fn sha256_hex(data: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(data);
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct PseDebug {
+    pub crystal_count: u64,
+    pub detection_count: u64,
+    pub memory_hit_count: u64,
+    pub first_detection_tick: Option<u64>,
+    pub detection_ticks: Vec<u64>,
+    pub max_score: Option<f64>,
+    pub threshold: Option<f64>,
+    pub filtered_count: u64,
+    pub source_counts: std::collections::BTreeMap<String, u64>,
+}
+
+fn build_pse_debug(detections: &[Detection]) -> PseDebug {
+    let pse_dets: Vec<&Detection> = detections
+        .iter()
+        .filter(|d| d.source.starts_with("pse_"))
+        .collect();
+    let mut source_counts = std::collections::BTreeMap::new();
+    for d in &pse_dets {
+        *source_counts.entry(d.source.clone()).or_insert(0) += 1;
+    }
+    let detection_ticks: Vec<u64> = pse_dets.iter().map(|d| d.tick).collect();
+    let max_score = pse_dets
+        .iter()
+        .map(|d| d.score)
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    PseDebug {
+        crystal_count: *source_counts.get("pse_crystal").unwrap_or(&0),
+        detection_count: pse_dets.len() as u64,
+        memory_hit_count: *source_counts.get("pse_memory_hit").unwrap_or(&0),
+        first_detection_tick: detection_ticks.first().copied(),
+        detection_ticks,
+        max_score,
+        threshold: None,
+        filtered_count: 0,
+        source_counts,
+    }
 }
 
 // ─── Ground-Truth Event ──────────────────────────────────────────────────────
