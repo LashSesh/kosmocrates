@@ -10,6 +10,7 @@
 //! PSE/baseline runners, and CLI bench binaries are added in later
 //! increments and consume this module unchanged.
 
+use crate::runner::RunnerDiagnostics;
 use serde::{Deserialize, Serialize};
 
 pub mod baselines;
@@ -68,7 +69,7 @@ pub fn build_json_output(
             result.tolerance_ticks,
         ))
     };
-    let pse_debug = build_pse_debug(&result.detections);
+    let pse_debug = build_pse_debug(&result.detections, &result.runner_diagnostics);
     let stl_zscore_metrics = per_source.get("stl_zscore").cloned();
     let isoforest_metrics = per_source.get("isoforest").cloned();
 
@@ -112,9 +113,23 @@ pub struct PseDebug {
     pub threshold: Option<f64>,
     pub filtered_count: u64,
     pub source_counts: std::collections::BTreeMap<String, u64>,
+    pub observation_count: u64,
+    pub window_count: u64,
+    pub adapter_event_count: u64,
+    pub candidate_count: u64,
+    pub gate_pass_count: u64,
+    pub gate_hold_count: u64,
+    pub gate_reject_count: u64,
+    pub last_gate_reason: Option<String>,
+    pub max_resonance_score: Option<f64>,
+    pub max_kappa: Option<f64>,
+    pub min_threshold: Option<f64>,
+    pub warmup_remaining: Option<u64>,
+    pub calibration_mode: Option<String>,
+    pub engine_outcome_counts: std::collections::BTreeMap<String, u64>,
 }
 
-fn build_pse_debug(detections: &[Detection]) -> PseDebug {
+fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDebug {
     let pse_dets: Vec<&Detection> = detections
         .iter()
         .filter(|d| d.source.starts_with("pse_"))
@@ -139,6 +154,20 @@ fn build_pse_debug(detections: &[Detection]) -> PseDebug {
         threshold: None,
         filtered_count: 0,
         source_counts,
+        observation_count: diag.observation_count,
+        window_count: diag.window_count,
+        adapter_event_count: diag.adapter_event_count,
+        candidate_count: diag.candidate_count,
+        gate_pass_count: diag.gate_pass_count,
+        gate_hold_count: diag.gate_hold_count,
+        gate_reject_count: diag.gate_reject_count,
+        last_gate_reason: diag.last_gate_reason.clone(),
+        max_resonance_score: diag.max_resonance_score,
+        max_kappa: diag.max_kappa,
+        min_threshold: diag.min_threshold,
+        warmup_remaining: diag.warmup_remaining,
+        calibration_mode: Some(diag.calibration_mode.clone()),
+        engine_outcome_counts: diag.engine_outcome_counts.clone(),
     }
 }
 
@@ -568,6 +597,7 @@ mod tests {
             ground_truth: vec![gt(1, 2, "event")],
             detections: vec![Detection::new(1, 0.9, "stl_zscore")],
             metrics: Metrics::default(),
+            runner_diagnostics: RunnerDiagnostics::default(),
         };
         let out = build_json_output(&result, br#"{}"#);
         let pse = out.pse_metrics.expect("pse metrics should be present");
