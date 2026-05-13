@@ -185,6 +185,22 @@ pub struct RunnerDiagnostics {
     pub warmup_remaining: Option<u64>,
     pub calibration_mode: String,
     pub engine_outcome_counts: std::collections::BTreeMap<String, u64>,
+    pub gate_ticks: Vec<GateTickDiagnostic>,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct GateTickDiagnostic {
+    pub tick: u64,
+    pub in_ground_truth_window: bool,
+    pub gate_d: f64,
+    pub gate_q: f64,
+    pub gate_g: f64,
+    pub gate_k: f64,
+    pub gate_r: f64,
+    pub gate_j: f64,
+    pub gate_p: f64,
+    pub gate_n: f64,
+    pub kairos: bool,
 }
 
 fn gate_reasons(g: &GateSnapshot, c: &Config) -> String {
@@ -240,6 +256,7 @@ pub fn run_pse_windowed(
     config: &Config,
     base_source: &str,
     window_size: usize,
+    ground_truth_windows: &[(u64, u64)],
 ) -> (Vec<Detection>, RunnerDiagnostics) {
     run_pse_windowed_inner(
         state,
@@ -247,6 +264,7 @@ pub fn run_pse_windowed(
         config,
         EventScopedAdapter::new(base_source),
         window_size,
+        ground_truth_windows,
     )
 }
 
@@ -262,12 +280,20 @@ pub fn run_pse_windowed_with_phase<F>(
     base_source: &str,
     window_size: usize,
     phase_fn: F,
+    ground_truth_windows: &[(u64, u64)],
 ) -> (Vec<Detection>, RunnerDiagnostics)
 where
     F: Fn(&[u8]) -> Option<f64> + Send + Sync + 'static,
 {
     let adapter = EventScopedAdapter::new(base_source).with_phase_fn(phase_fn);
-    run_pse_windowed_inner(state, observations, config, adapter, window_size)
+    run_pse_windowed_inner(
+        state,
+        observations,
+        config,
+        adapter,
+        window_size,
+        ground_truth_windows,
+    )
 }
 
 fn run_pse_windowed_inner(
@@ -276,6 +302,7 @@ fn run_pse_windowed_inner(
     config: &Config,
     adapter: EventScopedAdapter,
     window_size: usize,
+    ground_truth_windows: &[(u64, u64)],
 ) -> (Vec<Detection>, RunnerDiagnostics) {
     let window = window_size.max(1);
     let mut detections = Vec::new();
@@ -339,6 +366,21 @@ fn run_pse_windowed_inner(
                     diag.max_kappa = Some(diag.max_kappa.map_or(kappa, |m| m.max(kappa)));
                     diag.max_resonance_score =
                         Some(diag.max_resonance_score.map_or(res, |m| m.max(res)));
+                    diag.gate_ticks.push(GateTickDiagnostic {
+                        tick: state.commit_index,
+                        in_ground_truth_window: ground_truth_windows
+                            .iter()
+                            .any(|(s, e)| state.commit_index >= *s && state.commit_index < *e),
+                        gate_d: g.d,
+                        gate_q: g.q,
+                        gate_g: g.g,
+                        gate_k: g.k,
+                        gate_r: g.r,
+                        gate_j: g.j,
+                        gate_p: g.p,
+                        gate_n: g.n,
+                        kairos: g.kairos,
+                    });
                 }
                 if state.pattern_hits > hits_before {
                     detections.push(Detection::new(state.commit_index, 0.5, "pse_memory_hit"));
@@ -403,7 +445,7 @@ mod tests {
         let cfg = Config::default();
         let mut state = GlobalState::new(&cfg);
         let observations: Vec<Vec<u8>> = (0..10).map(|i| vec![i as u8]).collect();
-        let _ = run_pse_windowed(&mut state, &observations, &cfg, "test", 3);
+        let _ = run_pse_windowed(&mut state, &observations, &cfg, "test", 3, &[]);
         // The graph must now have at least one vertex per *distinct*
         // payload, so the windowed-mode invariant holds: distinct
         // observations no longer collapse onto a single vertex.
@@ -422,7 +464,7 @@ mod tests {
         let cfg = Config::default();
         let mut state = GlobalState::new(&cfg);
         let observations: Vec<Vec<u8>> = (0..20).map(|i| vec![i as u8, (i * 7) as u8]).collect();
-        let _ = run_pse_windowed(&mut state, &observations, &cfg, "test", 5);
+        let _ = run_pse_windowed(&mut state, &observations, &cfg, "test", 5, &[]);
         // With window=5 and 20 observations, after the window stabilises
         // every batch produces C(5, 2) = 10 pairwise edges. Even with
         // deduplication and weight decay, the graph cannot be edgeless.

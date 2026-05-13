@@ -9,8 +9,13 @@ use pse_bench_gt::scenarios::{
     run_binance_scenario, run_seismo_scenario, run_vitals_scenario, ScenarioResult,
     BINANCE_DEFAULT_TOLERANCE, SEISMO_DEFAULT_TOLERANCE, VITALS_DEFAULT_TOLERANCE,
 };
-use pse_bench_gt::{build_json_output, metrics_by_source, BenchGtJsonOutput, Metrics};
+use pse_bench_gt::{
+    apply_frozen_calibration_profile, build_gate_calibration_profile, build_json_output,
+    metrics_by_source, BenchGtJsonOutput, CalibrationReport, CalibrationSplit,
+    GateCalibrationProfile, Metrics,
+};
 use pse_types::Config;
+use sha2::Digest;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -24,8 +29,28 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let scenario_filter = flag(args, "--scenario");
     let format = flag(args, "--format").unwrap_or_else(|| "text".into());
     let out_path = flag(args, "--out");
+    let build_profile_path = flag(args, "--build-calibration-profile");
+    let apply_profile_path = flag(args, "--apply-calibration-profile");
+    let expected_profile_hash = flag(args, "--expected-profile-hash");
+    let calibration_split = parse_split(flag(args, "--calibration-split").as_deref())?;
+    let applied_split = parse_split(flag(args, "--applied-split").as_deref())?;
 
-    let config = Config::default();
+    let mut config = Config::default();
+    let mut apply_report: Option<CalibrationReport> = None;
+    if let Some(profile_path) = &apply_profile_path {
+        let expected = expected_profile_hash
+            .as_deref()
+            .ok_or("--expected-profile-hash is required with --apply-calibration-profile")?;
+        let profile: GateCalibrationProfile =
+            serde_json::from_slice(&std::fs::read(profile_path)?)?;
+        let split = applied_split
+            .clone()
+            .ok_or("--applied-split is required with --apply-calibration-profile")?;
+        let (cfg, report) = apply_frozen_calibration_profile(&config, &profile, split, expected)
+            .map_err(|e| format!("failed to apply calibration profile (fail-closed): {e}"))?;
+        config = cfg;
+        apply_report = Some(report);
+    }
     let config_bytes = serde_json::to_vec(&config)?;
 
     let scenarios: Vec<ScenarioResult> = match scenario_filter.as_deref() {
@@ -50,7 +75,44 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         .into(),
                 );
             }
-            let output: BenchGtJsonOutput = build_json_output(&scenarios[0], &config_bytes);
+            let mut output: BenchGtJsonOutput = build_json_output(&scenarios[0], &config_bytes);
+            if let Some(path) = &build_profile_path {
+                let split = calibration_split
+                    .clone()
+                    .unwrap_or(CalibrationSplit::Calibration);
+                let mut profile = build_gate_calibration_profile(
+                    &scenarios[0].runner_diagnostics,
+                    &scenarios[0].scenario,
+                )
+                .ok_or("unable to build calibration profile from empty diagnostics")?;
+                profile.split = split;
+                profile.profile_hash = String::new();
+                profile.profile_hash = {
+                    let bytes = serde_json::to_vec(&profile)?;
+                    let d = sha2::Sha256::digest(bytes);
+                    d.iter().map(|b| format!("{b:02x}")).collect()
+                };
+                if let Some(parent) = std::path::Path::new(path).parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(path, serde_json::to_string_pretty(&profile)?)?;
+                output.pse_debug.calibration_report = CalibrationReport {
+                    run_mode: "calibration_profile_built".into(),
+                    counterfactual_sweep: true,
+                    calibrated_profile_applied: false,
+                    profile_hash: Some(profile.profile_hash.clone()),
+                    active_policy: profile.policy.clone(),
+                    derived_thresholds: Some(profile.thresholds.clone()),
+                    warnings: profile.warnings.clone(),
+                    source_split: Some(profile.split.clone()),
+                    applied_split: None,
+                    test_frozen: false,
+                };
+            } else if let Some(report) = apply_report.clone() {
+                output.pse_debug.calibration_report = report;
+            } else {
+                output.pse_debug.calibration_report = CalibrationReport::default();
+            }
             let json = serde_json::to_string_pretty(&output)?;
             match &out_path {
                 Some(path) => {
@@ -175,5 +237,17 @@ fn fmt_auprc(m: &Metrics) -> String {
     match m.auprc {
         Some(a) => format!("{a:.4}"),
         None => "_undefined_".to_string(),
+    }
+}
+
+fn parse_split(raw: Option<&str>) -> Result<Option<CalibrationSplit>, Box<dyn std::error::Error>> {
+    match raw {
+        None => Ok(None),
+        Some("calibration") => Ok(Some(CalibrationSplit::Calibration)),
+        Some("validation") => Ok(Some(CalibrationSplit::Validation)),
+        Some("test") => Ok(Some(CalibrationSplit::Test)),
+        Some(other) => {
+            Err(format!("unknown split: {other}; use calibration|validation|test").into())
+        }
     }
 }
