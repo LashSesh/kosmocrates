@@ -33,7 +33,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use pse_core::{macro_step, GlobalState};
 use pse_graph::{ObservationAdapter, ObserveError};
 use pse_types::{
-    content_address_raw, Config, Hash256, MeasurementContext, Observation, ProvenanceEnvelope,
+    content_address_raw, Config, GateSnapshot, Hash256, MeasurementContext, Observation,
+    ProvenanceEnvelope,
 };
 
 use crate::Detection;
@@ -167,6 +168,57 @@ impl ObservationAdapter for EventScopedAdapter {
     }
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct RunnerDiagnostics {
+    pub observation_count: u64,
+    pub window_count: u64,
+    pub window_size: usize,
+    pub adapter_event_count: u64,
+    pub candidate_count: u64,
+    pub gate_pass_count: u64,
+    pub gate_hold_count: u64,
+    pub gate_reject_count: u64,
+    pub last_gate_reason: Option<String>,
+    pub max_resonance_score: Option<f64>,
+    pub max_kappa: Option<f64>,
+    pub min_threshold: Option<f64>,
+    pub warmup_remaining: Option<u64>,
+    pub calibration_mode: String,
+    pub engine_outcome_counts: std::collections::BTreeMap<String, u64>,
+}
+
+fn gate_reasons(g: &GateSnapshot, c: &Config) -> String {
+    let mut r = Vec::new();
+    if g.d < c.thresholds.d {
+        r.push("d");
+    }
+    if g.q < c.thresholds.q {
+        r.push("q");
+    }
+    if g.r < c.thresholds.r {
+        r.push("r");
+    }
+    if g.g < c.thresholds.g {
+        r.push("g");
+    }
+    if g.j < c.thresholds.j {
+        r.push("j");
+    }
+    if g.p < c.thresholds.p {
+        r.push("p");
+    }
+    if g.n < c.thresholds.n {
+        r.push("n");
+    }
+    if g.k < c.thresholds.k {
+        r.push("k");
+    }
+    if r.is_empty() {
+        "kairos=false".to_string()
+    } else {
+        format!("{} below threshold", r.join(","))
+    }
+}
 /// Drive PSE over a stream of raw payloads using an
 /// **expanding-then-sliding window** of the last `window_size`
 /// observations per macro_step, with an [`EventScopedAdapter`] so each
@@ -188,7 +240,7 @@ pub fn run_pse_windowed(
     config: &Config,
     base_source: &str,
     window_size: usize,
-) -> Vec<Detection> {
+) -> (Vec<Detection>, RunnerDiagnostics) {
     run_pse_windowed_inner(
         state,
         observations,
@@ -210,7 +262,7 @@ pub fn run_pse_windowed_with_phase<F>(
     base_source: &str,
     window_size: usize,
     phase_fn: F,
-) -> Vec<Detection>
+) -> (Vec<Detection>, RunnerDiagnostics)
 where
     F: Fn(&[u8]) -> Option<f64> + Send + Sync + 'static,
 {
@@ -224,16 +276,47 @@ fn run_pse_windowed_inner(
     config: &Config,
     adapter: EventScopedAdapter,
     window_size: usize,
-) -> Vec<Detection> {
+) -> (Vec<Detection>, RunnerDiagnostics) {
     let window = window_size.max(1);
     let mut detections = Vec::new();
+    let mut diag = RunnerDiagnostics {
+        observation_count: observations.len() as u64,
+        window_size: window,
+        calibration_mode: if state.adaptive.is_some() {
+            "adaptive".into()
+        } else {
+            "static".into()
+        },
+        min_threshold: Some(
+            [
+                config.thresholds.d,
+                config.thresholds.q,
+                config.thresholds.r,
+                config.thresholds.g,
+                config.thresholds.j,
+                config.thresholds.p,
+                config.thresholds.n,
+                config.thresholds.k,
+            ]
+            .into_iter()
+            .fold(f64::INFINITY, f64::min),
+        ),
+        ..Default::default()
+    };
     for k in 0..observations.len() {
         let lo = (k + 1).saturating_sub(window);
+        diag.window_count += 1;
         let batch: Vec<Vec<u8>> = observations[lo..=k].to_vec();
         let hits_before = state.pattern_hits;
 
         match macro_step(state, &batch, config, &adapter) {
             Ok(Some(crystal)) => {
+                *diag
+                    .engine_outcome_counts
+                    .entry("crystal".into())
+                    .or_insert(0) += 1;
+                diag.candidate_count += 1;
+                diag.gate_pass_count += 1;
                 detections.push(Detection::new(
                     state.commit_index,
                     crystal.stability_score.clamp(0.0, 1.0),
@@ -241,15 +324,41 @@ fn run_pse_windowed_inner(
                 ));
             }
             Ok(None) => {
+                *diag.engine_outcome_counts.entry("none".into()).or_insert(0) += 1;
+                diag.gate_hold_count += 1;
+                if let Some(g) = &state.last_gate {
+                    diag.candidate_count += 1;
+                    if g.kairos {
+                        diag.gate_pass_count += 1;
+                    } else {
+                        diag.gate_reject_count += 1;
+                        diag.last_gate_reason = Some(gate_reasons(g, config));
+                    }
+                    let kappa = g.k;
+                    let res = g.r;
+                    diag.max_kappa = Some(diag.max_kappa.map_or(kappa, |m| m.max(kappa)));
+                    diag.max_resonance_score =
+                        Some(diag.max_resonance_score.map_or(res, |m| m.max(res)));
+                }
                 if state.pattern_hits > hits_before {
                     detections.push(Detection::new(state.commit_index, 0.5, "pse_memory_hit"));
                 }
             }
-            Err(_) => {}
+            Err(_) => {
+                *diag
+                    .engine_outcome_counts
+                    .entry("error".into())
+                    .or_insert(0) += 1;
+            }
         }
     }
 
-    detections
+    diag.adapter_event_count = adapter.calls() as u64;
+    diag.warmup_remaining = state
+        .adaptive
+        .as_ref()
+        .map(|a| (a.warmup_ticks as u64).saturating_sub(a.seen));
+    (detections, diag)
 }
 
 #[cfg(test)]

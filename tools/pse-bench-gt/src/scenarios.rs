@@ -17,6 +17,7 @@ use pse_types::Config;
 use serde::{Deserialize, Serialize};
 
 use crate::baselines::{isoforest, stl_zscore};
+use crate::runner::RunnerDiagnostics;
 use crate::{score_detections, Detection, GroundTruthEvent, Metrics};
 
 /// Default tolerance windows per scenario. Reasoning:
@@ -64,6 +65,7 @@ pub struct ScenarioResult {
     pub detections: Vec<Detection>,
     /// Aggregate metrics (precision, recall, F1, AUPRC).
     pub metrics: Metrics,
+    pub runner_diagnostics: RunnerDiagnostics,
 }
 
 /// Run the seismo ground-truth scenario end-to-end against a fresh PSE
@@ -97,7 +99,7 @@ pub fn run_seismo_scenario_with(
         .map(|e| serde_json::to_vec(e).expect("seismo event must serialize"))
         .collect();
 
-    let mut detections =
+    let (mut detections, runner_diagnostics) =
         crate::runner::run_pse_windowed(&mut state, &payloads, config, "seismo", window_size);
 
     let features = extract_seismo_features(&events);
@@ -127,6 +129,7 @@ pub fn run_seismo_scenario_with(
         ground_truth,
         detections,
         metrics,
+        runner_diagnostics,
     }
 }
 
@@ -168,7 +171,7 @@ pub fn run_vitals_scenario_with(
         .map(|r| serde_json::to_vec(r).expect("vital reading must serialize"))
         .collect();
 
-    let mut detections =
+    let (mut detections, runner_diagnostics) =
         crate::runner::run_pse_windowed(&mut state, &payloads, config, "vitals_b", window_size);
 
     // ECG amplitude is the natural per-tick scalar feature.
@@ -209,6 +212,7 @@ pub fn run_vitals_scenario_with(
         ground_truth,
         detections,
         metrics,
+        runner_diagnostics,
     }
 }
 
@@ -265,7 +269,7 @@ pub fn run_binance_scenario_with(
             None
         }
     };
-    let mut detections = crate::runner::run_pse_windowed_with_phase(
+    let (mut detections, runner_diagnostics) = crate::runner::run_pse_windowed_with_phase(
         &mut state,
         &payloads,
         &adaptive_config,
@@ -304,6 +308,7 @@ pub fn run_binance_scenario_with(
         ground_truth,
         detections,
         metrics,
+        runner_diagnostics,
     }
 }
 
