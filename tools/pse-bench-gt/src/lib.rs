@@ -260,10 +260,39 @@ pub struct CalibrationReport {
     pub profile_hash: Option<String>,
     pub active_policy: CalibrationPolicy,
     pub derived_thresholds: Option<GateAxisThresholds>,
+    pub applied_thresholds: Option<GateAxisThresholds>,
+    pub fail_closed_axes: Vec<String>,
+    pub per_axis_reason: std::collections::BTreeMap<String, String>,
+    pub profile_gate_pass_count_after_apply: Option<u64>,
+    pub profile_gate_reject_count_after_apply: Option<u64>,
+    pub profile_counterfactual_consistency: Option<bool>,
     pub warnings: Vec<String>,
     pub source_split: Option<CalibrationSplit>,
     pub applied_split: Option<CalibrationSplit>,
     pub test_frozen: bool,
+}
+
+fn fail_closed_metadata_from_profile(
+    profile: &GateCalibrationProfile,
+) -> (Vec<String>, std::collections::BTreeMap<String, String>) {
+    let mut axes = Vec::new();
+    let mut reasons = std::collections::BTreeMap::new();
+    for w in &profile.warnings {
+        if let Some(rest) = w.strip_prefix("axis ") {
+            let axis = rest
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            if !axis.is_empty() {
+                axes.push(axis.clone());
+                reasons.insert(axis, "gt_mean <= out_mean".into());
+            }
+        }
+    }
+    axes.sort();
+    axes.dedup();
+    (axes, reasons)
 }
 
 impl Default for CalibrationReport {
@@ -275,6 +304,12 @@ impl Default for CalibrationReport {
             profile_hash: None,
             active_policy: CalibrationPolicy::UncalibratedStatic,
             derived_thresholds: None,
+            applied_thresholds: None,
+            fail_closed_axes: Vec::new(),
+            per_axis_reason: std::collections::BTreeMap::new(),
+            profile_gate_pass_count_after_apply: None,
+            profile_gate_reject_count_after_apply: None,
+            profile_counterfactual_consistency: None,
             warnings: Vec::new(),
             source_split: None,
             applied_split: None,
@@ -300,6 +335,7 @@ fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDeb
 
     let profile = build_gate_calibration_profile(diag, "unknown_scenario");
     let report = if let Some(profile) = &profile {
+        let (fail_closed_axes, per_axis_reason) = fail_closed_metadata_from_profile(profile);
         CalibrationReport {
             run_mode: "calibration_profile_built".into(),
             counterfactual_sweep: true,
@@ -307,6 +343,12 @@ fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDeb
             profile_hash: Some(profile.profile_hash.clone()),
             active_policy: profile.policy.clone(),
             derived_thresholds: Some(profile.thresholds.clone()),
+            applied_thresholds: None,
+            fail_closed_axes,
+            per_axis_reason,
+            profile_gate_pass_count_after_apply: None,
+            profile_gate_reject_count_after_apply: None,
+            profile_counterfactual_consistency: None,
             warnings: profile.warnings.clone(),
             source_split: Some(profile.split.clone()),
             applied_split: None,
@@ -366,7 +408,10 @@ pub fn build_gate_calibration_profile(
     if in_gt.is_empty() || out_gt.is_empty() {
         warnings.push("insufficient gt separation for robust calibration".into());
     }
-    let derive = |f: fn(&crate::runner::GateTickDiagnostic) -> f64| -> f64 {
+    let mut fail_closed_axes = Vec::new();
+    let mut per_axis_reason: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    let mut derive = |axis: &str, f: fn(&crate::runner::GateTickDiagnostic) -> f64| -> f64 {
         let gt_mean = if in_gt.is_empty() {
             0.0
         } else {
@@ -378,20 +423,23 @@ pub fn build_gate_calibration_profile(
             out_gt.iter().map(|t| f(t)).sum::<f64>() / out_gt.len() as f64
         };
         if gt_mean <= out_mean {
+            fail_closed_axes.push(axis.to_string());
+            per_axis_reason.insert(axis.to_string(), "gt_mean <= out_mean".into());
+            warnings.push(format!("axis {axis} fail-closed: gt_mean <= out_mean"));
             1.0
         } else {
             ((gt_mean + out_mean) / 2.0).clamp(0.0, 1.0)
         }
     };
     let thresholds = GateAxisThresholds {
-        d: derive(|t| t.gate_d),
-        q: derive(|t| t.gate_q),
-        r: derive(|t| t.gate_r),
-        g: derive(|t| t.gate_g),
-        j: derive(|t| t.gate_j),
-        p: derive(|t| t.gate_p),
-        n: derive(|t| t.gate_n),
-        k: derive(|t| t.gate_k),
+        d: derive("d", |t| t.gate_d),
+        q: derive("q", |t| t.gate_q),
+        r: derive("r", |t| t.gate_r),
+        g: derive("g", |t| t.gate_g),
+        j: derive("j", |t| t.gate_j),
+        p: derive("p", |t| t.gate_p),
+        n: derive("n", |t| t.gate_n),
+        k: derive("k", |t| t.gate_k),
     };
     if [
         thresholds.d,
@@ -408,13 +456,16 @@ pub fn build_gate_calibration_profile(
     {
         warnings.push("fail-closed profile: no discriminative gt-sensitive signal found".into());
     }
+    if !fail_closed_axes.is_empty() {
+        warnings.push("derived profile is stricter than global counterfactual sweep".into());
+    }
     let diagnostics_hash = sha256_hex(&serde_json::to_vec(&diag.gate_ticks).ok()?);
     let mut partial = GateCalibrationProfile {
         profile_version: "1".into(),
         source_scenario: source_scenario.into(),
         split: CalibrationSplit::Calibration,
         source: CalibrationSource::DomainBench,
-        policy: CalibrationPolicy::CounterfactualSweepOnly,
+        policy: CalibrationPolicy::CalibratedValidationFrozen,
         thresholds,
         diagnostics_hash,
         profile_hash: String::new(),
@@ -451,6 +502,7 @@ pub fn apply_frozen_calibration_profile(
         return Err("invalid threshold value in profile".into());
     }
     let mut warnings = profile.warnings.clone();
+    let (fail_closed_axes, per_axis_reason) = fail_closed_metadata_from_profile(profile);
     let test_frozen = matches!(applied_split, CalibrationSplit::Test);
     if matches!(profile.split, CalibrationSplit::Test)
         && matches!(applied_split, CalibrationSplit::Test)
@@ -480,6 +532,12 @@ pub fn apply_frozen_calibration_profile(
         profile_hash: Some(profile.profile_hash.clone()),
         active_policy: profile.policy.clone(),
         derived_thresholds: Some(profile.thresholds.clone()),
+        applied_thresholds: Some(profile.thresholds.clone()),
+        fail_closed_axes,
+        per_axis_reason,
+        profile_gate_pass_count_after_apply: None,
+        profile_gate_reject_count_after_apply: None,
+        profile_counterfactual_consistency: None,
         warnings,
         source_split: Some(profile.split.clone()),
         applied_split: Some(applied_split),
@@ -1083,5 +1141,104 @@ mod tests {
             "uncalibrated_static"
         );
         assert!(!out.pse_debug.calibration_report.calibrated_profile_applied);
+    }
+
+    #[test]
+    fn axis_fail_closed_sets_threshold_and_warning() {
+        let mut diag = RunnerDiagnostics::default();
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 1,
+            in_ground_truth_window: true,
+            gate_d: 0.9,
+            gate_q: 0.2,
+            gate_g: 0.9,
+            gate_k: 0.9,
+            gate_r: 0.9,
+            gate_j: 0.9,
+            gate_p: 0.9,
+            gate_n: 0.9,
+            kairos: false,
+        });
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 2,
+            in_ground_truth_window: false,
+            gate_d: 0.1,
+            gate_q: 0.8,
+            gate_g: 0.1,
+            gate_k: 0.1,
+            gate_r: 0.1,
+            gate_j: 0.1,
+            gate_p: 0.1,
+            gate_n: 0.1,
+            kairos: false,
+        });
+        let p = build_gate_calibration_profile(&diag, "s").unwrap();
+        assert_eq!(p.thresholds.q, 1.0);
+        assert!(p.warnings.iter().any(|w| w.contains("axis q fail-closed")));
+    }
+
+    #[test]
+    fn fail_closed_axes_imply_non_empty_warnings() {
+        let mut diag = RunnerDiagnostics::default();
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 1,
+            in_ground_truth_window: true,
+            gate_d: 0.2,
+            gate_q: 0.2,
+            gate_g: 0.2,
+            gate_k: 0.2,
+            gate_r: 0.2,
+            gate_j: 0.2,
+            gate_p: 0.2,
+            gate_n: 0.2,
+            kairos: false,
+        });
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 2,
+            in_ground_truth_window: false,
+            gate_d: 0.3,
+            gate_q: 0.3,
+            gate_g: 0.3,
+            gate_k: 0.3,
+            gate_r: 0.3,
+            gate_j: 0.3,
+            gate_p: 0.3,
+            gate_n: 0.3,
+            kairos: false,
+        });
+        let p = build_gate_calibration_profile(&diag, "s").unwrap();
+        let (cfg, report) = apply_frozen_calibration_profile(
+            &Config::default(),
+            &p,
+            CalibrationSplit::Validation,
+            &p.profile_hash,
+        )
+        .unwrap();
+        assert_eq!(cfg.thresholds.q, 1.0);
+        assert!(!report.fail_closed_axes.is_empty());
+        assert!(!report.warnings.is_empty());
+    }
+
+    #[test]
+    fn active_policy_matches_multi_axis_profile_usage() {
+        let mut diag = RunnerDiagnostics::default();
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 1,
+            in_ground_truth_window: true,
+            gate_d: 0.9,
+            gate_q: 0.9,
+            gate_g: 0.9,
+            gate_k: 0.9,
+            gate_r: 0.9,
+            gate_j: 0.9,
+            gate_p: 0.9,
+            gate_n: 0.9,
+            kairos: false,
+        });
+        let p = build_gate_calibration_profile(&diag, "s").unwrap();
+        assert!(matches!(
+            p.policy,
+            CalibrationPolicy::CalibratedValidationFrozen
+        ));
     }
 }
