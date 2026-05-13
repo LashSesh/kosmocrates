@@ -10,7 +10,8 @@
 //! PSE/baseline runners, and CLI bench binaries are added in later
 //! increments and consume this module unchanged.
 
-use crate::runner::RunnerDiagnostics;
+use crate::runner::{GateTickDiagnostic, RunnerDiagnostics};
+use pse_types::Config;
 use serde::{Deserialize, Serialize};
 
 pub mod baselines;
@@ -69,7 +70,9 @@ pub fn build_json_output(
             result.tolerance_ticks,
         ))
     };
-    let pse_debug = build_pse_debug(&result.detections, &result.runner_diagnostics);
+    let mut pse_debug = build_pse_debug(&result.detections, &result.runner_diagnostics);
+    pse_debug.gate_calibration =
+        build_gate_calibration(&result.ground_truth, &result.runner_diagnostics.gate_ticks);
     let stl_zscore_metrics = per_source.get("stl_zscore").cloned();
     let isoforest_metrics = per_source.get("isoforest").cloned();
 
@@ -93,6 +96,51 @@ pub fn build_json_output(
         pse_debug,
         config_hash,
         data_hash,
+    }
+}
+
+fn build_gate_calibration(
+    ground_truth: &[GroundTruthEvent],
+    ticks: &[GateTickDiagnostic],
+) -> GateCalibrationDiagnostics {
+    let thresholds = vec![0.1, 0.2, 0.3, 0.4, 0.5];
+    let mut sweep = Vec::new();
+    for &thr in &thresholds {
+        let dets: Vec<Detection> = ticks
+            .iter()
+            .filter(|t| t.gate_d >= thr && t.gate_q >= thr && t.gate_g >= thr && t.gate_k >= thr)
+            .map(|t| Detection::new(t.tick, t.gate_r, "pse_counterfactual_gate"))
+            .collect();
+        let m = score_detections(ground_truth, &dets, 0);
+        sweep.push(ThresholdSweepRow {
+            threshold: thr,
+            hypothetical_detection_count: dets.len() as u64,
+            hypothetical_tp: m.tp,
+            hypothetical_fp: m.fp,
+            hypothetical_fn: m.fn_,
+            hypothetical_precision: m.precision,
+            hypothetical_recall: m.recall,
+            hypothetical_f1: m.f1,
+        });
+    }
+    let best_threshold_by_f1 = sweep
+        .iter()
+        .max_by(|a, b| a.hypothetical_f1.total_cmp(&b.hypothetical_f1))
+        .map(|r| r.threshold);
+    let first_threshold_with_any_detection = sweep
+        .iter()
+        .find(|r| r.hypothetical_detection_count > 0)
+        .map(|r| r.threshold);
+    let first_threshold_with_true_positive = sweep
+        .iter()
+        .find(|r| r.hypothetical_tp > 0)
+        .map(|r| r.threshold);
+    GateCalibrationDiagnostics {
+        thresholds_tested: thresholds,
+        sweep,
+        best_threshold_by_f1,
+        first_threshold_with_any_detection,
+        first_threshold_with_true_positive,
     }
 }
 
@@ -127,6 +175,112 @@ pub struct PseDebug {
     pub warmup_remaining: Option<u64>,
     pub calibration_mode: Option<String>,
     pub engine_outcome_counts: std::collections::BTreeMap<String, u64>,
+    pub gate_calibration: GateCalibrationDiagnostics,
+    pub calibration_report: CalibrationReport,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct GateCalibrationDiagnostics {
+    pub thresholds_tested: Vec<f64>,
+    pub sweep: Vec<ThresholdSweepRow>,
+    pub best_threshold_by_f1: Option<f64>,
+    pub first_threshold_with_any_detection: Option<f64>,
+    pub first_threshold_with_true_positive: Option<f64>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ThresholdSweepRow {
+    pub threshold: f64,
+    pub hypothetical_detection_count: u64,
+    pub hypothetical_tp: u64,
+    pub hypothetical_fp: u64,
+    pub hypothetical_fn: u64,
+    pub hypothetical_precision: f64,
+    pub hypothetical_recall: f64,
+    pub hypothetical_f1: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GateAxisThresholds {
+    pub d: f64,
+    pub q: f64,
+    pub r: f64,
+    pub g: f64,
+    pub j: f64,
+    pub p: f64,
+    pub n: f64,
+    pub k: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum CalibrationSplit {
+    Calibration,
+    Validation,
+    Test,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum CalibrationSource {
+    DomainBench,
+    Synthetic,
+    External,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum CalibrationPolicy {
+    UncalibratedStatic,
+    CounterfactualSweepOnly,
+    CalibratedValidationFrozen,
+    TestFrozenApplied,
+}
+
+impl Default for CalibrationPolicy {
+    fn default() -> Self {
+        Self::UncalibratedStatic
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GateCalibrationProfile {
+    pub profile_version: String,
+    pub source_scenario: String,
+    pub split: CalibrationSplit,
+    pub source: CalibrationSource,
+    pub policy: CalibrationPolicy,
+    pub thresholds: GateAxisThresholds,
+    pub diagnostics_hash: String,
+    pub profile_hash: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CalibrationReport {
+    pub run_mode: String,
+    pub counterfactual_sweep: bool,
+    pub calibrated_profile_applied: bool,
+    pub profile_hash: Option<String>,
+    pub active_policy: CalibrationPolicy,
+    pub derived_thresholds: Option<GateAxisThresholds>,
+    pub warnings: Vec<String>,
+    pub source_split: Option<CalibrationSplit>,
+    pub applied_split: Option<CalibrationSplit>,
+    pub test_frozen: bool,
+}
+
+impl Default for CalibrationReport {
+    fn default() -> Self {
+        Self {
+            run_mode: "uncalibrated_static".into(),
+            counterfactual_sweep: true,
+            calibrated_profile_applied: false,
+            profile_hash: None,
+            active_policy: CalibrationPolicy::UncalibratedStatic,
+            derived_thresholds: None,
+            warnings: Vec::new(),
+            source_split: None,
+            applied_split: None,
+            test_frozen: false,
+        }
+    }
 }
 
 fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDebug {
@@ -143,6 +297,24 @@ fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDeb
         .iter()
         .map(|d| d.score)
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let profile = build_gate_calibration_profile(diag, "unknown_scenario");
+    let report = if let Some(profile) = &profile {
+        CalibrationReport {
+            run_mode: "calibration_profile_built".into(),
+            counterfactual_sweep: true,
+            calibrated_profile_applied: false,
+            profile_hash: Some(profile.profile_hash.clone()),
+            active_policy: profile.policy.clone(),
+            derived_thresholds: Some(profile.thresholds.clone()),
+            warnings: profile.warnings.clone(),
+            source_split: Some(profile.split.clone()),
+            applied_split: None,
+            test_frozen: false,
+        }
+    } else {
+        CalibrationReport::default()
+    };
 
     PseDebug {
         crystal_count: *source_counts.get("pse_crystal").unwrap_or(&0),
@@ -168,7 +340,152 @@ fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDeb
         warmup_remaining: diag.warmup_remaining,
         calibration_mode: Some(diag.calibration_mode.clone()),
         engine_outcome_counts: diag.engine_outcome_counts.clone(),
+        gate_calibration: GateCalibrationDiagnostics::default(),
+        calibration_report: report,
     }
+}
+
+pub fn build_gate_calibration_profile(
+    diag: &RunnerDiagnostics,
+    source_scenario: &str,
+) -> Option<GateCalibrationProfile> {
+    if diag.gate_ticks.is_empty() {
+        return None;
+    }
+    let mut warnings = Vec::new();
+    let in_gt: Vec<_> = diag
+        .gate_ticks
+        .iter()
+        .filter(|t| t.in_ground_truth_window)
+        .collect();
+    let out_gt: Vec<_> = diag
+        .gate_ticks
+        .iter()
+        .filter(|t| !t.in_ground_truth_window)
+        .collect();
+    if in_gt.is_empty() || out_gt.is_empty() {
+        warnings.push("insufficient gt separation for robust calibration".into());
+    }
+    let derive = |f: fn(&crate::runner::GateTickDiagnostic) -> f64| -> f64 {
+        let gt_mean = if in_gt.is_empty() {
+            0.0
+        } else {
+            in_gt.iter().map(|t| f(t)).sum::<f64>() / in_gt.len() as f64
+        };
+        let out_mean = if out_gt.is_empty() {
+            0.0
+        } else {
+            out_gt.iter().map(|t| f(t)).sum::<f64>() / out_gt.len() as f64
+        };
+        if gt_mean <= out_mean {
+            1.0
+        } else {
+            ((gt_mean + out_mean) / 2.0).clamp(0.0, 1.0)
+        }
+    };
+    let thresholds = GateAxisThresholds {
+        d: derive(|t| t.gate_d),
+        q: derive(|t| t.gate_q),
+        r: derive(|t| t.gate_r),
+        g: derive(|t| t.gate_g),
+        j: derive(|t| t.gate_j),
+        p: derive(|t| t.gate_p),
+        n: derive(|t| t.gate_n),
+        k: derive(|t| t.gate_k),
+    };
+    if [
+        thresholds.d,
+        thresholds.q,
+        thresholds.r,
+        thresholds.g,
+        thresholds.j,
+        thresholds.p,
+        thresholds.n,
+        thresholds.k,
+    ]
+    .iter()
+    .all(|&x| x >= 0.999)
+    {
+        warnings.push("fail-closed profile: no discriminative gt-sensitive signal found".into());
+    }
+    let diagnostics_hash = sha256_hex(&serde_json::to_vec(&diag.gate_ticks).ok()?);
+    let mut partial = GateCalibrationProfile {
+        profile_version: "1".into(),
+        source_scenario: source_scenario.into(),
+        split: CalibrationSplit::Calibration,
+        source: CalibrationSource::DomainBench,
+        policy: CalibrationPolicy::CounterfactualSweepOnly,
+        thresholds,
+        diagnostics_hash,
+        profile_hash: String::new(),
+        warnings,
+    };
+    let profile_hash = sha256_hex(&serde_json::to_vec(&partial).ok()?);
+    partial.profile_hash = profile_hash;
+    Some(partial)
+}
+
+pub fn apply_frozen_calibration_profile(
+    config: &Config,
+    profile: &GateCalibrationProfile,
+    applied_split: CalibrationSplit,
+    expected_profile_hash: &str,
+) -> Result<(Config, CalibrationReport), String> {
+    if profile.profile_hash.is_empty() || expected_profile_hash.is_empty() {
+        return Err("missing profile hash".into());
+    }
+    if profile.profile_hash != expected_profile_hash {
+        return Err("profile hash mismatch".into());
+    }
+    let all = [
+        profile.thresholds.d,
+        profile.thresholds.q,
+        profile.thresholds.r,
+        profile.thresholds.g,
+        profile.thresholds.j,
+        profile.thresholds.p,
+        profile.thresholds.n,
+        profile.thresholds.k,
+    ];
+    if all.iter().any(|v| !v.is_finite() || *v < 0.0 || *v > 1.0) {
+        return Err("invalid threshold value in profile".into());
+    }
+    let mut warnings = profile.warnings.clone();
+    let test_frozen = matches!(applied_split, CalibrationSplit::Test);
+    if matches!(profile.split, CalibrationSplit::Test)
+        && matches!(applied_split, CalibrationSplit::Test)
+    {
+        warnings
+            .push("test-profile applied to test split is not valid for performance proof".into());
+    }
+    let mut cfg = config.clone();
+    cfg.thresholds.d = profile.thresholds.d;
+    cfg.thresholds.q = profile.thresholds.q;
+    cfg.thresholds.r = profile.thresholds.r;
+    cfg.thresholds.g = profile.thresholds.g;
+    cfg.thresholds.j = profile.thresholds.j;
+    cfg.thresholds.p = profile.thresholds.p;
+    cfg.thresholds.n = profile.thresholds.n;
+    cfg.thresholds.k = profile.thresholds.k;
+
+    let run_mode = if test_frozen {
+        "test_frozen_profile_applied"
+    } else {
+        "calibrated_profile_applied"
+    };
+    let report = CalibrationReport {
+        run_mode: run_mode.into(),
+        counterfactual_sweep: true,
+        calibrated_profile_applied: true,
+        profile_hash: Some(profile.profile_hash.clone()),
+        active_policy: profile.policy.clone(),
+        derived_thresholds: Some(profile.thresholds.clone()),
+        warnings,
+        source_split: Some(profile.split.clone()),
+        applied_split: Some(applied_split),
+        test_frozen,
+    };
+    Ok((cfg, report))
 }
 
 // ─── Ground-Truth Event ──────────────────────────────────────────────────────
@@ -605,5 +922,166 @@ mod tests {
         assert_eq!(pse.fp, 0);
         assert_eq!(pse.fn_, 1);
         assert_eq!(pse.f1, 0.0);
+    }
+
+    #[test]
+    fn profile_builder_is_deterministic_for_same_input() {
+        let mut diag = RunnerDiagnostics::default();
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 1,
+            in_ground_truth_window: true,
+            gate_d: 0.9,
+            gate_q: 0.8,
+            gate_g: 0.7,
+            gate_k: 0.6,
+            gate_r: 0.5,
+            gate_j: 0.7,
+            gate_p: 0.4,
+            gate_n: 0.3,
+            kairos: false,
+        });
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 2,
+            in_ground_truth_window: false,
+            gate_d: 0.1,
+            gate_q: 0.2,
+            gate_g: 0.3,
+            gate_k: 0.4,
+            gate_r: 0.5,
+            gate_j: 0.3,
+            gate_p: 0.2,
+            gate_n: 0.1,
+            kairos: false,
+        });
+        let p1 = build_gate_calibration_profile(&diag, "s").unwrap();
+        let p2 = build_gate_calibration_profile(&diag, "s").unwrap();
+        assert_eq!(p1.profile_hash, p2.profile_hash);
+    }
+
+    #[test]
+    fn profile_hash_changes_when_input_changes() {
+        let mut diag = RunnerDiagnostics::default();
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 1,
+            in_ground_truth_window: true,
+            gate_d: 0.9,
+            gate_q: 0.8,
+            gate_g: 0.7,
+            gate_k: 0.6,
+            gate_r: 0.5,
+            gate_j: 0.7,
+            gate_p: 0.4,
+            gate_n: 0.3,
+            kairos: false,
+        });
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 2,
+            in_ground_truth_window: false,
+            gate_d: 0.2,
+            gate_q: 0.2,
+            gate_g: 0.3,
+            gate_k: 0.4,
+            gate_r: 0.5,
+            gate_j: 0.3,
+            gate_p: 0.2,
+            gate_n: 0.1,
+            kairos: false,
+        });
+        let p1 = build_gate_calibration_profile(&diag, "s").unwrap();
+        diag.gate_ticks[1].gate_d = 0.25;
+        let p2 = build_gate_calibration_profile(&diag, "s").unwrap();
+        assert_ne!(p1.profile_hash, p2.profile_hash);
+    }
+
+    #[test]
+    fn apply_requires_explicit_matching_profile_hash() {
+        let cfg = Config::default();
+        let mut diag = RunnerDiagnostics::default();
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 1,
+            in_ground_truth_window: true,
+            gate_d: 0.9,
+            gate_q: 0.9,
+            gate_g: 0.9,
+            gate_k: 0.9,
+            gate_r: 0.9,
+            gate_j: 0.9,
+            gate_p: 0.9,
+            gate_n: 0.9,
+            kairos: false,
+        });
+        let p = build_gate_calibration_profile(&diag, "s").unwrap();
+        assert!(
+            apply_frozen_calibration_profile(&cfg, &p, CalibrationSplit::Validation, "").is_err()
+        );
+        assert!(
+            apply_frozen_calibration_profile(&cfg, &p, CalibrationSplit::Validation, "wrong")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn apply_changes_thresholds_only_when_explicitly_called() {
+        let cfg = Config::default();
+        let mut diag = RunnerDiagnostics::default();
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 1,
+            in_ground_truth_window: true,
+            gate_d: 0.9,
+            gate_q: 0.8,
+            gate_g: 0.7,
+            gate_k: 0.6,
+            gate_r: 0.6,
+            gate_j: 0.7,
+            gate_p: 0.8,
+            gate_n: 0.9,
+            kairos: false,
+        });
+        diag.gate_ticks.push(crate::runner::GateTickDiagnostic {
+            tick: 2,
+            in_ground_truth_window: false,
+            gate_d: 0.1,
+            gate_q: 0.1,
+            gate_g: 0.1,
+            gate_k: 0.1,
+            gate_r: 0.1,
+            gate_j: 0.1,
+            gate_p: 0.1,
+            gate_n: 0.1,
+            kairos: false,
+        });
+        let p = build_gate_calibration_profile(&diag, "s").unwrap();
+        assert_eq!(cfg.thresholds.d, 0.5);
+        let (applied, report) = apply_frozen_calibration_profile(
+            &cfg,
+            &p,
+            CalibrationSplit::Validation,
+            &p.profile_hash,
+        )
+        .unwrap();
+        assert_eq!(applied.thresholds.d, p.thresholds.d);
+        assert!(report.calibrated_profile_applied);
+        assert_eq!(report.run_mode, "calibrated_profile_applied");
+    }
+
+    #[test]
+    fn default_run_remains_uncalibrated_static() {
+        let out = build_json_output(
+            &scenarios::ScenarioResult {
+                scenario: "no_pse".into(),
+                n_observations: 1,
+                tolerance_ticks: 0,
+                ground_truth: vec![],
+                detections: vec![],
+                metrics: Metrics::default(),
+                runner_diagnostics: RunnerDiagnostics::default(),
+            },
+            br#"{}"#,
+        );
+        assert_eq!(
+            out.pse_debug.calibration_report.run_mode,
+            "uncalibrated_static"
+        );
+        assert!(!out.pse_debug.calibration_report.calibrated_profile_applied);
     }
 }

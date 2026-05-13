@@ -99,8 +99,19 @@ pub fn run_seismo_scenario_with(
         .map(|e| serde_json::to_vec(e).expect("seismo event must serialize"))
         .collect();
 
-    let (mut detections, runner_diagnostics) =
-        crate::runner::run_pse_windowed(&mut state, &payloads, config, "seismo", window_size);
+    let gt_raw = embedded_seismo_ground_truth();
+    let gt_windows: Vec<(u64, u64)> = gt_raw
+        .iter()
+        .map(|e| (e.start_index as u64, e.end_index as u64))
+        .collect();
+    let (mut detections, runner_diagnostics) = crate::runner::run_pse_windowed(
+        &mut state,
+        &payloads,
+        config,
+        "seismo",
+        window_size,
+        &gt_windows,
+    );
 
     let features = extract_seismo_features(&events);
     let stl_cfg = stl_zscore::StlZscoreConfig::default();
@@ -110,7 +121,7 @@ pub fn run_seismo_scenario_with(
     let if_cfg = isoforest::IsoForestConfig::default();
     detections.extend(isoforest::detect(&if_samples, &if_cfg));
 
-    let ground_truth: Vec<GroundTruthEvent> = embedded_seismo_ground_truth()
+    let ground_truth: Vec<GroundTruthEvent> = gt_raw
         .into_iter()
         .map(|e| GroundTruthEvent {
             start_index: e.start_index as u64,
@@ -171,8 +182,24 @@ pub fn run_vitals_scenario_with(
         .map(|r| serde_json::to_vec(r).expect("vital reading must serialize"))
         .collect();
 
-    let (mut detections, runner_diagnostics) =
-        crate::runner::run_pse_windowed(&mut state, &payloads, config, "vitals_b", window_size);
+    let gt_raw = embedded_vitals_ground_truth(duration_sec);
+    let gt_windows: Vec<(u64, u64)> = gt_raw
+        .iter()
+        .map(|e| {
+            (
+                (e.start_index.saturating_sub(1) / 2) as u64,
+                (e.end_index / 2) as u64,
+            )
+        })
+        .collect();
+    let (mut detections, runner_diagnostics) = crate::runner::run_pse_windowed(
+        &mut state,
+        &payloads,
+        config,
+        "vitals_b",
+        window_size,
+        &gt_windows,
+    );
 
     // ECG amplitude is the natural per-tick scalar feature.
     let features: Vec<f64> = patient_b.iter().map(|r| r.value).collect();
@@ -189,7 +216,7 @@ pub fn run_vitals_scenario_with(
     // Convert interleaved-frame ground truth into patient-B-only frame.
     // A patient-B reading at interleaved index 2k+1 → filtered index k.
     let n_b = patient_b.len();
-    let ground_truth: Vec<GroundTruthEvent> = embedded_vitals_ground_truth(duration_sec)
+    let ground_truth: Vec<GroundTruthEvent> = gt_raw
         .into_iter()
         .map(|e| {
             let start_b = e.start_index.saturating_sub(1) / 2;
@@ -269,6 +296,11 @@ pub fn run_binance_scenario_with(
             None
         }
     };
+    let gt_raw = embedded_binance_ground_truth();
+    let gt_windows: Vec<(u64, u64)> = gt_raw
+        .iter()
+        .map(|e| (e.start_index as u64, e.end_index as u64))
+        .collect();
     let (mut detections, runner_diagnostics) = crate::runner::run_pse_windowed_with_phase(
         &mut state,
         &payloads,
@@ -276,6 +308,7 @@ pub fn run_binance_scenario_with(
         "binance_btc",
         window_size,
         phase_fn,
+        &gt_windows,
     );
 
     let features = extract_binance_features(&ticks);
@@ -289,7 +322,7 @@ pub fn run_binance_scenario_with(
         &isoforest::IsoForestConfig::default(),
     ));
 
-    let ground_truth: Vec<GroundTruthEvent> = embedded_binance_ground_truth()
+    let ground_truth: Vec<GroundTruthEvent> = gt_raw
         .into_iter()
         .map(|e| GroundTruthEvent {
             start_index: e.start_index as u64,
