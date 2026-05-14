@@ -24,10 +24,10 @@ use std::process::ExitCode;
 
 use pse_eval_matrix::{
     append_to_ledger, build_ablation_ladder, init_ledger, plan_runs, render_json_summary,
-    render_markdown_summary, run_trial, score_capability_profile, score_ledger, summarize_ablation,
-    AblationSummary, ConclusionFlag, EvaluationPlan, EvaluationRunLedger, EvaluationSpec,
-    EvaluationSummaryReport, Fixed, Preset, SyntheticTrialExecutor, TrialReport, VariantSummary,
-    WorkloadSummary,
+    render_markdown_summary, run_agent_exoskeleton_benchmark, run_trial, score_capability_profile,
+    score_ledger, summarize_ablation, AblationSummary, ConclusionFlag, EvaluationPlan,
+    EvaluationRunLedger, EvaluationSpec, EvaluationSummaryReport, Fixed, Preset,
+    SyntheticTrialExecutor, TrialReport, VariantSummary, WorkloadSummary,
 };
 
 fn main() -> ExitCode {
@@ -46,6 +46,7 @@ fn main() -> ExitCode {
         "ablate" => cmd_ablate(&args[2..]),
         "compare" => cmd_compare(&args[2..]),
         "report" => cmd_report(&args[2..]),
+        "agent-exoskeleton" => cmd_agent_exoskeleton(&args[2..]),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -406,4 +407,10 @@ fn fixed_to_str(f: &Fixed) -> String {
         Fixed::FixedI64 { raw, scale } => format!("{}/{}", raw, 10i128.pow(*scale)),
         Fixed::Rational { num, den } => format!("{num}/{den}"),
     }
+}
+
+fn cmd_agent_exoskeleton(args: &[String]) -> CliResult<()> {
+    let out = flag_value(args, "--out")?;
+    let report = run_agent_exoskeleton_benchmark();
+    write_canonical(&report, Some(out), "agent exoskeleton report")
 }
