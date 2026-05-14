@@ -10,9 +10,10 @@ use pse_bench_gt::scenarios::{
     BINANCE_DEFAULT_TOLERANCE, SEISMO_DEFAULT_TOLERANCE, VITALS_DEFAULT_TOLERANCE,
 };
 use pse_bench_gt::{
-    apply_frozen_calibration_profile, apply_frozen_eventization_profile,
-    build_eventization_profile, build_gate_calibration_profile, build_json_output,
-    metrics_by_source, BenchGtJsonOutput, CalibrationReport, CalibrationSplit, EventizationProfile,
+    apply_frozen_axis_policy_profile, apply_frozen_calibration_profile,
+    apply_frozen_eventization_profile, build_axis_policy_profile, build_eventization_profile,
+    build_gate_calibration_profile, build_json_output, metrics_by_source, AxisPolicyProfile,
+    BenchGtJsonOutput, CalibrationReport, CalibrationSplit, EventizationProfile,
     EventizationReport, GateCalibrationProfile, Metrics,
 };
 use pse_types::Config;
@@ -36,6 +37,9 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let build_eventization_profile_path = flag(args, "--build-eventization-profile");
     let apply_eventization_profile_path = flag(args, "--apply-eventization-profile");
     let expected_eventization_profile_hash = flag(args, "--expected-eventization-profile-hash");
+    let build_axis_policy_profile_path = flag(args, "--build-axis-policy-profile");
+    let apply_axis_policy_profile_path = flag(args, "--apply-axis-policy-profile");
+    let expected_axis_policy_profile_hash = flag(args, "--expected-axis-policy-profile-hash");
     let calibration_split = parse_split(flag(args, "--calibration-split").as_deref())?;
     let applied_split = parse_split(flag(args, "--applied-split").as_deref())?;
 
@@ -80,6 +84,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
             let mut output: BenchGtJsonOutput = build_json_output(&scenarios[0], &config_bytes);
+            let mut candidate_activation_dets: Option<Vec<_>> = None;
             if let Some(path) = &build_eventization_profile_path {
                 let (profile, expected) = build_eventization_profile(
                     &output.pse_debug.calibration_report,
@@ -94,7 +99,15 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     eventization_profile_built: true,
                     eventization_profile_hash: Some(profile.profile_hash),
                     selected_strategy: Some(profile.strategy.strategy_name),
+                    selected_strategy_reason: Some(
+                        "best_f1_then_precision_then_recall_then_fp_then_cooldown".into(),
+                    ),
                     selected_policy: Some(profile.source_policy_name),
+                    built_expected_eventized_metrics: Some(expected.clone()),
+                    applied_diagnostic_eventized_metrics: None,
+                    productive_pse_metrics: output.pse_metrics.clone(),
+                    eventization_apply_input_source: None,
+                    eventization_apply_input_count: None,
                     expected_eventized_metrics: Some(expected),
                     calibrated_eventization_applied: false,
                     warnings: profile.warnings,
@@ -111,14 +124,74 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     .filter(|d| d.source.starts_with("pse_"))
                     .cloned()
                     .collect();
+                if candidate_activation_dets.is_none() {
+                    if let Some(axis_path) = &apply_axis_policy_profile_path {
+                        let axis_expected = expected_axis_policy_profile_hash.as_deref().ok_or(
+                            "--expected-axis-policy-profile-hash is required with --apply-axis-policy-profile",
+                        )?;
+                        let axis_profile: AxisPolicyProfile =
+                            serde_json::from_slice(&std::fs::read(axis_path)?)?;
+                        let (dets, rep) = apply_frozen_axis_policy_profile(
+                            &axis_profile,
+                            axis_expected,
+                            &scenarios[0].runner_diagnostics.gate_ticks,
+                            &scenarios[0].ground_truth,
+                        )
+                        .map_err(|e| {
+                            format!("failed to apply axis policy profile (fail-closed): {e}")
+                        })?;
+                        candidate_activation_dets = Some(dets);
+                        output.pse_debug.calibration_report.axis_policy_report = rep;
+                    }
+                }
+                let input_dets = candidate_activation_dets.as_deref().unwrap_or(&pse_dets);
                 let (_eventized, report) = apply_frozen_eventization_profile(
                     &profile,
                     expected,
-                    &pse_dets,
+                    input_dets,
                     &scenarios[0].ground_truth,
                 )
                 .map_err(|e| format!("failed to apply eventization profile (fail-closed): {e}"))?;
+                let mut report = report;
+                report.productive_pse_metrics = output.pse_metrics.clone();
+                if candidate_activation_dets.is_some() {
+                    report.eventization_apply_input_source =
+                        Some("candidate_activation_detections".into());
+                }
                 output.pse_debug.calibration_report.eventization_report = report;
+            }
+            if let Some(path) = &build_axis_policy_profile_path {
+                let profile = build_axis_policy_profile(&output.pse_debug.calibration_report)
+                    .ok_or("unable to build axis policy profile from diagnostics")?;
+                if let Some(parent) = std::path::Path::new(path).parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(path, serde_json::to_string_pretty(&profile)?)?;
+                output
+                    .pse_debug
+                    .calibration_report
+                    .axis_policy_report
+                    .axis_policy_profile_built = true;
+                output
+                    .pse_debug
+                    .calibration_report
+                    .axis_policy_report
+                    .axis_policy_profile_hash = Some(profile.profile_hash);
+            }
+            if let Some(path) = &apply_axis_policy_profile_path {
+                let expected = expected_axis_policy_profile_hash.as_deref().ok_or(
+                    "--expected-axis-policy-profile-hash is required with --apply-axis-policy-profile",
+                )?;
+                let profile: AxisPolicyProfile = serde_json::from_slice(&std::fs::read(path)?)?;
+                let (dets, rep) = apply_frozen_axis_policy_profile(
+                    &profile,
+                    expected,
+                    &scenarios[0].runner_diagnostics.gate_ticks,
+                    &scenarios[0].ground_truth,
+                )
+                .map_err(|e| format!("failed to apply axis policy profile (fail-closed): {e}"))?;
+                candidate_activation_dets = Some(dets);
+                output.pse_debug.calibration_report.axis_policy_report = rep;
             }
             if let Some(path) = &build_profile_path {
                 let split = calibration_split
@@ -157,6 +230,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     policy_comparison: Vec::new(),
                     best_policy_by_f1: None,
                     best_policy_active_axes: Vec::new(),
+                    axis_policy_report: Default::default(),
                     eventization_report: EventizationReport::default(),
                     warnings: profile.warnings.clone(),
                     source_split: Some(profile.split.clone()),
