@@ -48,6 +48,8 @@
 #![deny(missing_docs)]
 
 pub mod ablation;
+/// Deterministic diagnostic benchmark for agent exoskeleton relevance fields.
+pub mod agent_exoskeleton;
 pub mod calibration;
 pub mod cell_substrate_metrics;
 pub mod cognition_metrics;
@@ -76,6 +78,11 @@ pub mod agent_tasks;
 pub use ablation::{
     build_ablation_ladder, summarize_ablation, AblationConclusion, AblationLadder, AblationSummary,
     MetricDelta,
+};
+pub use agent_exoskeleton::{
+    benchmark_scenarios, run_agent_exoskeleton_benchmark, AgentDiagnosticMetrics,
+    AgentExoskeletonAggregate, AgentExoskeletonDiagnosticReport, AgentExoskeletonSuiteReport,
+    AgentGroundTruth, AgentRelevanceField, AgentWorkState, WorkItem, WorkItemType,
 };
 pub use calibration::{CalibrationLedgerEntry, CalibrationProfile, CalibrationReason};
 pub use cell_substrate_metrics::{
