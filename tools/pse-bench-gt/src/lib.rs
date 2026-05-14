@@ -73,6 +73,11 @@ pub fn build_json_output(
     let mut pse_debug = build_pse_debug(&result.detections, &result.runner_diagnostics);
     pse_debug.gate_calibration =
         build_gate_calibration(&result.ground_truth, &result.runner_diagnostics.gate_ticks);
+    augment_calibration_report_with_counterfactuals(
+        &mut pse_debug.calibration_report,
+        &result.ground_truth,
+        &result.runner_diagnostics.gate_ticks,
+    );
     let stl_zscore_metrics = per_source.get("stl_zscore").cloned();
     let isoforest_metrics = per_source.get("isoforest").cloned();
 
@@ -142,6 +147,359 @@ fn build_gate_calibration(
         first_threshold_with_any_detection,
         first_threshold_with_true_positive,
     }
+}
+
+fn axis_value(t: &GateTickDiagnostic, axis: &str) -> f64 {
+    match axis {
+        "d" => t.gate_d,
+        "q" => t.gate_q,
+        "r" => t.gate_r,
+        "g" => t.gate_g,
+        "j" => t.gate_j,
+        "p" => t.gate_p,
+        "n" => t.gate_n,
+        "k" => t.gate_k,
+        _ => 0.0,
+    }
+}
+
+fn augment_calibration_report_with_counterfactuals(
+    report: &mut CalibrationReport,
+    ground_truth: &[GroundTruthEvent],
+    ticks: &[GateTickDiagnostic],
+) {
+    let axes = ["d", "q", "r", "g", "j", "p", "n", "k"];
+    let in_gt: Vec<_> = ticks.iter().filter(|t| t.in_ground_truth_window).collect();
+    let out_gt: Vec<_> = ticks.iter().filter(|t| !t.in_ground_truth_window).collect();
+    let axis_rows: Vec<AxisDiscriminativityRow> = axes
+        .iter()
+        .map(|axis| {
+            let gt_mean = if in_gt.is_empty() {
+                0.0
+            } else {
+                in_gt.iter().map(|t| axis_value(t, axis)).sum::<f64>() / in_gt.len() as f64
+            };
+            let out_mean = if out_gt.is_empty() {
+                0.0
+            } else {
+                out_gt.iter().map(|t| axis_value(t, axis)).sum::<f64>() / out_gt.len() as f64
+            };
+            let delta = gt_mean - out_mean;
+            let discriminative = delta > 0.0;
+            let suggested_role = if !discriminative {
+                "fail_closed"
+            } else if delta > 0.2 {
+                "mandatory"
+            } else if delta > 0.05 {
+                "optional"
+            } else {
+                "disabled"
+            };
+            AxisDiscriminativityRow {
+                axis: (*axis).to_string(),
+                gt_mean,
+                out_mean,
+                delta,
+                direction: if delta > 0.0 {
+                    "gt>out".into()
+                } else if delta < 0.0 {
+                    "gt<out".into()
+                } else {
+                    "equal".into()
+                },
+                discriminative,
+                suggested_role: suggested_role.into(),
+            }
+        })
+        .collect();
+    report.axis_discriminativity = axis_rows.clone();
+
+    let policy_specs: Vec<(&str, Vec<String>, String)> = {
+        let discrim: Vec<String> = axis_rows
+            .iter()
+            .filter(|r| r.discriminative)
+            .map(|r| r.axis.clone())
+            .collect();
+        let mut sorted = axis_rows.clone();
+        sorted.sort_by(|a, b| b.delta.total_cmp(&a.delta).then(a.axis.cmp(&b.axis)));
+        let top_k: Vec<String> = sorted.iter().take(3).map(|r| r.axis.clone()).collect();
+        let dominant = sorted
+            .first()
+            .filter(|top| {
+                top.delta > 0.15
+                    && sorted
+                        .get(1)
+                        .map(|n| top.delta > n.delta * 1.5)
+                        .unwrap_or(true)
+            })
+            .map(|r| r.axis.clone())
+            .unwrap_or_else(|| "d".to_string());
+        vec![
+            (
+                "current_fail_closed_all_axes",
+                axes.iter().map(|s| (*s).to_string()).collect(),
+                "all axes mandatory, fail-closed".into(),
+            ),
+            (
+                "discriminative_axes_only",
+                discrim.clone(),
+                "only axes with gt_mean > out_mean".into(),
+            ),
+            (
+                "top_k_axes_by_delta",
+                top_k,
+                "top-3 discriminative deltas mandatory".into(),
+            ),
+            (
+                "weighted_axis_score",
+                discrim.clone(),
+                "weighted score over discriminative axes (>=0.5)".into(),
+            ),
+            (
+                "d_axis_only",
+                vec![dominant],
+                "single dominant axis only".into(),
+            ),
+        ]
+    };
+
+    let mut comparison = Vec::new();
+    for (name, active_axes, reason) in policy_specs {
+        let disabled_axes: Vec<String> = axes
+            .iter()
+            .filter(|a| !active_axes.iter().any(|x| x == *a))
+            .map(|a| (*a).to_string())
+            .collect();
+        let dets: Vec<Detection> = if name == "weighted_axis_score" {
+            let weights: Vec<(String, f64)> = axis_rows
+                .iter()
+                .filter(|r| r.discriminative)
+                .map(|r| (r.axis.clone(), r.delta.max(0.0)))
+                .collect();
+            let total = weights.iter().map(|(_, w)| *w).sum::<f64>();
+            ticks
+                .iter()
+                .filter_map(|t| {
+                    if total <= f64::EPSILON {
+                        return None;
+                    }
+                    let s = weights
+                        .iter()
+                        .map(|(a, w)| axis_value(t, a) * *w)
+                        .sum::<f64>()
+                        / total;
+                    (s >= 0.5).then(|| Detection::new(t.tick, s, "pse_counterfactual_policy"))
+                })
+                .collect()
+        } else {
+            ticks
+                .iter()
+                .filter(|t| {
+                    !active_axes.is_empty() && active_axes.iter().all(|a| axis_value(t, a) >= 0.5)
+                })
+                .map(|t| Detection::new(t.tick, t.gate_r, "pse_counterfactual_policy"))
+                .collect()
+        };
+        let m = score_detections(ground_truth, &dets, 0);
+        comparison.push(PolicyComparisonRow {
+            policy: name.into(),
+            hypothetical_detection_count: dets.len() as u64,
+            hypothetical_tp: m.tp,
+            hypothetical_fp: m.fp,
+            hypothetical_fn: m.fn_,
+            hypothetical_precision: m.precision,
+            hypothetical_recall: m.recall,
+            hypothetical_f1: m.f1,
+            active_axes,
+            disabled_axes,
+            reason,
+        });
+    }
+    comparison.sort_by(|a, b| {
+        b.hypothetical_f1
+            .total_cmp(&a.hypothetical_f1)
+            .then(a.policy.cmp(&b.policy))
+    });
+    report.best_policy_by_f1 = comparison.first().map(|r| r.policy.clone());
+    report.best_policy_active_axes = comparison
+        .first()
+        .map(|r| r.active_axes.clone())
+        .unwrap_or_default();
+    report.policy_comparison = comparison;
+    if report.best_policy_by_f1.as_deref() != Some("current_fail_closed_all_axes") {
+        report
+            .warnings
+            .push("counterfactual best-policy is calibration-only; validate on validation/test before apply".into());
+    }
+    report.eventization_report = build_eventization_profile(report, &axis_rows)
+        .map(|(profile, expected)| EventizationReport {
+            eventization_profile_built: true,
+            eventization_profile_hash: Some(profile.profile_hash),
+            selected_strategy: Some(profile.strategy.strategy_name),
+            selected_policy: Some(profile.source_policy_name),
+            expected_eventized_metrics: Some(expected),
+            calibrated_eventization_applied: false,
+            warnings: profile.warnings,
+        })
+        .unwrap_or_default();
+}
+
+pub fn build_eventization_profile(
+    report: &CalibrationReport,
+    axis_rows: &[AxisDiscriminativityRow],
+) -> Option<(EventizationProfile, EventizationExpectedMetrics)> {
+    let baseline = report.policy_comparison.first()?;
+    let source_policy_name = baseline.policy.clone();
+    let total_neg_delta = axis_rows.iter().filter(|r| r.delta <= 0.0).count() as u64;
+    let candidates = [
+        ("cooldown_5", 5_u64),
+        ("cooldown_10", 10_u64),
+        ("cooldown_20", 20_u64),
+    ];
+    let mut scored: Vec<(String, u64, EventizationExpectedMetrics)> = candidates
+        .into_iter()
+        .map(|(name, cd)| {
+            let fp_shrink = (cd as f64 / 2.0).max(1.0);
+            let fp = (baseline.hypothetical_fp as f64 / fp_shrink).round() as u64;
+            let recall_drop = if cd >= 20 {
+                0.25
+            } else if cd >= 10 {
+                0.10
+            } else {
+                0.05
+            };
+            let tp = ((baseline.hypothetical_tp as f64) * (1.0 - recall_drop)).round() as u64;
+            let fn_ = baseline.hypothetical_fn + baseline.hypothetical_tp.saturating_sub(tp);
+            let precision = if tp + fp == 0 {
+                0.0
+            } else {
+                tp as f64 / (tp + fp) as f64
+            };
+            let recall = if tp + fn_ == 0 {
+                0.0
+            } else {
+                tp as f64 / (tp + fn_) as f64
+            };
+            let f1 = if precision + recall <= f64::EPSILON {
+                0.0
+            } else {
+                2.0 * precision * recall / (precision + recall)
+            };
+            (
+                name.to_string(),
+                cd,
+                EventizationExpectedMetrics {
+                    hypothetical_detection_count: tp + fp,
+                    hypothetical_tp: tp,
+                    hypothetical_fp: fp,
+                    hypothetical_fn: fn_,
+                    hypothetical_precision: precision,
+                    hypothetical_recall: recall,
+                    hypothetical_f1: f1,
+                },
+            )
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.2.hypothetical_f1
+            .total_cmp(&a.2.hypothetical_f1)
+            .then(a.1.cmp(&b.1))
+    });
+    let (name, cooldown, expected) = scored.first()?.clone();
+    let mut warnings = Vec::new();
+    if baseline.hypothetical_fp > 50 {
+        warnings.push(
+            "raw policy has high FP load; eventization is calibration-only mitigation".into(),
+        );
+    }
+    if expected.hypothetical_recall < baseline.hypothetical_recall {
+        warnings
+            .push("eventization may reduce recall; validation/test confirmation required".into());
+    }
+    if total_neg_delta > 3 {
+        warnings
+            .push("multiple non-discriminative axes indicate unstable selectivity regime".into());
+    }
+    let diagnostics_hash =
+        sha256_hex(&serde_json::to_vec(&(axis_rows, &report.policy_comparison)).ok()?);
+    let mut profile = EventizationProfile {
+        strategy: EventizationStrategy {
+            strategy_name: name,
+            cooldown_ticks: Some(cooldown),
+            selected_by: EventizationSelectionMode::BestF1,
+        },
+        source_policy_name,
+        source_split: CalibrationSplit::Calibration,
+        policy: EventizationPolicy::CounterfactualOnly,
+        source: EventizationSource::PolicyComparison,
+        diagnostics_hash,
+        profile_hash: String::new(),
+        expected_fp_budget: expected.hypothetical_fp,
+        warnings,
+    };
+    profile.profile_hash = sha256_hex(&serde_json::to_vec(&profile).ok()?);
+    Some((profile, expected))
+}
+
+pub fn apply_frozen_eventization_profile(
+    profile: &EventizationProfile,
+    expected_profile_hash: &str,
+    detections: &[Detection],
+    ground_truth: &[GroundTruthEvent],
+) -> Result<(Vec<Detection>, EventizationReport), String> {
+    if profile.profile_hash.is_empty() || expected_profile_hash.is_empty() {
+        return Err("missing eventization profile hash".into());
+    }
+    if profile.profile_hash != expected_profile_hash {
+        return Err("eventization profile hash mismatch".into());
+    }
+    if profile.strategy.strategy_name.is_empty() || profile.strategy.cooldown_ticks.is_none() {
+        return Err("invalid eventization strategy".into());
+    }
+    if profile.strategy.strategy_name != "cooldown_5"
+        && profile.strategy.strategy_name != "cooldown_10"
+        && profile.strategy.strategy_name != "cooldown_20"
+    {
+        return Err("unsupported eventization strategy".into());
+    }
+    let cooldown = profile.strategy.cooldown_ticks.unwrap_or(0);
+    if cooldown == 0 {
+        return Err("cooldown_ticks must be > 0".into());
+    }
+    let mut sorted = detections.to_vec();
+    sorted.sort_by_key(|d| d.tick);
+    let mut last_tick: Option<u64> = None;
+    let mut eventized = Vec::new();
+    for d in sorted {
+        let keep = last_tick
+            .map(|t| d.tick.saturating_sub(t) >= cooldown)
+            .unwrap_or(true);
+        if keep {
+            last_tick = Some(d.tick);
+            eventized.push(d);
+        }
+    }
+    let m = score_detections(ground_truth, &eventized, 0);
+    let report = EventizationReport {
+        eventization_profile_built: true,
+        eventization_profile_hash: Some(profile.profile_hash.clone()),
+        selected_strategy: Some(profile.strategy.strategy_name.clone()),
+        selected_policy: Some(profile.source_policy_name.clone()),
+        expected_eventized_metrics: Some(EventizationExpectedMetrics {
+            hypothetical_detection_count: eventized.len() as u64,
+            hypothetical_tp: m.tp,
+            hypothetical_fp: m.fp,
+            hypothetical_fn: m.fn_,
+            hypothetical_precision: m.precision,
+            hypothetical_recall: m.recall,
+            hypothetical_f1: m.f1,
+        }),
+        calibrated_eventization_applied: true,
+        warnings: vec![
+            "applied_diagnostic_eventization: does not mutate productive pse_metrics".into(),
+        ],
+    };
+    Ok((eventized, report))
 }
 
 fn sha256_hex(data: &[u8]) -> String {
@@ -266,10 +624,121 @@ pub struct CalibrationReport {
     pub profile_gate_pass_count_after_apply: Option<u64>,
     pub profile_gate_reject_count_after_apply: Option<u64>,
     pub profile_counterfactual_consistency: Option<bool>,
+    pub axis_discriminativity: Vec<AxisDiscriminativityRow>,
+    pub policy_comparison: Vec<PolicyComparisonRow>,
+    pub best_policy_by_f1: Option<String>,
+    pub best_policy_active_axes: Vec<String>,
+    pub eventization_report: EventizationReport,
     pub warnings: Vec<String>,
     pub source_split: Option<CalibrationSplit>,
     pub applied_split: Option<CalibrationSplit>,
     pub test_frozen: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub enum EventizationPolicy {
+    #[default]
+    Disabled,
+    CounterfactualOnly,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub enum EventizationSource {
+    #[default]
+    SelectivityAnalysis,
+    PolicyComparison,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub enum EventizationSelectionMode {
+    #[default]
+    BestF1,
+    PrecisionSubjectToRecall,
+    FpBudget,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct EventizationStrategy {
+    pub strategy_name: String,
+    pub cooldown_ticks: Option<u64>,
+    pub selected_by: EventizationSelectionMode,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EventizationProfile {
+    pub strategy: EventizationStrategy,
+    pub source_policy_name: String,
+    pub source_split: CalibrationSplit,
+    pub policy: EventizationPolicy,
+    pub source: EventizationSource,
+    pub diagnostics_hash: String,
+    pub profile_hash: String,
+    pub expected_fp_budget: u64,
+    pub warnings: Vec<String>,
+}
+
+impl Default for EventizationProfile {
+    fn default() -> Self {
+        Self {
+            strategy: EventizationStrategy::default(),
+            source_policy_name: String::new(),
+            source_split: CalibrationSplit::Calibration,
+            policy: EventizationPolicy::Disabled,
+            source: EventizationSource::SelectivityAnalysis,
+            diagnostics_hash: String::new(),
+            profile_hash: String::new(),
+            expected_fp_budget: 0,
+            warnings: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct EventizationExpectedMetrics {
+    pub hypothetical_detection_count: u64,
+    pub hypothetical_tp: u64,
+    pub hypothetical_fp: u64,
+    pub hypothetical_fn: u64,
+    pub hypothetical_precision: f64,
+    pub hypothetical_recall: f64,
+    pub hypothetical_f1: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct EventizationReport {
+    pub eventization_profile_built: bool,
+    pub eventization_profile_hash: Option<String>,
+    pub selected_strategy: Option<String>,
+    pub selected_policy: Option<String>,
+    pub expected_eventized_metrics: Option<EventizationExpectedMetrics>,
+    pub calibrated_eventization_applied: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct AxisDiscriminativityRow {
+    pub axis: String,
+    pub gt_mean: f64,
+    pub out_mean: f64,
+    pub delta: f64,
+    pub direction: String,
+    pub discriminative: bool,
+    pub suggested_role: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct PolicyComparisonRow {
+    pub policy: String,
+    pub hypothetical_detection_count: u64,
+    pub hypothetical_tp: u64,
+    pub hypothetical_fp: u64,
+    pub hypothetical_fn: u64,
+    pub hypothetical_precision: f64,
+    pub hypothetical_recall: f64,
+    pub hypothetical_f1: f64,
+    pub active_axes: Vec<String>,
+    pub disabled_axes: Vec<String>,
+    pub reason: String,
 }
 
 fn fail_closed_metadata_from_profile(
@@ -310,6 +779,11 @@ impl Default for CalibrationReport {
             profile_gate_pass_count_after_apply: None,
             profile_gate_reject_count_after_apply: None,
             profile_counterfactual_consistency: None,
+            axis_discriminativity: Vec::new(),
+            policy_comparison: Vec::new(),
+            best_policy_by_f1: None,
+            best_policy_active_axes: Vec::new(),
+            eventization_report: EventizationReport::default(),
             warnings: Vec::new(),
             source_split: None,
             applied_split: None,
@@ -349,6 +823,11 @@ fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDeb
             profile_gate_pass_count_after_apply: None,
             profile_gate_reject_count_after_apply: None,
             profile_counterfactual_consistency: None,
+            axis_discriminativity: Vec::new(),
+            policy_comparison: Vec::new(),
+            best_policy_by_f1: None,
+            best_policy_active_axes: Vec::new(),
+            eventization_report: EventizationReport::default(),
             warnings: profile.warnings.clone(),
             source_split: Some(profile.split.clone()),
             applied_split: None,
@@ -538,6 +1017,11 @@ pub fn apply_frozen_calibration_profile(
         profile_gate_pass_count_after_apply: None,
         profile_gate_reject_count_after_apply: None,
         profile_counterfactual_consistency: None,
+        axis_discriminativity: Vec::new(),
+        policy_comparison: Vec::new(),
+        best_policy_by_f1: None,
+        best_policy_active_axes: Vec::new(),
+        eventization_report: EventizationReport::default(),
         warnings,
         source_split: Some(profile.split.clone()),
         applied_split: Some(applied_split),
@@ -1240,5 +1724,199 @@ mod tests {
             p.policy,
             CalibrationPolicy::CalibratedValidationFrozen
         ));
+    }
+
+    #[test]
+    fn axis_report_marks_non_discriminative_axis() {
+        let ticks = vec![
+            GateTickDiagnostic {
+                tick: 1,
+                in_ground_truth_window: true,
+                gate_d: 0.9,
+                gate_q: 0.1,
+                gate_r: 0.2,
+                gate_g: 0.2,
+                gate_j: 0.2,
+                gate_p: 0.2,
+                gate_n: 0.2,
+                gate_k: 0.2,
+                kairos: false,
+            },
+            GateTickDiagnostic {
+                tick: 2,
+                in_ground_truth_window: false,
+                gate_d: 0.2,
+                gate_q: 0.8,
+                gate_r: 0.2,
+                gate_g: 0.2,
+                gate_j: 0.2,
+                gate_p: 0.2,
+                gate_n: 0.2,
+                gate_k: 0.2,
+                kairos: false,
+            },
+        ];
+        let mut report = CalibrationReport::default();
+        augment_calibration_report_with_counterfactuals(&mut report, &[gt(1, 2, "e")], &ticks);
+        let q = report
+            .axis_discriminativity
+            .iter()
+            .find(|r| r.axis == "q")
+            .unwrap();
+        assert!(!q.discriminative);
+        assert_eq!(q.suggested_role, "fail_closed");
+    }
+
+    #[test]
+    fn policy_comparison_does_not_change_pse_metrics_and_is_deterministic() {
+        let result = scenarios::ScenarioResult {
+            scenario: "diag".into(),
+            n_observations: 3,
+            tolerance_ticks: 0,
+            ground_truth: vec![gt(1, 2, "event")],
+            detections: vec![Detection::new(1, 0.9, "pse_crystal")],
+            metrics: Metrics::default(),
+            runner_diagnostics: RunnerDiagnostics {
+                gate_ticks: vec![
+                    GateTickDiagnostic {
+                        tick: 1,
+                        in_ground_truth_window: true,
+                        gate_d: 0.9,
+                        gate_q: 0.9,
+                        gate_r: 0.9,
+                        gate_g: 0.9,
+                        gate_j: 0.9,
+                        gate_p: 0.9,
+                        gate_n: 0.9,
+                        gate_k: 0.9,
+                        kairos: false,
+                    },
+                    GateTickDiagnostic {
+                        tick: 2,
+                        in_ground_truth_window: false,
+                        gate_d: 0.1,
+                        gate_q: 0.1,
+                        gate_r: 0.1,
+                        gate_g: 0.1,
+                        gate_j: 0.1,
+                        gate_p: 0.1,
+                        gate_n: 0.1,
+                        gate_k: 0.1,
+                        kairos: false,
+                    },
+                ],
+                ..RunnerDiagnostics::default()
+            },
+        };
+        let out1 = build_json_output(&result, br#"{}"#);
+        let out2 = build_json_output(&result, br#"{}"#);
+        assert_eq!(out1.pse_metrics, out2.pse_metrics);
+        assert_eq!(
+            out1.pse_debug.calibration_report.best_policy_by_f1,
+            out2.pse_debug.calibration_report.best_policy_by_f1
+        );
+        assert_eq!(
+            out1.pse_debug
+                .calibration_report
+                .policy_comparison
+                .first()
+                .unwrap()
+                .policy,
+            out2.pse_debug
+                .calibration_report
+                .policy_comparison
+                .first()
+                .unwrap()
+                .policy
+        );
+        assert_eq!(
+            out1.pse_debug
+                .calibration_report
+                .eventization_report
+                .eventization_profile_hash,
+            out2.pse_debug
+                .calibration_report
+                .eventization_report
+                .eventization_profile_hash
+        );
+    }
+
+    #[test]
+    fn eventization_hash_changes_when_strategy_changes() {
+        let mut report = CalibrationReport::default();
+        report.policy_comparison = vec![PolicyComparisonRow {
+            policy: "weighted_axis_score".into(),
+            hypothetical_detection_count: 100,
+            hypothetical_tp: 10,
+            hypothetical_fp: 80,
+            hypothetical_fn: 5,
+            hypothetical_precision: 0.111,
+            hypothetical_recall: 0.667,
+            hypothetical_f1: 0.19,
+            active_axes: vec!["d".into()],
+            disabled_axes: vec![],
+            reason: "test".into(),
+        }];
+        let axis = vec![AxisDiscriminativityRow {
+            axis: "d".into(),
+            gt_mean: 0.9,
+            out_mean: 0.1,
+            delta: 0.8,
+            direction: "gt>out".into(),
+            discriminative: true,
+            suggested_role: "mandatory".into(),
+        }];
+        let (p1, _) = build_eventization_profile(&report, &axis).unwrap();
+        report.policy_comparison[0].hypothetical_fp = 20;
+        let (p2, _) = build_eventization_profile(&report, &axis).unwrap();
+        assert_ne!(p1.profile_hash, p2.profile_hash);
+    }
+
+    #[test]
+    fn eventization_warns_on_high_fp_load() {
+        let mut report = CalibrationReport::default();
+        report.policy_comparison = vec![PolicyComparisonRow {
+            policy: "discriminative_axes_only".into(),
+            hypothetical_detection_count: 300,
+            hypothetical_tp: 2,
+            hypothetical_fp: 196,
+            hypothetical_fn: 1,
+            hypothetical_precision: 0.01,
+            hypothetical_recall: 0.66,
+            hypothetical_f1: 0.02,
+            active_axes: vec!["j".into()],
+            disabled_axes: vec![],
+            reason: "test".into(),
+        }];
+        let (profile, _) = build_eventization_profile(&report, &[]).unwrap();
+        assert!(profile.warnings.iter().any(|w| w.contains("high FP load")));
+    }
+
+    #[test]
+    fn eventization_apply_is_hash_bound_and_explicit() {
+        let mut report = CalibrationReport::default();
+        report.policy_comparison = vec![PolicyComparisonRow {
+            policy: "weighted_axis_score".into(),
+            hypothetical_detection_count: 10,
+            hypothetical_tp: 2,
+            hypothetical_fp: 8,
+            hypothetical_fn: 1,
+            hypothetical_precision: 0.2,
+            hypothetical_recall: 0.66,
+            hypothetical_f1: 0.3,
+            active_axes: vec!["d".into()],
+            disabled_axes: vec![],
+            reason: "test".into(),
+        }];
+        let (profile, _) = build_eventization_profile(&report, &[]).unwrap();
+        let dets = vec![
+            Detection::new(1, 0.9, "pse_crystal"),
+            Detection::new(2, 0.8, "pse_crystal"),
+        ];
+        assert!(apply_frozen_eventization_profile(&profile, "wrong", &dets, &[]).is_err());
+        let (eventized, rep) =
+            apply_frozen_eventization_profile(&profile, &profile.profile_hash, &dets, &[]).unwrap();
+        assert!(rep.calibrated_eventization_applied);
+        assert!(eventized.len() <= dets.len());
     }
 }

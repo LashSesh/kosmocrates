@@ -10,9 +10,10 @@ use pse_bench_gt::scenarios::{
     BINANCE_DEFAULT_TOLERANCE, SEISMO_DEFAULT_TOLERANCE, VITALS_DEFAULT_TOLERANCE,
 };
 use pse_bench_gt::{
-    apply_frozen_calibration_profile, build_gate_calibration_profile, build_json_output,
-    metrics_by_source, BenchGtJsonOutput, CalibrationReport, CalibrationSplit,
-    GateCalibrationProfile, Metrics,
+    apply_frozen_calibration_profile, apply_frozen_eventization_profile,
+    build_eventization_profile, build_gate_calibration_profile, build_json_output,
+    metrics_by_source, BenchGtJsonOutput, CalibrationReport, CalibrationSplit, EventizationProfile,
+    EventizationReport, GateCalibrationProfile, Metrics,
 };
 use pse_types::Config;
 use sha2::Digest;
@@ -32,6 +33,9 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let build_profile_path = flag(args, "--build-calibration-profile");
     let apply_profile_path = flag(args, "--apply-calibration-profile");
     let expected_profile_hash = flag(args, "--expected-profile-hash");
+    let build_eventization_profile_path = flag(args, "--build-eventization-profile");
+    let apply_eventization_profile_path = flag(args, "--apply-eventization-profile");
+    let expected_eventization_profile_hash = flag(args, "--expected-eventization-profile-hash");
     let calibration_split = parse_split(flag(args, "--calibration-split").as_deref())?;
     let applied_split = parse_split(flag(args, "--applied-split").as_deref())?;
 
@@ -76,6 +80,46 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
             let mut output: BenchGtJsonOutput = build_json_output(&scenarios[0], &config_bytes);
+            if let Some(path) = &build_eventization_profile_path {
+                let (profile, expected) = build_eventization_profile(
+                    &output.pse_debug.calibration_report,
+                    &output.pse_debug.calibration_report.axis_discriminativity,
+                )
+                .ok_or("unable to build eventization profile from diagnostics")?;
+                if let Some(parent) = std::path::Path::new(path).parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(path, serde_json::to_string_pretty(&profile)?)?;
+                output.pse_debug.calibration_report.eventization_report = EventizationReport {
+                    eventization_profile_built: true,
+                    eventization_profile_hash: Some(profile.profile_hash),
+                    selected_strategy: Some(profile.strategy.strategy_name),
+                    selected_policy: Some(profile.source_policy_name),
+                    expected_eventized_metrics: Some(expected),
+                    calibrated_eventization_applied: false,
+                    warnings: profile.warnings,
+                };
+            }
+            if let Some(path) = &apply_eventization_profile_path {
+                let expected = expected_eventization_profile_hash.as_deref().ok_or(
+                    "--expected-eventization-profile-hash is required with --apply-eventization-profile",
+                )?;
+                let profile: EventizationProfile = serde_json::from_slice(&std::fs::read(path)?)?;
+                let pse_dets: Vec<_> = scenarios[0]
+                    .detections
+                    .iter()
+                    .filter(|d| d.source.starts_with("pse_"))
+                    .cloned()
+                    .collect();
+                let (_eventized, report) = apply_frozen_eventization_profile(
+                    &profile,
+                    expected,
+                    &pse_dets,
+                    &scenarios[0].ground_truth,
+                )
+                .map_err(|e| format!("failed to apply eventization profile (fail-closed): {e}"))?;
+                output.pse_debug.calibration_report.eventization_report = report;
+            }
             if let Some(path) = &build_profile_path {
                 let split = calibration_split
                     .clone()
@@ -109,6 +153,11 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     profile_gate_pass_count_after_apply: None,
                     profile_gate_reject_count_after_apply: None,
                     profile_counterfactual_consistency: None,
+                    axis_discriminativity: Vec::new(),
+                    policy_comparison: Vec::new(),
+                    best_policy_by_f1: None,
+                    best_policy_active_axes: Vec::new(),
+                    eventization_report: EventizationReport::default(),
                     warnings: profile.warnings.clone(),
                     source_split: Some(profile.split.clone()),
                     applied_split: None,
@@ -116,8 +165,6 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 };
             } else if let Some(report) = apply_report.clone() {
                 output.pse_debug.calibration_report = report;
-            } else {
-                output.pse_debug.calibration_report = CalibrationReport::default();
             }
             let json = serde_json::to_string_pretty(&output)?;
             match &out_path {
