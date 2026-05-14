@@ -219,6 +219,17 @@ impl FinalValidationReport {
                 pass(domain.calibration_completed),
                 pass(domain.test_completed),
             ));
+            if let Some(field) = &domain.field_diagnostic_summary {
+                md.push_str("\n### Diagnostic PSE Field Report\n\n");
+                md.push_str(&format!(
+                    "- Productive PSE detector: {}\n- Field signal: {}\n- Eventized field signal: {}\n- FP reduction ratio: {}\n- Condensation gain F1: {}\n- Hinweis: diagnostic only, does not mutate productive pse_metrics\n\n",
+                    if field.productive_detector_validated { "validated" } else { "not validated" },
+                    if field.scenarios_with_field_signal > 0 { "present" } else { "absent" },
+                    if field.scenarios_with_eventized_signal > 0 { "present" } else { "absent" },
+                    field.fp_reduction_ratio.map(|v| format!("{v:.6}")).unwrap_or_else(|| "n/a".into()),
+                    field.condensation_gain_f1.map(|v| format!("{v:.6}")).unwrap_or_else(|| "n/a".into()),
+                ));
+            }
         }
 
         // 9. Conclusion

@@ -1038,6 +1038,25 @@ pub type FieldDiagnosticAggregate = FieldDiagnosticMetrics;
 #[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct FieldDiagnosticReport {
     pub metrics: FieldDiagnosticMetrics,
+    pub summary: FieldDiagnosticSummary,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+pub struct FieldDiagnosticSummary {
+    pub productive_detector_validated: bool,
+    pub diagnostic_only: bool,
+    pub field_signal_present: bool,
+    pub eventized_signal_present: bool,
+    pub productive_f1: f64,
+    pub field_f1: f64,
+    pub eventized_field_f1: f64,
+    pub field_recall: f64,
+    pub eventized_field_recall: f64,
+    pub field_fp: u64,
+    pub eventized_field_fp: u64,
+    pub fp_reduction_ratio: Option<f64>,
+    pub condensation_gain_f1: Option<f64>,
+    pub interpretation: Vec<String>,
 }
 
 pub fn build_field_diagnostic_report(
@@ -1071,34 +1090,61 @@ pub fn build_field_diagnostic_report(
     if field.fp > 0 && eventized.hypothetical_fp == 0 {
         warnings.push("fp_reduction_ratio_undefined_eventized_fp_zero".into());
     }
+    let metrics = FieldDiagnosticMetrics {
+        productive_tp: productive.tp,
+        productive_fp: productive.fp,
+        productive_fn: productive.fn_,
+        productive_precision: productive.precision,
+        productive_recall: productive.recall,
+        productive_f1: productive.f1,
+        field_tp: field.tp,
+        field_fp: field.fp,
+        field_fn: field.fn_,
+        field_precision: field.precision,
+        field_recall: field.recall,
+        field_f1: field.f1,
+        eventized_field_tp: eventized.hypothetical_tp,
+        eventized_field_fp: eventized.hypothetical_fp,
+        eventized_field_fn: eventized.hypothetical_fn,
+        eventized_field_precision: eventized.hypothetical_precision,
+        eventized_field_recall: eventized.hypothetical_recall,
+        eventized_field_f1: eventized.hypothetical_f1,
+        fp_reduction_ratio,
+        condensation_gain_f1,
+        field_signal_present: field.tp > 0,
+        eventized_signal_present: eventized.hypothetical_tp > 0,
+        productive_detector_validated: productive.tp > 0 && productive.f1 > 0.0,
+        diagnostic_only: true,
+        warnings,
+    };
+    let mut interpretation = vec!["requires_split_validation".to_string()];
+    if !metrics.productive_detector_validated {
+        interpretation.push("productive_detector_not_validated".into());
+    }
+    if metrics.field_signal_present {
+        interpretation.push("diagnostic_field_signal_present".into());
+    }
+    if metrics.eventized_field_fp < metrics.field_fp {
+        interpretation.push("eventization_condenses_field".into());
+    }
     FieldDiagnosticReport {
-        metrics: FieldDiagnosticMetrics {
-            productive_tp: productive.tp,
-            productive_fp: productive.fp,
-            productive_fn: productive.fn_,
-            productive_precision: productive.precision,
-            productive_recall: productive.recall,
-            productive_f1: productive.f1,
-            field_tp: field.tp,
-            field_fp: field.fp,
-            field_fn: field.fn_,
-            field_precision: field.precision,
-            field_recall: field.recall,
-            field_f1: field.f1,
-            eventized_field_tp: eventized.hypothetical_tp,
-            eventized_field_fp: eventized.hypothetical_fp,
-            eventized_field_fn: eventized.hypothetical_fn,
-            eventized_field_precision: eventized.hypothetical_precision,
-            eventized_field_recall: eventized.hypothetical_recall,
-            eventized_field_f1: eventized.hypothetical_f1,
-            fp_reduction_ratio,
-            condensation_gain_f1,
-            field_signal_present: field.tp > 0,
-            eventized_signal_present: eventized.hypothetical_tp > 0,
-            productive_detector_validated: productive.tp > 0 && productive.f1 > 0.0,
-            diagnostic_only: true,
-            warnings,
+        summary: FieldDiagnosticSummary {
+            productive_detector_validated: metrics.productive_detector_validated,
+            diagnostic_only: metrics.diagnostic_only,
+            field_signal_present: metrics.field_signal_present,
+            eventized_signal_present: metrics.eventized_signal_present,
+            productive_f1: metrics.productive_f1,
+            field_f1: metrics.field_f1,
+            eventized_field_f1: metrics.eventized_field_f1,
+            field_recall: metrics.field_recall,
+            eventized_field_recall: metrics.eventized_field_recall,
+            field_fp: metrics.field_fp,
+            eventized_field_fp: metrics.eventized_field_fp,
+            fp_reduction_ratio: metrics.fp_reduction_ratio,
+            condensation_gain_f1: metrics.condensation_gain_f1,
+            interpretation,
         },
+        metrics,
     }
 }
 
@@ -2524,5 +2570,17 @@ mod tests {
         assert!(!rep.metrics.productive_detector_validated);
         assert!(rep.metrics.field_signal_present);
         assert!(rep.metrics.eventized_signal_present);
+        assert_eq!(rep.summary.fp_reduction_ratio, Some(4.0));
+        assert_eq!(rep.summary.condensation_gain_f1, Some(2.5));
+        assert!(rep.summary.diagnostic_only);
+        assert_eq!(
+            rep.summary.interpretation,
+            vec![
+                "requires_split_validation".to_string(),
+                "productive_detector_not_validated".to_string(),
+                "diagnostic_field_signal_present".to_string(),
+                "eventization_condenses_field".to_string()
+            ]
+        );
     }
 }
