@@ -547,8 +547,32 @@ pub fn build_axis_policy_profile(report: &CalibrationReport) -> Option<AxisPolic
         active_axes: best.active_axes.clone(),
         disabled_axes: best.disabled_axes.clone(),
         threshold: Some(0.5),
-        score_rule: Some("all_active_axes_gate>=threshold".into()),
-        weights: None,
+        score_rule: Some(if best.policy == "weighted_axis_score" {
+            "weighted_mean_active_axes>=threshold".into()
+        } else {
+            "all_active_axes_gate>=threshold".into()
+        }),
+        weights: if best.policy == "weighted_axis_score" {
+            Some(
+                report
+                    .axis_discriminativity
+                    .iter()
+                    .filter(|r| best.active_axes.contains(&r.axis))
+                    .map(|r| (r.axis.clone(), r.delta.max(0.0)))
+                    .collect(),
+            )
+        } else {
+            None
+        },
+        expected_metrics: Some(CandidateActivationMetrics {
+            detection_count: best.hypothetical_detection_count,
+            tp: best.hypothetical_tp,
+            fp: best.hypothetical_fp,
+            fn_: best.hypothetical_fn,
+            precision: best.hypothetical_precision,
+            recall: best.hypothetical_recall,
+            f1: best.hypothetical_f1,
+        }),
         source_split: CalibrationSplit::Calibration,
         diagnostics_hash,
         profile_hash: String::new(),
@@ -584,24 +608,50 @@ pub fn apply_frozen_axis_policy_profile(
         return Err("axis policy contains unknown active axis".into());
     }
     let thr = profile.threshold.unwrap_or(0.5);
+    let strategy = profile.strategy_name.clone();
+    let score_rule = profile.score_rule.clone();
+    let expected_from_policy_comparison = profile.expected_metrics.clone();
     let mut dets = Vec::new();
     for t in gate_ticks {
-        let pass = profile.active_axes.iter().all(|a| match a.as_str() {
-            "d" => t.gate_d >= thr,
-            "q" => t.gate_q >= thr,
-            "r" => t.gate_r >= thr,
-            "g" => t.gate_g >= thr,
-            "j" => t.gate_j >= thr,
-            "p" => t.gate_p >= thr,
-            "n" => t.gate_n >= thr,
-            "k" => t.gate_k >= thr,
-            _ => false,
-        });
+        let pass = if profile.strategy_name == "weighted_axis_score" {
+            let weights = profile.weights.as_ref().ok_or(
+                "weighted_axis_score profile requires weights for active_axes reconstruction",
+            )?;
+            let mut num = 0.0;
+            let mut den = 0.0;
+            for a in &profile.active_axes {
+                let w = *weights.get(a).unwrap_or(&0.0);
+                num += axis_value(t, a) * w;
+                den += w;
+            }
+            den > f64::EPSILON && (num / den) >= thr
+        } else {
+            profile.active_axes.iter().all(|a| match a.as_str() {
+                "d" => t.gate_d >= thr,
+                "q" => t.gate_q >= thr,
+                "r" => t.gate_r >= thr,
+                "g" => t.gate_g >= thr,
+                "j" => t.gate_j >= thr,
+                "p" => t.gate_p >= thr,
+                "n" => t.gate_n >= thr,
+                "k" => t.gate_k >= thr,
+                _ => false,
+            })
+        };
         if pass {
             dets.push(Detection::new(t.tick, t.gate_r, "candidate_activation"));
         }
     }
     let m = score_detections(ground_truth, &dets, 0);
+    let applied_metrics = CandidateActivationMetrics {
+        detection_count: dets.len() as u64,
+        tp: m.tp,
+        fp: m.fp,
+        fn_: m.fn_,
+        precision: m.precision,
+        recall: m.recall,
+        f1: m.f1,
+    };
     let rep = AxisPolicyReport {
         axis_policy_profile_built: true,
         axis_policy_profile_hash: Some(profile.profile_hash.clone()),
@@ -609,16 +659,38 @@ pub fn apply_frozen_axis_policy_profile(
         axis_policy_apply_input_source: Some("gate_ticks".into()),
         candidate_activation_detection_count: dets.len() as u64,
         candidate_activation_ticks: dets.iter().map(|d| d.tick).collect(),
-        candidate_activation_metrics: Some(CandidateActivationMetrics {
-            detection_count: dets.len() as u64,
-            tp: m.tp,
-            fp: m.fp,
-            fn_: m.fn_,
-            precision: m.precision,
-            recall: m.recall,
-            f1: m.f1,
-        }),
+        candidate_activation_metrics: Some(applied_metrics.clone()),
         candidate_activation_eventized_metrics: None,
+        selected_strategy: Some(strategy),
+        active_axes: profile.active_axes.clone(),
+        score_rule,
+        threshold: Some(thr),
+        expected_candidate_activation_metrics_from_policy_comparison:
+            expected_from_policy_comparison.clone(),
+        applied_candidate_activation_metrics: Some(applied_metrics.clone()),
+        policy_apply_consistency: Some(
+            if expected_from_policy_comparison
+                .as_ref()
+                .map(|e| e == &applied_metrics)
+                .unwrap_or(true)
+            {
+                "match"
+            } else {
+                "mismatch"
+            }
+            .into(),
+        ),
+        policy_apply_consistency_reason: Some(
+            if let Some(expected) = &expected_from_policy_comparison {
+                if expected == &applied_metrics {
+                    "applied candidate metrics match profile expected metrics".into()
+                } else {
+                    "applied candidate metrics differ from profile expected metrics".into()
+                }
+            } else {
+                "profile does not contain expected metrics from policy comparison".into()
+            },
+        ),
         warnings: Vec::new(),
     };
     Ok((dets, rep))
@@ -860,6 +932,7 @@ pub struct AxisPolicyProfile {
     pub threshold: Option<f64>,
     pub score_rule: Option<String>,
     pub weights: Option<std::collections::BTreeMap<String, f64>>,
+    pub expected_metrics: Option<CandidateActivationMetrics>,
     pub source_split: CalibrationSplit,
     pub diagnostics_hash: String,
     pub profile_hash: String,
@@ -875,6 +948,7 @@ impl Default for AxisPolicyProfile {
             threshold: None,
             score_rule: None,
             weights: None,
+            expected_metrics: None,
             source_split: CalibrationSplit::Calibration,
             diagnostics_hash: String::new(),
             profile_hash: String::new(),
@@ -904,6 +978,15 @@ pub struct AxisPolicyReport {
     pub candidate_activation_ticks: Vec<u64>,
     pub candidate_activation_metrics: Option<CandidateActivationMetrics>,
     pub candidate_activation_eventized_metrics: Option<CandidateActivationMetrics>,
+    pub selected_strategy: Option<String>,
+    pub active_axes: Vec<String>,
+    pub score_rule: Option<String>,
+    pub threshold: Option<f64>,
+    pub expected_candidate_activation_metrics_from_policy_comparison:
+        Option<CandidateActivationMetrics>,
+    pub applied_candidate_activation_metrics: Option<CandidateActivationMetrics>,
+    pub policy_apply_consistency: Option<String>,
+    pub policy_apply_consistency_reason: Option<String>,
     pub warnings: Vec<String>,
 }
 
@@ -2168,5 +2251,126 @@ mod tests {
         );
         assert!(rep.built_expected_eventized_metrics.is_none());
         assert_ne!(built_expected.hypothetical_detection_count, 0);
+    }
+
+    #[test]
+    fn build_axis_policy_profile_uses_weighted_strategy_when_best() {
+        let mut report = CalibrationReport::default();
+        report.axis_discriminativity = vec![
+            AxisDiscriminativityRow {
+                axis: "d".into(),
+                delta: 0.8,
+                discriminative: true,
+                ..Default::default()
+            },
+            AxisDiscriminativityRow {
+                axis: "j".into(),
+                delta: 0.2,
+                discriminative: true,
+                ..Default::default()
+            },
+        ];
+        report.policy_comparison = vec![
+            PolicyComparisonRow {
+                policy: "weighted_axis_score".into(),
+                hypothetical_f1: 0.2,
+                hypothetical_detection_count: 3,
+                hypothetical_tp: 1,
+                hypothetical_fp: 2,
+                hypothetical_fn: 0,
+                hypothetical_precision: 0.33,
+                hypothetical_recall: 1.0,
+                active_axes: vec!["d".into(), "j".into()],
+                ..Default::default()
+            },
+            PolicyComparisonRow {
+                policy: "current_fail_closed_all_axes".into(),
+                hypothetical_f1: 0.1,
+                ..Default::default()
+            },
+        ];
+        let profile = build_axis_policy_profile(&report).unwrap();
+        assert_eq!(profile.strategy_name, "weighted_axis_score");
+        assert_eq!(
+            profile.score_rule.as_deref(),
+            Some("weighted_mean_active_axes>=threshold")
+        );
+        assert!(profile.weights.as_ref().unwrap().contains_key("d"));
+    }
+
+    #[test]
+    fn apply_weighted_axis_policy_reproduces_weighted_series_and_not_and_logic() {
+        let ticks = vec![
+            GateTickDiagnostic {
+                tick: 1,
+                gate_d: 1.0,
+                gate_j: 0.0,
+                gate_q: 0.0,
+                gate_r: 0.3,
+                gate_g: 0.0,
+                gate_p: 0.0,
+                gate_n: 0.0,
+                gate_k: 0.0,
+                in_ground_truth_window: false,
+                kairos: false,
+            },
+            GateTickDiagnostic {
+                tick: 2,
+                gate_d: 0.0,
+                gate_j: 1.0,
+                gate_q: 0.0,
+                gate_r: 0.3,
+                gate_g: 0.0,
+                gate_p: 0.0,
+                gate_n: 0.0,
+                gate_k: 0.0,
+                in_ground_truth_window: true,
+                kairos: false,
+            },
+            GateTickDiagnostic {
+                tick: 3,
+                gate_d: 0.8,
+                gate_j: 0.8,
+                gate_q: 0.0,
+                gate_r: 0.3,
+                gate_g: 0.0,
+                gate_p: 0.0,
+                gate_n: 0.0,
+                gate_k: 0.0,
+                in_ground_truth_window: false,
+                kairos: false,
+            },
+        ];
+        let mut weights = std::collections::BTreeMap::new();
+        weights.insert("d".into(), 0.8);
+        weights.insert("j".into(), 0.2);
+        let mut profile = AxisPolicyProfile {
+            strategy_name: "weighted_axis_score".into(),
+            active_axes: vec!["d".into(), "j".into()],
+            disabled_axes: vec![],
+            threshold: Some(0.5),
+            score_rule: Some("weighted_mean_active_axes>=threshold".into()),
+            weights: Some(weights),
+            expected_metrics: Some(CandidateActivationMetrics {
+                detection_count: 2,
+                tp: 0,
+                fp: 2,
+                fn_: 1,
+                precision: 0.0,
+                recall: 0.0,
+                f1: 0.0,
+            }),
+            ..Default::default()
+        };
+        profile.profile_hash = sha256_hex(&serde_json::to_vec(&profile).unwrap());
+        let (dets, rep) = apply_frozen_axis_policy_profile(
+            &profile,
+            &profile.profile_hash,
+            &ticks,
+            &[gt(2, 2, "e")],
+        )
+        .unwrap();
+        assert_eq!(dets.iter().map(|d| d.tick).collect::<Vec<_>>(), vec![1, 3]);
+        assert_eq!(rep.policy_apply_consistency.as_deref(), Some("match"));
     }
 }
