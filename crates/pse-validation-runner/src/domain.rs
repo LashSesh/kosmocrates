@@ -105,6 +105,7 @@ pub struct BenchGtCalibrationReport {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FieldDiagnosticReport {
     pub metrics: FieldDiagnosticMetrics,
+    pub summary: Option<FieldDiagnosticSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -127,6 +128,32 @@ pub struct FieldDiagnosticMetrics {
     pub eventized_field_precision: f64,
     pub eventized_field_recall: f64,
     pub eventized_field_f1: f64,
+    pub fp_reduction_ratio: Option<f64>,
+    pub condensation_gain_f1: Option<f64>,
+    pub field_signal_present: bool,
+    pub eventized_signal_present: bool,
+    pub productive_detector_validated: bool,
+    pub diagnostic_only: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FieldDiagnosticSummary {
+    pub productive_detector_validated: bool,
+    pub diagnostic_only: bool,
+    pub scenario_count: u64,
+    pub scenarios_with_field_signal: u64,
+    pub scenarios_with_eventized_signal: u64,
+    pub productive_f1: f64,
+    pub field_f1: f64,
+    pub eventized_field_f1: f64,
+    pub field_recall: f64,
+    pub eventized_field_recall: f64,
+    pub field_fp: u64,
+    pub eventized_field_fp: u64,
+    pub fp_reduction_ratio: Option<f64>,
+    pub condensation_gain_f1: Option<f64>,
+    pub interpretation_labels: Vec<String>,
 }
 
 // ─── BaselineComparisonReport ─────────────────────────────────────────────────
@@ -181,6 +208,7 @@ pub struct DomainValidationSummary {
     /// Comparison report (PSE vs STL-zscore vs IsoForest).
     pub baseline_comparison: Option<BaselineComparisonReport>,
     pub field_diagnostic_aggregate: Option<FieldDiagnosticMetrics>,
+    pub field_diagnostic_summary: Option<FieldDiagnosticSummary>,
 }
 
 impl DomainValidationSummary {
@@ -233,6 +261,18 @@ impl DomainValidationSummary {
         };
 
         let field_diagnostic_aggregate = aggregate_field_diagnostics(&records);
+        let scenario_count_with_field_diag = records
+            .iter()
+            .filter(|r| {
+                r.pse_debug
+                    .as_ref()
+                    .and_then(|d| d.calibration_report.field_diagnostic_report.as_ref())
+                    .is_some()
+            })
+            .count() as u64;
+        let field_diagnostic_summary = field_diagnostic_aggregate
+            .as_ref()
+            .map(|m| build_field_diagnostic_summary(m, scenario_count_with_field_diag));
         Ok(DomainValidationSummary {
             domain,
             manifest_hash,
@@ -246,7 +286,49 @@ impl DomainValidationSummary {
             test_recall,
             baseline_comparison,
             field_diagnostic_aggregate,
+            field_diagnostic_summary,
         })
+    }
+}
+
+fn build_field_diagnostic_summary(
+    m: &FieldDiagnosticMetrics,
+    scenario_count: u64,
+) -> FieldDiagnosticSummary {
+    let mut interpretation_labels = vec!["requires_split_validation".to_string()];
+    if !m.productive_detector_validated {
+        interpretation_labels.push("productive_detector_not_validated".into());
+    }
+    if m.field_signal_present {
+        interpretation_labels.push("diagnostic_field_signal_present".into());
+    }
+    if m.eventized_field_fp < m.field_fp {
+        interpretation_labels.push("eventization_condenses_field".into());
+    }
+    FieldDiagnosticSummary {
+        productive_detector_validated: m.productive_detector_validated,
+        diagnostic_only: m.diagnostic_only,
+        scenario_count,
+        scenarios_with_field_signal: if m.field_signal_present {
+            scenario_count
+        } else {
+            0
+        },
+        scenarios_with_eventized_signal: if m.eventized_signal_present {
+            scenario_count
+        } else {
+            0
+        },
+        productive_f1: m.productive_f1,
+        field_f1: m.field_f1,
+        eventized_field_f1: m.eventized_field_f1,
+        field_recall: m.field_recall,
+        eventized_field_recall: m.eventized_field_recall,
+        field_fp: m.field_fp,
+        eventized_field_fp: m.eventized_field_fp,
+        fp_reduction_ratio: m.fp_reduction_ratio,
+        condensation_gain_f1: m.condensation_gain_f1,
+        interpretation_labels,
     }
 }
 
@@ -280,6 +362,13 @@ fn aggregate_field_diagnostics(records: &[BenchGtRecord]) -> Option<FieldDiagnos
             eventized_field_precision: 0.0,
             eventized_field_recall: 0.0,
             eventized_field_f1: 0.0,
+            fp_reduction_ratio: None,
+            condensation_gain_f1: None,
+            field_signal_present: false,
+            eventized_signal_present: false,
+            productive_detector_validated: false,
+            diagnostic_only: true,
+            warnings: vec![],
         });
         a.productive_tp += m.productive_tp;
         a.productive_fp += m.productive_fp;
@@ -290,6 +379,10 @@ fn aggregate_field_diagnostics(records: &[BenchGtRecord]) -> Option<FieldDiagnos
         a.eventized_field_tp += m.eventized_field_tp;
         a.eventized_field_fp += m.eventized_field_fp;
         a.eventized_field_fn += m.eventized_field_fn;
+        a.field_signal_present = a.field_signal_present || m.field_signal_present;
+        a.eventized_signal_present = a.eventized_signal_present || m.eventized_signal_present;
+        a.productive_detector_validated =
+            a.productive_detector_validated || m.productive_detector_validated;
     }
     if let Some(a) = agg.as_mut() {
         a.productive_precision = if a.productive_tp + a.productive_fp > 0 {
@@ -338,6 +431,16 @@ fn aggregate_field_diagnostics(records: &[BenchGtRecord]) -> Option<FieldDiagnos
                 / (a.eventized_field_precision + a.eventized_field_recall)
         } else {
             0.0
+        };
+        a.fp_reduction_ratio = if a.eventized_field_fp > 0 {
+            Some(a.field_fp as f64 / a.eventized_field_fp as f64)
+        } else {
+            None
+        };
+        a.condensation_gain_f1 = if a.field_f1 > 0.0 {
+            Some(a.eventized_field_f1 / a.field_f1)
+        } else {
+            None
         };
     }
     agg
@@ -476,5 +579,59 @@ mod tests {
         assert!(!summary.calibration_completed);
         assert!(!summary.test_completed);
         assert!(summary.baseline_comparison.is_none());
+    }
+
+    #[test]
+    fn field_diagnostic_summary_is_diagnostic_only_and_deterministic() {
+        let manifest = make_manifest(0xaa, 0xcc);
+        let mut rec = make_record("binance_regime", 0.0, 0.7, 0.6);
+        rec.pse_debug = Some(BenchGtPseDebug {
+            calibration_report: BenchGtCalibrationReport {
+                field_diagnostic_report: Some(FieldDiagnosticReport {
+                    metrics: FieldDiagnosticMetrics {
+                        productive_tp: 0,
+                        productive_fp: 0,
+                        productive_fn: 4,
+                        productive_precision: 0.0,
+                        productive_recall: 0.0,
+                        productive_f1: 0.0,
+                        field_tp: 4,
+                        field_fp: 525,
+                        field_fn: 0,
+                        field_precision: 4.0 / 529.0,
+                        field_recall: 1.0,
+                        field_f1: 0.015,
+                        eventized_field_tp: 3,
+                        eventized_field_fp: 67,
+                        eventized_field_fn: 1,
+                        eventized_field_precision: 3.0 / 70.0,
+                        eventized_field_recall: 0.75,
+                        eventized_field_f1: 0.081,
+                        fp_reduction_ratio: Some(525.0 / 67.0),
+                        condensation_gain_f1: Some(0.081 / 0.015),
+                        field_signal_present: true,
+                        eventized_signal_present: true,
+                        productive_detector_validated: false,
+                        diagnostic_only: true,
+                        warnings: vec![],
+                    },
+                    summary: None,
+                }),
+            },
+        });
+        let summary = DomainValidationSummary::build_from_records(
+            "test".into(),
+            Hash256::zero(),
+            vec![rec],
+            &manifest,
+        )
+        .unwrap();
+        let fd = summary.field_diagnostic_summary.unwrap();
+        assert!(!fd.productive_detector_validated);
+        assert!(fd.diagnostic_only);
+        assert!(fd
+            .interpretation_labels
+            .contains(&"productive_detector_not_validated".into()));
+        assert_eq!(fd.fp_reduction_ratio, Some(525.0 / 67.0));
     }
 }
