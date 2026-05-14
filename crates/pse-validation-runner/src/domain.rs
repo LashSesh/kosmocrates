@@ -89,6 +89,44 @@ pub struct BenchGtRecord {
     pub aggregate_metrics: BenchGtMetrics,
     pub config_hash: String,
     pub data_hash: String,
+    pub pse_debug: Option<BenchGtPseDebug>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BenchGtPseDebug {
+    pub calibration_report: BenchGtCalibrationReport,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BenchGtCalibrationReport {
+    pub field_diagnostic_report: Option<FieldDiagnosticReport>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FieldDiagnosticReport {
+    pub metrics: FieldDiagnosticMetrics,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FieldDiagnosticMetrics {
+    pub productive_tp: u64,
+    pub productive_fp: u64,
+    pub productive_fn: u64,
+    pub productive_precision: f64,
+    pub productive_recall: f64,
+    pub productive_f1: f64,
+    pub field_tp: u64,
+    pub field_fp: u64,
+    pub field_fn: u64,
+    pub field_precision: f64,
+    pub field_recall: f64,
+    pub field_f1: f64,
+    pub eventized_field_tp: u64,
+    pub eventized_field_fp: u64,
+    pub eventized_field_fn: u64,
+    pub eventized_field_precision: f64,
+    pub eventized_field_recall: f64,
+    pub eventized_field_f1: f64,
 }
 
 // ─── BaselineComparisonReport ─────────────────────────────────────────────────
@@ -142,6 +180,7 @@ pub struct DomainValidationSummary {
     pub test_recall: Option<f64>,
     /// Comparison report (PSE vs STL-zscore vs IsoForest).
     pub baseline_comparison: Option<BaselineComparisonReport>,
+    pub field_diagnostic_aggregate: Option<FieldDiagnosticMetrics>,
 }
 
 impl DomainValidationSummary {
@@ -193,6 +232,7 @@ impl DomainValidationSummary {
             Some(BaselineComparisonReport::build(scenario_comparisons))
         };
 
+        let field_diagnostic_aggregate = aggregate_field_diagnostics(&records);
         Ok(DomainValidationSummary {
             domain,
             manifest_hash,
@@ -205,8 +245,102 @@ impl DomainValidationSummary {
             test_precision,
             test_recall,
             baseline_comparison,
+            field_diagnostic_aggregate,
         })
     }
+}
+
+fn aggregate_field_diagnostics(records: &[BenchGtRecord]) -> Option<FieldDiagnosticMetrics> {
+    let mut agg: Option<FieldDiagnosticMetrics> = None;
+    for rec in records {
+        let m = rec
+            .pse_debug
+            .as_ref()?
+            .calibration_report
+            .field_diagnostic_report
+            .as_ref()?
+            .metrics
+            .clone();
+        let a = agg.get_or_insert(FieldDiagnosticMetrics {
+            productive_tp: 0,
+            productive_fp: 0,
+            productive_fn: 0,
+            productive_precision: 0.0,
+            productive_recall: 0.0,
+            productive_f1: 0.0,
+            field_tp: 0,
+            field_fp: 0,
+            field_fn: 0,
+            field_precision: 0.0,
+            field_recall: 0.0,
+            field_f1: 0.0,
+            eventized_field_tp: 0,
+            eventized_field_fp: 0,
+            eventized_field_fn: 0,
+            eventized_field_precision: 0.0,
+            eventized_field_recall: 0.0,
+            eventized_field_f1: 0.0,
+        });
+        a.productive_tp += m.productive_tp;
+        a.productive_fp += m.productive_fp;
+        a.productive_fn += m.productive_fn;
+        a.field_tp += m.field_tp;
+        a.field_fp += m.field_fp;
+        a.field_fn += m.field_fn;
+        a.eventized_field_tp += m.eventized_field_tp;
+        a.eventized_field_fp += m.eventized_field_fp;
+        a.eventized_field_fn += m.eventized_field_fn;
+    }
+    if let Some(a) = agg.as_mut() {
+        a.productive_precision = if a.productive_tp + a.productive_fp > 0 {
+            a.productive_tp as f64 / (a.productive_tp + a.productive_fp) as f64
+        } else {
+            0.0
+        };
+        a.productive_recall = if a.productive_tp + a.productive_fn > 0 {
+            a.productive_tp as f64 / (a.productive_tp + a.productive_fn) as f64
+        } else {
+            0.0
+        };
+        a.productive_f1 = if a.productive_precision + a.productive_recall > 0.0 {
+            2.0 * a.productive_precision * a.productive_recall
+                / (a.productive_precision + a.productive_recall)
+        } else {
+            0.0
+        };
+        a.field_precision = if a.field_tp + a.field_fp > 0 {
+            a.field_tp as f64 / (a.field_tp + a.field_fp) as f64
+        } else {
+            0.0
+        };
+        a.field_recall = if a.field_tp + a.field_fn > 0 {
+            a.field_tp as f64 / (a.field_tp + a.field_fn) as f64
+        } else {
+            0.0
+        };
+        a.field_f1 = if a.field_precision + a.field_recall > 0.0 {
+            2.0 * a.field_precision * a.field_recall / (a.field_precision + a.field_recall)
+        } else {
+            0.0
+        };
+        a.eventized_field_precision = if a.eventized_field_tp + a.eventized_field_fp > 0 {
+            a.eventized_field_tp as f64 / (a.eventized_field_tp + a.eventized_field_fp) as f64
+        } else {
+            0.0
+        };
+        a.eventized_field_recall = if a.eventized_field_tp + a.eventized_field_fn > 0 {
+            a.eventized_field_tp as f64 / (a.eventized_field_tp + a.eventized_field_fn) as f64
+        } else {
+            0.0
+        };
+        a.eventized_field_f1 = if a.eventized_field_precision + a.eventized_field_recall > 0.0 {
+            2.0 * a.eventized_field_precision * a.eventized_field_recall
+                / (a.eventized_field_precision + a.eventized_field_recall)
+        } else {
+            0.0
+        };
+    }
+    agg
 }
 
 #[cfg(test)]
@@ -283,6 +417,7 @@ mod tests {
             aggregate_metrics: mk(pse_f1),
             config_hash: "aa".into(),
             data_hash: "bb".into(),
+            pse_debug: None,
         }
     }
 

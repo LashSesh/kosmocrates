@@ -78,6 +78,19 @@ pub fn build_json_output(
         &result.ground_truth,
         &result.runner_diagnostics.gate_ticks,
     );
+    pse_debug.calibration_report.field_diagnostic_report = build_field_diagnostic_report(
+        pse_metrics.as_ref(),
+        pse_debug
+            .calibration_report
+            .axis_policy_report
+            .candidate_activation_metrics
+            .as_ref(),
+        pse_debug
+            .calibration_report
+            .eventization_report
+            .applied_diagnostic_eventized_metrics
+            .as_ref(),
+    );
     let stl_zscore_metrics = per_source.get("stl_zscore").cloned();
     let isoforest_metrics = per_source.get("isoforest").cloned();
 
@@ -824,6 +837,7 @@ pub struct CalibrationReport {
     pub best_policy_active_axes: Vec<String>,
     pub axis_policy_report: AxisPolicyReport,
     pub eventization_report: EventizationReport,
+    pub field_diagnostic_report: FieldDiagnosticReport,
     pub warnings: Vec<String>,
     pub source_split: Option<CalibrationSplit>,
     pub applied_split: Option<CalibrationSplit>,
@@ -990,6 +1004,104 @@ pub struct AxisPolicyReport {
     pub warnings: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+pub struct FieldDiagnosticMetrics {
+    pub productive_tp: u64,
+    pub productive_fp: u64,
+    pub productive_fn: u64,
+    pub productive_precision: f64,
+    pub productive_recall: f64,
+    pub productive_f1: f64,
+    pub field_tp: u64,
+    pub field_fp: u64,
+    pub field_fn: u64,
+    pub field_precision: f64,
+    pub field_recall: f64,
+    pub field_f1: f64,
+    pub eventized_field_tp: u64,
+    pub eventized_field_fp: u64,
+    pub eventized_field_fn: u64,
+    pub eventized_field_precision: f64,
+    pub eventized_field_recall: f64,
+    pub eventized_field_f1: f64,
+    pub fp_reduction_ratio: Option<f64>,
+    pub condensation_gain_f1: Option<f64>,
+    pub field_signal_present: bool,
+    pub eventized_signal_present: bool,
+    pub productive_detector_validated: bool,
+    pub diagnostic_only: bool,
+    pub warnings: Vec<String>,
+}
+
+pub type FieldDiagnosticAggregate = FieldDiagnosticMetrics;
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+pub struct FieldDiagnosticReport {
+    pub metrics: FieldDiagnosticMetrics,
+}
+
+pub fn build_field_diagnostic_report(
+    productive: Option<&Metrics>,
+    field: Option<&CandidateActivationMetrics>,
+    eventized: Option<&EventizationExpectedMetrics>,
+) -> FieldDiagnosticReport {
+    let productive = productive.cloned().unwrap_or_default();
+    let field = field.cloned().unwrap_or_default();
+    let eventized = eventized.cloned().unwrap_or_default();
+    let fp_reduction_ratio = if eventized.hypothetical_fp > 0 {
+        Some(field.fp as f64 / eventized.hypothetical_fp as f64)
+    } else {
+        None
+    };
+    let condensation_gain_f1 = if field.f1 > 0.0 {
+        Some(eventized.hypothetical_f1 / field.f1)
+    } else {
+        None
+    };
+    let mut warnings = vec![
+        "diagnostic_only: field metrics do not mutate productive pse_metrics".into(),
+        "productive_pse_detector_not_validated".into(),
+    ];
+    if field.tp > 0 && field.fp > field.tp {
+        warnings.push("field_signal_present_but_high_false_positive_load".into());
+    }
+    if eventized.hypothetical_fp < field.fp {
+        warnings.push("eventization_reduces_fp_but_requires_split_validation".into());
+    }
+    if field.fp > 0 && eventized.hypothetical_fp == 0 {
+        warnings.push("fp_reduction_ratio_undefined_eventized_fp_zero".into());
+    }
+    FieldDiagnosticReport {
+        metrics: FieldDiagnosticMetrics {
+            productive_tp: productive.tp,
+            productive_fp: productive.fp,
+            productive_fn: productive.fn_,
+            productive_precision: productive.precision,
+            productive_recall: productive.recall,
+            productive_f1: productive.f1,
+            field_tp: field.tp,
+            field_fp: field.fp,
+            field_fn: field.fn_,
+            field_precision: field.precision,
+            field_recall: field.recall,
+            field_f1: field.f1,
+            eventized_field_tp: eventized.hypothetical_tp,
+            eventized_field_fp: eventized.hypothetical_fp,
+            eventized_field_fn: eventized.hypothetical_fn,
+            eventized_field_precision: eventized.hypothetical_precision,
+            eventized_field_recall: eventized.hypothetical_recall,
+            eventized_field_f1: eventized.hypothetical_f1,
+            fp_reduction_ratio,
+            condensation_gain_f1,
+            field_signal_present: field.tp > 0,
+            eventized_signal_present: eventized.hypothetical_tp > 0,
+            productive_detector_validated: productive.tp > 0 && productive.f1 > 0.0,
+            diagnostic_only: true,
+            warnings,
+        },
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct AxisDiscriminativityRow {
     pub axis: String,
@@ -1060,6 +1172,7 @@ impl Default for CalibrationReport {
             best_policy_active_axes: Vec::new(),
             axis_policy_report: AxisPolicyReport::default(),
             eventization_report: EventizationReport::default(),
+            field_diagnostic_report: FieldDiagnosticReport::default(),
             warnings: Vec::new(),
             source_split: None,
             applied_split: None,
@@ -1105,6 +1218,7 @@ fn build_pse_debug(detections: &[Detection], diag: &RunnerDiagnostics) -> PseDeb
             best_policy_active_axes: Vec::new(),
             axis_policy_report: AxisPolicyReport::default(),
             eventization_report: EventizationReport::default(),
+            field_diagnostic_report: FieldDiagnosticReport::default(),
             warnings: profile.warnings.clone(),
             source_split: Some(profile.split.clone()),
             applied_split: None,
@@ -1300,6 +1414,7 @@ pub fn apply_frozen_calibration_profile(
         best_policy_active_axes: Vec::new(),
         axis_policy_report: AxisPolicyReport::default(),
         eventization_report: EventizationReport::default(),
+        field_diagnostic_report: FieldDiagnosticReport::default(),
         warnings,
         source_split: Some(profile.split.clone()),
         applied_split: Some(applied_split),
@@ -2372,5 +2487,42 @@ mod tests {
         .unwrap();
         assert_eq!(dets.iter().map(|d| d.tick).collect::<Vec<_>>(), vec![1, 3]);
         assert_eq!(rep.policy_apply_consistency.as_deref(), Some("match"));
+    }
+
+    #[test]
+    fn field_diagnostic_ratios_and_flags_are_computed() {
+        let productive = Metrics {
+            tp: 0,
+            fp: 0,
+            fn_: 1,
+            precision: 0.0,
+            recall: 0.0,
+            f1: 0.0,
+            auprc: None,
+        };
+        let field = CandidateActivationMetrics {
+            detection_count: 10,
+            tp: 1,
+            fp: 8,
+            fn_: 0,
+            precision: 0.111,
+            recall: 1.0,
+            f1: 0.2,
+        };
+        let eventized = EventizationExpectedMetrics {
+            hypothetical_detection_count: 3,
+            hypothetical_tp: 1,
+            hypothetical_fp: 2,
+            hypothetical_fn: 0,
+            hypothetical_precision: 0.333,
+            hypothetical_recall: 1.0,
+            hypothetical_f1: 0.5,
+        };
+        let rep = build_field_diagnostic_report(Some(&productive), Some(&field), Some(&eventized));
+        assert_eq!(rep.metrics.fp_reduction_ratio, Some(4.0));
+        assert_eq!(rep.metrics.condensation_gain_f1, Some(2.5));
+        assert!(!rep.metrics.productive_detector_validated);
+        assert!(rep.metrics.field_signal_present);
+        assert!(rep.metrics.eventized_signal_present);
     }
 }

@@ -12,9 +12,9 @@ use pse_bench_gt::scenarios::{
 use pse_bench_gt::{
     apply_frozen_axis_policy_profile, apply_frozen_calibration_profile,
     apply_frozen_eventization_profile, build_axis_policy_profile, build_eventization_profile,
-    build_gate_calibration_profile, build_json_output, metrics_by_source, AxisPolicyProfile,
-    BenchGtJsonOutput, CalibrationReport, CalibrationSplit, EventizationProfile,
-    EventizationReport, GateCalibrationProfile, Metrics,
+    build_field_diagnostic_report, build_gate_calibration_profile, build_json_output,
+    metrics_by_source, AxisPolicyProfile, BenchGtJsonOutput, CalibrationReport, CalibrationSplit,
+    EventizationProfile, EventizationReport, GateCalibrationProfile, Metrics,
 };
 use pse_types::Config;
 use sha2::Digest;
@@ -112,6 +112,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     calibrated_eventization_applied: false,
                     warnings: profile.warnings,
                 };
+                refresh_field_diag(&mut output);
             }
             if let Some(path) = &apply_eventization_profile_path {
                 let expected = expected_eventization_profile_hash.as_deref().ok_or(
@@ -159,6 +160,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                         Some("candidate_activation_detections".into());
                 }
                 output.pse_debug.calibration_report.eventization_report = report;
+                refresh_field_diag(&mut output);
             }
             if let Some(path) = &build_axis_policy_profile_path {
                 let profile = build_axis_policy_profile(&output.pse_debug.calibration_report)
@@ -192,6 +194,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("failed to apply axis policy profile (fail-closed): {e}"))?;
                 candidate_activation_dets = Some(dets);
                 output.pse_debug.calibration_report.axis_policy_report = rep;
+                refresh_field_diag(&mut output);
             }
             if let Some(path) = &build_profile_path {
                 let split = calibration_split
@@ -232,13 +235,16 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     best_policy_active_axes: Vec::new(),
                     axis_policy_report: Default::default(),
                     eventization_report: EventizationReport::default(),
+                    field_diagnostic_report: Default::default(),
                     warnings: profile.warnings.clone(),
                     source_split: Some(profile.split.clone()),
                     applied_split: None,
                     test_frozen: false,
                 };
+                refresh_field_diag(&mut output);
             } else if let Some(report) = apply_report.clone() {
                 output.pse_debug.calibration_report = report;
+                refresh_field_diag(&mut output);
             }
             let json = serde_json::to_string_pretty(&output)?;
             match &out_path {
@@ -377,4 +383,22 @@ fn parse_split(raw: Option<&str>) -> Result<Option<CalibrationSplit>, Box<dyn st
             Err(format!("unknown split: {other}; use calibration|validation|test").into())
         }
     }
+}
+
+fn refresh_field_diag(output: &mut BenchGtJsonOutput) {
+    output.pse_debug.calibration_report.field_diagnostic_report = build_field_diagnostic_report(
+        output.pse_metrics.as_ref(),
+        output
+            .pse_debug
+            .calibration_report
+            .axis_policy_report
+            .candidate_activation_metrics
+            .as_ref(),
+        output
+            .pse_debug
+            .calibration_report
+            .eventization_report
+            .applied_diagnostic_eventized_metrics
+            .as_ref(),
+    );
 }
