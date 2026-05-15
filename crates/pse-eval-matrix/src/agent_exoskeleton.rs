@@ -3676,11 +3676,21 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
                     / noncausal_top3.len() as f64
             };
             let gap = top_non_mean - best_causal_mean;
-            let dominant = if top_non_mean > best_causal_mean {
-                vec!["keyword_overlap".into(), "recency_currentness".into()]
-            } else {
-                vec!["unknown_or_other".into()]
-            };
+            let mut dominant: Vec<String> = Vec::new();
+            for it in &noncausal_top3 {
+                if let Some(maxc) = it
+                    .score_components
+                    .iter()
+                    .max_by(|x, y| x.value.partial_cmp(&y.value).unwrap())
+                {
+                    dominant.push(maxc.component.clone());
+                }
+            }
+            dominant.sort();
+            dominant.dedup();
+            if dominant.is_empty() {
+                dominant.push("unknown_or_other".into());
+            }
             let mut missing = Vec::new();
             if causal_items.iter().all(|x| {
                 x.score_components
@@ -3702,12 +3712,71 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
             }) {
                 missing.push("action_compatibility".into());
             }
-            let label = if gap > 0.0 {
+            let noncausal_keyword_dominates = noncausal_top3
+                .iter()
+                .filter(|it| {
+                    it.score_components
+                        .iter()
+                        .max_by(|x, y| x.value.partial_cmp(&y.value).unwrap())
+                        .map(|c| c.component.as_str() == "keyword_overlap")
+                        .unwrap_or(false)
+                })
+                .count()
+                >= 2;
+            let noncausal_without_distractor_penalty = noncausal_top3
+                .iter()
+                .filter(|it| {
+                    it.score_components
+                        .iter()
+                        .find(|c| c.component == "distractor_penalty")
+                        .map(|c| c.value >= 0.0)
+                        .unwrap_or(true)
+                })
+                .count()
+                >= 2;
+            let has_correct_next_actions = !state.ground_truth.expected_next_actions.is_empty();
+            let has_timeline_context = !state.plan_steps.is_empty();
+            let causal_role_for_both = causal_items.iter().any(|it| {
+                it.score_components
+                    .iter()
+                    .max_by(|x, y| x.value.partial_cmp(&y.value).unwrap())
+                    .map(|c| c.component.as_str() == "causal_role_tag")
+                    .unwrap_or(false)
+            }) && noncausal_top3.iter().any(|it| {
+                it.score_components
+                    .iter()
+                    .max_by(|x, y| x.value.partial_cmp(&y.value).unwrap())
+                    .map(|c| c.component.as_str() == "causal_role_tag")
+                    .unwrap_or(false)
+            });
+            let label = if noncausal_keyword_dominates {
                 "noncausal_keyword_signal_dominates"
-            } else if missing.iter().any(|x| x == "path_match") {
+            } else if missing.iter().any(|x| x == "path_match") && gap > 0.0 {
                 "causal_path_signal_missing"
-            } else if missing.iter().any(|x| x == "action_compatibility") {
+            } else if has_correct_next_actions
+                && missing.iter().any(|x| x == "action_compatibility")
+            {
                 "action_compatibility_missing"
+            } else if noncausal_without_distractor_penalty && gap >= 0.0 {
+                "distractor_penalty_insufficient"
+            } else if has_timeline_context
+                && causal_items.iter().all(|x| {
+                    x.score_components
+                        .iter()
+                        .find(|c| c.component == "phase_order")
+                        .map(|c| c.value)
+                        .unwrap_or(0.0)
+                        == 0.0
+                })
+            {
+                "phase_order_signal_missing"
+            } else if causal_role_for_both {
+                "causal_role_signal_not_discriminative"
+            } else if dominant
+                .iter()
+                .all(|x| x == "other" || x == "unknown_or_other")
+            {
+                "score_components_not_separable"
             } else {
                 "unknown"
             }
@@ -3728,7 +3797,47 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
             if noncausal_top3.iter().any(|x| !x.is_distractor) {
                 d.push("distractors_not_suppressed".into());
             }
-            if label == "unknown" {
+            let has_componentized_scores = causal_items
+                .iter()
+                .chain(noncausal_top3.iter())
+                .any(|it| !it.score_components.is_empty());
+            let unexplained_non_zero = causal_items
+                .iter()
+                .chain(noncausal_top3.iter())
+                .filter_map(|it| {
+                    it.score_components
+                        .iter()
+                        .find(|c| c.component == "unexplained_score_delta")
+                        .map(|c| c.value)
+                })
+                .any(|v| v != 0.0);
+            let has_unknown_dominant = causal_items
+                .iter()
+                .chain(noncausal_top3.iter())
+                .filter_map(|it| {
+                    it.score_components
+                        .iter()
+                        .max_by(|x, y| x.value.partial_cmp(&y.value).unwrap())
+                })
+                .any(|c| c.component == "other" || c.component == "unknown_or_other");
+            let has_total_mismatch = causal_items.iter().chain(noncausal_top3.iter()).any(|it| {
+                let sum = it.score_components.iter().map(|c| c.value).sum::<f64>();
+                (sum - it.total_score as f64).abs() > f64::EPSILON
+            });
+            let unknown_with_named_components = label == "unknown"
+                && causal_items.iter().chain(noncausal_top3.iter()).any(|it| {
+                    it.score_components.iter().any(|c| {
+                        c.component != "other"
+                            && c.component != "unknown_or_other"
+                            && c.component != "unexplained_score_delta"
+                    })
+                });
+            let explainability_gap = unexplained_non_zero
+                || has_unknown_dominant
+                || !has_componentized_scores
+                || has_total_mismatch
+                || unknown_with_named_components;
+            if explainability_gap {
                 d.push("score_explainability_gap".into());
             }
             TraceScoreAttributionAudit {
@@ -3804,8 +3913,10 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
             }
         }
         mean_unexplained_score_delta /= score_attribution_audits.len().max(1) as f64;
-        let unknown_only =
-            dominant_component_counts.len() == 1 && dominant_component_counts.contains_key("other");
+        let has_explainability_gap = traces_with_explainability_gap > 0;
+        let componentization_complete =
+            mean_unexplained_score_delta == 0.0 && !dominant_component_counts.is_empty();
+        let signal_selection_explained = fl.keys().any(|k| k != "unknown");
         TraceScoreAttributionSummary {
             trace_count: score_attribution_audits.len(),
             harder_trace_count: score_attribution_audits
@@ -3827,8 +3938,12 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
             interpretation_labels: vec![
                 "score_componentization_present".into(),
                 "trace_score_attribution_present".into(),
-                "signal_selection_failure_explained".into(),
-                if unknown_only {
+                if signal_selection_explained {
+                    "signal_selection_failure_explained".into()
+                } else {
+                    "signal_selection_failure_unresolved".into()
+                },
+                if has_explainability_gap {
                     "score_explainability_gap_remaining".into()
                 } else {
                     "score_explainability_improved".into()
@@ -3841,7 +3956,7 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
             dominant_component_counts,
             causal_dominant_component_counts,
             noncausal_dominant_component_counts,
-            componentization_complete: !unknown_only,
+            componentization_complete,
         }
     };
     let trace_replay_report = TraceReplayReport {
