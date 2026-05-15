@@ -82,7 +82,10 @@ pub use ablation::{
 pub use agent_exoskeleton::{
     benchmark_scenarios, run_agent_exoskeleton_benchmark, AgentDiagnosticMetrics,
     AgentExoskeletonAggregate, AgentExoskeletonDiagnosticReport, AgentExoskeletonSuiteReport,
-    AgentGroundTruth, AgentRelevanceField, AgentWorkState, WorkItem, WorkItemType,
+    AgentGroundTruth, AgentRelevanceField, AgentWorkState, Layer1CandidateCausalMetricSpec,
+    TraceFeatureActivationTargetingAudit, TraceFeatureDesignProfile,
+    TraceFeatureDesignProfileReport, TraceFeatureDesignReport, TraceFeatureProfileTargetingReport,
+    WorkItem, WorkItemType,
 };
 pub use calibration::{CalibrationLedgerEntry, CalibrationProfile, CalibrationReason};
 pub use cell_substrate_metrics::{

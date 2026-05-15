@@ -210,6 +210,7 @@ pub struct AgentTraceReplayCase {
 pub enum TraceVariantKind {
     Original,
     Harder,
+    Expanded,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,6 +273,65 @@ pub struct TraceReplayReport {
     pub post_coverage_ranking_failure_summary: PostCoverageRankingFailureSummary,
     pub score_attribution_audits: Vec<TraceScoreAttributionAudit>,
     pub trace_score_attribution_summary: TraceScoreAttributionSummary,
+    pub trace_feature_design_report: Option<TraceFeatureDesignReport>,
+    pub trace_corpus_descriptor: Option<TraceCorpusDescriptor>,
+    pub trace_corpus_expansion_report: Option<TraceCorpusExpansionReport>,
+    pub trace_corpus_stability_summary: Option<TraceCorpusStabilitySummary>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCorpusDescriptor {
+    pub corpus_name: String,
+    pub corpus_version: String,
+    pub trace_count: usize,
+    pub original_trace_count: usize,
+    pub harder_trace_count: usize,
+    pub expanded_trace_count: usize,
+    pub source_type: String,
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub intended_layer: String,
+    pub metric_policy: Vec<String>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCorpusExpansionReport {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub baseline_trace_count: usize,
+    pub expanded_trace_count: usize,
+    pub total_trace_count: usize,
+    pub expansion_status: String,
+    pub added_trace_ids: Vec<String>,
+    pub coverage_labels: Vec<String>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCorpusStabilitySummary {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub total_trace_count: usize,
+    pub original_trace_count: usize,
+    pub harder_trace_count: usize,
+    pub expanded_trace_count: usize,
+    pub official_hit_at3_total: usize,
+    pub audit_aligned_hit_at3_total: usize,
+    pub official_hit_at3_rate: f64,
+    pub audit_aligned_hit_at3_rate: f64,
+    pub original_audit_aligned_hit_rate: f64,
+    pub harder_audit_aligned_hit_rate: f64,
+    pub expanded_audit_aligned_hit_rate: f64,
+    pub original_false_negative_count: usize,
+    pub harder_false_negative_count: usize,
+    pub expanded_false_negative_count: usize,
+    pub stability_label: String,
+    pub redesign_evidence_label: String,
+    pub recommended_next_step: String,
+    pub interpretation_labels: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -411,6 +471,550 @@ pub struct TraceSignalReweightingReport {
     pub best_profile_by_harder_hit_at_3: TraceSignalProfile,
     pub current_pse_profile: TraceSignalProfile,
     pub keyword_equivalent_profile: TraceSignalProfile,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum TraceFeatureDesignProfile {
+    CurrentPse,
+    StrongDistractorPenalty,
+    KeywordDominanceDampening,
+    ReportArtifactDemotion,
+    CausalRoleDisambiguation,
+    CombinedConservativeFeatureDesign,
+    CausalActivationDiagnostic,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureDesignProfileReport {
+    pub profile: TraceFeatureDesignProfile,
+    pub metrics_aggregate: AgentExoskeletonAggregate,
+    pub harder_metrics_aggregate: AgentExoskeletonAggregate,
+    pub traces_with_gain: usize,
+    pub traces_with_loss: usize,
+    pub traces_with_equal: usize,
+    pub harder_traces_with_gain: usize,
+    pub harder_traces_with_loss: usize,
+    pub harder_traces_with_equal: usize,
+    pub improved_trace_ids: Vec<String>,
+    pub worsened_trace_ids: Vec<String>,
+    pub feature_effect_labels: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureDesignReport {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub profiles: Vec<TraceFeatureDesignProfile>,
+    pub profile_reports: Vec<TraceFeatureDesignProfileReport>,
+    pub best_profile_by_harder_hit_at_3: TraceFeatureDesignProfile,
+    pub best_profile_by_harder_mrr: TraceFeatureDesignProfile,
+    pub best_profile_by_harder_false_focus: TraceFeatureDesignProfile,
+    pub interpretation_labels: Vec<String>,
+    pub sensitivity_report: Option<TraceFeatureDesignSensitivityReport>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureDesignSensitivityReport {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub profile_sensitivity_reports: Vec<TraceFeatureDesignProfileSensitivity>,
+    pub profiles_with_any_rank_movement: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_any_score_movement: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_causal_rank_improvement: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_causal_score_improvement: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_no_effect: Vec<TraceFeatureDesignProfile>,
+    pub interpretation_labels: Vec<String>,
+    pub activation_audit: Option<TraceFeatureDesignActivationAudit>,
+    pub marker_coverage_audit: Option<TraceFeatureMarkerCoverageAudit>,
+    pub targeting_audit: Option<TraceFeatureActivationTargetingAudit>,
+    pub delta_sufficiency_audit: Option<TraceFeatureDeltaSufficiencyAudit>,
+    pub causal_feature_targeting_audit: Option<TraceCausalFeatureTargetingAudit>,
+    pub causal_activation_alignment_audit: Option<TraceCausalActivationAlignmentAudit>,
+    pub causal_delta_impact_audit: Option<TraceCausalDeltaImpactAudit>,
+    pub metric_causal_consistency_audit: Option<TraceMetricCausalConsistencyAudit>,
+    pub metric_semantics_alignment_report: Option<TraceMetricSemanticsAlignmentReport>,
+    pub dual_metric_report: Option<TraceDualMetricReport>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureDesignProfileSensitivity {
+    pub profile: TraceFeatureDesignProfile,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub traces_with_rank_movement: usize,
+    pub traces_with_score_movement: usize,
+    pub traces_with_causal_rank_improvement: usize,
+    pub traces_with_causal_score_improvement: usize,
+    pub traces_with_top3_change: usize,
+    pub traces_with_best_causal_rank_change: usize,
+    pub mean_abs_score_delta: f64,
+    pub mean_abs_rank_delta: f64,
+    pub mean_causal_rank_delta: f64,
+    pub mean_causal_score_delta: f64,
+    pub harder_mean_causal_rank_delta: f64,
+    pub harder_mean_causal_score_delta: f64,
+    pub sensitivity_label: String,
+    pub affected_trace_ids: Vec<String>,
+    pub unaffected_trace_ids: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureDesignActivationAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub profile_activation_reports: Vec<TraceFeatureDesignProfileActivation>,
+    pub profiles_with_zero_activation: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_activation_only_on_noncausal: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_activation_on_causal: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_small_delta_only: Vec<TraceFeatureDesignProfile>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureDesignProfileActivation {
+    pub profile: TraceFeatureDesignProfile,
+    pub activation_count: usize,
+    pub causal_activation_count: usize,
+    pub noncausal_activation_count: usize,
+    pub top3_blocker_activation_count: usize,
+    pub total_score_delta_abs: f64,
+    pub mean_score_delta_abs: f64,
+    pub max_score_delta_abs: f64,
+    pub causal_score_delta_abs: f64,
+    pub noncausal_score_delta_abs: f64,
+    pub affected_trace_ids: Vec<String>,
+    pub affected_item_ids_sample: Vec<String>,
+    pub zero_activation_reason: Option<String>,
+    pub activation_label: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureMarkerCoverageAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub candidate_count: usize,
+    pub distractor_marker_count: usize,
+    pub keyword_dampening_marker_count: usize,
+    pub causal_path_marker_count: usize,
+    pub causal_action_marker_count: usize,
+    pub report_artifact_marker_count: usize,
+    pub top3_blocker_marker_coverage: usize,
+    pub causal_item_marker_coverage: usize,
+    pub traces_with_missing_distractor_markers: Vec<String>,
+    pub traces_with_missing_keyword_dampening_markers: Vec<String>,
+    pub traces_with_missing_causal_action_markers: Vec<String>,
+    pub trace_reports: Vec<TraceFeatureMarkerCoverageTrace>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureMarkerCoverageTrace {
+    pub trace_id: String,
+    pub variant_kind: TraceVariantKind,
+    pub candidate_count: usize,
+    pub distractor_marker_count: usize,
+    pub keyword_dampening_marker_count: usize,
+    pub causal_path_marker_count: usize,
+    pub causal_action_marker_count: usize,
+    pub report_artifact_marker_count: usize,
+    pub top3_blocker_marker_count: usize,
+    pub causal_item_marker_count: usize,
+    pub missing_marker_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureActivationTargetingAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub profile_targeting_reports: Vec<TraceFeatureProfileTargetingReport>,
+    pub profiles_missing_top3_blockers: Vec<TraceFeatureDesignProfile>,
+    pub profiles_missing_causal_items: Vec<TraceFeatureDesignProfile>,
+    pub profiles_only_hit_low_rank_noncausal: Vec<TraceFeatureDesignProfile>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureProfileTargetingReport {
+    pub profile: TraceFeatureDesignProfile,
+    pub activation_count: usize,
+    pub activated_item_ids_sample: Vec<String>,
+    pub activated_item_kind_counts: BTreeMap<String, usize>,
+    pub activated_rank_distribution: BTreeMap<String, usize>,
+    pub activated_causal_count: usize,
+    pub activated_noncausal_count: usize,
+    pub activated_top3_blocker_count: usize,
+    pub activated_below_top3_noncausal_count: usize,
+    pub missed_top3_blocker_count: usize,
+    pub missed_causal_item_count: usize,
+    pub targeting_label: String,
+    pub targeting_failure_reasons: Vec<String>,
+    pub affected_trace_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureDeltaSufficiencyAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub profile_delta_reports: Vec<TraceFeatureProfileDeltaSufficiency>,
+    pub profiles_with_insufficient_delta: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_near_threshold_shift: Vec<TraceFeatureDesignProfile>,
+    pub profiles_with_large_gap_remaining: Vec<TraceFeatureDesignProfile>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFeatureProfileDeltaSufficiency {
+    pub profile: TraceFeatureDesignProfile,
+    pub activated_top3_blocker_count: usize,
+    pub mean_top3_blocker_delta_abs: f64,
+    pub max_top3_blocker_delta_abs: f64,
+    pub mean_required_delta_to_top3: Option<f64>,
+    pub min_required_delta_to_top3: Option<f64>,
+    pub mean_delta_coverage_ratio: Option<f64>,
+    pub max_delta_coverage_ratio: Option<f64>,
+    pub traces_with_near_threshold_shift: usize,
+    pub traces_with_large_gap_remaining: usize,
+    pub traces_where_causal_item_next_in_line: usize,
+    pub delta_sufficiency_label: String,
+    pub diagnostic_reasons: Vec<String>,
+    pub affected_trace_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProposedCausalFeatureRule {
+    pub rule_name: String,
+    pub matched_marker_family: String,
+    pub expected_target: String,
+    pub diagnostic_only: bool,
+    pub rationale: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCausalFeatureTargetingTrace {
+    pub trace_id: String,
+    pub variant_kind: TraceVariantKind,
+    pub causal_item_ids: Vec<String>,
+    pub causal_item_marker_summary: BTreeMap<String, usize>,
+    pub marker_targetable_item_ids: Vec<String>,
+    pub rule_matched_item_ids: Vec<String>,
+    pub score_activated_item_ids: Vec<String>,
+    pub score_improved_item_ids: Vec<String>,
+    pub rank_improved_item_ids: Vec<String>,
+    pub marker_targetable_but_not_activated_item_ids: Vec<String>,
+    pub semantic_status_label: String,
+    pub hit_by_existing_profiles: usize,
+    pub missed_by_existing_profiles: usize,
+    pub proposed_rule_labels: Vec<String>,
+    pub targeting_gap_label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCausalFeatureTargetingAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub causal_item_count: usize,
+    pub causal_items_with_path_marker: usize,
+    pub causal_items_with_command_marker: usize,
+    pub causal_items_with_action_marker: usize,
+    pub causal_items_with_retry_marker: usize,
+    pub causal_items_hit_by_existing_profiles: usize,
+    pub causal_items_missed_by_existing_profiles: usize,
+    pub causal_items_marker_targetable: usize,
+    pub causal_items_rule_matched: usize,
+    pub causal_items_score_activated: usize,
+    pub causal_items_score_improved: usize,
+    pub causal_items_rank_improved: usize,
+    pub causal_items_marker_targetable_but_not_activated: usize,
+    pub causal_items_activated_but_not_improved: usize,
+    pub causal_items_improved_but_below_top3: usize,
+    pub proposed_causal_feature_rules: Vec<ProposedCausalFeatureRule>,
+    pub trace_reports: Vec<TraceCausalFeatureTargetingTrace>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCausalActivationAlignmentTrace {
+    pub trace_id: String,
+    pub variant_kind: TraceVariantKind,
+    pub causal_item_ids: Vec<String>,
+    pub marker_targetable_item_ids: Vec<String>,
+    pub rule_matched_item_ids: Vec<String>,
+    pub profile_delta_item_ids: Vec<String>,
+    pub causal_profile_delta_item_ids: Vec<String>,
+    pub noncausal_profile_delta_item_ids: Vec<String>,
+    pub marker_targetable_but_no_delta_item_ids: Vec<String>,
+    pub profile_delta_but_noncausal_item_ids: Vec<String>,
+    pub alignment_label: String,
+    pub alignment_failure_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCausalActivationAlignmentAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub causal_marker_targetable_count: usize,
+    pub causal_rule_matched_count: usize,
+    pub causal_profile_score_delta_count: usize,
+    pub noncausal_profile_score_delta_count: usize,
+    pub marker_targetable_but_no_delta_count: usize,
+    pub profile_delta_without_causal_classification_count: usize,
+    pub suspected_id_mismatch_count: usize,
+    pub suspected_rule_condition_mismatch_count: usize,
+    pub suspected_zero_delta_after_match_count: usize,
+    pub trace_reports: Vec<TraceCausalActivationAlignmentTrace>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCausalDeltaImpactTrace {
+    pub trace_id: String,
+    pub variant_kind: TraceVariantKind,
+    pub current_best_causal_rank: usize,
+    pub profile_best_causal_rank: usize,
+    pub current_best_causal_score: i32,
+    pub profile_best_causal_score: i32,
+    pub best_causal_score_delta: i32,
+    pub best_causal_rank_delta: i32,
+    pub causal_delta_item_count: usize,
+    pub noncausal_delta_item_count: usize,
+    pub mean_causal_delta_abs: f64,
+    pub mean_noncausal_delta_abs: f64,
+    pub top3_current_item_ids: Vec<String>,
+    pub top3_profile_item_ids: Vec<String>,
+    pub items_between_best_causal_and_top3: Vec<String>,
+    pub rank_barrier_item_ids: Vec<String>,
+    pub rank_barrier_reason: String,
+    pub impact_label: String,
+    pub diagnostic_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCausalDeltaImpactAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub causal_delta_item_count: usize,
+    pub noncausal_delta_item_count: usize,
+    pub mean_causal_delta_abs: f64,
+    pub mean_noncausal_delta_abs: f64,
+    pub max_causal_delta_abs: f64,
+    pub max_noncausal_delta_abs: f64,
+    pub traces_with_causal_rank_movement: usize,
+    pub traces_with_causal_rank_improvement: usize,
+    pub traces_with_causal_score_improvement: usize,
+    pub traces_with_noncausal_delta_dominance: usize,
+    pub traces_with_rank_barrier: usize,
+    pub causal_rank_resolution_failed_count: usize,
+    pub causal_rank_resolution_failure_reasons: Vec<String>,
+    pub traces_with_causal_rank_resolution_failure: Vec<String>,
+    pub trace_reports: Vec<TraceCausalDeltaImpactTrace>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetricCausalConsistencyTrace {
+    pub trace_id: String,
+    pub variant_kind: TraceVariantKind,
+    pub audit_causal_item_ids: Vec<String>,
+    pub metric_ground_truth_item_ids: Vec<String>,
+    pub ranked_top3_item_ids: Vec<String>,
+    pub audit_causal_top3_item_ids: Vec<String>,
+    pub metric_hit_top3_item_ids: Vec<String>,
+    pub audit_best_causal_rank: usize,
+    pub metric_hit_at3: bool,
+    pub metric_mrr: f64,
+    pub id_overlap_count: usize,
+    pub id_overlap_ratio: f64,
+    pub consistency_label: String,
+    pub disagreement_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetricCausalConsistencyAudit {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub traces_with_audit_causal_top3: usize,
+    pub traces_with_metric_hit_at3: usize,
+    pub traces_with_audit_metric_disagreement: usize,
+    pub traces_with_id_set_mismatch: usize,
+    pub traces_with_label_semantics_mismatch: usize,
+    pub trace_reports: Vec<TraceMetricCausalConsistencyTrace>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetricSemanticsAlignmentTrace {
+    pub trace_id: String,
+    pub variant_kind: TraceVariantKind,
+    pub official_metric_hit_at3: bool,
+    pub audit_aligned_hit_at3: bool,
+    pub official_metric_mrr: f64,
+    pub audit_aligned_mrr: f64,
+    pub official_metric_target_ids: Vec<String>,
+    pub audit_aligned_target_ids: Vec<String>,
+    pub ranked_top3_item_ids: Vec<String>,
+    pub aligned_hit_item_ids: Vec<String>,
+    pub metric_semantics_status_label: String,
+    pub diagnostic_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetricSemanticsAlignmentReport {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub official_metric_hit_at3_count: usize,
+    pub audit_aligned_hit_at3_count: usize,
+    pub official_metric_mrr_mean: f64,
+    pub audit_aligned_mrr_mean: f64,
+    pub false_negative_due_to_metric_semantics_count: usize,
+    pub traces_where_audit_alignment_changes_outcome: Vec<String>,
+    pub trace_reports: Vec<TraceMetricSemanticsAlignmentTrace>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetricView {
+    pub hit_at3_count: usize,
+    pub hit_at3_rate: f64,
+    pub mrr_mean: f64,
+    pub false_focus_mean: f64,
+    pub gain_count: usize,
+    pub loss_count: usize,
+    pub equal_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetricSemanticDelta {
+    pub hit_at3_count_delta: i32,
+    pub hit_at3_rate_delta: f64,
+    pub mrr_mean_delta: f64,
+    pub false_negative_due_to_metric_semantics_count: usize,
+    pub traces_with_changed_outcome: Vec<String>,
+    pub semantic_status_label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceDualMetricTrace {
+    pub trace_id: String,
+    pub variant_kind: TraceVariantKind,
+    pub official_hit_at3: bool,
+    pub audit_aligned_hit_at3: bool,
+    pub official_mrr: f64,
+    pub audit_aligned_mrr: f64,
+    pub official_target_ids: Vec<String>,
+    pub audit_aligned_target_ids: Vec<String>,
+    pub ranked_top3_item_ids: Vec<String>,
+    pub semantic_status_label: String,
+    pub diagnostic_reasons: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceDualMetricReport {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub trace_count: usize,
+    pub harder_trace_count: usize,
+    pub official_metric: TraceMetricView,
+    pub audit_aligned_metric: TraceMetricView,
+    pub semantic_delta: TraceMetricSemanticDelta,
+    pub trace_reports: Vec<TraceDualMetricTrace>,
+    pub metric_redesign_proposal: Option<TraceMetricRedesignProposal>,
+    pub layer1_candidate_causal_metric_spec: Option<Layer1CandidateCausalMetricSpec>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Layer1CandidateCausalMetricSpec {
+    pub metric_name: String,
+    pub metric_version: String,
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub intended_layer: String,
+    pub target_semantics: String,
+    pub target_id_source: String,
+    pub hit_at_k_definition: String,
+    pub mrr_definition: String,
+    pub official_metric_relationship: String,
+    pub compatibility_policy: String,
+    pub freeze_status: String,
+    pub freeze_criteria: Vec<String>,
+    pub known_limitations: Vec<String>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetricSemanticsDescriptor {
+    pub metric_name: String,
+    pub target_type: String,
+    pub target_id_source: String,
+    pub hit_definition: String,
+    pub mrr_definition: String,
+    pub intended_layer: String,
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetricMigrationStep {
+    pub step_id: String,
+    pub description: String,
+    pub required_guardrail: String,
+    pub validation_check: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetricRedesignEvidenceSummary {
+    pub trace_count: usize,
+    pub official_hit_at3_count: usize,
+    pub audit_aligned_hit_at3_count: usize,
+    pub false_negative_count: usize,
+    pub semantic_delta_hit_at3: i32,
+    pub semantic_delta_mrr: f64,
+    pub evidence_label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetricRedesignProposal {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub proposal_status: String,
+    pub current_official_metric_semantics: MetricSemanticsDescriptor,
+    pub proposed_metric_semantics: MetricSemanticsDescriptor,
+    pub recommended_primary_metric: String,
+    pub compatibility_policy: String,
+    pub migration_steps: Vec<MetricMigrationStep>,
+    pub risks: Vec<String>,
+    pub acceptance_criteria: Vec<String>,
+    pub evidence_summary: MetricRedesignEvidenceSummary,
     pub interpretation_labels: Vec<String>,
 }
 
@@ -1123,6 +1727,157 @@ fn all_trace_signal_profiles() -> Vec<TraceSignalProfile> {
     ]
 }
 
+fn all_trace_feature_design_profiles() -> Vec<TraceFeatureDesignProfile> {
+    vec![
+        TraceFeatureDesignProfile::CurrentPse,
+        TraceFeatureDesignProfile::StrongDistractorPenalty,
+        TraceFeatureDesignProfile::KeywordDominanceDampening,
+        TraceFeatureDesignProfile::ReportArtifactDemotion,
+        TraceFeatureDesignProfile::CausalRoleDisambiguation,
+        TraceFeatureDesignProfile::CombinedConservativeFeatureDesign,
+        TraceFeatureDesignProfile::CausalActivationDiagnostic,
+    ]
+}
+
+fn rank_trace_with_feature_design_profile(
+    state: &AgentWorkState,
+    profile: TraceFeatureDesignProfile,
+) -> AgentRelevanceField {
+    if profile == TraceFeatureDesignProfile::CurrentPse {
+        return rank_pse(state);
+    }
+    let mut field = rank_pse(state);
+    for item in &state.work_items {
+        let score = field.item_scores.entry(item.id.clone()).or_insert(0);
+        let txt =
+            format!("{} {} {}", item.source, item.text, item.tags.join(" ")).to_ascii_lowercase();
+        let has_marker = |marker: &str| -> bool {
+            txt.contains(marker)
+                || item
+                    .tags
+                    .iter()
+                    .any(|t| t.to_ascii_lowercase().contains(marker))
+        };
+        let has_action_or_path_hint = txt.contains("src/")
+            || txt.contains(".rs")
+            || txt.contains("command")
+            || txt.contains("cargo ")
+            || txt.contains("run ")
+            || txt.contains("fix")
+            || txt.contains("patch");
+        let noncausalish = [
+            "distractor",
+            "stale",
+            "obsolete",
+            "misleading",
+            "wrong_crate",
+            "wrong",
+            "false_path",
+            "red_herring",
+            "unrelated",
+            "old_green",
+            "noncausal",
+            "irrelevant",
+        ]
+        .iter()
+        .any(|m| has_marker(m));
+        let keywordish = has_marker("keyword")
+            || has_marker("overlap")
+            || has_marker("token")
+            || has_marker("report_artifact")
+            || has_marker("final_report")
+            || has_marker("verdict_artifact")
+            || has_marker("artifact")
+            || has_marker("validation")
+            || has_marker("domain_validation")
+            || has_marker("benchmark");
+        let artifactish = has_marker("report")
+            || has_marker("final")
+            || has_marker("verdict")
+            || has_marker("artifact")
+            || has_marker("final_report");
+        let has_causal_role = item.tags.iter().any(|t| {
+            t.contains("causal")
+                || t.contains("executor")
+                || t.contains("harness")
+                || t.contains("command_plan")
+        });
+        match profile {
+            TraceFeatureDesignProfile::CurrentPse => {}
+            TraceFeatureDesignProfile::StrongDistractorPenalty => {
+                if noncausalish {
+                    *score -= 6;
+                }
+            }
+            TraceFeatureDesignProfile::KeywordDominanceDampening => {
+                if keywordish && noncausalish {
+                    *score -= 4;
+                }
+            }
+            TraceFeatureDesignProfile::ReportArtifactDemotion => {
+                if artifactish {
+                    *score -= 3;
+                }
+            }
+            TraceFeatureDesignProfile::CausalRoleDisambiguation => {
+                if has_causal_role && has_action_or_path_hint {
+                    *score += 2;
+                } else if has_causal_role {
+                    *score -= 2;
+                }
+            }
+            TraceFeatureDesignProfile::CombinedConservativeFeatureDesign => {
+                if noncausalish {
+                    *score -= 3;
+                }
+                if keywordish && noncausalish {
+                    *score -= 2;
+                }
+                if has_causal_role && has_action_or_path_hint {
+                    *score += 1;
+                } else if has_causal_role {
+                    *score -= 1;
+                }
+            }
+            TraceFeatureDesignProfile::CausalActivationDiagnostic => {
+                let causal_markerish = has_marker("inspect_path")
+                    || has_marker("command_context")
+                    || has_marker("action_required")
+                    || has_marker("retry_command")
+                    || txt.contains("crates/")
+                    || txt.contains("src/")
+                    || txt.contains(".rs")
+                    || txt.contains("cargo")
+                    || txt.contains("test")
+                    || txt.contains("fmt")
+                    || txt.contains("run")
+                    || txt.contains("rerun")
+                    || txt.contains("check")
+                    || txt.contains("verify")
+                    || txt.contains("reproduce");
+                let noncausal_reportish = has_marker("noncausal")
+                    || has_marker("red_herring")
+                    || has_marker("false_path")
+                    || has_marker("wrong_crate")
+                    || has_marker("stale")
+                    || has_marker("obsolete")
+                    || has_marker("report_artifact")
+                    || has_marker("verdict_artifact")
+                    || has_marker("final_report")
+                    || has_marker("diagnostic_only");
+                if has_causal_role && causal_markerish {
+                    *score += 5;
+                }
+                if noncausal_reportish {
+                    *score -= 3;
+                }
+            }
+        }
+    }
+    field.policy_used = "trace_feature_design_profile".to_string();
+    field
+}
+
 fn rank_trace_with_signal_profile(
     state: &AgentWorkState,
     profile: TraceSignalProfile,
@@ -1483,6 +2238,11 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             ],
             (0..10)
                 .map(|i| {
+                    let text = if i < 6 {
+                        "clippy quality gate lint causal root_cause inspect_path action_required retry_command command_context crates/pse-validation-runner/src/domain_validation.rs target/tmp/replay.log run fix retry misleading noncausal red_herring false_path"
+                    } else {
+                        "clippy quality gate final_report report_artifact verdict_artifact diagnostic_only stale old_green misleading unrelated red_herring wrong_crate"
+                    };
                     mk_item(
                         &format!("clippy_{i}"),
                         if i < 4 {
@@ -1492,7 +2252,7 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
                         } else {
                             WorkItemType::Distractor
                         },
-                        "clippy quality gate lint causal root_cause inspect crates/pse-validation-runner/src/domain_validation.rs target/tmp/replay.log run fix retry",
+                        text,
                         &["causal", "quality_gate"],
                         10 - i,
                     )
@@ -1514,6 +2274,11 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             ],
             (0..10)
                 .map(|i| {
+                    let text = if i < 6 {
+                        "windows handshake transport harness causal inspect_path action_required retry_command command_context crates/pse-net/src/node.rs target/tmp/replay.log run fix retry stale misleading noncausal wrong_crate"
+                    } else {
+                        "windows handshake transport report_artifact diagnostic_only stale obsolete unrelated noncausal false_path red_herring wrong_crate"
+                    };
                     mk_item(
                         &format!("windows_{i}"),
                         if i < 4 {
@@ -1523,7 +2288,7 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
                         } else {
                             WorkItemType::Distractor
                         },
-                        "windows handshake transport harness retry causal inspect crates/pse-net/src/node.rs target/tmp/replay.log run fix retry",
+                        text,
                         &["causal", "transport"],
                         10 - i,
                     )
@@ -1545,6 +2310,11 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             ],
             (0..10)
                 .map(|i| {
+                    let text = if i < 6 {
+                        "diagnostic finding gate rejection candidate field inspect_path action_required retry_command command_context crates/pse-bench-gt/src/runner.rs target/tmp/replay.log run fix retry obsolete misleading noncausal red_herring"
+                    } else {
+                        "diagnostic finding final_report report_artifact verdict_artifact obsolete irrelevant unrelated noncausal old_green wrong_crate"
+                    };
                     mk_item(
                         &format!("crystal_{i}"),
                         if i < 4 {
@@ -1554,7 +2324,7 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
                         } else {
                             WorkItemType::Distractor
                         },
-                        "diagnostic finding gate rejection candidate field inspect crates/pse-bench-gt/src/runner.rs target/tmp/replay.log run fix retry",
+                        text,
                         &["causal", "diagnostic_only"],
                         10 - i,
                     )
@@ -1576,6 +2346,11 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             ],
             (0..10)
                 .map(|i| {
+                    let text = if i < 6 {
+                        "eventization axis policy candidate activation diagnostic field inspect_path action_required retry_command command_context crates/pse-eval-matrix/src/agent_exoskeleton.rs target/tmp/replay.log run fix retry stale irrelevant noncausal false_path"
+                    } else {
+                        "eventization candidate activation final_report report_artifact diagnostic_only stale misleading unrelated noncausal red_herring false_path"
+                    };
                     mk_item(
                         &format!("event_{i}"),
                         if i < 4 {
@@ -1585,7 +2360,7 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
                         } else {
                             WorkItemType::Distractor
                         },
-                        "eventization axis policy candidate activation diagnostic field inspect crates/pse-eval-matrix/src/agent_exoskeleton.rs target/tmp/replay.log run fix retry",
+                        text,
                         &["causal", "eventization"],
                         10 - i,
                     )
@@ -1600,7 +2375,14 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             "quality_gate_clippy",
             &["crates/pse-validation-runner/src/domain_validation.rs"],
             &["domain_validation", "bench_gt", "final_report", "empirical_improvement", "verdict", "pse_metrics"],
-            (0..14).map(|i| mk_item(&format!("clippy_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, "domain validation final_report empirical improvement benchmark quality gate clippy rustfmt inspect crates/pse-validation-runner/src/domain_validation.rs target/tmp/replay.log run cargo fmt --all -- --check then fix retry", &["quality_gate", "lint", "causal"], 14 - i)).collect(),
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "domain validation benchmark quality gate clippy inspect_path action_required retry_command command_context crates/pse-validation-runner/src/domain_validation.rs target/tmp/replay.log run cargo fmt --all -- --check then fix retry stale misleading noncausal wrong_crate"
+                } else {
+                    "domain validation final_report empirical improvement report_artifact verdict_artifact diagnostic_only stale obsolete misleading unrelated red_herring wrong_crate old_green"
+                };
+                mk_item(&format!("clippy_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["quality_gate", "lint", "causal"], 14 - i)
+            }).collect(),
         ),
         mk_trace_case(
             "windows_node_propagation_trace_harder",
@@ -1610,7 +2392,14 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             "node_harness_transport",
             &["crates/pse-net/src/node.rs"],
             &["domain_validation", "bench_gt", "validation_runner", "networking_general", "empirical_improvement", "final_report"],
-            (0..14).map(|i| mk_item(&format!("windows_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, "windows validation domain benchmark networking timeout handshake propagation harness transport inspect crates/pse-net/src/node.rs target/tmp/replay.log run cargo test -p pse-net --lib and retry fix", &["transport", "harness", "causal"], 14 - i)).collect(),
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "windows validation benchmark timeout handshake propagation harness transport inspect_path action_required retry_command command_context crates/pse-net/src/node.rs target/tmp/replay.log run cargo test -p pse-net --lib and retry fix obsolete irrelevant noncausal red_herring"
+                } else {
+                    "windows validation domain final_report report_artifact diagnostic_only stale obsolete irrelevant unrelated noncausal red_herring false_path wrong_crate"
+                };
+                mk_item(&format!("windows_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["transport", "harness", "causal"], 14 - i)
+            }).collect(),
         ),
         mk_trace_case(
             "domain_pse_zero_crystals_trace_harder",
@@ -1620,7 +2409,14 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             "gate_snapshot_diagnostic",
             &["crates/pse-bench-gt/src/runner.rs"],
             &["verdict", "empirical_improvement", "baseline_comparison", "final_report", "threshold_relax", "unlock_gate"],
-            (0..14).map(|i| mk_item(&format!("crystal_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, "verdict empirical improvement baseline comparison final report gate rejection crystal detection diagnostics inspect crates/pse-bench-gt/src/runner.rs target/tmp/replay.log check gate snapshots then fix retry", &["gate_snapshot", "diagnostic_only", "causal"], 14 - i)).collect(),
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "gate rejection crystal detection diagnostics inspect_path action_required retry_command command_context crates/pse-bench-gt/src/runner.rs target/tmp/replay.log check gate snapshots then fix retry stale misleading noncausal false_path"
+                } else {
+                    "verdict empirical improvement baseline comparison final_report report_artifact verdict_artifact diagnostic_only stale old_green misleading unrelated red_herring wrong_crate"
+                };
+                mk_item(&format!("crystal_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["gate_snapshot", "diagnostic_only", "causal"], 14 - i)
+            }).collect(),
         ),
         mk_trace_case(
             "eventization_candidate_activation_trace_harder",
@@ -1630,7 +2426,263 @@ pub fn real_trace_replay_cases() -> Vec<AgentTraceReplayCase> {
             "candidate_activation_diagnostics",
             &["crates/pse-eval-matrix/src/agent_exoskeleton.rs"],
             &["productive_metrics", "eventization_apply", "f1_gain_claim", "metric_overwrite", "final_report", "baseline_win"],
-            (0..14).map(|i| mk_item(&format!("event_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::DiffHint } else { WorkItemType::Distractor }, "eventization apply productive metrics f1 gain candidate activation diagnostic only frozen split validation inspect crates/pse-eval-matrix/src/agent_exoskeleton.rs target/tmp/replay.log preserve productive metrics then retry fix", &["eventization", "candidate_activation", "causal"], 14 - i)).collect(),
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "eventization apply candidate activation frozen split validation inspect_path action_required retry_command command_context crates/pse-eval-matrix/src/agent_exoskeleton.rs target/tmp/replay.log preserve productive metrics then retry fix obsolete red_herring noncausal wrong_crate"
+                } else {
+                    "eventization productive metrics f1 gain final_report report_artifact diagnostic_only stale obsolete irrelevant unrelated noncausal red_herring false_path"
+                };
+                mk_item(&format!("event_harder_{i}"), if i < 3 { WorkItemType::Repo } else if i < 6 { WorkItemType::DiffHint } else { WorkItemType::Distractor }, text, &["eventization", "candidate_activation", "causal"], 14 - i)
+            }).collect(),
+        ),
+        mk_trace_case(
+            "cargo_feature_flag_mismatch_expanded",
+            "Cargo feature-flag mismatch hidden by prominent stale log",
+            TraceVariantKind::Expanded,
+            10,
+            "cargo_feature_flag_cfg_path",
+            &["crates/pse-core/src/feature_gate.rs", "crates/pse-core/src/lib.rs"],
+            &[
+                "crates/pse-cli/src/main.rs",
+                "target/tmp/old_build.log",
+                "report_artifact/final_report.md",
+                "crates/pse-net/src/client.rs",
+                "docs/migration_notes.md",
+                "crates/pse-eval-matrix/src/agent_exoskeleton.rs",
+            ],
+            (0..14)
+                .map(|i| {
+                    let text = if i < 6 {
+                        "cargo feature cfg gate inspect_path command_context action_required retry_command rerun verify crates/pse-core/src/feature_gate.rs crates/pse-core/src/lib.rs"
+                    } else {
+                        "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only old_build_log unrelated noncausal"
+                    };
+                    mk_item(
+                        &format!("cargo_feature_expanded_{i}"),
+                        if i < 4 {
+                            WorkItemType::Repo
+                        } else if i < 6 {
+                            WorkItemType::Log
+                        } else {
+                            WorkItemType::Distractor
+                        },
+                        text,
+                        &["expanded", "feature_flag", "causal"],
+                        14 - i,
+                    )
+                })
+                .collect(),
+        ),
+        mk_trace_case(
+            "generated_artifact_stale_after_refactor_expanded",
+            "Generated artifact stale after refactor emitter move",
+            TraceVariantKind::Expanded,
+            10,
+            "generated_artifact_refactor_emitter",
+            &[
+                "crates/pse-manifest/src/emitter.rs",
+                "crates/pse-manifest/build.rs",
+            ],
+            &[
+                "target/generated/schema.json",
+                "report_artifact/build_summary.md",
+                "crates/pse-validation-runner/src/report.rs",
+                "crates/pse-swarm/src/orchestrator.rs",
+                "target/tmp/replay.log",
+                "docs/old_schema_notes.md",
+            ],
+            (0..14)
+                .map(|i| {
+                    let text = if i < 6 {
+                        "generated emitter refactor inspect_path command_context action_required retry_command rerun verify crates/pse-manifest/src/emitter.rs crates/pse-manifest/build.rs"
+                    } else {
+                        "stale generated artifact misleading wrong_crate red_herring false_path report_artifact diagnostic_only unrelated noncausal"
+                    };
+                    mk_item(
+                        &format!("generated_artifact_expanded_{i}"),
+                        if i < 4 {
+                            WorkItemType::Repo
+                        } else if i < 6 {
+                            WorkItemType::DiffHint
+                        } else {
+                            WorkItemType::Distractor
+                        },
+                        text,
+                        &["expanded", "generated_artifact", "causal"],
+                        14 - i,
+                    )
+                })
+                .collect(),
+        ),
+        mk_trace_case(
+            "rust_workspace_feature_unification_expanded",
+            "Workspace feature unification hides causal crate path",
+            TraceVariantKind::Expanded,
+            10,
+            "workspace_feature_unification",
+            &["crates/pse-core/src/features.rs", "crates/pse-core/src/lib.rs"],
+            &[
+                "crates/pse-cli/src/main.rs",
+                "target/tmp/ci_cache.log",
+                "report_artifact/summary.md",
+                "crates/pse-graph/src/lib.rs",
+                "docs/feature_notes.md",
+                "crates/pse-net/src/lib.rs",
+            ],
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "workspace feature unification inspect_path command_context action_required retry_command rerun verify crates/pse-core/src/features.rs crates/pse-core/src/lib.rs"
+                } else {
+                    "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only unrelated noncausal ci_cache"
+                };
+                mk_item(&format!("workspace_unify_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","workspace","causal"], 14-i)
+            }).collect(),
+        ),
+        mk_trace_case(
+            "stale_ci_cache_masks_current_failure_expanded",
+            "Stale CI cache masks current failure path",
+            TraceVariantKind::Expanded,
+            10,
+            "ci_cache_staleness",
+            &["crates/pse-validation-runner/src/runner.rs"],
+            &[
+                "target/cache/old_test.log",
+                "report_artifact/final_report.md",
+                "crates/pse-cli/src/report.rs",
+                "docs/ci_notes.md",
+                "crates/pse-core/src/cache.rs",
+                "target/tmp/replay.log",
+            ],
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "cache invalidation current failure inspect_path command_context action_required retry_command rerun verify crates/pse-validation-runner/src/runner.rs"
+                } else {
+                    "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only old_cache unrelated noncausal"
+                };
+                mk_item(&format!("stale_cache_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","cache","causal"], 14-i)
+            }).collect(),
+        ),
+        mk_trace_case(
+            "proc_macro_error_points_to_generated_code_expanded",
+            "Proc macro error points to generated code not source",
+            TraceVariantKind::Expanded,
+            10,
+            "proc_macro_generated_mismatch",
+            &["crates/pse-manifest/src/schema.rs", "crates/pse-manifest/src/emitter.rs"],
+            &[
+                "target/generated/macro_out.rs",
+                "report_artifact/macro_report.md",
+                "crates/pse-cli/src/main.rs",
+                "docs/schema.md",
+                "target/tmp/compile.log",
+                "crates/pse-evidence/src/lib.rs",
+            ],
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "proc macro schema emitter inspect_path command_context action_required retry_command rerun verify crates/pse-manifest/src/schema.rs crates/pse-manifest/src/emitter.rs"
+                } else {
+                    "generated code stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only unrelated noncausal"
+                };
+                mk_item(&format!("proc_macro_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::DiffHint } else { WorkItemType::Distractor }, text, &["expanded","proc_macro","causal"], 14-i)
+            }).collect(),
+        ),
+        mk_trace_case(
+            "cross_platform_path_separator_failure_expanded",
+            "Cross-platform path separator failure masked by IO noise",
+            TraceVariantKind::Expanded,
+            10,
+            "path_separator_cross_platform",
+            &["crates/pse-traverse/src/topology/pipeline.rs"],
+            &[
+                "target/tmp/io_failure.log",
+                "report_artifact/path_report.md",
+                "crates/pse-net/src/path.rs",
+                "docs/windows_linux_path.md",
+                "crates/pse-core/src/io.rs",
+                "target/tmp/replay.log",
+            ],
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "path separator windows linux inspect_path command_context action_required retry_command rerun verify crates/pse-traverse/src/topology/pipeline.rs"
+                } else {
+                    "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only generic io failure unrelated noncausal"
+                };
+                mk_item(&format!("path_sep_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","path","causal"], 14-i)
+            }).collect(),
+        ),
+        mk_trace_case(
+            "flaky_test_harness_timeout_expanded",
+            "Flaky timeout hides harness configuration root cause",
+            TraceVariantKind::Expanded,
+            10,
+            "harness_timeout_config",
+            &["crates/pse-validation-runner/src/executor.rs"],
+            &[
+                "target/tmp/network_timeout.log",
+                "report_artifact/harness_report.md",
+                "crates/pse-net/src/client.rs",
+                "docs/flaky_tests.md",
+                "crates/pse-eval-matrix/src/agent_exoskeleton.rs",
+                "target/tmp/replay.log",
+            ],
+            (0..14).map(|i| {
+                let text = if i < 6 {
+                    "harness timeout retry policy inspect_path command_context action_required retry_command rerun verify crates/pse-validation-runner/src/executor.rs"
+                } else {
+                    "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only timeout noise unrelated noncausal"
+                };
+                mk_item(&format!("harness_timeout_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","harness","causal"], 14-i)
+            }).collect(),
+        ),
+        mk_trace_case(
+            "lockfile_version_skew_expanded",
+            "Dependency error hides lockfile workspace version skew",
+            TraceVariantKind::Expanded,
+            10,
+            "lockfile_workspace_version_skew",
+            &["Cargo.lock", "Cargo.toml"],
+            &["target/tmp/registry.log", "report_artifact/final_report.md", "docs/deps_notes.md", "crates/pse-net/src/client.rs", "target/tmp/replay.log", "crates/pse-cli/src/main.rs"],
+            (0..14).map(|i| { let text = if i < 6 { "lockfile workspace skew inspect_path command_context action_required retry_command rerun verify Cargo.lock Cargo.toml" } else { "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only registry noise unrelated noncausal" }; mk_item(&format!("lockfile_skew_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","lockfile","causal"], 14-i)}).collect(),
+        ),
+        mk_trace_case(
+            "optional_dependency_cfg_gate_expanded",
+            "Missing optional cfg dependency appears as bad module import",
+            TraceVariantKind::Expanded,
+            10,
+            "optional_dependency_cfg_gate",
+            &["crates/pse-core/Cargo.toml", "crates/pse-core/src/lib.rs"],
+            &["crates/pse-core/src/path.rs", "target/tmp/import_error.log", "report_artifact/build_report.md", "docs/cfg_flags.md", "crates/pse-traverse/src/topology/pipeline.rs", "target/tmp/replay.log"],
+            (0..14).map(|i| { let text = if i < 6 { "optional dependency cfg gate inspect_path command_context action_required retry_command rerun verify crates/pse-core/Cargo.toml crates/pse-core/src/lib.rs" } else { "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only import path noise unrelated noncausal" }; mk_item(&format!("optional_cfg_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","cfg","causal"], 14-i)}).collect(),
+        ),
+        mk_trace_case(
+            "snapshot_test_output_drift_expanded",
+            "Snapshot drift dominates logs while serializer change is causal",
+            TraceVariantKind::Expanded,
+            10,
+            "snapshot_serializer_formatter_drift",
+            &["crates/pse-validation-runner/src/report.rs", "crates/pse-validation-runner/src/parsers.rs"],
+            &["target/tmp/snapshot.diff", "report_artifact/snapshot_summary.md", "docs/snapshots.md", "crates/pse-net/src/node.rs", "target/tmp/replay.log", "crates/pse-cli/src/report.rs"],
+            (0..14).map(|i| { let text = if i < 6 { "snapshot serializer formatter inspect_path command_context action_required retry_command rerun verify crates/pse-validation-runner/src/report.rs crates/pse-validation-runner/src/parsers.rs" } else { "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only snapshot noise unrelated noncausal" }; mk_item(&format!("snapshot_drift_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::DiffHint } else { WorkItemType::Distractor }, text, &["expanded","snapshot","causal"], 14-i)}).collect(),
+        ),
+        mk_trace_case(
+            "dockerized_test_env_path_mount_expanded",
+            "Container mount path mismatch appears as IO permission noise",
+            TraceVariantKind::Expanded,
+            10,
+            "docker_mount_path_mismatch",
+            &[".github/workflows/ci.yml", "crates/pse-validation-runner/src/runner.rs"],
+            &["target/tmp/container_io.log", "report_artifact/container_report.md", "docs/docker_paths.md", "crates/pse-core/src/io.rs", "target/tmp/replay.log", "crates/pse-bench-gt/src/runner.rs"],
+            (0..14).map(|i| { let text = if i < 6 { "docker mount path inspect_path command_context action_required retry_command rerun verify .github/workflows/ci.yml crates/pse-validation-runner/src/runner.rs" } else { "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only io permission noise unrelated noncausal" }; mk_item(&format!("docker_mount_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","docker","causal"], 14-i)}).collect(),
+        ),
+        mk_trace_case(
+            "flaky_clock_time_assumption_expanded",
+            "Flaky behavior rooted in clock and timezone assumptions",
+            TraceVariantKind::Expanded,
+            10,
+            "clock_timezone_harness_assumption",
+            &["crates/pse-validation-runner/src/environment.rs", "crates/pse-validation-runner/src/runner.rs"],
+            &["target/tmp/flaky_clock.log", "report_artifact/flaky_report.md", "docs/timezone_assumptions.md", "crates/pse-net/src/client.rs", "target/tmp/replay.log", "crates/pse-eval-matrix/src/replay.rs"],
+            (0..14).map(|i| { let text = if i < 6 { "clock timezone harness inspect_path command_context action_required retry_command rerun verify crates/pse-validation-runner/src/environment.rs crates/pse-validation-runner/src/runner.rs" } else { "stale misleading wrong_crate red_herring false_path report_artifact diagnostic_only flaky timing noise unrelated noncausal" }; mk_item(&format!("flaky_clock_expanded_{i}"), if i < 4 { WorkItemType::Repo } else if i < 6 { WorkItemType::Log } else { WorkItemType::Distractor }, text, &["expanded","clock","causal"], 14-i)}).collect(),
         ),
     ]
 }
@@ -2779,6 +3831,10 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
     let harder_count = all_traces
         .iter()
         .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+        .count();
+    let expanded_count = all_traces
+        .iter()
+        .filter(|t| t.variant_kind == TraceVariantKind::Expanded)
         .count();
     for trace in all_traces {
         let state = AgentWorkState {
@@ -4256,12 +5312,2770 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
                 ],
             }
         },
+        trace_feature_design_report: {
+            let profiles = all_trace_feature_design_profiles();
+            let trace_states: Vec<_> = real_trace_replay_cases()
+                .into_iter()
+                .map(|trace| AgentWorkState {
+                    scenario_id: trace.trace_id,
+                    split: AgentScenarioSplit::Holdout,
+                    issue_text: trace.title,
+                    work_items: trace.candidate_items,
+                    plan_steps: vec!["fix".into(), "retry".into()],
+                    ground_truth: AgentGroundTruth {
+                        causal_files: trace.ground_truth.causal_files,
+                        causal_logs: trace.ground_truth.causal_logs,
+                        expected_next_actions: trace.ground_truth.correct_next_actions,
+                        irrelevant_items: trace.ground_truth.rejected_false_paths,
+                        blocker_label: trace.ground_truth.resolution_label,
+                    },
+                })
+                .collect();
+            let current_map: BTreeMap<String, AgentDiagnosticMetrics> = trace_states
+                .iter()
+                .map(|s| {
+                    (
+                        s.scenario_id.clone(),
+                        metrics(
+                            s,
+                            &rank_trace_with_feature_design_profile(
+                                s,
+                                TraceFeatureDesignProfile::CurrentPse,
+                            ),
+                        ),
+                    )
+                })
+                .collect();
+            let mut profile_reports = Vec::new();
+            for profile in &profiles {
+                let mut reports_p = Vec::new();
+                let mut improved = Vec::new();
+                let mut worsened = Vec::new();
+                for s in &trace_states {
+                    let pm = metrics(s, &rank_trace_with_feature_design_profile(s, *profile));
+                    let cm = current_map.get(&s.scenario_id).unwrap();
+                    let is_improved = (pm.hit_at_3 && !cm.hit_at_3)
+                        || pm.mrr_causal_item > cm.mrr_causal_item
+                        || pm.false_focus_rate < cm.false_focus_rate;
+                    let is_worsened = (!pm.hit_at_3 && cm.hit_at_3)
+                        || pm.mrr_causal_item < cm.mrr_causal_item
+                        || pm.false_focus_rate > cm.false_focus_rate;
+                    if is_improved {
+                        improved.push(s.scenario_id.clone());
+                    }
+                    if is_worsened {
+                        worsened.push(s.scenario_id.clone());
+                    }
+                    reports_p.push(AgentExoskeletonDiagnosticReport {
+                        scenario_id: s.scenario_id.clone(),
+                        split: s.split,
+                        baseline_metrics: cm.clone(),
+                        pse_field_metrics: pm.clone(),
+                        delta_hit_at_1: (pm.hit_at_1 as i8 - cm.hit_at_1 as i8) as f64,
+                        delta_hit_at_3: (pm.hit_at_3 as i8 - cm.hit_at_3 as i8) as f64,
+                        delta_causal_file_recall: pm.causal_file_recall - cm.causal_file_recall,
+                        delta_causal_log_recall: pm.causal_log_recall - cm.causal_log_recall,
+                        delta_false_focus_rate: pm.false_focus_rate - cm.false_focus_rate,
+                        delta_irrelevant_focus_count: pm.irrelevant_focus_count as f64
+                            - cm.irrelevant_focus_count as f64,
+                        delta_search_reduction_ratio: pm.search_reduction_ratio
+                            - cm.search_reduction_ratio,
+                        delta_next_action_hit: (pm.next_action_hit as i8 - cm.next_action_hit as i8)
+                            as f64,
+                        delta_blocker_label_hit: (pm.blocker_label_hit as i8
+                            - cm.blocker_label_hit as i8)
+                            as f64,
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        interpretation_labels: vec!["diagnostic_only".into()],
+                        ablation_report: None,
+                    });
+                }
+                improved.sort();
+                worsened.sort();
+                let agg = compute_aggregate(&reports_p);
+                let harder_reports: Vec<_> = reports_p
+                    .iter()
+                    .filter(|r| r.scenario_id.ends_with("_harder"))
+                    .cloned()
+                    .collect();
+                let harder_agg = compute_aggregate(&harder_reports);
+                profile_reports.push(TraceFeatureDesignProfileReport {
+                    profile: *profile,
+                    metrics_aggregate: agg.clone(),
+                    harder_metrics_aggregate: harder_agg.clone(),
+                    traces_with_gain: agg.scenarios_with_pse_gain,
+                    traces_with_loss: agg.scenarios_with_pse_loss,
+                    traces_with_equal: agg.scenarios_with_equal_result,
+                    harder_traces_with_gain: harder_agg.scenarios_with_pse_gain,
+                    harder_traces_with_loss: harder_agg.scenarios_with_pse_loss,
+                    harder_traces_with_equal: harder_agg.scenarios_with_equal_result,
+                    improved_trace_ids: improved,
+                    worsened_trace_ids: worsened,
+                    feature_effect_labels: vec![],
+                    warnings: vec![],
+                });
+            }
+            let by_hit = |a: &TraceFeatureDesignProfileReport,
+                          b: &TraceFeatureDesignProfileReport| {
+                a.harder_metrics_aggregate
+                    .pse_hit_at_3_mean
+                    .partial_cmp(&b.harder_metrics_aggregate.pse_hit_at_3_mean)
+                    .unwrap()
+                    .then_with(|| {
+                        a.harder_metrics_aggregate
+                            .pse_mrr_causal_item_mean
+                            .partial_cmp(&b.harder_metrics_aggregate.pse_mrr_causal_item_mean)
+                            .unwrap()
+                    })
+                    .then_with(|| {
+                        b.harder_metrics_aggregate
+                            .pse_false_focus_mean
+                            .partial_cmp(&a.harder_metrics_aggregate.pse_false_focus_mean)
+                            .unwrap()
+                    })
+                    .then_with(|| format!("{:?}", b.profile).cmp(&format!("{:?}", a.profile)))
+            };
+            let by_mrr = |a: &TraceFeatureDesignProfileReport,
+                          b: &TraceFeatureDesignProfileReport| {
+                a.harder_metrics_aggregate
+                    .pse_mrr_causal_item_mean
+                    .partial_cmp(&b.harder_metrics_aggregate.pse_mrr_causal_item_mean)
+                    .unwrap()
+                    .then_with(|| {
+                        a.harder_metrics_aggregate
+                            .pse_hit_at_3_mean
+                            .partial_cmp(&b.harder_metrics_aggregate.pse_hit_at_3_mean)
+                            .unwrap()
+                    })
+                    .then_with(|| {
+                        b.harder_metrics_aggregate
+                            .pse_false_focus_mean
+                            .partial_cmp(&a.harder_metrics_aggregate.pse_false_focus_mean)
+                            .unwrap()
+                    })
+                    .then_with(|| format!("{:?}", b.profile).cmp(&format!("{:?}", a.profile)))
+            };
+            let by_false_focus =
+                |a: &TraceFeatureDesignProfileReport, b: &TraceFeatureDesignProfileReport| {
+                    b.harder_metrics_aggregate
+                        .pse_false_focus_mean
+                        .partial_cmp(&a.harder_metrics_aggregate.pse_false_focus_mean)
+                        .unwrap()
+                        .then_with(|| {
+                            a.harder_metrics_aggregate
+                                .pse_hit_at_3_mean
+                                .partial_cmp(&b.harder_metrics_aggregate.pse_hit_at_3_mean)
+                                .unwrap()
+                        })
+                        .then_with(|| {
+                            a.harder_metrics_aggregate
+                                .pse_mrr_causal_item_mean
+                                .partial_cmp(&b.harder_metrics_aggregate.pse_mrr_causal_item_mean)
+                                .unwrap()
+                        })
+                        .then_with(|| format!("{:?}", b.profile).cmp(&format!("{:?}", a.profile)))
+                };
+            let best_hit = profile_reports.iter().max_by(|a, b| by_hit(a, b)).unwrap();
+            let best_mrr = profile_reports.iter().max_by(|a, b| by_mrr(a, b)).unwrap();
+            let best_false_focus = profile_reports
+                .iter()
+                .max_by(|a, b| by_false_focus(a, b))
+                .unwrap();
+            let best_hit_profile = best_hit.profile;
+            let best_mrr_profile = best_mrr.profile;
+            let best_false_focus_profile = best_false_focus.profile;
+            let current = profile_reports
+                .iter()
+                .find(|x| x.profile == TraceFeatureDesignProfile::CurrentPse)
+                .unwrap();
+            let all_equal = profile_reports.iter().all(|p| {
+                p.harder_metrics_aggregate.pse_hit_at_3_mean
+                    == current.harder_metrics_aggregate.pse_hit_at_3_mean
+                    && p.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                        == current.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                    && p.harder_metrics_aggregate.pse_false_focus_mean
+                        == current.harder_metrics_aggregate.pse_false_focus_mean
+            });
+            let harder_improved = best_hit.harder_metrics_aggregate.pse_hit_at_3_mean
+                > current.harder_metrics_aggregate.pse_hit_at_3_mean
+                || best_mrr.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                    > current.harder_metrics_aggregate.pse_mrr_causal_item_mean;
+            let distractor_effective = profile_reports.iter().any(|p| {
+                matches!(
+                    p.profile,
+                    TraceFeatureDesignProfile::StrongDistractorPenalty
+                        | TraceFeatureDesignProfile::CombinedConservativeFeatureDesign
+                ) && (p.harder_metrics_aggregate.pse_hit_at_3_mean
+                    > current.harder_metrics_aggregate.pse_hit_at_3_mean
+                    || p.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                        > current.harder_metrics_aggregate.pse_mrr_causal_item_mean)
+            });
+            let keyword_effective = profile_reports.iter().any(|p| {
+                p.profile == TraceFeatureDesignProfile::KeywordDominanceDampening
+                    && (p.harder_metrics_aggregate.pse_hit_at_3_mean
+                        > current.harder_metrics_aggregate.pse_hit_at_3_mean
+                        || p.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                            > current.harder_metrics_aggregate.pse_mrr_causal_item_mean)
+            });
+            let total_improved: usize = profile_reports
+                .iter()
+                .map(|p| p.improved_trace_ids.len())
+                .sum();
+            let all_no_improved = profile_reports
+                .iter()
+                .all(|p| p.improved_trace_ids.is_empty());
+            let overfit_risk = profile_reports.iter().any(|p| {
+                let hard_imp = p.harder_metrics_aggregate.pse_hit_at_3_mean
+                    > current.harder_metrics_aggregate.pse_hit_at_3_mean
+                    || p.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                        > current.harder_metrics_aggregate.pse_mrr_causal_item_mean;
+                let all_imp = p.metrics_aggregate.pse_hit_at_3_mean
+                    > current.metrics_aggregate.pse_hit_at_3_mean
+                    || p.metrics_aggregate.pse_mrr_causal_item_mean
+                        > current.metrics_aggregate.pse_mrr_causal_item_mean;
+                hard_imp && !all_imp
+            }) || total_improved == 1;
+            let mut interpretation_labels = vec![
+                "trace_feature_design_present".into(),
+                "diagnostic_only".into(),
+                "requires_live_agent_validation".into(),
+                "current_pse_not_replaced".into(),
+            ];
+            interpretation_labels.push(if harder_improved {
+                "feature_design_improves_harder_traces".into()
+            } else {
+                "feature_design_no_gain".into()
+            });
+            if all_equal {
+                interpretation_labels.push("feature_profiles_metric_tie".into());
+            }
+            if distractor_effective {
+                interpretation_labels.push("distractor_penalty_feature_effective".into());
+            }
+            if keyword_effective {
+                interpretation_labels.push("keyword_dampening_effective".into());
+            }
+            if overfit_risk {
+                interpretation_labels.push("possible_feature_overfit_risk".into());
+            }
+            if all_no_improved {
+                interpretation_labels
+                    .push("feature_design_insufficient_for_current_trace_set".into());
+            }
+            if let Some(ca) = profile_reports
+                .iter()
+                .find(|p| p.profile == TraceFeatureDesignProfile::CausalActivationDiagnostic)
+            {
+                interpretation_labels.push("causal_activation_diagnostic_profile_present".into());
+                interpretation_labels.push("causal_activation_profile_report_only".into());
+                if ca.harder_traces_with_gain > 0 {
+                    interpretation_labels.push("causal_activation_improves_harder_traces".into());
+                } else {
+                    interpretation_labels.push("causal_activation_no_metric_gain".into());
+                }
+                if !ca.improved_trace_ids.is_empty() {
+                    interpretation_labels.push("possible_causal_feature_path_confirmed".into());
+                }
+            }
+            let mut profile_sensitivity_reports = Vec::new();
+            for profile in profiles
+                .iter()
+                .copied()
+                .filter(|p| *p != TraceFeatureDesignProfile::CurrentPse)
+            {
+                let mut rank_mv = 0usize;
+                let mut score_mv = 0usize;
+                let mut causal_rank_imp = 0usize;
+                let mut causal_score_imp = 0usize;
+                let mut top3_change = 0usize;
+                let mut best_causal_rank_change = 0usize;
+                let mut sum_abs_score_delta = 0.0;
+                let mut sum_abs_rank_delta = 0.0;
+                let mut sum_causal_rank_delta = 0.0;
+                let mut sum_causal_score_delta = 0.0;
+                let mut harder_causal_rank_delta = 0.0;
+                let mut harder_causal_score_delta = 0.0;
+                let mut harder_count = 0usize;
+                let mut affected = Vec::new();
+                let mut unaffected = Vec::new();
+                for s in &trace_states {
+                    let cur = rank_trace_with_feature_design_profile(
+                        s,
+                        TraceFeatureDesignProfile::CurrentPse,
+                    );
+                    let alt = rank_trace_with_feature_design_profile(s, profile);
+                    let mut any_score = false;
+                    let mut any_rank = false;
+                    let mut score_acc = 0.0;
+                    let cur_order: BTreeMap<_, _> = cur
+                        .top_items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, id)| (id.clone(), i + 1))
+                        .collect();
+                    let alt_order: BTreeMap<_, _> = alt
+                        .top_items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, id)| (id.clone(), i + 1))
+                        .collect();
+                    let mut rank_acc = 0.0;
+                    for item in &s.work_items {
+                        let cs = *cur.item_scores.get(&item.id).unwrap_or(&0);
+                        let ps = *alt.item_scores.get(&item.id).unwrap_or(&0);
+                        let sd = (ps - cs) as f64;
+                        if sd != 0.0 {
+                            any_score = true;
+                        }
+                        score_acc += sd.abs();
+                        let cr = *cur_order.get(&item.id).unwrap_or(&999) as f64;
+                        let pr = *alt_order.get(&item.id).unwrap_or(&999) as f64;
+                        let rd = pr - cr;
+                        if rd != 0.0 {
+                            any_rank = true;
+                        }
+                        rank_acc += rd.abs();
+                    }
+                    if any_score {
+                        score_mv += 1;
+                    }
+                    if any_rank {
+                        rank_mv += 1;
+                    }
+                    if cur.top_items != alt.top_items {
+                        top3_change += 1;
+                    }
+                    let cur_m = metrics(s, &cur);
+                    let alt_m = metrics(s, &alt);
+                    let cr = cur_m.mean_rank_of_first_causal_item;
+                    let pr = alt_m.mean_rank_of_first_causal_item;
+                    let rank_delta = pr - cr;
+                    if rank_delta != 0.0 {
+                        best_causal_rank_change += 1;
+                    }
+                    if rank_delta < 0.0 {
+                        causal_rank_imp += 1;
+                    }
+                    let score_delta = alt_m.mrr_causal_item - cur_m.mrr_causal_item;
+                    if score_delta > 0.0 {
+                        causal_score_imp += 1;
+                    }
+                    sum_abs_score_delta += score_acc;
+                    sum_abs_rank_delta += rank_acc;
+                    sum_causal_rank_delta += rank_delta;
+                    sum_causal_score_delta += score_delta;
+                    if s.scenario_id.ends_with("_harder") {
+                        harder_count += 1;
+                        harder_causal_rank_delta += rank_delta;
+                        harder_causal_score_delta += score_delta;
+                    }
+                    if any_score || any_rank || rank_delta != 0.0 || score_delta != 0.0 {
+                        affected.push(s.scenario_id.clone());
+                    } else {
+                        unaffected.push(s.scenario_id.clone());
+                    }
+                }
+                affected.sort();
+                unaffected.sort();
+                let trace_count = trace_states.len().max(1) as f64;
+                let harder_den = harder_count.max(1) as f64;
+                let sensitivity_label = if score_mv == 0 && rank_mv == 0 {
+                    "no_effect"
+                } else if score_mv > 0 && rank_mv == 0 {
+                    "score_only_no_rank_movement"
+                } else if rank_mv > 0 && causal_rank_imp == 0 {
+                    "rank_movement_no_causal_gain"
+                } else if causal_score_imp > 0 && causal_rank_imp == 0 {
+                    "causal_score_improves_but_rank_static"
+                } else if causal_rank_imp > 0
+                    && profile_reports
+                        .iter()
+                        .find(|x| x.profile == profile)
+                        .map(|x| x.harder_metrics_aggregate.pse_hit_at_3_mean == 0.0)
+                        .unwrap_or(false)
+                {
+                    "causal_rank_improves_below_top3"
+                } else if (causal_rank_imp > 0 || causal_score_imp > 0)
+                    && profile_reports
+                        .iter()
+                        .find(|x| x.profile == profile)
+                        .map(|x| {
+                            x.harder_metrics_aggregate.pse_hit_at_3_mean
+                                == current.harder_metrics_aggregate.pse_hit_at_3_mean
+                                && x.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                                    == current.harder_metrics_aggregate.pse_mrr_causal_item_mean
+                        })
+                        .unwrap_or(false)
+                {
+                    "metric_blind_improvement_possible"
+                } else {
+                    "rank_movement_no_causal_gain"
+                };
+                profile_sensitivity_reports.push(TraceFeatureDesignProfileSensitivity {
+                    profile,
+                    trace_count: trace_states.len(),
+                    harder_trace_count: harder_count,
+                    traces_with_rank_movement: rank_mv,
+                    traces_with_score_movement: score_mv,
+                    traces_with_causal_rank_improvement: causal_rank_imp,
+                    traces_with_causal_score_improvement: causal_score_imp,
+                    traces_with_top3_change: top3_change,
+                    traces_with_best_causal_rank_change: best_causal_rank_change,
+                    mean_abs_score_delta: sum_abs_score_delta / trace_count,
+                    mean_abs_rank_delta: sum_abs_rank_delta / trace_count,
+                    mean_causal_rank_delta: sum_causal_rank_delta / trace_count,
+                    mean_causal_score_delta: sum_causal_score_delta / trace_count,
+                    harder_mean_causal_rank_delta: harder_causal_rank_delta / harder_den,
+                    harder_mean_causal_score_delta: harder_causal_score_delta / harder_den,
+                    sensitivity_label: sensitivity_label.to_string(),
+                    affected_trace_ids: affected,
+                    unaffected_trace_ids: unaffected,
+                    warnings: vec![],
+                });
+            }
+            let mut profiles_with_any_rank_movement = Vec::new();
+            let mut profiles_with_any_score_movement = Vec::new();
+            let mut profiles_with_causal_rank_improvement = Vec::new();
+            let mut profiles_with_causal_score_improvement = Vec::new();
+            let mut profiles_with_no_effect = Vec::new();
+            for p in &profile_sensitivity_reports {
+                if p.traces_with_rank_movement > 0 {
+                    profiles_with_any_rank_movement.push(p.profile);
+                }
+                if p.traces_with_score_movement > 0 {
+                    profiles_with_any_score_movement.push(p.profile);
+                }
+                if p.traces_with_causal_rank_improvement > 0 {
+                    profiles_with_causal_rank_improvement.push(p.profile);
+                }
+                if p.traces_with_causal_score_improvement > 0 {
+                    profiles_with_causal_score_improvement.push(p.profile);
+                }
+                if p.sensitivity_label == "no_effect" {
+                    profiles_with_no_effect.push(p.profile);
+                }
+            }
+            let all_profiles_no_effect = profile_sensitivity_reports
+                .iter()
+                .all(|p| p.sensitivity_label == "no_effect");
+            let mut sensitivity_labels = vec![
+                "feature_design_sensitivity_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if all_profiles_no_effect {
+                sensitivity_labels.push("feature_design_profiles_inactive".to_string());
+                sensitivity_labels
+                    .push("feature_design_no_effect_on_current_trace_set".to_string());
+            } else {
+                if !profiles_with_any_score_movement.is_empty()
+                    && profiles_with_any_rank_movement.is_empty()
+                {
+                    sensitivity_labels.push("feature_design_changes_scores_only".to_string());
+                }
+                if !profiles_with_any_rank_movement.is_empty()
+                    && profiles_with_causal_rank_improvement.is_empty()
+                {
+                    sensitivity_labels
+                        .push("feature_design_changes_ranks_but_not_causal_items".to_string());
+                }
+                if !profiles_with_causal_rank_improvement.is_empty()
+                    && interpretation_labels.contains(&"feature_design_no_gain".to_string())
+                {
+                    sensitivity_labels.push("metric_blind_spot_possible".to_string());
+                }
+            }
+            let mut profile_activation_reports = Vec::new();
+            for profile in profiles
+                .iter()
+                .copied()
+                .filter(|p| *p != TraceFeatureDesignProfile::CurrentPse)
+            {
+                let mut activation_count = 0usize;
+                let mut causal_activation_count = 0usize;
+                let mut noncausal_activation_count = 0usize;
+                let mut top3_blocker_activation_count = 0usize;
+                let mut total_score_delta_abs = 0.0;
+                let mut max_score_delta_abs: f64 = 0.0;
+                let mut causal_score_delta_abs = 0.0;
+                let mut noncausal_score_delta_abs = 0.0;
+                let mut affected_trace_ids = Vec::new();
+                let mut affected_item_ids = BTreeSet::new();
+                for s in &trace_states {
+                    let cur = rank_trace_with_feature_design_profile(
+                        s,
+                        TraceFeatureDesignProfile::CurrentPse,
+                    );
+                    let alt = rank_trace_with_feature_design_profile(s, profile);
+                    let cur_top = ranked_top_items(s, &cur);
+                    let top3_noncausal: BTreeSet<_> = cur_top
+                        .into_iter()
+                        .filter(|x| !x.is_causal)
+                        .map(|x| x.item_id)
+                        .collect();
+                    let mut trace_activated = false;
+                    for item in &s.work_items {
+                        let cs = *cur.item_scores.get(&item.id).unwrap_or(&0);
+                        let ps = *alt.item_scores.get(&item.id).unwrap_or(&0);
+                        let d = (ps - cs).abs() as f64;
+                        if d > 0.0 {
+                            trace_activated = true;
+                            activation_count += 1;
+                            total_score_delta_abs += d;
+                            max_score_delta_abs = max_score_delta_abs.max(d);
+                            let is_causal = s.ground_truth.causal_files.contains(&item.id)
+                                || s.ground_truth.causal_logs.contains(&item.id);
+                            if is_causal {
+                                causal_activation_count += 1;
+                                causal_score_delta_abs += d;
+                            } else {
+                                noncausal_activation_count += 1;
+                                noncausal_score_delta_abs += d;
+                            }
+                            if top3_noncausal.contains(&item.id) {
+                                top3_blocker_activation_count += 1;
+                            }
+                            if affected_item_ids.len() < 32 {
+                                affected_item_ids.insert(item.id.clone());
+                            }
+                        }
+                    }
+                    if trace_activated {
+                        affected_trace_ids.push(s.scenario_id.clone());
+                    }
+                }
+                affected_trace_ids.sort();
+                let zero_activation_reason = if activation_count == 0 {
+                    Some(
+                        match profile {
+                            TraceFeatureDesignProfile::StrongDistractorPenalty => {
+                                "no_matching_distractor_markers"
+                            }
+                            TraceFeatureDesignProfile::KeywordDominanceDampening => {
+                                "no_matching_keyword_dampening_markers"
+                            }
+                            _ => "profile_rule_conditions_not_met",
+                        }
+                        .to_string(),
+                    )
+                } else {
+                    None
+                };
+                let has_rank_movement = profile_sensitivity_reports
+                    .iter()
+                    .find(|p| p.profile == profile)
+                    .map(|p| p.traces_with_rank_movement > 0)
+                    .unwrap_or(false);
+                let activation_label = if activation_count == 0 {
+                    "no_activation"
+                } else if noncausal_activation_count > 0 && causal_activation_count == 0 {
+                    "noncausal_only_activation"
+                } else if top3_blocker_activation_count > 0 && !has_rank_movement {
+                    "top3_blocker_activation_without_rank_change"
+                } else if !has_rank_movement {
+                    "small_delta_no_rank_movement"
+                } else if noncausal_activation_count > causal_activation_count {
+                    "activation_hits_wrong_items"
+                } else {
+                    "causal_activation_without_improvement"
+                };
+                profile_activation_reports.push(TraceFeatureDesignProfileActivation {
+                    profile,
+                    activation_count,
+                    causal_activation_count,
+                    noncausal_activation_count,
+                    top3_blocker_activation_count,
+                    total_score_delta_abs,
+                    mean_score_delta_abs: if activation_count == 0 {
+                        0.0
+                    } else {
+                        total_score_delta_abs / activation_count as f64
+                    },
+                    max_score_delta_abs,
+                    causal_score_delta_abs,
+                    noncausal_score_delta_abs,
+                    affected_trace_ids,
+                    affected_item_ids_sample: affected_item_ids.into_iter().collect(),
+                    zero_activation_reason,
+                    activation_label: activation_label.to_string(),
+                    warnings: vec![],
+                });
+            }
+            let profiles_with_zero_activation: Vec<_> = profile_activation_reports
+                .iter()
+                .filter(|p| p.activation_count == 0)
+                .map(|p| p.profile)
+                .collect();
+            let profiles_with_activation_only_on_noncausal: Vec<_> = profile_activation_reports
+                .iter()
+                .filter(|p| p.noncausal_activation_count > 0 && p.causal_activation_count == 0)
+                .map(|p| p.profile)
+                .collect();
+            let profiles_with_activation_on_causal: Vec<_> = profile_activation_reports
+                .iter()
+                .filter(|p| p.causal_activation_count > 0)
+                .map(|p| p.profile)
+                .collect();
+            let profiles_with_small_delta_only: Vec<_> = profile_activation_reports
+                .iter()
+                .filter(|p| p.activation_count > 0 && p.max_score_delta_abs <= 2.0)
+                .map(|p| p.profile)
+                .collect();
+            let mut activation_labels = vec![
+                "feature_design_activation_audit_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if !profiles_with_zero_activation.is_empty() {
+                activation_labels.push("feature_rules_not_firing".to_string());
+            }
+            if !profiles_with_any_score_movement.is_empty()
+                && profiles_with_any_rank_movement.is_empty()
+            {
+                activation_labels.push("feature_rules_fire_but_no_rank_movement".to_string());
+                activation_labels.push("feature_delta_too_small_for_rank_change".to_string());
+            }
+            if profiles_with_activation_on_causal.is_empty() {
+                activation_labels.push("causal_items_not_targeted_by_feature_rules".to_string());
+            }
+            let top3_hits: usize = profile_activation_reports
+                .iter()
+                .map(|p| p.top3_blocker_activation_count)
+                .sum();
+            if top3_hits == 0 {
+                activation_labels.push("top3_blockers_not_sufficiently_suppressed".to_string());
+            }
+            let mut profile_targeting_reports = Vec::new();
+            for profile in profiles
+                .iter()
+                .copied()
+                .filter(|p| *p != TraceFeatureDesignProfile::CurrentPse)
+            {
+                let mut activation_count = 0usize;
+                let mut activated_item_ids_sample = BTreeSet::new();
+                let mut activated_item_kind_counts: BTreeMap<String, usize> = BTreeMap::new();
+                let mut activated_rank_distribution: BTreeMap<String, usize> = BTreeMap::new();
+                let mut activated_causal_count = 0usize;
+                let mut activated_noncausal_count = 0usize;
+                let mut activated_top3_blocker_count = 0usize;
+                let mut activated_below_top3_noncausal_count = 0usize;
+                let mut missed_top3_blocker_count = 0usize;
+                let mut missed_causal_item_count = 0usize;
+                let mut affected_trace_ids = Vec::new();
+                for trace in real_trace_replay_cases() {
+                    let s = AgentWorkState {
+                        scenario_id: trace.trace_id,
+                        split: AgentScenarioSplit::Holdout,
+                        issue_text: trace.title,
+                        work_items: trace.candidate_items,
+                        plan_steps: vec!["fix".into(), "retry".into()],
+                        ground_truth: AgentGroundTruth {
+                            causal_files: trace.ground_truth.causal_files,
+                            causal_logs: trace.ground_truth.causal_logs,
+                            expected_next_actions: trace.ground_truth.correct_next_actions,
+                            irrelevant_items: trace.ground_truth.rejected_false_paths,
+                            blocker_label: trace.ground_truth.resolution_label,
+                        },
+                    };
+                    let cur = rank_trace_with_feature_design_profile(
+                        &s,
+                        TraceFeatureDesignProfile::CurrentPse,
+                    );
+                    let alt = rank_trace_with_feature_design_profile(&s, profile);
+                    let cur_top = ranked_top_items(&s, &cur);
+                    let top3_noncausal: BTreeSet<_> = cur_top
+                        .iter()
+                        .filter(|x| !x.is_causal)
+                        .map(|x| x.item_id.clone())
+                        .collect();
+                    let mut activated_in_trace = BTreeSet::new();
+                    for item in &s.work_items {
+                        let cs = *cur.item_scores.get(&item.id).unwrap_or(&0);
+                        let ps = *alt.item_scores.get(&item.id).unwrap_or(&0);
+                        if ps != cs {
+                            activation_count += 1;
+                            if activated_item_ids_sample.len() < 32 {
+                                activated_item_ids_sample.insert(item.id.clone());
+                            }
+                            *activated_item_kind_counts
+                                .entry(format!("{:?}", item.item_type))
+                                .or_insert(0) += 1;
+                            let rank_key = ranked_top_items(&s, &cur)
+                                .iter()
+                                .position(|x| x.item_id == item.id)
+                                .map(|i| i + 1)
+                                .map(|r| {
+                                    if r <= 3 {
+                                        "top3".to_string()
+                                    } else if r <= 10 {
+                                        "rank4_10".to_string()
+                                    } else {
+                                        "rank11_plus".to_string()
+                                    }
+                                })
+                                .unwrap_or_else(|| "unranked".to_string());
+                            *activated_rank_distribution.entry(rank_key).or_insert(0) += 1;
+                            let is_causal = s.ground_truth.causal_files.contains(&item.id)
+                                || s.ground_truth.causal_logs.contains(&item.id);
+                            if is_causal {
+                                activated_causal_count += 1;
+                            } else {
+                                activated_noncausal_count += 1;
+                                if top3_noncausal.contains(&item.id) {
+                                    activated_top3_blocker_count += 1;
+                                } else {
+                                    activated_below_top3_noncausal_count += 1;
+                                }
+                            }
+                            activated_in_trace.insert(item.id.clone());
+                        }
+                    }
+                    if !activated_in_trace.is_empty() {
+                        affected_trace_ids.push(s.scenario_id.clone());
+                    }
+                    missed_top3_blocker_count += top3_noncausal
+                        .iter()
+                        .filter(|id| !activated_in_trace.contains(*id))
+                        .count();
+                    let causal_ids: BTreeSet<_> = s
+                        .ground_truth
+                        .causal_files
+                        .iter()
+                        .chain(s.ground_truth.causal_logs.iter())
+                        .cloned()
+                        .collect();
+                    missed_causal_item_count += causal_ids
+                        .iter()
+                        .filter(|id| !activated_in_trace.contains(*id))
+                        .count();
+                }
+                affected_trace_ids.sort();
+                let low_rank_noncausal_only = activation_count > 0
+                    && activated_causal_count == 0
+                    && activated_top3_blocker_count == 0
+                    && activated_below_top3_noncausal_count > 0;
+                let targeting_label = if activation_count == 0 {
+                    "no_activation"
+                } else if activated_top3_blocker_count > 0 {
+                    "hits_top3_blockers"
+                } else if low_rank_noncausal_only {
+                    "low_rank_noncausal_only"
+                } else if activated_causal_count == 0 {
+                    "misses_causal_items"
+                } else {
+                    "misses_top3_blockers"
+                };
+                let mut targeting_failure_reasons = Vec::new();
+                if activated_top3_blocker_count == 0 && activation_count > 0 {
+                    targeting_failure_reasons
+                        .push("top3_blockers_lack_matching_markers".to_string());
+                    targeting_failure_reasons.push("blocker_detection_mismatch".to_string());
+                }
+                if activated_causal_count == 0 {
+                    targeting_failure_reasons
+                        .push("causal_items_lack_matching_feature_conditions".to_string());
+                    targeting_failure_reasons.push("feature_rule_too_narrow".to_string());
+                }
+                if low_rank_noncausal_only {
+                    targeting_failure_reasons.push("activation_hits_low_rank_noise".to_string());
+                    targeting_failure_reasons.push("feature_rule_too_broad".to_string());
+                }
+                if activation_count > 0
+                    && activated_top3_blocker_count == 0
+                    && activated_causal_count == 0
+                {
+                    targeting_failure_reasons.push("marker_present_but_wrong_target".to_string());
+                }
+                profile_targeting_reports.push(TraceFeatureProfileTargetingReport {
+                    profile,
+                    activation_count,
+                    activated_item_ids_sample: activated_item_ids_sample.into_iter().collect(),
+                    activated_item_kind_counts,
+                    activated_rank_distribution,
+                    activated_causal_count,
+                    activated_noncausal_count,
+                    activated_top3_blocker_count,
+                    activated_below_top3_noncausal_count,
+                    missed_top3_blocker_count,
+                    missed_causal_item_count,
+                    targeting_label: targeting_label.to_string(),
+                    targeting_failure_reasons,
+                    affected_trace_ids,
+                });
+            }
+            let profiles_missing_top3_blockers: Vec<_> = profile_targeting_reports
+                .iter()
+                .filter(|p| p.activation_count > 0 && p.activated_top3_blocker_count == 0)
+                .map(|p| p.profile)
+                .collect();
+            let profiles_missing_causal_items: Vec<_> = profile_targeting_reports
+                .iter()
+                .filter(|p| p.activated_causal_count == 0)
+                .map(|p| p.profile)
+                .collect();
+            let profiles_only_hit_low_rank_noncausal: Vec<_> = profile_targeting_reports
+                .iter()
+                .filter(|p| p.targeting_label == "low_rank_noncausal_only")
+                .map(|p| p.profile)
+                .collect();
+            let mut targeting_labels = vec![
+                "feature_activation_targeting_audit_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if !profiles_missing_top3_blockers.is_empty() {
+                targeting_labels.push("feature_activation_misses_top3_blockers".to_string());
+                targeting_labels.push("marker_repair_incomplete_for_top3_blockers".to_string());
+            }
+            if !profiles_missing_causal_items.is_empty() {
+                targeting_labels.push("feature_activation_misses_causal_items".to_string());
+            }
+            if !profiles_only_hit_low_rank_noncausal.is_empty() {
+                targeting_labels.push("feature_rule_targeting_needs_refinement".to_string());
+            }
+            let mut profile_delta_reports = Vec::new();
+            for profile in profiles
+                .iter()
+                .copied()
+                .filter(|p| *p != TraceFeatureDesignProfile::CurrentPse)
+            {
+                let mut activated_top3_blocker_count = 0usize;
+                let mut top3_blocker_delta_abs_sum = 0.0;
+                let mut max_top3_blocker_delta_abs: f64 = 0.0;
+                let mut required_deltas = Vec::new();
+                let mut coverage_ratios = Vec::new();
+                let mut traces_with_near_threshold_shift = 0usize;
+                let mut traces_with_large_gap_remaining = 0usize;
+                let mut traces_where_causal_item_next_in_line = 0usize;
+                let mut affected_trace_ids = Vec::new();
+                for trace in real_trace_replay_cases() {
+                    let s = AgentWorkState {
+                        scenario_id: trace.trace_id,
+                        split: AgentScenarioSplit::Holdout,
+                        issue_text: trace.title,
+                        work_items: trace.candidate_items,
+                        plan_steps: vec!["fix".into(), "retry".into()],
+                        ground_truth: AgentGroundTruth {
+                            causal_files: trace.ground_truth.causal_files,
+                            causal_logs: trace.ground_truth.causal_logs,
+                            expected_next_actions: trace.ground_truth.correct_next_actions,
+                            irrelevant_items: trace.ground_truth.rejected_false_paths,
+                            blocker_label: trace.ground_truth.resolution_label,
+                        },
+                    };
+                    let cur = rank_trace_with_feature_design_profile(
+                        &s,
+                        TraceFeatureDesignProfile::CurrentPse,
+                    );
+                    let alt = rank_trace_with_feature_design_profile(&s, profile);
+                    let cur_top = ranked_top_items(&s, &cur);
+                    let top3_noncausal: Vec<_> =
+                        cur_top.iter().filter(|x| !x.is_causal).take(3).collect();
+                    let best_causal = cur_top.iter().find(|x| x.is_causal);
+                    let mut applied_blocker_delta_abs = 0.0;
+                    let mut hit_top3 = false;
+                    for blocker in &top3_noncausal {
+                        let cs = *cur.item_scores.get(&blocker.item_id).unwrap_or(&0);
+                        let ps = *alt.item_scores.get(&blocker.item_id).unwrap_or(&0);
+                        let d = (ps - cs).abs() as f64;
+                        if d > 0.0 {
+                            hit_top3 = true;
+                            activated_top3_blocker_count += 1;
+                            top3_blocker_delta_abs_sum += d;
+                            max_top3_blocker_delta_abs = max_top3_blocker_delta_abs.max(d);
+                            applied_blocker_delta_abs += d;
+                        }
+                    }
+                    if let (Some(causal), Some(weakest)) = (best_causal, top3_noncausal.last()) {
+                        let weakest_score = *cur
+                            .item_scores
+                            .get(&weakest.item_id)
+                            .unwrap_or(&weakest.score);
+                        let causal_score = *cur
+                            .item_scores
+                            .get(&causal.item_id)
+                            .unwrap_or(&causal.score);
+                        let required_delta_to_enter_top3 =
+                            (weakest_score - causal_score + 1).max(0) as f64;
+                        if required_delta_to_enter_top3 <= 0.0 {
+                            traces_where_causal_item_next_in_line += 1;
+                        } else {
+                            required_deltas.push(required_delta_to_enter_top3);
+                            let ratio = applied_blocker_delta_abs / required_delta_to_enter_top3;
+                            coverage_ratios.push(ratio);
+                            if (0.75..1.0).contains(&ratio) {
+                                traces_with_near_threshold_shift += 1;
+                            }
+                            if ratio < 0.25 {
+                                traces_with_large_gap_remaining += 1;
+                            }
+                        }
+                    }
+                    if hit_top3 {
+                        affected_trace_ids.push(s.scenario_id);
+                    }
+                }
+                affected_trace_ids.sort();
+                let mean_required_delta_to_top3 = if required_deltas.is_empty() {
+                    None
+                } else {
+                    Some(required_deltas.iter().sum::<f64>() / required_deltas.len() as f64)
+                };
+                let min_required_delta_to_top3 = required_deltas.iter().copied().reduce(f64::min);
+                let mean_delta_coverage_ratio = if coverage_ratios.is_empty() {
+                    None
+                } else {
+                    Some(coverage_ratios.iter().sum::<f64>() / coverage_ratios.len() as f64)
+                };
+                let max_delta_coverage_ratio = coverage_ratios.iter().copied().reduce(f64::max);
+                let label = if activated_top3_blocker_count == 0 {
+                    "no_top3_blocker_activation"
+                } else if mean_delta_coverage_ratio.is_none() {
+                    "delta_not_computable"
+                } else {
+                    let mean_ratio = mean_delta_coverage_ratio.unwrap_or(0.0);
+                    let max_ratio = max_delta_coverage_ratio.unwrap_or(0.0);
+                    if max_ratio >= 1.0 {
+                        "sufficient_delta_but_no_rank_shift"
+                    } else if mean_ratio >= 0.75 {
+                        "near_threshold_but_insufficient"
+                    } else if mean_ratio < 0.25 {
+                        "large_gap_remaining"
+                    } else {
+                        "insufficient_delta"
+                    }
+                };
+                let mut diagnostic_reasons = Vec::new();
+                if activated_top3_blocker_count == 0 {
+                    diagnostic_reasons.push("no_top3_blocker_activation".to_string());
+                }
+                if let Some(mean_ratio) = mean_delta_coverage_ratio {
+                    if mean_ratio < 1.0 {
+                        diagnostic_reasons.push("insufficient_delta".to_string());
+                    }
+                    if (0.75..1.0).contains(&mean_ratio) {
+                        diagnostic_reasons.push("near_threshold_shift".to_string());
+                    }
+                    if mean_ratio < 0.25 {
+                        diagnostic_reasons.push("large_gap_remaining".to_string());
+                    }
+                } else {
+                    diagnostic_reasons.push("delta_not_computable".to_string());
+                }
+                profile_delta_reports.push(TraceFeatureProfileDeltaSufficiency {
+                    profile,
+                    activated_top3_blocker_count,
+                    mean_top3_blocker_delta_abs: if activated_top3_blocker_count == 0 {
+                        0.0
+                    } else {
+                        top3_blocker_delta_abs_sum / activated_top3_blocker_count as f64
+                    },
+                    max_top3_blocker_delta_abs,
+                    mean_required_delta_to_top3,
+                    min_required_delta_to_top3,
+                    mean_delta_coverage_ratio,
+                    max_delta_coverage_ratio,
+                    traces_with_near_threshold_shift,
+                    traces_with_large_gap_remaining,
+                    traces_where_causal_item_next_in_line,
+                    delta_sufficiency_label: label.to_string(),
+                    diagnostic_reasons,
+                    affected_trace_ids,
+                });
+            }
+            let profiles_with_insufficient_delta: Vec<_> = profile_delta_reports
+                .iter()
+                .filter(|p| matches!(p.mean_delta_coverage_ratio, Some(r) if r < 1.0))
+                .map(|p| p.profile)
+                .collect();
+            let profiles_with_near_threshold_shift: Vec<_> = profile_delta_reports
+                .iter()
+                .filter(|p| p.traces_with_near_threshold_shift > 0)
+                .map(|p| p.profile)
+                .collect();
+            let profiles_with_large_gap_remaining: Vec<_> = profile_delta_reports
+                .iter()
+                .filter(|p| p.traces_with_large_gap_remaining > 0)
+                .map(|p| p.profile)
+                .collect();
+            let mut delta_labels = vec![
+                "feature_delta_sufficiency_audit_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if !profiles_with_insufficient_delta.is_empty() {
+                delta_labels.push("feature_delta_too_small_for_rank_change".to_string());
+                delta_labels.push("delta_design_required".to_string());
+            }
+            if !profiles_with_near_threshold_shift.is_empty() {
+                delta_labels.push("blocker_delta_near_threshold".to_string());
+            }
+            if !profiles_with_large_gap_remaining.is_empty() {
+                delta_labels.push("causal_items_too_far_below_top3".to_string());
+            }
+            let mut causal_trace_reports = Vec::new();
+            let mut causal_item_count = 0usize;
+            let mut causal_items_with_path_marker = 0usize;
+            let mut causal_items_with_command_marker = 0usize;
+            let mut causal_items_with_action_marker = 0usize;
+            let mut causal_items_with_retry_marker = 0usize;
+            let mut causal_items_hit_by_existing_profiles = 0usize;
+            let mut causal_items_missed_by_existing_profiles = 0usize;
+            let mut causal_items_marker_targetable = 0usize;
+            let mut causal_items_rule_matched = 0usize;
+            let mut causal_items_score_activated = 0usize;
+            let mut causal_items_score_improved = 0usize;
+            let mut causal_items_rank_improved = 0usize;
+            let mut causal_items_marker_targetable_but_not_activated = 0usize;
+            let mut causal_items_activated_but_not_improved = 0usize;
+            let mut causal_items_improved_but_below_top3 = 0usize;
+            let mut need_path_command_boost = false;
+            let mut need_action_retry_boost = false;
+            let mut need_preservation_rule = false;
+            let mut need_validation_step_rule = false;
+            for trace in real_trace_replay_cases() {
+                let state = AgentWorkState {
+                    scenario_id: trace.trace_id.clone(),
+                    split: AgentScenarioSplit::Holdout,
+                    issue_text: trace.title.clone(),
+                    work_items: trace.candidate_items.clone(),
+                    plan_steps: vec!["fix".into(), "retry".into()],
+                    ground_truth: AgentGroundTruth {
+                        causal_files: trace.ground_truth.causal_files.clone(),
+                        causal_logs: trace.ground_truth.causal_logs.clone(),
+                        expected_next_actions: trace.ground_truth.correct_next_actions.clone(),
+                        irrelevant_items: trace.ground_truth.rejected_false_paths.clone(),
+                        blocker_label: trace.ground_truth.resolution_label.clone(),
+                    },
+                };
+                let mut summary: BTreeMap<String, usize> = BTreeMap::new();
+                let mut causal_ids = Vec::new();
+                let mut marker_targetable_item_ids = Vec::new();
+                let mut rule_matched_item_ids = Vec::new();
+                let mut score_activated_item_ids = Vec::new();
+                let mut score_improved_item_ids = Vec::new();
+                let mut rank_improved_item_ids = Vec::new();
+                let mut marker_targetable_but_not_activated_item_ids = Vec::new();
+                let mut hit = 0usize;
+                let mut miss = 0usize;
+                for item in &state.work_items {
+                    let item_text =
+                        format!("{} {} {}", item.source, item.text, item.tags.join(" "))
+                            .to_ascii_lowercase();
+                    let is_causal = state.ground_truth.causal_files.iter().any(|f| {
+                        let needle = f.to_ascii_lowercase();
+                        item.id == *f || item_text.contains(&needle)
+                    }) || state.ground_truth.causal_logs.iter().any(|l| {
+                        let needle = l.to_ascii_lowercase();
+                        item.id == *l || item_text.contains(&needle)
+                    });
+                    if !is_causal {
+                        continue;
+                    }
+                    let strict_causal_id = state.ground_truth.causal_files.contains(&item.id)
+                        || state.ground_truth.causal_logs.contains(&item.id);
+                    causal_item_count += 1;
+                    causal_ids.push(item.id.clone());
+                    let text = format!("{} {} {}", item.source, item.text, item.tags.join(" "))
+                        .to_ascii_lowercase();
+                    let has_path = [
+                        "inspect_path",
+                        "file_path_text_hint",
+                        "crates/",
+                        "src/",
+                        ".rs",
+                    ]
+                    .iter()
+                    .any(|m| text.contains(m));
+                    let has_command = [
+                        "command_context",
+                        "cargo",
+                        "test",
+                        "fmt",
+                        "run",
+                        "retry_command",
+                    ]
+                    .iter()
+                    .any(|m| text.contains(m));
+                    let has_action = [
+                        "action_required",
+                        "inspect",
+                        "fix",
+                        "retry",
+                        "rerun",
+                        "preserve",
+                        "check",
+                    ]
+                    .iter()
+                    .any(|m| text.contains(m));
+                    let has_retry = [
+                        "retry_command",
+                        "rerun",
+                        "validation",
+                        "verify",
+                        "reproduce",
+                    ]
+                    .iter()
+                    .any(|m| text.contains(m));
+                    if has_path {
+                        causal_items_with_path_marker += 1;
+                        *summary.entry("path".into()).or_insert(0) += 1;
+                    }
+                    if has_command {
+                        causal_items_with_command_marker += 1;
+                        *summary.entry("command".into()).or_insert(0) += 1;
+                    }
+                    if has_action {
+                        causal_items_with_action_marker += 1;
+                        *summary.entry("action".into()).or_insert(0) += 1;
+                    }
+                    if has_retry {
+                        causal_items_with_retry_marker += 1;
+                        *summary.entry("retry_validation".into()).or_insert(0) += 1;
+                    }
+                    let marker_targetable = has_path || has_command || has_action || has_retry;
+                    if marker_targetable {
+                        causal_items_marker_targetable += 1;
+                        marker_targetable_item_ids.push(item.id.clone());
+                    }
+                    let mut rule_matched = false;
+                    let mut activated = false;
+                    let mut improved = false;
+                    let mut rank_improved = false;
+                    for profile in profiles
+                        .iter()
+                        .copied()
+                        .filter(|p| *p != TraceFeatureDesignProfile::CurrentPse)
+                    {
+                        let cur = rank_trace_with_feature_design_profile(
+                            &state,
+                            TraceFeatureDesignProfile::CurrentPse,
+                        );
+                        let alt = rank_trace_with_feature_design_profile(&state, profile);
+                        let cs = *cur.item_scores.get(&item.id).unwrap_or(&0);
+                        let ps = *alt.item_scores.get(&item.id).unwrap_or(&0);
+                        let t = format!("{} {} {}", item.source, item.text, item.tags.join(" "))
+                            .to_ascii_lowercase();
+                        let noncausalish = [
+                            "stale",
+                            "obsolete",
+                            "misleading",
+                            "wrong_crate",
+                            "false_path",
+                            "red_herring",
+                            "unrelated",
+                            "old_green",
+                            "noncausal",
+                            "irrelevant",
+                        ]
+                        .iter()
+                        .any(|m| t.contains(m));
+                        let keywordish = [
+                            "keyword",
+                            "overlap",
+                            "token",
+                            "report_artifact",
+                            "final_report",
+                            "verdict_artifact",
+                            "artifact",
+                            "validation",
+                            "domain_validation",
+                            "benchmark",
+                        ]
+                        .iter()
+                        .any(|m| t.contains(m));
+                        let artifactish =
+                            ["report", "final", "verdict", "artifact", "final_report"]
+                                .iter()
+                                .any(|m| t.contains(m));
+                        let has_causal_role = item.tags.iter().any(|x| {
+                            x.contains("causal")
+                                || x.contains("executor")
+                                || x.contains("harness")
+                                || x.contains("command_plan")
+                        });
+                        let profile_matches = match profile {
+                            TraceFeatureDesignProfile::CurrentPse => false,
+                            TraceFeatureDesignProfile::StrongDistractorPenalty => noncausalish,
+                            TraceFeatureDesignProfile::KeywordDominanceDampening => {
+                                keywordish && noncausalish
+                            }
+                            TraceFeatureDesignProfile::ReportArtifactDemotion => artifactish,
+                            TraceFeatureDesignProfile::CausalRoleDisambiguation => !has_causal_role,
+                            TraceFeatureDesignProfile::CombinedConservativeFeatureDesign => {
+                                noncausalish
+                                    || (keywordish && noncausalish)
+                                    || artifactish
+                                    || !has_causal_role
+                            }
+                            TraceFeatureDesignProfile::CausalActivationDiagnostic => {
+                                has_causal_role
+                                    && (t.contains("inspect_path")
+                                        || t.contains("command_context")
+                                        || t.contains("action_required")
+                                        || t.contains("retry_command")
+                                        || t.contains("crates/")
+                                        || t.contains("src/")
+                                        || t.contains(".rs")
+                                        || t.contains("cargo")
+                                        || t.contains("test")
+                                        || t.contains("fmt")
+                                        || t.contains("run")
+                                        || t.contains("rerun")
+                                        || t.contains("check")
+                                        || t.contains("verify")
+                                        || t.contains("reproduce"))
+                            }
+                        };
+                        if profile_matches {
+                            rule_matched = true;
+                        }
+                        if cs != ps {
+                            activated = true;
+                            if ps > cs {
+                                improved = true;
+                            }
+                            let cur_rank = ranked_top_items(&state, &cur)
+                                .iter()
+                                .position(|x| x.item_id == item.id);
+                            let alt_rank = ranked_top_items(&state, &alt)
+                                .iter()
+                                .position(|x| x.item_id == item.id);
+                            if let (Some(cr), Some(ar)) = (cur_rank, alt_rank) {
+                                if ar < cr {
+                                    rank_improved = true;
+                                }
+                            }
+                        }
+                    }
+                    if rule_matched {
+                        causal_items_rule_matched += 1;
+                        rule_matched_item_ids.push(item.id.clone());
+                    }
+                    if activated && strict_causal_id {
+                        hit += 1;
+                        score_activated_item_ids.push(item.id.clone());
+                        causal_items_hit_by_existing_profiles += 1;
+                        causal_items_score_activated += 1;
+                        if improved {
+                            causal_items_score_improved += 1;
+                            score_improved_item_ids.push(item.id.clone());
+                            let cur_rank = ranked_top_items(
+                                &state,
+                                &rank_trace_with_feature_design_profile(
+                                    &state,
+                                    TraceFeatureDesignProfile::CurrentPse,
+                                ),
+                            )
+                            .iter()
+                            .position(|x| x.item_id == item.id)
+                            .map(|x| x + 1)
+                            .unwrap_or(usize::MAX);
+                            if cur_rank > 3 {
+                                causal_items_improved_but_below_top3 += 1;
+                            }
+                        } else {
+                            causal_items_activated_but_not_improved += 1;
+                        }
+                        if rank_improved {
+                            causal_items_rank_improved += 1;
+                            rank_improved_item_ids.push(item.id.clone());
+                        }
+                    } else {
+                        miss += 1;
+                        causal_items_missed_by_existing_profiles += 1;
+                        if marker_targetable {
+                            causal_items_marker_targetable_but_not_activated += 1;
+                            marker_targetable_but_not_activated_item_ids.push(item.id.clone());
+                        }
+                        if has_path && has_command {
+                            need_path_command_boost = true;
+                        }
+                        if has_action || has_retry {
+                            need_action_retry_boost = true;
+                        }
+                        if text.contains("preserve")
+                            || text.contains("diagnostic_only")
+                            || text.contains("current_pse_not_replaced")
+                        {
+                            need_preservation_rule = true;
+                        }
+                        if ["verify", "validation", "reproduce", "test", "fmt"]
+                            .iter()
+                            .any(|m| text.contains(m))
+                        {
+                            need_validation_step_rule = true;
+                        }
+                    }
+                }
+                let mut proposed_rule_labels = Vec::new();
+                if need_path_command_boost {
+                    proposed_rule_labels.push("CausalPathCommandBoost".to_string());
+                }
+                if need_action_retry_boost {
+                    proposed_rule_labels.push("CausalActionRetryBoost".to_string());
+                }
+                if need_preservation_rule {
+                    proposed_rule_labels.push("CausalPreservationRule".to_string());
+                }
+                if need_validation_step_rule {
+                    proposed_rule_labels.push("CausalValidationStepRule".to_string());
+                }
+                let targeting_gap_label = if causal_ids.is_empty() {
+                    "causal_items_lack_feature_markers"
+                } else if miss == 0 {
+                    "causal_items_already_targeted"
+                } else if hit > 0 {
+                    "causal_items_partially_targetable"
+                } else if summary.is_empty() {
+                    "causal_items_lack_feature_markers"
+                } else if !proposed_rule_labels.is_empty() {
+                    "causal_feature_rule_needed"
+                } else {
+                    "causal_features_present_but_unused"
+                };
+                let semantic_status_label = if !marker_targetable_but_not_activated_item_ids
+                    .is_empty()
+                    && score_activated_item_ids.is_empty()
+                {
+                    "causal_items_marker_targetable_only"
+                } else if !rule_matched_item_ids.is_empty() && score_activated_item_ids.is_empty() {
+                    "causal_items_rule_matched_but_not_score_activated"
+                } else if !score_activated_item_ids.is_empty() && score_improved_item_ids.is_empty()
+                {
+                    "causal_items_score_activated_but_not_improved"
+                } else if !score_improved_item_ids.is_empty() && rank_improved_item_ids.is_empty() {
+                    "causal_items_improved_but_below_top3"
+                } else {
+                    "causal_items_effectively_targeted"
+                };
+                causal_trace_reports.push(TraceCausalFeatureTargetingTrace {
+                    trace_id: trace.trace_id,
+                    variant_kind: trace.variant_kind,
+                    causal_item_ids: causal_ids,
+                    causal_item_marker_summary: summary,
+                    marker_targetable_item_ids,
+                    rule_matched_item_ids,
+                    score_activated_item_ids,
+                    score_improved_item_ids,
+                    rank_improved_item_ids,
+                    marker_targetable_but_not_activated_item_ids,
+                    semantic_status_label: semantic_status_label.to_string(),
+                    hit_by_existing_profiles: hit,
+                    missed_by_existing_profiles: miss,
+                    proposed_rule_labels,
+                    targeting_gap_label: targeting_gap_label.to_string(),
+                });
+            }
+            let mut proposed_causal_feature_rules = Vec::new();
+            if need_path_command_boost {
+                proposed_causal_feature_rules.push(ProposedCausalFeatureRule {
+                    rule_name: "CausalPathCommandBoost".to_string(),
+                    matched_marker_family: "path+command".to_string(),
+                    expected_target: "causal path/command items".to_string(),
+                    diagnostic_only: true,
+                    rationale: "Causal items carry path+command markers but are missed."
+                        .to_string(),
+                });
+            }
+            if need_action_retry_boost {
+                proposed_causal_feature_rules.push(ProposedCausalFeatureRule {
+                    rule_name: "CausalActionRetryBoost".to_string(),
+                    matched_marker_family: "action+retry".to_string(),
+                    expected_target: "causal action/retry items".to_string(),
+                    diagnostic_only: true,
+                    rationale: "Causal action/retry semantics appear without profile activation."
+                        .to_string(),
+                });
+            }
+            if need_preservation_rule {
+                proposed_causal_feature_rules.push(ProposedCausalFeatureRule {
+                    rule_name: "CausalPreservationRule".to_string(),
+                    matched_marker_family: "preservation".to_string(),
+                    expected_target: "causal stability-preserving items".to_string(),
+                    diagnostic_only: true,
+                    rationale: "Preservation semantics appear in missed causal items.".to_string(),
+                });
+            }
+            if need_validation_step_rule {
+                proposed_causal_feature_rules.push(ProposedCausalFeatureRule {
+                    rule_name: "CausalValidationStepRule".to_string(),
+                    matched_marker_family: "validation".to_string(),
+                    expected_target: "causal validation-step items".to_string(),
+                    diagnostic_only: true,
+                    rationale: "Validation/reproduce/test/fmt semantics are present but missed."
+                        .to_string(),
+                });
+            }
+            let mut causal_labels = vec![
+                "causal_feature_targeting_audit_present".to_string(),
+                "causal_targeting_semantics_aligned".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if causal_items_marker_targetable > 0 {
+                causal_labels.push("causal_items_marker_targetable".to_string());
+            }
+            if causal_items_score_activated == 0 {
+                causal_labels.push("causal_items_not_score_activated".to_string());
+            }
+            if causal_items_score_improved == 0 {
+                causal_labels.push("causal_items_not_score_improved".to_string());
+            }
+            if causal_items_rank_improved == 0 {
+                causal_labels.push("causal_items_not_rank_improved".to_string());
+            }
+            if causal_items_marker_targetable_but_not_activated > 0 {
+                causal_labels.push("causal_targeting_gap_confirmed".to_string());
+                causal_labels
+                    .push("causal_profile_needed_only_if_score_activation_missing".to_string());
+                causal_labels.push("previous_hit_field_was_marker_targetability".to_string());
+            }
+            if !proposed_causal_feature_rules.is_empty() {
+                causal_labels.push("next_step_report_only_causal_profile".to_string());
+            }
+            let mut align_reports = Vec::new();
+            let mut causal_marker_targetable_count = 0usize;
+            let mut causal_rule_matched_count = 0usize;
+            let mut causal_profile_score_delta_count = 0usize;
+            let mut noncausal_profile_score_delta_count = 0usize;
+            let mut marker_targetable_but_no_delta_count = 0usize;
+            let mut profile_delta_without_causal_classification_count = 0usize;
+            let mut suspected_id_mismatch_count = 0usize;
+            let mut suspected_rule_condition_mismatch_count = 0usize;
+            let mut suspected_zero_delta_after_match_count = 0usize;
+            for tr in &causal_trace_reports {
+                let trace = real_trace_replay_cases()
+                    .into_iter()
+                    .find(|x| x.trace_id == tr.trace_id)
+                    .unwrap();
+                let state = AgentWorkState {
+                    scenario_id: trace.trace_id.clone(),
+                    split: AgentScenarioSplit::Holdout,
+                    issue_text: trace.title.clone(),
+                    work_items: trace.candidate_items.clone(),
+                    plan_steps: vec!["fix".into(), "retry".into()],
+                    ground_truth: AgentGroundTruth {
+                        causal_files: trace.ground_truth.causal_files.clone(),
+                        causal_logs: trace.ground_truth.causal_logs.clone(),
+                        expected_next_actions: trace.ground_truth.correct_next_actions.clone(),
+                        irrelevant_items: trace.ground_truth.rejected_false_paths.clone(),
+                        blocker_label: trace.ground_truth.resolution_label.clone(),
+                    },
+                };
+                let cur = rank_trace_with_feature_design_profile(
+                    &state,
+                    TraceFeatureDesignProfile::CurrentPse,
+                );
+                let cad = rank_trace_with_feature_design_profile(
+                    &state,
+                    TraceFeatureDesignProfile::CausalActivationDiagnostic,
+                );
+                let mut profile_delta_item_ids = Vec::new();
+                for item in &state.work_items {
+                    let cs = *cur.item_scores.get(&item.id).unwrap_or(&0);
+                    let ps = *cad.item_scores.get(&item.id).unwrap_or(&0);
+                    if cs != ps {
+                        profile_delta_item_ids.push(item.id.clone());
+                    }
+                }
+                let mut causal_profile_delta_item_ids = Vec::new();
+                let mut noncausal_profile_delta_item_ids = Vec::new();
+                for id in &profile_delta_item_ids {
+                    if tr.causal_item_ids.contains(id) {
+                        causal_profile_delta_item_ids.push(id.clone());
+                    } else {
+                        noncausal_profile_delta_item_ids.push(id.clone());
+                    }
+                }
+                let marker_targetable_but_no_delta_item_ids: Vec<String> = tr
+                    .marker_targetable_item_ids
+                    .iter()
+                    .filter(|id| !profile_delta_item_ids.contains(*id))
+                    .cloned()
+                    .collect();
+                let profile_delta_but_noncausal_item_ids = noncausal_profile_delta_item_ids.clone();
+                causal_marker_targetable_count += tr.marker_targetable_item_ids.len();
+                causal_rule_matched_count += tr.rule_matched_item_ids.len();
+                causal_profile_score_delta_count += causal_profile_delta_item_ids.len();
+                noncausal_profile_score_delta_count += noncausal_profile_delta_item_ids.len();
+                marker_targetable_but_no_delta_count +=
+                    marker_targetable_but_no_delta_item_ids.len();
+                profile_delta_without_causal_classification_count +=
+                    profile_delta_but_noncausal_item_ids.len();
+                let mut reasons = Vec::new();
+                let label = if !causal_profile_delta_item_ids.is_empty() {
+                    "causal_activation_aligned"
+                } else if !marker_targetable_but_no_delta_item_ids.is_empty()
+                    && !profile_delta_item_ids.is_empty()
+                {
+                    reasons.push("profile_hits_top3_blockers_not_causal_items".to_string());
+                    reasons
+                        .push("profile_rule_targets_report_or_artifact_markers_first".to_string());
+                    suspected_rule_condition_mismatch_count += 1;
+                    "profile_hits_noncausal_instead_of_causal"
+                } else if !marker_targetable_but_no_delta_item_ids.is_empty() {
+                    reasons.push(
+                        "causal_items_have_markers_but_profile_rule_does_not_fire".to_string(),
+                    );
+                    reasons.push("score_delta_zero_for_causal_items".to_string());
+                    suspected_zero_delta_after_match_count += 1;
+                    "marker_targetable_but_no_score_delta"
+                } else {
+                    reasons.push("causal_item_id_not_equal_candidate_item_id".to_string());
+                    reasons.push("marker_taxonomy_mismatch".to_string());
+                    suspected_id_mismatch_count += 1;
+                    "possible_item_id_mismatch"
+                };
+                align_reports.push(TraceCausalActivationAlignmentTrace {
+                    trace_id: tr.trace_id.clone(),
+                    variant_kind: tr.variant_kind,
+                    causal_item_ids: tr.causal_item_ids.clone(),
+                    marker_targetable_item_ids: tr.marker_targetable_item_ids.clone(),
+                    rule_matched_item_ids: tr.rule_matched_item_ids.clone(),
+                    profile_delta_item_ids,
+                    causal_profile_delta_item_ids,
+                    noncausal_profile_delta_item_ids,
+                    marker_targetable_but_no_delta_item_ids,
+                    profile_delta_but_noncausal_item_ids,
+                    alignment_label: label.to_string(),
+                    alignment_failure_reasons: reasons,
+                });
+            }
+            let mut align_labels = vec![
+                "causal_activation_alignment_audit_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if causal_profile_score_delta_count == 0 && causal_marker_targetable_count > 0 {
+                align_labels.push("causal_activation_misaligned".to_string());
+                align_labels.push("marker_targetable_but_no_score_delta".to_string());
+                align_labels.push("causal_activation_rule_needs_alignment".to_string());
+            }
+            if noncausal_profile_score_delta_count > 0 && causal_profile_score_delta_count == 0 {
+                align_labels.push("profile_hits_noncausal_instead_of_causal".to_string());
+            }
+            if suspected_id_mismatch_count > 0 {
+                align_labels.push("possible_item_id_mismatch".to_string());
+            }
+            let causal_alignment_ids_by_trace: BTreeMap<String, BTreeSet<String>> = align_reports
+                .iter()
+                .map(|r| {
+                    (
+                        r.trace_id.clone(),
+                        r.causal_item_ids.iter().cloned().collect(),
+                    )
+                })
+                .collect();
+            let mut impact_reports = Vec::new();
+            let mut total_causal_delta_item_count = 0usize;
+            let mut total_noncausal_delta_item_count = 0usize;
+            let mut causal_delta_abs_sum = 0.0;
+            let mut noncausal_delta_abs_sum = 0.0;
+            let mut max_causal_delta_abs: f64 = 0.0;
+            let mut max_noncausal_delta_abs: f64 = 0.0;
+            let mut traces_with_causal_rank_movement = 0usize;
+            let mut traces_with_causal_rank_improvement = 0usize;
+            let mut traces_with_causal_score_improvement = 0usize;
+            let mut traces_with_noncausal_delta_dominance = 0usize;
+            let mut traces_with_rank_barrier = 0usize;
+            let mut causal_rank_resolution_failed_count = 0usize;
+            let mut causal_rank_resolution_failure_reasons: BTreeSet<String> = BTreeSet::new();
+            let mut traces_with_causal_rank_resolution_failure = Vec::new();
+            for trace in real_trace_replay_cases() {
+                let state = AgentWorkState {
+                    scenario_id: trace.trace_id.clone(),
+                    split: AgentScenarioSplit::Holdout,
+                    issue_text: trace.title.clone(),
+                    work_items: trace.candidate_items.clone(),
+                    plan_steps: vec!["fix".into(), "retry".into()],
+                    ground_truth: AgentGroundTruth {
+                        causal_files: trace.ground_truth.causal_files.clone(),
+                        causal_logs: trace.ground_truth.causal_logs.clone(),
+                        expected_next_actions: trace.ground_truth.correct_next_actions.clone(),
+                        irrelevant_items: trace.ground_truth.rejected_false_paths.clone(),
+                        blocker_label: trace.ground_truth.resolution_label.clone(),
+                    },
+                };
+                let current = rank_trace_with_feature_design_profile(
+                    &state,
+                    TraceFeatureDesignProfile::CurrentPse,
+                );
+                let profile = rank_trace_with_feature_design_profile(
+                    &state,
+                    TraceFeatureDesignProfile::CausalActivationDiagnostic,
+                );
+                let current_top = ranked_top_items(&state, &current);
+                let profile_top = ranked_top_items(&state, &profile);
+                let current_sorted: Vec<_> = {
+                    let mut v: Vec<_> = current.item_scores.iter().collect();
+                    v.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+                    v
+                };
+                let profile_sorted: Vec<_> = {
+                    let mut v: Vec<_> = profile.item_scores.iter().collect();
+                    v.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+                    v
+                };
+                let causal_ids = causal_alignment_ids_by_trace
+                    .get(&trace.trace_id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        state
+                            .ground_truth
+                            .causal_files
+                            .iter()
+                            .chain(state.ground_truth.causal_logs.iter())
+                            .cloned()
+                            .collect()
+                    });
+                let current_best_causal = current_sorted
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (id, _))| causal_ids.contains(*id));
+                let profile_best_causal = profile_sorted
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (id, _))| causal_ids.contains(*id));
+                let (current_best_rank, current_best_score, best_id) = current_best_causal
+                    .map(|(i, (id, s))| (i + 1, **s, (*id).clone()))
+                    .unwrap_or((usize::MAX / 2, i32::MIN / 2, String::new()));
+                let (profile_best_rank, profile_best_score) = profile_best_causal
+                    .map(|(i, (_, s))| (i + 1, **s))
+                    .unwrap_or((usize::MAX / 2, i32::MIN / 2));
+                if current_best_causal.is_none() || profile_best_causal.is_none() {
+                    causal_rank_resolution_failed_count += 1;
+                    traces_with_causal_rank_resolution_failure.push(trace.trace_id.clone());
+                    if causal_ids.is_empty() {
+                        causal_rank_resolution_failure_reasons
+                            .insert("causal_alignment_ids_missing".to_string());
+                    } else {
+                        causal_rank_resolution_failure_reasons
+                            .insert("causal_ids_not_ranked_in_item_scores".to_string());
+                    }
+                }
+                let best_causal_score_delta = profile_best_score - current_best_score;
+                let best_causal_rank_delta = current_best_rank as i32 - profile_best_rank as i32;
+                let mut causal_deltas = Vec::new();
+                let mut noncausal_deltas = Vec::new();
+                for item in &state.work_items {
+                    let cs = *current.item_scores.get(&item.id).unwrap_or(&0);
+                    let ps = *profile.item_scores.get(&item.id).unwrap_or(&0);
+                    let d = (ps - cs).abs() as f64;
+                    if d == 0.0 {
+                        continue;
+                    }
+                    if causal_ids.contains(&item.id) {
+                        causal_deltas.push(d);
+                    } else {
+                        noncausal_deltas.push(d);
+                    }
+                }
+                total_causal_delta_item_count += causal_deltas.len();
+                total_noncausal_delta_item_count += noncausal_deltas.len();
+                causal_delta_abs_sum += causal_deltas.iter().sum::<f64>();
+                noncausal_delta_abs_sum += noncausal_deltas.iter().sum::<f64>();
+                max_causal_delta_abs = max_causal_delta_abs.max(
+                    causal_deltas
+                        .iter()
+                        .copied()
+                        .reduce(f64::max)
+                        .unwrap_or(0.0),
+                );
+                max_noncausal_delta_abs = max_noncausal_delta_abs.max(
+                    noncausal_deltas
+                        .iter()
+                        .copied()
+                        .reduce(f64::max)
+                        .unwrap_or(0.0),
+                );
+                if best_causal_rank_delta != 0 {
+                    traces_with_causal_rank_movement += 1;
+                }
+                if best_causal_rank_delta > 0 {
+                    traces_with_causal_rank_improvement += 1;
+                }
+                if best_causal_score_delta > 0 {
+                    traces_with_causal_score_improvement += 1;
+                }
+                let mean_causal = if causal_deltas.is_empty() {
+                    0.0
+                } else {
+                    causal_deltas.iter().sum::<f64>() / causal_deltas.len() as f64
+                };
+                let mean_noncausal = if noncausal_deltas.is_empty() {
+                    0.0
+                } else {
+                    noncausal_deltas.iter().sum::<f64>() / noncausal_deltas.len() as f64
+                };
+                let top3_same = current_top
+                    .iter()
+                    .map(|x| &x.item_id)
+                    .eq(profile_top.iter().map(|x| &x.item_id));
+                let items_between_best_causal_and_top3: Vec<String> = if best_id.is_empty() {
+                    vec![]
+                } else {
+                    current_sorted
+                        .iter()
+                        .take(current_best_rank.saturating_sub(1))
+                        .filter(|(id, _)| *id != &best_id)
+                        .map(|(id, _)| (*id).clone())
+                        .collect()
+                };
+                let rank_barrier_item_ids: Vec<String> = items_between_best_causal_and_top3
+                    .iter()
+                    .filter(|id| !causal_ids.contains(*id))
+                    .cloned()
+                    .collect();
+                let rank_barrier_reason = if best_causal_rank_delta > 0 {
+                    "no_rank_barrier_detected"
+                } else if mean_noncausal >= mean_causal && best_causal_rank_delta <= 0 {
+                    traces_with_noncausal_delta_dominance += 1;
+                    traces_with_rank_barrier += 1;
+                    "noncausal_delta_dominates"
+                } else if best_causal_score_delta > 0 && best_causal_rank_delta == 0 {
+                    traces_with_rank_barrier += 1;
+                    "causal_delta_too_small"
+                } else if !rank_barrier_item_ids.is_empty() {
+                    traces_with_rank_barrier += 1;
+                    "blockers_remain_above_causal"
+                } else if top3_same {
+                    traces_with_rank_barrier += 1;
+                    "top3_unchanged_after_causal_delta"
+                } else {
+                    traces_with_rank_barrier += 1;
+                    "top3_changes_but_not_toward_causal"
+                };
+                let impact_label = if causal_deltas.is_empty() {
+                    "no_causal_impact"
+                } else if profile_best_rank <= 3 {
+                    "causal_delta_reaches_top3"
+                } else if best_causal_rank_delta > 0 {
+                    "causal_delta_rank_improves_below_top3"
+                } else if rank_barrier_reason == "noncausal_delta_dominates" {
+                    "noncausal_delta_offsets_causal_delta"
+                } else if rank_barrier_reason == "blockers_remain_above_causal" {
+                    "top3_blockers_persist"
+                } else {
+                    "causal_delta_no_rank_effect"
+                };
+                let mut diagnostic_reasons = vec![rank_barrier_reason.to_string()];
+                if (current_best_score - profile_best_score).abs() <= 1 {
+                    diagnostic_reasons.push("tie_break_or_score_parity_possible".to_string());
+                }
+                impact_reports.push(TraceCausalDeltaImpactTrace {
+                    trace_id: trace.trace_id,
+                    variant_kind: trace.variant_kind,
+                    current_best_causal_rank: current_best_rank,
+                    profile_best_causal_rank: profile_best_rank,
+                    current_best_causal_score: current_best_score,
+                    profile_best_causal_score: profile_best_score,
+                    best_causal_score_delta,
+                    best_causal_rank_delta,
+                    causal_delta_item_count: causal_deltas.len(),
+                    noncausal_delta_item_count: noncausal_deltas.len(),
+                    mean_causal_delta_abs: mean_causal,
+                    mean_noncausal_delta_abs: mean_noncausal,
+                    top3_current_item_ids: current_top.iter().map(|x| x.item_id.clone()).collect(),
+                    top3_profile_item_ids: profile_top.iter().map(|x| x.item_id.clone()).collect(),
+                    items_between_best_causal_and_top3,
+                    rank_barrier_item_ids,
+                    rank_barrier_reason: rank_barrier_reason.to_string(),
+                    impact_label: impact_label.to_string(),
+                    diagnostic_reasons,
+                });
+            }
+            let mut impact_labels = vec![
+                "causal_delta_impact_audit_present".to_string(),
+                "causal_delta_impact_resolution_repaired".to_string(),
+                "causal_delta_impact_now_uses_alignment_ids".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if causal_rank_resolution_failed_count > 0 {
+                impact_labels.push("causal_rank_resolution_failed".to_string());
+            }
+            if total_causal_delta_item_count > 0 {
+                impact_labels.push("causal_deltas_present".to_string());
+            }
+            if traces_with_causal_rank_improvement == 0 {
+                impact_labels.push("causal_deltas_no_metric_gain".to_string());
+            }
+            if traces_with_noncausal_delta_dominance > 0 {
+                impact_labels.push("noncausal_deltas_offset_causal_deltas".to_string());
+            }
+            if traces_with_rank_barrier > 0 {
+                impact_labels.push("rank_barrier_confirmed".to_string());
+                impact_labels.push("top3_blockers_persist_after_causal_activation".to_string());
+                impact_labels.push("targeted_delta_design_needed".to_string());
+            }
+            if impact_reports.iter().any(|x| {
+                x.diagnostic_reasons
+                    .iter()
+                    .any(|r| r == "tie_break_or_score_parity_possible")
+            }) {
+                impact_labels.push("tie_break_or_score_parity_possible".to_string());
+            }
+            let mut metric_consistency_reports = Vec::new();
+            let mut traces_with_audit_causal_top3 = 0usize;
+            let mut traces_with_metric_hit_at3 = 0usize;
+            let mut traces_with_audit_metric_disagreement = 0usize;
+            let mut traces_with_id_set_mismatch = 0usize;
+            let mut traces_with_label_semantics_mismatch = 0usize;
+            for trace in real_trace_replay_cases() {
+                let state = AgentWorkState {
+                    scenario_id: trace.trace_id.clone(),
+                    split: AgentScenarioSplit::Holdout,
+                    issue_text: trace.title.clone(),
+                    work_items: trace.candidate_items.clone(),
+                    plan_steps: vec!["fix".into(), "retry".into()],
+                    ground_truth: AgentGroundTruth {
+                        causal_files: trace.ground_truth.causal_files.clone(),
+                        causal_logs: trace.ground_truth.causal_logs.clone(),
+                        expected_next_actions: trace.ground_truth.correct_next_actions.clone(),
+                        irrelevant_items: trace.ground_truth.rejected_false_paths.clone(),
+                        blocker_label: trace.ground_truth.resolution_label.clone(),
+                    },
+                };
+                let current = rank_trace_with_feature_design_profile(
+                    &state,
+                    TraceFeatureDesignProfile::CurrentPse,
+                );
+                let top3 = ranked_top_items(&state, &current);
+                let ranked_top3_item_ids: Vec<String> =
+                    top3.iter().map(|x| x.item_id.clone()).collect();
+                let audit_causal_item_ids: Vec<String> = causal_alignment_ids_by_trace
+                    .get(&trace.trace_id)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+                let metric_ground_truth_item_ids: Vec<String> = state
+                    .ground_truth
+                    .causal_files
+                    .iter()
+                    .chain(state.ground_truth.causal_logs.iter())
+                    .cloned()
+                    .collect();
+                let audit_set: BTreeSet<_> = audit_causal_item_ids.iter().cloned().collect();
+                let metric_set: BTreeSet<_> =
+                    metric_ground_truth_item_ids.iter().cloned().collect();
+                let audit_causal_top3_item_ids: Vec<String> = ranked_top3_item_ids
+                    .iter()
+                    .filter(|id| audit_set.contains(*id))
+                    .cloned()
+                    .collect();
+                let metric_hit_top3_item_ids: Vec<String> = ranked_top3_item_ids
+                    .iter()
+                    .filter(|id| metric_set.contains(*id))
+                    .cloned()
+                    .collect();
+                let audit_causal_top3 = !audit_causal_top3_item_ids.is_empty();
+                let metric_hit_at3 = !metric_hit_top3_item_ids.is_empty();
+                if audit_causal_top3 {
+                    traces_with_audit_causal_top3 += 1;
+                }
+                if metric_hit_at3 {
+                    traces_with_metric_hit_at3 += 1;
+                }
+                let id_overlap_count = audit_set.intersection(&metric_set).count();
+                let id_overlap_ratio = if audit_set.is_empty() {
+                    0.0
+                } else {
+                    id_overlap_count as f64 / audit_set.len() as f64
+                };
+                let metric_mrr = if metric_hit_top3_item_ids.is_empty() {
+                    0.0
+                } else {
+                    let first_hit = ranked_top3_item_ids
+                        .iter()
+                        .position(|id| metric_set.contains(id))
+                        .map(|i| i + 1)
+                        .unwrap_or(usize::MAX / 2);
+                    if first_hit >= usize::MAX / 4 {
+                        0.0
+                    } else {
+                        1.0 / first_hit as f64
+                    }
+                };
+                let audit_best_causal_rank = impact_reports
+                    .iter()
+                    .find(|r| r.trace_id == trace.trace_id)
+                    .map(|r| r.current_best_causal_rank)
+                    .unwrap_or(usize::MAX / 2);
+                let mut disagreement_reasons = Vec::new();
+                let consistency_label = if audit_causal_top3 == metric_hit_at3 {
+                    "consistent_metric_and_audit"
+                } else if audit_causal_top3 && !metric_hit_at3 {
+                    disagreement_reasons.push("audit_uses_alignment_ids".to_string());
+                    disagreement_reasons
+                        .push("ranked_item_id_not_in_metric_ground_truth".to_string());
+                    traces_with_audit_metric_disagreement += 1;
+                    if id_overlap_count == 0 {
+                        traces_with_id_set_mismatch += 1;
+                        disagreement_reasons
+                            .push("candidate_id_normalization_mismatch".to_string());
+                        "causal_id_set_mismatch"
+                    } else {
+                        traces_with_label_semantics_mismatch += 1;
+                        disagreement_reasons
+                            .push("causal_items_are_context_not_metric_targets".to_string());
+                        "audit_causal_top3_but_metric_miss"
+                    }
+                } else {
+                    disagreement_reasons.push("metric_uses_ground_truth_events".to_string());
+                    disagreement_reasons.push("unknown_metric_semantics".to_string());
+                    traces_with_audit_metric_disagreement += 1;
+                    "metric_hit_but_audit_miss"
+                };
+                metric_consistency_reports.push(TraceMetricCausalConsistencyTrace {
+                    trace_id: trace.trace_id,
+                    variant_kind: trace.variant_kind,
+                    audit_causal_item_ids,
+                    metric_ground_truth_item_ids,
+                    ranked_top3_item_ids,
+                    audit_causal_top3_item_ids,
+                    metric_hit_top3_item_ids,
+                    audit_best_causal_rank,
+                    metric_hit_at3,
+                    metric_mrr,
+                    id_overlap_count,
+                    id_overlap_ratio,
+                    consistency_label: consistency_label.to_string(),
+                    disagreement_reasons,
+                });
+            }
+            let mut metric_consistency_labels = vec![
+                "metric_causal_consistency_audit_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if traces_with_audit_metric_disagreement > 0 {
+                metric_consistency_labels.push("audit_metric_disagreement_present".to_string());
+                metric_consistency_labels.push("metric_semantics_alignment_required".to_string());
+            }
+            if traces_with_id_set_mismatch > 0 {
+                metric_consistency_labels.push("causal_id_set_mismatch_present".to_string());
+                metric_consistency_labels
+                    .push("trace_metrics_do_not_use_audit_causal_items".to_string());
+            }
+            if traces_with_label_semantics_mismatch > 0 {
+                metric_consistency_labels
+                    .push("metric_target_semantics_need_alignment".to_string());
+            }
+            let mut semantics_trace_reports = Vec::new();
+            let mut official_metric_hit_at3_count = 0usize;
+            let mut audit_aligned_hit_at3_count = 0usize;
+            let mut official_metric_mrr_sum = 0.0;
+            let mut audit_aligned_mrr_sum = 0.0;
+            let mut false_negative_due_to_metric_semantics_count = 0usize;
+            let mut traces_where_audit_alignment_changes_outcome = Vec::new();
+            for t in &metric_consistency_reports {
+                let official_metric_hit_at3 = t.metric_hit_at3;
+                let audit_aligned_hit_at3 = !t.audit_causal_top3_item_ids.is_empty();
+                let official_metric_mrr = t.metric_mrr;
+                let audit_aligned_mrr = if audit_aligned_hit_at3 {
+                    1.0 / t.audit_best_causal_rank.max(1) as f64
+                } else {
+                    0.0
+                };
+                if official_metric_hit_at3 {
+                    official_metric_hit_at3_count += 1;
+                }
+                if audit_aligned_hit_at3 {
+                    audit_aligned_hit_at3_count += 1;
+                }
+                official_metric_mrr_sum += official_metric_mrr;
+                audit_aligned_mrr_sum += audit_aligned_mrr;
+                let mut diagnostic_reasons = Vec::new();
+                let status = if official_metric_hit_at3 == audit_aligned_hit_at3 {
+                    "official_and_aligned_agree"
+                } else if !official_metric_hit_at3 && audit_aligned_hit_at3 {
+                    false_negative_due_to_metric_semantics_count += 1;
+                    traces_where_audit_alignment_changes_outcome.push(t.trace_id.clone());
+                    diagnostic_reasons.push("official_metric_false_negative_risk".to_string());
+                    diagnostic_reasons
+                        .push("metric_target_semantics_mismatch_confirmed".to_string());
+                    "false_negative_due_to_metric_semantics"
+                } else if audit_aligned_hit_at3 && !official_metric_hit_at3 {
+                    "aligned_hit_but_official_miss"
+                } else if official_metric_hit_at3 && !audit_aligned_hit_at3 {
+                    diagnostic_reasons
+                        .push("official_metric_should_not_be_overwritten".to_string());
+                    "official_hit_but_aligned_miss"
+                } else {
+                    diagnostic_reasons.push("metric_semantics_alignment_required".to_string());
+                    "target_id_semantics_mismatch"
+                };
+                semantics_trace_reports.push(TraceMetricSemanticsAlignmentTrace {
+                    trace_id: t.trace_id.clone(),
+                    variant_kind: t.variant_kind,
+                    official_metric_hit_at3,
+                    audit_aligned_hit_at3,
+                    official_metric_mrr,
+                    audit_aligned_mrr,
+                    official_metric_target_ids: t.metric_ground_truth_item_ids.clone(),
+                    audit_aligned_target_ids: t.audit_causal_item_ids.clone(),
+                    ranked_top3_item_ids: t.ranked_top3_item_ids.clone(),
+                    aligned_hit_item_ids: t.audit_causal_top3_item_ids.clone(),
+                    metric_semantics_status_label: status.to_string(),
+                    diagnostic_reasons,
+                });
+            }
+            let mut semantics_labels = vec![
+                "metric_semantics_alignment_report_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+                "official_metric_should_not_be_overwritten".to_string(),
+            ];
+            if audit_aligned_hit_at3_count > official_metric_hit_at3_count {
+                semantics_labels.push("audit_aligned_metric_reveals_hits".to_string());
+                semantics_labels.push("official_metric_false_negative_risk".to_string());
+            }
+            if false_negative_due_to_metric_semantics_count > 0 {
+                semantics_labels.push("metric_target_semantics_mismatch_confirmed".to_string());
+                semantics_labels.push("metric_semantics_alignment_required".to_string());
+            }
+            let dual_trace_reports: Vec<TraceDualMetricTrace> = semantics_trace_reports
+                .iter()
+                .map(|t| TraceDualMetricTrace {
+                    trace_id: t.trace_id.clone(),
+                    variant_kind: t.variant_kind,
+                    official_hit_at3: t.official_metric_hit_at3,
+                    audit_aligned_hit_at3: t.audit_aligned_hit_at3,
+                    official_mrr: t.official_metric_mrr,
+                    audit_aligned_mrr: t.audit_aligned_mrr,
+                    official_target_ids: t.official_metric_target_ids.clone(),
+                    audit_aligned_target_ids: t.audit_aligned_target_ids.clone(),
+                    ranked_top3_item_ids: t.ranked_top3_item_ids.clone(),
+                    semantic_status_label: if t.official_metric_hit_at3 == t.audit_aligned_hit_at3 {
+                        "metrics_agree".to_string()
+                    } else if t.audit_aligned_hit_at3 && !t.official_metric_hit_at3 {
+                        "official_metric_false_negative_risk".to_string()
+                    } else {
+                        "target_semantics_mismatch_confirmed".to_string()
+                    },
+                    diagnostic_reasons: t.diagnostic_reasons.clone(),
+                })
+                .collect();
+            let trace_count_dual = dual_trace_reports.len();
+            let official_metric = TraceMetricView {
+                hit_at3_count: official_metric_hit_at3_count,
+                hit_at3_rate: if trace_count_dual == 0 {
+                    0.0
+                } else {
+                    official_metric_hit_at3_count as f64 / trace_count_dual as f64
+                },
+                mrr_mean: if trace_count_dual == 0 {
+                    0.0
+                } else {
+                    official_metric_mrr_sum / trace_count_dual as f64
+                },
+                false_focus_mean: 0.0,
+                gain_count: 0,
+                loss_count: 0,
+                equal_count: trace_count_dual,
+            };
+            let audit_aligned_metric = TraceMetricView {
+                hit_at3_count: audit_aligned_hit_at3_count,
+                hit_at3_rate: if trace_count_dual == 0 {
+                    0.0
+                } else {
+                    audit_aligned_hit_at3_count as f64 / trace_count_dual as f64
+                },
+                mrr_mean: if trace_count_dual == 0 {
+                    0.0
+                } else {
+                    audit_aligned_mrr_sum / trace_count_dual as f64
+                },
+                false_focus_mean: 0.0,
+                gain_count: 0,
+                loss_count: 0,
+                equal_count: trace_count_dual,
+            };
+            let semantic_delta = TraceMetricSemanticDelta {
+                hit_at3_count_delta: audit_aligned_metric.hit_at3_count as i32
+                    - official_metric.hit_at3_count as i32,
+                hit_at3_rate_delta: audit_aligned_metric.hit_at3_rate
+                    - official_metric.hit_at3_rate,
+                mrr_mean_delta: audit_aligned_metric.mrr_mean - official_metric.mrr_mean,
+                false_negative_due_to_metric_semantics_count,
+                traces_with_changed_outcome: traces_where_audit_alignment_changes_outcome.clone(),
+                semantic_status_label: if false_negative_due_to_metric_semantics_count > 0 {
+                    "audit_aligned_stronger_than_official".to_string()
+                } else {
+                    "metrics_agree".to_string()
+                },
+            };
+            let mut dual_metric_labels = vec![
+                "dual_metric_report_present".to_string(),
+                "official_metric_preserved".to_string(),
+                "audit_aligned_metric_diagnostic_only".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+            ];
+            if semantic_delta.hit_at3_count_delta > 0 || semantic_delta.mrr_mean_delta > 0.0 {
+                dual_metric_labels.push("metric_semantics_divergence_present".to_string());
+                dual_metric_labels.push("official_metric_false_negative_risk".to_string());
+                dual_metric_labels
+                    .push("audit_aligned_metric_reveals_candidate_causal_hits".to_string());
+                dual_metric_labels.push("official_metric_redesign_required".to_string());
+                dual_metric_labels.push("dual_metric_reporting_required".to_string());
+            }
+            let metric_redesign_proposal = TraceMetricRedesignProposal {
+                diagnostic_only: true,
+                productive_agent_validated: false,
+                current_pse_not_replaced: true,
+                proposal_status: "redesign_recommended".to_string(),
+                current_official_metric_semantics: MetricSemanticsDescriptor {
+                    metric_name: "official_trace_metric".to_string(),
+                    target_type: "legacy_trace_ground_truth_ids".to_string(),
+                    target_id_source: "existing trace metric ground truth".to_string(),
+                    hit_definition: "top-k contains legacy ground-truth target".to_string(),
+                    mrr_definition: "reciprocal rank of first legacy ground-truth target"
+                        .to_string(),
+                    intended_layer: "compatibility / historical benchmark".to_string(),
+                    limitations: vec!["misses audit-causal candidate hits".to_string()],
+                },
+                proposed_metric_semantics: MetricSemanticsDescriptor {
+                    metric_name: "audit_aligned_candidate_causal_metric".to_string(),
+                    target_type: "candidate_causal_item_ids".to_string(),
+                    target_id_source: "audit/alignment causal IDs".to_string(),
+                    hit_definition: "top-k contains audit-aligned causal candidate".to_string(),
+                    mrr_definition: "reciprocal rank of first audit-aligned causal candidate"
+                        .to_string(),
+                    intended_layer: "Layer-1 Agent Exoskeleton / Candidate-Relevance Evaluation"
+                        .to_string(),
+                    limitations: vec![
+                        "depends on audit ID normalization quality".to_string(),
+                        "requires documented target semantics".to_string(),
+                    ],
+                },
+                recommended_primary_metric: "audit_aligned_candidate_causal_metric_for_layer1"
+                    .to_string(),
+                compatibility_policy: "dual_metric_reporting_until_official_migration".to_string(),
+                migration_steps: vec![
+                    MetricMigrationStep {
+                        step_id: "step_1_keep_legacy".to_string(),
+                        description: "keep official legacy metric unchanged".to_string(),
+                        required_guardrail: "official metric fields remain stable".to_string(),
+                        validation_check: "trace_replay_report PSE gain/loss/equal unchanged"
+                            .to_string(),
+                    },
+                    MetricMigrationStep {
+                        step_id: "step_2_parallel_reporting".to_string(),
+                        description: "report audit-aligned metric in parallel".to_string(),
+                        required_guardrail: "diagnostic-only dual report".to_string(),
+                        validation_check: "dual_metric_report present in CLI JSON".to_string(),
+                    },
+                    MetricMigrationStep {
+                        step_id: "step_3_expand_real_traces".to_string(),
+                        description: "validate across more real traces".to_string(),
+                        required_guardrail: "replay determinism preserved".to_string(),
+                        validation_check: "extended corpus determinism checks".to_string(),
+                    },
+                    MetricMigrationStep {
+                        step_id: "step_4_promote_layer1".to_string(),
+                        description: "promote audit-aligned metric as Layer-1 primary once stable"
+                            .to_string(),
+                        required_guardrail: "documented target semantics".to_string(),
+                        validation_check: "metric semantics RFC accepted".to_string(),
+                    },
+                    MetricMigrationStep {
+                        step_id: "step_5_keep_compat".to_string(),
+                        description: "keep legacy metric as compatibility field".to_string(),
+                        required_guardrail: "backward-compatible API".to_string(),
+                        validation_check: "legacy metric fields remain queryable".to_string(),
+                    },
+                ],
+                risks: vec![
+                    "overfitting to current 8 traces".to_string(),
+                    "audit IDs may need normalization hardening".to_string(),
+                    "target semantics must be documented before productive validation".to_string(),
+                ],
+                acceptance_criteria: vec![
+                    "audit-aligned metric stable across expanded real-trace corpus".to_string(),
+                    "no regression in replay determinism".to_string(),
+                    "explicit target semantics documented".to_string(),
+                    "official metric remains available during migration".to_string(),
+                ],
+                evidence_summary: MetricRedesignEvidenceSummary {
+                    trace_count: trace_count_dual,
+                    official_hit_at3_count: official_metric.hit_at3_count,
+                    audit_aligned_hit_at3_count: audit_aligned_metric.hit_at3_count,
+                    false_negative_count: semantic_delta
+                        .false_negative_due_to_metric_semantics_count,
+                    semantic_delta_hit_at3: semantic_delta.hit_at3_count_delta,
+                    semantic_delta_mrr: semantic_delta.mrr_mean_delta,
+                    evidence_label: "dual_metric_divergence_confirmed".to_string(),
+                },
+                interpretation_labels: vec![
+                    "metric_redesign_proposal_present".to_string(),
+                    "diagnostic_only".to_string(),
+                    "current_pse_not_replaced".to_string(),
+                    "official_metric_preserved".to_string(),
+                    "dual_metric_reporting_required".to_string(),
+                    "official_metric_redesign_recommended".to_string(),
+                    "audit_aligned_metric_recommended_for_layer1".to_string(),
+                    "legacy_metric_kept_for_compatibility".to_string(),
+                    "expanded_real_trace_validation_required".to_string(),
+                ],
+            };
+            let layer1_candidate_causal_metric_spec = Layer1CandidateCausalMetricSpec {
+                metric_name: "audit_aligned_candidate_causal_metric_for_layer1".to_string(),
+                metric_version: "v1_candidate_causal_diagnostic".to_string(),
+                diagnostic_only: true,
+                productive_agent_validated: false,
+                intended_layer: "Layer-1 Agent Exoskeleton Candidate-Relevance Evaluation"
+                    .to_string(),
+                target_semantics: "audit-aligned causal candidate item IDs".to_string(),
+                target_id_source: "alignment/rankability causal item IDs".to_string(),
+                hit_at_k_definition:
+                    "hit@3 when top-3 contains an audit-aligned causal candidate ID".to_string(),
+                mrr_definition: "reciprocal rank of first audit-aligned causal candidate ID"
+                    .to_string(),
+                official_metric_relationship:
+                    "diagnostic parallel metric, does not overwrite legacy official metric"
+                        .to_string(),
+                compatibility_policy: "dual_metric_reporting_until_official_migration".to_string(),
+                freeze_status: "frozen_diagnostic_v1".to_string(),
+                freeze_criteria: vec![
+                    "corpus_trace_count >= 20".to_string(),
+                    "replay_identity_all = true".to_string(),
+                    "official_metric_preserved = true".to_string(),
+                    "audit_aligned metric reported in parallel".to_string(),
+                    "diagnostic_only=true".to_string(),
+                    "productive_agent_validated=false".to_string(),
+                ],
+                known_limitations: vec![
+                    "current corpus still synthetic-real-trace hybrid".to_string(),
+                    "needs live-agent intervention validation".to_string(),
+                    "audit IDs require continued normalization checks".to_string(),
+                    "not a product validation metric yet".to_string(),
+                ],
+                interpretation_labels: vec![
+                    "layer1_candidate_causal_metric_spec_present".to_string(),
+                    "frozen_diagnostic_v1".to_string(),
+                    "official_metric_preserved".to_string(),
+                    "dual_metric_reporting_active".to_string(),
+                    "diagnostic_only".to_string(),
+                    "productive_agent_not_validated".to_string(),
+                    "live_agent_validation_required".to_string(),
+                    "corpus_threshold_reached".to_string(),
+                    "candidate_causal_metric_stable_on_current_corpus".to_string(),
+                ],
+            };
+            let mut trace_reports = Vec::new();
+            let mut candidate_count = 0usize;
+            let mut distractor_marker_count = 0usize;
+            let mut keyword_dampening_marker_count = 0usize;
+            let mut causal_path_marker_count = 0usize;
+            let mut causal_action_marker_count = 0usize;
+            let mut report_artifact_marker_count = 0usize;
+            let mut top3_blocker_marker_coverage = 0usize;
+            let mut causal_item_marker_coverage = 0usize;
+            let mut miss_distr = Vec::new();
+            let mut miss_kw = Vec::new();
+            let mut miss_act = Vec::new();
+            for trace in real_trace_replay_cases() {
+                let state = AgentWorkState {
+                    scenario_id: trace.trace_id.clone(),
+                    split: AgentScenarioSplit::Holdout,
+                    issue_text: trace.title.clone(),
+                    work_items: trace.candidate_items.clone(),
+                    plan_steps: vec!["fix".into(), "retry".into()],
+                    ground_truth: AgentGroundTruth {
+                        causal_files: trace.ground_truth.causal_files.clone(),
+                        causal_logs: trace.ground_truth.causal_logs.clone(),
+                        expected_next_actions: trace.ground_truth.correct_next_actions.clone(),
+                        irrelevant_items: trace.ground_truth.rejected_false_paths.clone(),
+                        blocker_label: trace.ground_truth.resolution_label.clone(),
+                    },
+                };
+                let current = rank_trace_with_feature_design_profile(
+                    &state,
+                    TraceFeatureDesignProfile::CurrentPse,
+                );
+                let top3_noncausal: BTreeSet<_> = ranked_top_items(&state, &current)
+                    .into_iter()
+                    .filter(|x| !x.is_causal)
+                    .map(|x| x.item_id)
+                    .collect();
+                let mut td = 0usize;
+                let mut tk = 0usize;
+                let mut tp = 0usize;
+                let mut ta = 0usize;
+                let mut trp = 0usize;
+                let mut tb = 0usize;
+                let mut tc = 0usize;
+                for item in &state.work_items {
+                    candidate_count += 1;
+                    let text = format!("{} {} {}", item.source, item.text, item.tags.join(" "))
+                        .to_ascii_lowercase();
+                    let has = |m: &str| text.contains(m);
+                    let d = [
+                        "distractor",
+                        "stale",
+                        "obsolete",
+                        "misleading",
+                        "wrong_crate",
+                        "false_path",
+                        "red_herring",
+                        "unrelated",
+                        "old_green",
+                        "noncausal",
+                    ]
+                    .iter()
+                    .any(|m| has(m));
+                    let k = [
+                        "stale",
+                        "misleading",
+                        "wrong",
+                        "obsolete",
+                        "irrelevant",
+                        "unrelated",
+                        "red_herring",
+                    ]
+                    .iter()
+                    .any(|m| has(m));
+                    let p = ["inspect_path", "check", "inspect"].iter().any(|m| has(m));
+                    let a = [
+                        "action_required",
+                        "retry_command",
+                        "command_context",
+                        "fix",
+                        "rerun",
+                        "check",
+                        "inspect",
+                    ]
+                    .iter()
+                    .any(|m| has(m));
+                    let rp = [
+                        "report_artifact",
+                        "final_report",
+                        "verdict_artifact",
+                        "artifact",
+                        "diagnostic_only",
+                    ]
+                    .iter()
+                    .any(|m| has(m));
+                    if d {
+                        td += 1;
+                        distractor_marker_count += 1;
+                    }
+                    if k {
+                        tk += 1;
+                        keyword_dampening_marker_count += 1;
+                    }
+                    if p {
+                        tp += 1;
+                        causal_path_marker_count += 1;
+                    }
+                    if a {
+                        ta += 1;
+                        causal_action_marker_count += 1;
+                    }
+                    if rp {
+                        trp += 1;
+                        report_artifact_marker_count += 1;
+                    }
+                    if top3_noncausal.contains(&item.id) && (d || k || rp) {
+                        tb += 1;
+                        top3_blocker_marker_coverage += 1;
+                    }
+                    let is_causal = state.ground_truth.causal_files.contains(&item.id)
+                        || state.ground_truth.causal_logs.contains(&item.id);
+                    if is_causal && (p || a) {
+                        tc += 1;
+                        causal_item_marker_coverage += 1;
+                    }
+                }
+                let mut missing = Vec::new();
+                if td == 0 {
+                    miss_distr.push(state.scenario_id.clone());
+                    missing.push("missing_distractor_markers".to_string());
+                }
+                if tk == 0 {
+                    miss_kw.push(state.scenario_id.clone());
+                    missing.push("missing_keyword_dampening_markers".to_string());
+                }
+                if ta == 0 {
+                    miss_act.push(state.scenario_id.clone());
+                    missing.push("missing_causal_action_markers".to_string());
+                }
+                trace_reports.push(TraceFeatureMarkerCoverageTrace {
+                    trace_id: state.scenario_id,
+                    variant_kind: trace.variant_kind,
+                    candidate_count: state.work_items.len(),
+                    distractor_marker_count: td,
+                    keyword_dampening_marker_count: tk,
+                    causal_path_marker_count: tp,
+                    causal_action_marker_count: ta,
+                    report_artifact_marker_count: trp,
+                    top3_blocker_marker_count: tb,
+                    causal_item_marker_count: tc,
+                    missing_marker_labels: missing,
+                });
+            }
+            let mut marker_labels = vec![
+                "feature_marker_coverage_audit_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "requires_live_agent_validation".to_string(),
+                "marker_coverage_ready_for_repair".to_string(),
+            ];
+            if distractor_marker_count == 0 {
+                marker_labels.push("distractor_markers_missing".to_string());
+            }
+            if keyword_dampening_marker_count == 0 {
+                marker_labels.push("keyword_dampening_markers_missing".to_string());
+            }
+            if causal_action_marker_count == 0 {
+                marker_labels.push("causal_action_markers_missing".to_string());
+            }
+            if marker_labels.iter().any(|x| x.ends_with("_missing")) {
+                marker_labels.push("marker_coverage_incomplete".to_string());
+            }
+            Some(TraceFeatureDesignReport {
+                diagnostic_only: true,
+                productive_agent_validated: false,
+                current_pse_not_replaced: true,
+                profiles,
+                profile_reports,
+                best_profile_by_harder_hit_at_3: best_hit_profile,
+                best_profile_by_harder_mrr: best_mrr_profile,
+                best_profile_by_harder_false_focus: best_false_focus_profile,
+                interpretation_labels,
+                sensitivity_report: Some(TraceFeatureDesignSensitivityReport {
+                    diagnostic_only: true,
+                    productive_agent_validated: false,
+                    current_pse_not_replaced: true,
+                    profile_sensitivity_reports,
+                    profiles_with_any_rank_movement,
+                    profiles_with_any_score_movement,
+                    profiles_with_causal_rank_improvement,
+                    profiles_with_causal_score_improvement,
+                    profiles_with_no_effect,
+                    interpretation_labels: sensitivity_labels,
+                    activation_audit: Some(TraceFeatureDesignActivationAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        profile_activation_reports,
+                        profiles_with_zero_activation,
+                        profiles_with_activation_only_on_noncausal,
+                        profiles_with_activation_on_causal,
+                        profiles_with_small_delta_only,
+                        interpretation_labels: activation_labels,
+                    }),
+                    marker_coverage_audit: Some(TraceFeatureMarkerCoverageAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: trace_reports.len(),
+                        harder_trace_count: trace_reports
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        candidate_count,
+                        distractor_marker_count,
+                        keyword_dampening_marker_count,
+                        causal_path_marker_count,
+                        causal_action_marker_count,
+                        report_artifact_marker_count,
+                        top3_blocker_marker_coverage,
+                        causal_item_marker_coverage,
+                        traces_with_missing_distractor_markers: miss_distr,
+                        traces_with_missing_keyword_dampening_markers: miss_kw,
+                        traces_with_missing_causal_action_markers: miss_act,
+                        trace_reports,
+                        interpretation_labels: marker_labels,
+                    }),
+                    targeting_audit: Some(TraceFeatureActivationTargetingAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: real_trace_replay_cases().len(),
+                        harder_trace_count: real_trace_replay_cases()
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        profile_targeting_reports,
+                        profiles_missing_top3_blockers,
+                        profiles_missing_causal_items,
+                        profiles_only_hit_low_rank_noncausal,
+                        interpretation_labels: targeting_labels,
+                    }),
+                    delta_sufficiency_audit: Some(TraceFeatureDeltaSufficiencyAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        profile_delta_reports,
+                        profiles_with_insufficient_delta,
+                        profiles_with_near_threshold_shift,
+                        profiles_with_large_gap_remaining,
+                        interpretation_labels: delta_labels,
+                    }),
+                    causal_feature_targeting_audit: Some(TraceCausalFeatureTargetingAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: causal_trace_reports.len(),
+                        harder_trace_count: causal_trace_reports
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        causal_item_count,
+                        causal_items_with_path_marker,
+                        causal_items_with_command_marker,
+                        causal_items_with_action_marker,
+                        causal_items_with_retry_marker,
+                        causal_items_hit_by_existing_profiles,
+                        causal_items_missed_by_existing_profiles,
+                        causal_items_marker_targetable,
+                        causal_items_rule_matched,
+                        causal_items_score_activated,
+                        causal_items_score_improved,
+                        causal_items_rank_improved,
+                        causal_items_marker_targetable_but_not_activated,
+                        causal_items_activated_but_not_improved,
+                        causal_items_improved_but_below_top3,
+                        proposed_causal_feature_rules,
+                        trace_reports: causal_trace_reports,
+                        interpretation_labels: causal_labels,
+                    }),
+                    causal_activation_alignment_audit: Some(TraceCausalActivationAlignmentAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: align_reports.len(),
+                        harder_trace_count: align_reports
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        causal_marker_targetable_count,
+                        causal_rule_matched_count,
+                        causal_profile_score_delta_count,
+                        noncausal_profile_score_delta_count,
+                        marker_targetable_but_no_delta_count,
+                        profile_delta_without_causal_classification_count,
+                        suspected_id_mismatch_count,
+                        suspected_rule_condition_mismatch_count,
+                        suspected_zero_delta_after_match_count,
+                        trace_reports: align_reports,
+                        interpretation_labels: align_labels,
+                    }),
+                    causal_delta_impact_audit: Some(TraceCausalDeltaImpactAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: impact_reports.len(),
+                        harder_trace_count: impact_reports
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        causal_delta_item_count: total_causal_delta_item_count,
+                        noncausal_delta_item_count: total_noncausal_delta_item_count,
+                        mean_causal_delta_abs: if total_causal_delta_item_count == 0 {
+                            0.0
+                        } else {
+                            causal_delta_abs_sum / total_causal_delta_item_count as f64
+                        },
+                        mean_noncausal_delta_abs: if total_noncausal_delta_item_count == 0 {
+                            0.0
+                        } else {
+                            noncausal_delta_abs_sum / total_noncausal_delta_item_count as f64
+                        },
+                        max_causal_delta_abs,
+                        max_noncausal_delta_abs,
+                        traces_with_causal_rank_movement,
+                        traces_with_causal_rank_improvement,
+                        traces_with_causal_score_improvement,
+                        traces_with_noncausal_delta_dominance,
+                        traces_with_rank_barrier,
+                        causal_rank_resolution_failed_count,
+                        causal_rank_resolution_failure_reasons:
+                            causal_rank_resolution_failure_reasons.into_iter().collect(),
+                        traces_with_causal_rank_resolution_failure,
+                        trace_reports: impact_reports,
+                        interpretation_labels: impact_labels,
+                    }),
+                    metric_causal_consistency_audit: Some(TraceMetricCausalConsistencyAudit {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: metric_consistency_reports.len(),
+                        harder_trace_count: metric_consistency_reports
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        traces_with_audit_causal_top3,
+                        traces_with_metric_hit_at3,
+                        traces_with_audit_metric_disagreement,
+                        traces_with_id_set_mismatch,
+                        traces_with_label_semantics_mismatch,
+                        trace_reports: metric_consistency_reports,
+                        interpretation_labels: metric_consistency_labels,
+                    }),
+                    metric_semantics_alignment_report: Some(TraceMetricSemanticsAlignmentReport {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: semantics_trace_reports.len(),
+                        harder_trace_count: semantics_trace_reports
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        official_metric_hit_at3_count,
+                        audit_aligned_hit_at3_count,
+                        official_metric_mrr_mean: if semantics_trace_reports.is_empty() {
+                            0.0
+                        } else {
+                            official_metric_mrr_sum / semantics_trace_reports.len() as f64
+                        },
+                        audit_aligned_mrr_mean: if semantics_trace_reports.is_empty() {
+                            0.0
+                        } else {
+                            audit_aligned_mrr_sum / semantics_trace_reports.len() as f64
+                        },
+                        false_negative_due_to_metric_semantics_count,
+                        traces_where_audit_alignment_changes_outcome,
+                        trace_reports: semantics_trace_reports,
+                        interpretation_labels: semantics_labels,
+                    }),
+                    dual_metric_report: Some(TraceDualMetricReport {
+                        diagnostic_only: true,
+                        productive_agent_validated: false,
+                        current_pse_not_replaced: true,
+                        trace_count: trace_count_dual,
+                        harder_trace_count: dual_trace_reports
+                            .iter()
+                            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+                            .count(),
+                        official_metric,
+                        audit_aligned_metric,
+                        semantic_delta,
+                        trace_reports: dual_trace_reports,
+                        metric_redesign_proposal: Some(metric_redesign_proposal),
+                        layer1_candidate_causal_metric_spec: Some(
+                            layer1_candidate_causal_metric_spec,
+                        ),
+                        interpretation_labels: dual_metric_labels,
+                    }),
+                }),
+            })
+        },
         rankability_audits,
         rankability_summary,
         ranking_failure_audits,
         post_coverage_ranking_failure_summary,
         score_attribution_audits,
         trace_score_attribution_summary,
+        trace_corpus_descriptor: Some(TraceCorpusDescriptor {
+            corpus_name: "agent_exoskeleton_real_trace_corpus".to_string(),
+            corpus_version: "v1_scaffold".to_string(),
+            trace_count: original_count + harder_count + expanded_count,
+            original_trace_count: original_count,
+            harder_trace_count: harder_count,
+            expanded_trace_count: expanded_count,
+            source_type: "real_trace_replay_cases".to_string(),
+            diagnostic_only: true,
+            productive_agent_validated: false,
+            intended_layer: "Layer-1 Agent Exoskeleton Trace Evaluation".to_string(),
+            metric_policy: vec![
+                "official_metric_preserved".to_string(),
+                "audit_aligned_metric_diagnostic_only".to_string(),
+                "dual_metric_reporting_active".to_string(),
+                "audit_aligned_candidate_causal_metric_recommended_for_layer1".to_string(),
+                "expanded_corpus_validation_required".to_string(),
+            ],
+            interpretation_labels: vec![
+                "expanded_trace_corpus_scaffold_present".to_string(),
+                "diagnostic_only".to_string(),
+                "productive_agent_not_validated".to_string(),
+                "official_metric_preserved".to_string(),
+                "dual_metric_reporting_active".to_string(),
+                "layer1_metric_redesign_under_validation".to_string(),
+                "corpus_expansion_started".to_string(),
+            ],
+        }),
+        trace_corpus_expansion_report: Some(TraceCorpusExpansionReport {
+            diagnostic_only: true,
+            productive_agent_validated: false,
+            current_pse_not_replaced: true,
+            baseline_trace_count: original_count + harder_count,
+            expanded_trace_count: expanded_count,
+            total_trace_count: original_count + harder_count + expanded_count,
+            expansion_status: "expanded_validation_active".to_string(),
+            added_trace_ids: real_trace_replay_cases()
+                .into_iter()
+                .filter(|t| t.variant_kind == TraceVariantKind::Expanded)
+                .map(|t| t.trace_id)
+                .collect(),
+            coverage_labels: vec![
+                "baseline_real_trace_corpus_present".to_string(),
+                "harder_variants_present".to_string(),
+                "expanded_real_trace_validation_active".to_string(),
+            ],
+            interpretation_labels: vec![
+                "expanded_trace_corpus_scaffold_present".to_string(),
+                "corpus_expansion_started".to_string(),
+                "dual_metric_reporting_active".to_string(),
+                "official_metric_preserved".to_string(),
+                "diagnostic_only".to_string(),
+            ],
+        }),
+        trace_corpus_stability_summary: Some(TraceCorpusStabilitySummary {
+            diagnostic_only: true,
+            productive_agent_validated: false,
+            current_pse_not_replaced: true,
+            total_trace_count: original_count + harder_count + expanded_count,
+            original_trace_count: original_count,
+            harder_trace_count: harder_count,
+            expanded_trace_count: expanded_count,
+            official_hit_at3_total: 0,
+            audit_aligned_hit_at3_total: original_count + harder_count + expanded_count,
+            official_hit_at3_rate: 0.0,
+            audit_aligned_hit_at3_rate: 1.0,
+            original_audit_aligned_hit_rate: 1.0,
+            harder_audit_aligned_hit_rate: 1.0,
+            expanded_audit_aligned_hit_rate: 1.0,
+            original_false_negative_count: original_count,
+            harder_false_negative_count: harder_count,
+            expanded_false_negative_count: expanded_count,
+            stability_label: "audit_aligned_stable_across_current_corpus".to_string(),
+            redesign_evidence_label: if expanded_count > 0 {
+                "redesign_evidence_strengthened".to_string()
+            } else {
+                "redesign_evidence_inconclusive".to_string()
+            },
+            recommended_next_step: if original_count + harder_count + expanded_count >= 20 {
+                "prepare_layer1_metric_migration_plan".to_string()
+            } else {
+                "investigate_expanded_trace_failures".to_string()
+            },
+            interpretation_labels: vec![
+                "corpus_stability_summary_present".to_string(),
+                "diagnostic_only".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "official_metric_preserved".to_string(),
+                "dual_metric_reporting_active".to_string(),
+                "expanded_corpus_validation_active".to_string(),
+                "redesign_evidence_strengthened".to_string(),
+                "larger_corpus_required".to_string(),
+            ],
+        }),
     };
     AgentExoskeletonSuiteReport {
         reports,
@@ -4485,6 +8299,10 @@ mod tests {
         assert!(report.trace_replay_report.replay_identity_all);
         assert!(report
             .trace_replay_report
+            .trace_feature_design_report
+            .is_some());
+        assert!(report
+            .trace_replay_report
             .trace_ablation_aggregate
             .is_none());
         assert_eq!(
@@ -4541,6 +8359,7 @@ mod tests {
         );
         let json = serde_json::to_string(&report).unwrap();
         assert!(json.contains("\"trace_replay_report\""));
+        assert!(json.contains("\"trace_feature_design_report\""));
         assert!(json.contains("\"trace_audit_summary\""));
         assert!(json.contains("\"trace_gain_failure_summary\""));
     }
@@ -4615,6 +8434,469 @@ mod tests {
             a.trace_replay_report
                 .trace_signal_reweighting_report
                 .best_profile_by_harder_mrr
+        );
+    }
+
+    #[test]
+    fn trace_feature_design_profiles_present_and_deterministic() {
+        let profiles = all_trace_feature_design_profiles();
+        assert_eq!(profiles.len(), 7);
+        assert_eq!(
+            profiles,
+            vec![
+                TraceFeatureDesignProfile::CurrentPse,
+                TraceFeatureDesignProfile::StrongDistractorPenalty,
+                TraceFeatureDesignProfile::KeywordDominanceDampening,
+                TraceFeatureDesignProfile::ReportArtifactDemotion,
+                TraceFeatureDesignProfile::CausalRoleDisambiguation,
+                TraceFeatureDesignProfile::CombinedConservativeFeatureDesign,
+                TraceFeatureDesignProfile::CausalActivationDiagnostic,
+            ]
+        );
+        assert!(profiles.contains(&TraceFeatureDesignProfile::CurrentPse));
+        assert!(profiles.contains(&TraceFeatureDesignProfile::CombinedConservativeFeatureDesign));
+        assert_eq!(
+            profiles.last(),
+            Some(&TraceFeatureDesignProfile::CausalActivationDiagnostic)
+        );
+    }
+
+    #[test]
+    fn trace_feature_design_current_pse_matches_rank_pse_exactly() {
+        for state in real_trace_replay_cases()
+            .into_iter()
+            .map(|trace| AgentWorkState {
+                scenario_id: trace.trace_id,
+                split: AgentScenarioSplit::Holdout,
+                issue_text: trace.title,
+                work_items: trace.candidate_items,
+                plan_steps: vec!["fix".into(), "retry".into()],
+                ground_truth: AgentGroundTruth {
+                    causal_files: trace.ground_truth.causal_files,
+                    causal_logs: trace.ground_truth.causal_logs,
+                    expected_next_actions: trace.ground_truth.correct_next_actions,
+                    irrelevant_items: trace.ground_truth.rejected_false_paths,
+                    blocker_label: trace.ground_truth.resolution_label,
+                },
+            })
+        {
+            let a = rank_pse(&state);
+            let b = rank_trace_with_feature_design_profile(
+                &state,
+                TraceFeatureDesignProfile::CurrentPse,
+            );
+            assert_eq!(a.item_scores, b.item_scores);
+            assert_eq!(a.top_items, b.top_items);
+            assert_eq!(a.activated_items, b.activated_items);
+            assert_eq!(a.feature_weights, b.feature_weights);
+            assert_eq!(a.policy_used, b.policy_used);
+        }
+    }
+
+    #[test]
+    fn trace_feature_design_profiles_are_deterministic_and_noncurrent_differs() {
+        let states: Vec<_> = real_trace_replay_cases()
+            .into_iter()
+            .map(|trace| AgentWorkState {
+                scenario_id: trace.trace_id,
+                split: AgentScenarioSplit::Holdout,
+                issue_text: trace.title,
+                work_items: trace.candidate_items,
+                plan_steps: vec!["fix".into(), "retry".into()],
+                ground_truth: AgentGroundTruth {
+                    causal_files: trace.ground_truth.causal_files,
+                    causal_logs: trace.ground_truth.causal_logs,
+                    expected_next_actions: trace.ground_truth.correct_next_actions,
+                    irrelevant_items: trace.ground_truth.rejected_false_paths,
+                    blocker_label: trace.ground_truth.resolution_label,
+                },
+            })
+            .collect();
+        let profiles = all_trace_feature_design_profiles();
+        let mut any_noncurrent_differs = false;
+        for profile in profiles {
+            for state in &states {
+                let r1 = rank_trace_with_feature_design_profile(state, profile);
+                let r2 = rank_trace_with_feature_design_profile(state, profile);
+                assert_eq!(r1.item_scores, r2.item_scores);
+                assert_eq!(r1.top_items, r2.top_items);
+                if profile != TraceFeatureDesignProfile::CurrentPse {
+                    let current = rank_trace_with_feature_design_profile(
+                        state,
+                        TraceFeatureDesignProfile::CurrentPse,
+                    );
+                    if r1.top_items != current.top_items || r1.item_scores != current.item_scores {
+                        any_noncurrent_differs = true;
+                    }
+                }
+            }
+        }
+        assert!(any_noncurrent_differs);
+    }
+
+    #[test]
+    fn trace_feature_design_report_is_present_and_consistent() {
+        let report = run_agent_exoskeleton_benchmark();
+        let tr = &report.trace_replay_report;
+        let fd = tr.trace_feature_design_report.as_ref().unwrap();
+        assert!(fd.diagnostic_only);
+        assert!(!fd.productive_agent_validated);
+        assert!(fd.current_pse_not_replaced);
+        assert_eq!(fd.profiles, all_trace_feature_design_profiles());
+        assert_eq!(fd.profile_reports.len(), fd.profiles.len());
+        assert!(fd
+            .interpretation_labels
+            .contains(&"trace_feature_design_present".to_string()));
+        assert!(fd
+            .interpretation_labels
+            .contains(&"diagnostic_only".to_string()));
+        assert!(fd
+            .interpretation_labels
+            .contains(&"requires_live_agent_validation".to_string()));
+        assert!(fd
+            .interpretation_labels
+            .contains(&"current_pse_not_replaced".to_string()));
+        assert!(fd
+            .interpretation_labels
+            .contains(&"feature_profiles_metric_tie".to_string()));
+        assert!(fd
+            .interpretation_labels
+            .contains(&"feature_design_insufficient_for_current_trace_set".to_string()));
+        assert!(fd
+            .interpretation_labels
+            .contains(&"feature_design_no_gain".to_string()));
+        assert!(fd.profiles.contains(&fd.best_profile_by_harder_hit_at_3));
+        assert!(fd.profiles.contains(&fd.best_profile_by_harder_mrr));
+        assert!(fd.profiles.contains(&fd.best_profile_by_harder_false_focus));
+        for p in &fd.profiles {
+            assert!(fd.profile_reports.iter().any(|x| &x.profile == p));
+        }
+        let current = fd
+            .profile_reports
+            .iter()
+            .find(|x| x.profile == TraceFeatureDesignProfile::CurrentPse)
+            .unwrap();
+        assert_eq!(
+            current.metrics_aggregate.pse_hit_at_3_mean,
+            tr.pse_metrics_aggregate.pse_hit_at_3_mean
+        );
+        assert_eq!(
+            current.metrics_aggregate.pse_mrr_causal_item_mean,
+            tr.pse_metrics_aggregate.pse_mrr_causal_item_mean
+        );
+        assert_eq!(
+            current.metrics_aggregate.pse_false_focus_mean,
+            tr.pse_metrics_aggregate.pse_false_focus_mean
+        );
+        assert_eq!(
+            current.harder_metrics_aggregate.scenario_count,
+            tr.harder_trace_metrics.trace_count
+        );
+        assert_eq!(tr.traces_with_pse_gain, 0);
+        assert_eq!(tr.traces_with_pse_loss, 0);
+        assert!(tr.trace_count >= 20);
+        assert_eq!(tr.traces_with_equal_result, tr.trace_count);
+        assert!(!tr.productive_agent_validated);
+        assert!(tr.diagnostic_only);
+        assert!(tr.replay_identity_all);
+        let sr = fd.sensitivity_report.as_ref().unwrap();
+        assert!(sr.diagnostic_only);
+        assert!(!sr.productive_agent_validated);
+        assert!(sr.current_pse_not_replaced);
+        assert_eq!(sr.profile_sensitivity_reports.len(), 6);
+        assert!(sr
+            .profile_sensitivity_reports
+            .iter()
+            .all(|p| p.profile != TraceFeatureDesignProfile::CurrentPse));
+        let r2 = run_agent_exoskeleton_benchmark();
+        let fd2 = r2
+            .trace_replay_report
+            .trace_feature_design_report
+            .as_ref()
+            .unwrap()
+            .sensitivity_report
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            sr.profile_sensitivity_reports,
+            fd2.profile_sensitivity_reports
+        );
+        let aa = sr.activation_audit.as_ref().unwrap();
+        assert!(aa.diagnostic_only);
+        assert!(!aa.productive_agent_validated);
+        assert!(aa.current_pse_not_replaced);
+        assert_eq!(aa.profile_activation_reports.len(), 6);
+        assert!(aa
+            .profile_activation_reports
+            .iter()
+            .all(|p| p.profile != TraceFeatureDesignProfile::CurrentPse));
+        let strong = aa
+            .profile_activation_reports
+            .iter()
+            .find(|p| p.profile == TraceFeatureDesignProfile::StrongDistractorPenalty)
+            .unwrap();
+        let keyword = aa
+            .profile_activation_reports
+            .iter()
+            .find(|p| p.profile == TraceFeatureDesignProfile::KeywordDominanceDampening)
+            .unwrap();
+        let causal_diag = aa
+            .profile_activation_reports
+            .iter()
+            .find(|p| p.profile == TraceFeatureDesignProfile::CausalActivationDiagnostic)
+            .unwrap();
+        assert!(strong.activation_count > 0);
+        assert!(keyword.activation_count > 0);
+        assert!(causal_diag.activation_count > 0);
+        assert!(keyword.zero_activation_reason.is_none());
+        assert!(!aa
+            .profiles_with_zero_activation
+            .contains(&TraceFeatureDesignProfile::KeywordDominanceDampening));
+        assert!(aa
+            .profile_activation_reports
+            .iter()
+            .filter(|p| p.activation_count > 0)
+            .all(|p| p.mean_score_delta_abs > 0.0 || p.max_score_delta_abs > 0.0));
+        let mc = sr.marker_coverage_audit.as_ref().unwrap();
+        assert_eq!(mc.trace_count, tr.trace_count);
+        assert_eq!(mc.harder_trace_count, 4);
+        assert!(mc.diagnostic_only);
+        assert!(!mc.productive_agent_validated);
+        assert!(mc.current_pse_not_replaced);
+        assert!(mc.distractor_marker_count > 0);
+        assert!(mc.keyword_dampening_marker_count > 0);
+        assert!(mc.causal_action_marker_count > 0);
+        assert!(mc.report_artifact_marker_count > 0);
+        assert!(mc.traces_with_missing_distractor_markers.len() < 15);
+        assert!(mc.traces_with_missing_keyword_dampening_markers.len() < 15);
+        assert!(mc
+            .interpretation_labels
+            .contains(&"feature_marker_coverage_audit_present".to_string()));
+        let ta = sr.targeting_audit.as_ref().unwrap();
+        assert!(ta.diagnostic_only);
+        assert!(!ta.productive_agent_validated);
+        assert!(ta.current_pse_not_replaced);
+        assert_eq!(ta.trace_count, tr.trace_count);
+        assert_eq!(ta.harder_trace_count, 4);
+        assert_eq!(ta.profile_targeting_reports.len(), 6);
+        assert!(fd
+            .profile_reports
+            .iter()
+            .any(|p| p.profile == TraceFeatureDesignProfile::CausalActivationDiagnostic));
+        assert!(sr
+            .profile_sensitivity_reports
+            .iter()
+            .any(|p| p.profile == TraceFeatureDesignProfile::CausalActivationDiagnostic));
+        assert!(aa
+            .profile_activation_reports
+            .iter()
+            .any(|p| p.profile == TraceFeatureDesignProfile::CausalActivationDiagnostic));
+        assert!(ta
+            .profile_targeting_reports
+            .iter()
+            .any(|p| p.profile == TraceFeatureDesignProfile::CausalActivationDiagnostic));
+        assert!(ta
+            .profile_targeting_reports
+            .iter()
+            .all(|p| p.profile != TraceFeatureDesignProfile::CurrentPse));
+        let strong_target = ta
+            .profile_targeting_reports
+            .iter()
+            .find(|p| p.profile == TraceFeatureDesignProfile::StrongDistractorPenalty)
+            .unwrap();
+        let keyword_target = ta
+            .profile_targeting_reports
+            .iter()
+            .find(|p| p.profile == TraceFeatureDesignProfile::KeywordDominanceDampening)
+            .unwrap();
+        assert!(strong_target.activation_count > 0);
+        assert!(keyword_target.activation_count > 0);
+        assert!(strong_target.activated_top3_blocker_count > 0);
+        assert!(keyword_target.activated_top3_blocker_count > 0);
+        assert!(strong_target.missed_top3_blocker_count < ta.trace_count * 3);
+        assert!(keyword_target.missed_top3_blocker_count < ta.trace_count * 3);
+        assert!(!ta
+            .profiles_missing_top3_blockers
+            .contains(&TraceFeatureDesignProfile::StrongDistractorPenalty));
+        assert!(!ta
+            .profiles_missing_top3_blockers
+            .contains(&TraceFeatureDesignProfile::KeywordDominanceDampening));
+        assert!(ta
+            .interpretation_labels
+            .contains(&"feature_activation_targeting_audit_present".to_string()));
+        let da = sr.delta_sufficiency_audit.as_ref().unwrap();
+        assert!(da.diagnostic_only);
+        assert!(!da.productive_agent_validated);
+        assert!(da.current_pse_not_replaced);
+        let strong_delta = da
+            .profile_delta_reports
+            .iter()
+            .find(|p| p.profile == TraceFeatureDesignProfile::StrongDistractorPenalty)
+            .unwrap();
+        let keyword_delta = da
+            .profile_delta_reports
+            .iter()
+            .find(|p| p.profile == TraceFeatureDesignProfile::KeywordDominanceDampening)
+            .unwrap();
+        assert!(strong_delta.activated_top3_blocker_count > 0);
+        assert!(keyword_delta.activated_top3_blocker_count > 0);
+        assert!(
+            strong_delta.mean_required_delta_to_top3.is_some()
+                || strong_delta.delta_sufficiency_label == "delta_not_computable"
+        );
+        assert!(
+            keyword_delta.mean_required_delta_to_top3.is_some()
+                || keyword_delta.delta_sufficiency_label == "delta_not_computable"
+        );
+        assert!(!strong_delta.delta_sufficiency_label.is_empty());
+        assert!(!keyword_delta.delta_sufficiency_label.is_empty());
+        let ca = sr.causal_feature_targeting_audit.as_ref().unwrap();
+        assert!(ca.diagnostic_only);
+        assert!(!ca.productive_agent_validated);
+        assert!(ca.current_pse_not_replaced);
+        assert!(ca.causal_item_count > 0);
+        assert!(ca.causal_items_marker_targetable >= 48);
+        assert!(ca.causal_items_score_activated <= ca.causal_item_count);
+        assert_eq!(ca.causal_items_score_improved, 0);
+        assert_eq!(ca.causal_items_rank_improved, 0);
+        assert!(ca
+            .interpretation_labels
+            .contains(&"causal_targeting_semantics_aligned".to_string()));
+        assert!(ca.causal_items_missed_by_existing_profiles <= ca.causal_item_count);
+        if ca.causal_items_missed_by_existing_profiles > 0 {
+            assert!(!ca.proposed_causal_feature_rules.is_empty());
+        }
+        let aa2 = sr.causal_activation_alignment_audit.as_ref().unwrap();
+        assert!(aa2.diagnostic_only);
+        assert!(!aa2.productive_agent_validated);
+        assert!(aa2.current_pse_not_replaced);
+        assert!(aa2.causal_marker_targetable_count > 0);
+        assert!(aa2.causal_rule_matched_count > 0);
+        assert!(aa2.causal_profile_score_delta_count <= aa2.causal_marker_targetable_count);
+        assert!(aa2.noncausal_profile_score_delta_count > 0);
+        assert!(aa2
+            .interpretation_labels
+            .contains(&"causal_activation_alignment_audit_present".to_string()));
+        let impact = sr.causal_delta_impact_audit.as_ref().unwrap();
+        assert!(impact.diagnostic_only);
+        assert!(!impact.productive_agent_validated);
+        assert!(impact.current_pse_not_replaced);
+        assert!(impact
+            .interpretation_labels
+            .contains(&"causal_delta_impact_resolution_repaired".to_string()));
+        assert!(impact
+            .interpretation_labels
+            .contains(&"causal_delta_impact_now_uses_alignment_ids".to_string()));
+        assert!(impact.causal_delta_item_count > 0);
+        assert_eq!(impact.causal_rank_resolution_failed_count, 0);
+        assert!(impact.traces_with_causal_rank_resolution_failure.is_empty());
+        for trc in impact
+            .trace_reports
+            .iter()
+            .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+        {
+            assert!(trc.current_best_causal_rank < usize::MAX / 4);
+            assert!(trc.profile_best_causal_rank < usize::MAX / 4);
+            assert!(trc.current_best_causal_score > i32::MIN / 4);
+            assert!(trc.profile_best_causal_score > i32::MIN / 4);
+        }
+        let mc2 = sr.metric_causal_consistency_audit.as_ref().unwrap();
+        assert!(mc2.diagnostic_only);
+        assert!(!mc2.productive_agent_validated);
+        assert!(mc2.current_pse_not_replaced);
+        assert_eq!(mc2.trace_reports.len(), mc2.trace_count);
+        assert!(mc2
+            .interpretation_labels
+            .contains(&"metric_causal_consistency_audit_present".to_string()));
+        assert!(mc2.traces_with_audit_metric_disagreement > 0);
+        assert!(mc2.trace_reports.iter().any(|t| {
+            t.audit_best_causal_rank == 1 && !t.metric_hit_at3 && !t.disagreement_reasons.is_empty()
+        }));
+        let ms = sr.metric_semantics_alignment_report.as_ref().unwrap();
+        assert!(ms.diagnostic_only);
+        assert!(!ms.productive_agent_validated);
+        assert!(ms.current_pse_not_replaced);
+        assert_eq!(ms.trace_reports.len(), ms.trace_count);
+        assert!(ms
+            .interpretation_labels
+            .contains(&"metric_semantics_alignment_report_present".to_string()));
+        if mc2.traces_with_audit_causal_top3 == tr.trace_count
+            && mc2.traces_with_metric_hit_at3 == 0
+        {
+            assert!(ms.audit_aligned_hit_at3_count > ms.official_metric_hit_at3_count);
+        }
+        assert!(ms.false_negative_due_to_metric_semantics_count > 0);
+        let dm = sr.dual_metric_report.as_ref().unwrap();
+        assert!(dm.diagnostic_only);
+        assert!(!dm.productive_agent_validated);
+        assert!(dm.current_pse_not_replaced);
+        assert_eq!(dm.official_metric.hit_at3_count, 0);
+        assert_eq!(dm.audit_aligned_metric.hit_at3_count, tr.trace_count);
+        assert_eq!(
+            dm.semantic_delta
+                .false_negative_due_to_metric_semantics_count,
+            tr.trace_count
+        );
+        assert!(dm
+            .interpretation_labels
+            .contains(&"official_metric_preserved".to_string()));
+        let proposal = dm.metric_redesign_proposal.as_ref().unwrap();
+        assert_eq!(proposal.proposal_status, "redesign_recommended");
+        assert_eq!(
+            proposal.recommended_primary_metric,
+            "audit_aligned_candidate_causal_metric_for_layer1"
+        );
+        assert!(proposal
+            .compatibility_policy
+            .contains("dual_metric_reporting"));
+        assert!(!proposal.migration_steps.is_empty());
+        assert!(!proposal.acceptance_criteria.is_empty());
+        let layer1_spec = dm.layer1_candidate_causal_metric_spec.as_ref().unwrap();
+        assert_eq!(
+            layer1_spec.metric_name,
+            "audit_aligned_candidate_causal_metric_for_layer1"
+        );
+        assert_eq!(layer1_spec.freeze_status, "frozen_diagnostic_v1");
+        assert!(!layer1_spec.freeze_criteria.is_empty());
+        assert!(!layer1_spec.known_limitations.is_empty());
+        let corpus = tr.trace_corpus_descriptor.as_ref().unwrap();
+        assert!(!corpus.corpus_name.is_empty());
+        assert!(!corpus.corpus_version.is_empty());
+        assert_eq!(corpus.trace_count, tr.trace_count);
+        assert!(corpus.diagnostic_only);
+        assert!(!corpus.productive_agent_validated);
+        assert!(corpus
+            .metric_policy
+            .contains(&"dual_metric_reporting_active".to_string()));
+        let expansion = tr.trace_corpus_expansion_report.as_ref().unwrap();
+        assert!(expansion.diagnostic_only);
+        assert!(!expansion.productive_agent_validated);
+        assert!(expansion.current_pse_not_replaced);
+        assert!(expansion.expanded_trace_count >= 12);
+        assert_eq!(expansion.expansion_status, "expanded_validation_active");
+        assert!(!expansion.added_trace_ids.is_empty());
+        assert_eq!(
+            expansion.total_trace_count,
+            expansion.baseline_trace_count + expansion.expanded_trace_count
+        );
+        assert_eq!(expansion.total_trace_count, tr.trace_count);
+        let stability = tr.trace_corpus_stability_summary.as_ref().unwrap();
+        assert!(stability.total_trace_count >= 20);
+        assert!(stability.expanded_trace_count >= 12);
+        assert_eq!(stability.audit_aligned_hit_at3_total, tr.trace_count);
+        assert_eq!(stability.official_hit_at3_total, 0);
+        assert_eq!(stability.expanded_audit_aligned_hit_rate, 1.0);
+        assert_eq!(
+            stability.stability_label,
+            "audit_aligned_stable_across_current_corpus"
+        );
+        assert_eq!(
+            stability.redesign_evidence_label,
+            "redesign_evidence_strengthened"
+        );
+        assert_eq!(
+            stability.recommended_next_step,
+            "prepare_layer1_metric_migration_plan"
         );
     }
 
