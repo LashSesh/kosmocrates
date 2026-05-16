@@ -53,6 +53,11 @@ def get_api_key():
 
 # ─── Groq aufrufen ───────────────────────────────────────────────────────────
 
+class TpdLimitError(Exception):
+    """Raised when Groq's tokens-per-day limit is exhausted."""
+    pass
+
+
 def call_groq(api_key, prompt, _retry=True):
     body = json.dumps({
         "model": GROQ_MODEL,
@@ -76,10 +81,14 @@ def call_groq(api_key, prompt, _retry=True):
             return data["choices"][0]["message"]["content"].strip()
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8", errors="replace")
-        if e.code == 429 and _retry:
-            print("       Rate-Limit (429) -- warte 10s...")
-            time.sleep(10)
-            return call_groq(api_key, prompt, _retry=False)
+        if e.code == 429:
+            # Day-level TPD limit — cannot recover by waiting seconds
+            if "TPD" in error_body or "tokens per day" in error_body.lower():
+                raise TpdLimitError(error_body[:300])
+            if _retry:
+                print("       Rate-Limit (429) -- warte 10s...")
+                time.sleep(10)
+                return call_groq(api_key, prompt, _retry=False)
         return f"HTTP_ERROR:{e.code}:{error_body[:300]}"
     except Exception as e:
         return f"ERROR:{e}"
