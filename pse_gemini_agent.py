@@ -24,7 +24,7 @@ FIXTURE_PATH = (
     "agent_exoskeleton/example_trace_fixture_v1.json"
 )
 OUTPUT_PATH = "target/tmp/pse_gemini_result.json"
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.0-flash-lite"
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent"
