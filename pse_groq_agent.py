@@ -9,6 +9,7 @@ Unterstuetzt alle fuenf Fixture-Schemas:
   v1_scheduling_decision_fixture      -- Layer 4: Scheduling-Entscheidungen
   v1_macro_step_fixture               -- Layer 5: Core Engine macro_step() Orchestration
   v1_cognition_fixture                -- Cognition: PSE-TRAVERSE-COGNITION-01
+  v1_horizon_fixture                  -- Horizon: PSE-TRAVERSE-HORIZON-03
 
 Vergleicht in jedem Schema:
   1. Raw LLM:        Groq/Llama ohne PSE-Struktur
@@ -316,6 +317,78 @@ Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
 
+# ─── Horizon Layer: PSE-TRAVERSE-HORIZON-03 ──────────────────────────────────
+
+def build_raw_prompt_horizon(case):
+    ctx = case.get("horizon_context", {})
+    gate = ctx.get("crossing_gate", {})
+    gate_info = "Gate-Zustand: " + ", ".join(
+        f"{k}={v}" for k, v in gate.items()
+    ) if gate else "(kein Gate)"
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Horizon-Pipeline-Analyst (PSE-TRAVERSE-HORIZON-03).
+
+AUFGABE: {case['title']}
+
+{gate_info}
+
+KANDIDATEN (moegliche Policies, Outcomes, Aktionen):
+{items}
+
+Welche 3 Kandidaten sind fuer diese Situation am korrektesten?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_horizon(case):
+    ctx = case.get("horizon_context", {})
+    gate = ctx.get("crossing_gate", {})
+    gate_info = "\n".join(
+        f"  {k}: {v}" for k, v in gate.items()
+    ) if gate else "(kein Gate)"
+    desc = ctx.get("description", "")
+    items = "\n".join(
+        f"  [{c['id']}] policy={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Horizon-Evaluierungsrahmen (PSE-TRAVERSE-HORIZON-03).
+
+== KOGNITIONS-CONSTRAINTS (Horizon Layer) ==
+HorizonCrossingGate: G_cross = G_visible AND G_cone AND G_causal AND G_dual AND tension_ok AND attenuation_ok
+CombinedGate: G_v0.3 = G_projection_v2 AND G_cross AND ReplayReady
+
+Crossing-Gate-Zustand:
+{gate_info}
+
+{desc}
+
+Deterministische Policy-Tabelle (strikt anwenden):
+  NUR !g_visible (alle anderen true) -> WaitForHorizon -> HorizonV3Outcome::WaitForHorizon
+  !g_cone                            -> RefineProjectionCone -> HorizonV3Outcome::RefineCone
+  !g_causal                          -> MigrateCarrier -> HorizonV3Outcome::NeedsCarrierMigration
+  !tension_ok ODER !attenuation_ok   -> Recondense -> HorizonV3Outcome::Recondense
+  !g_dual                            -> Recondense -> HorizonV3Outcome::Recondense
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [spec_policy, spec_outcome, causal, diagnostic, inspect_path] mit passendem gate-Label
+  UNTERDRUECKEN: Tags [wrong_gate, completed, init_only, last_resort, distractor]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
+
 # ─── Layer Cognition: PSE-TRAVERSE-COGNITION-01 ───────────────────────────────
 
 def build_raw_prompt_cognition(case):
@@ -505,6 +578,7 @@ PROMPT_BUILDERS = {
     "v1_scheduling_decision_fixture":     (build_raw_prompt_scheduling, build_pse_prompt_scheduling),
     "v1_macro_step_fixture":              (build_raw_prompt_macro_step, build_pse_prompt_macro_step),
     "v1_cognition_fixture":               (build_raw_prompt_cognition, build_pse_prompt_cognition),
+    "v1_horizon_fixture":                 (build_raw_prompt_horizon, build_pse_prompt_horizon),
 }
 
 SCHEMA_LABELS = {
@@ -514,6 +588,7 @@ SCHEMA_LABELS = {
     "v1_scheduling_decision_fixture":     "Layer 4 — Scheduling",
     "v1_macro_step_fixture":              "Layer 5 — Core Engine macro_step()",
     "v1_cognition_fixture":               "Cognition — PSE-TRAVERSE-COGNITION-01",
+    "v1_horizon_fixture":                 "Horizon — PSE-TRAVERSE-HORIZON-03",
 }
 
 
