@@ -2,11 +2,12 @@
 """
 PSE Stack Validation Runner -- Live-Test mit Groq API.
 
-Unterstuetzt alle vier Fixture-Schemas:
+Unterstuetzt alle fuenf Fixture-Schemas:
   v1_external_trace_fixture_scaffold  -- Layer 1: Agent Exoskeleton (Datei-Relevanz)
   v1_graph_relevance_fixture          -- Layer 2: Topologie / Graph-Navigation
   v1_pattern_retrieval_fixture        -- Layer 3: Memory / Evidence-Retrieval
   v1_scheduling_decision_fixture      -- Layer 4: Scheduling-Entscheidungen
+  v1_macro_step_fixture               -- Layer 5: Core Engine macro_step() Orchestration
 
 Vergleicht in jedem Schema:
   1. Raw LLM:        Groq/Llama ohne PSE-Struktur
@@ -314,6 +315,82 @@ Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
 
+# ─── Layer 5: Core Engine macro_step() Orchestration ─────────────────────────
+
+def build_raw_prompt_macro_step(case):
+    ctx = case.get("engine_context", {})
+    state_info = f"Engine-Zustand: {ctx.get('engine_state', '?')}"
+    extra = []
+    if "por_status" in ctx:
+        extra.append(f"PoR-Status: {ctx['por_status']}")
+    if "consensus_result" in ctx:
+        extra.append(f"Konsensus-Ergebnis: {ctx['consensus_result']}")
+    if "gate_passed" in ctx:
+        extra.append(f"Gate bestanden: {ctx['gate_passed']}")
+    context_block = "\n".join([state_info] + extra)
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Engine-Orchestrierungs-Analyst.
+
+AUFGABE: {case['title']}
+
+Engine-Kontext:
+{context_block}
+
+KANDIDATEN (moegliche naechste Operatoren):
+{items}
+
+Welche 3 Operatoren sind als naechste Schritte am sinnvollsten?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_macro_step(case):
+    ctx = case.get("engine_context", {})
+    state_info = f"Engine-Zustand: {ctx.get('engine_state', '?')}"
+    extra = []
+    if "por_status" in ctx:
+        extra.append(f"PoR-Status: {ctx['por_status']}")
+    if "consensus_result" in ctx:
+        extra.append(f"Konsensus-Ergebnis: {ctx['consensus_result']}")
+    if "gate_passed" in ctx:
+        extra.append(f"Gate bestanden: {ctx['gate_passed']}")
+    if "description" in ctx:
+        extra.append(f"Beschreibung: {ctx['description']}")
+    context_block = "\n".join([state_info] + extra)
+    items = "\n".join(
+        f"  [{c['id']}] operator={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Core-Engine-Orchestrierungsrahmen.
+
+== KOGNITIONS-CONSTRAINTS (macro_step Layer) ==
+Phase: Beobachtung -> Resonanz -> Kairos-Gate -> Kristallisierung -> Archivierung
+
+{context_block}
+
+Operatoren-Sequenz-Regeln:
+  HOCHPRIORITAT: Tags [valid_next_op, recovery_path, diagnostic, inspect_path, causal]
+  UNTERDRUECKEN: Tags [wrong_phase, init_only, completed, redundant, wrong_context, premature, wrong_order, red_herring, distractor]
+  Reihenfolge der macro_step()-Pipeline strikt einhalten
+  Recovery-Operatoren vor Weiterverarbeitung bei Fehler-Flags
+  Init-only-Operatoren (Phase-Ladder-Aufbau) nur beim Start
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
+
 # ─── Schema-Dispatch ─────────────────────────────────────────────────────────
 
 PROMPT_BUILDERS = {
@@ -321,6 +398,7 @@ PROMPT_BUILDERS = {
     "v1_graph_relevance_fixture":         (build_raw_prompt_topology, build_pse_prompt_topology),
     "v1_pattern_retrieval_fixture":       (build_raw_prompt_memory, build_pse_prompt_memory),
     "v1_scheduling_decision_fixture":     (build_raw_prompt_scheduling, build_pse_prompt_scheduling),
+    "v1_macro_step_fixture":              (build_raw_prompt_macro_step, build_pse_prompt_macro_step),
 }
 
 SCHEMA_LABELS = {
@@ -328,6 +406,7 @@ SCHEMA_LABELS = {
     "v1_graph_relevance_fixture":         "Layer 2 — Topologie / Graph",
     "v1_pattern_retrieval_fixture":       "Layer 3 — Memory / Evidence",
     "v1_scheduling_decision_fixture":     "Layer 4 — Scheduling",
+    "v1_macro_step_fixture":              "Layer 5 — Core Engine macro_step()",
 }
 
 
