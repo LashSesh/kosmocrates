@@ -294,7 +294,8 @@ def main():
         "summary": {
             "total_cases": len(cases),
             "valid_cases": len(valid),
-            "pse_wins": pse_wins,
+            "pse_recall_wins": pse_recall_wins,
+            "pse_precision_wins": pse_prec_wins,
             "ties": ties,
             "raw_wins": raw_wins,
         },
