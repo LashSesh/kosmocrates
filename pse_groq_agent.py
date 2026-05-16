@@ -58,6 +58,7 @@ def call_groq(api_key, prompt, _retry=True):
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            "User-Agent": "groq-python/0.11.0",
         },
     )
     try:
