@@ -1,0 +1,541 @@
+{
+  "fixture_schema_version": "v1_external_trace_fixture_scaffold",
+  "fixture_name": "honest_layer1_scale_v1",
+  "intended_layer": "Layer-1 Agent Exoskeleton Candidate-Relevance Evaluation",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "_design_note": "Scale-up fixture: 4 scenario types beyond test failures. Neutral texts, name-trap and identity-ambiguity distractors throughout.",
+  "cases": [
+    {
+      "trace_id": "scale_s01",
+      "title": "Compile error — CrystalSignature field removed, two call sites break",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo build -p pse-memory -p pse-evidence",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "error[E0308]: mismatched types (2 errors)",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "user_report",
+          "message": "removed confidence_score: f64 field from CrystalSignature in pse-types last commit",
+          "timestamp_hint": null
+        }
+      ],
+      "candidates": [
+        {
+          "id": "scl_s01_c01",
+          "source": "crates/pse-memory/src/memory.rs",
+          "text": "Pattern memory implementation. Exports `PatternMemory`, `lookup`, `top_k`. Stores and retrieves `CrystalSignature` instances with cosine similarity scoring. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "scl_s01_c02",
+          "source": "crates/pse-evidence/src/archive.rs",
+          "text": "Crystal archive. Exports `Archive`, `build_crystal_with_id`, `verify_crystal`. Manages `CrystalSignature` storage and retrieval. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "scl_s01_c03",
+          "source": "crates/pse-types/src/crystal.rs",
+          "text": "CrystalSignature type definition. Exports `CrystalSignature`, `CrystalKind`, `CrystalHash`. Defines the struct and all its fields. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c04",
+          "source": "crates/pse-memory/src/crystal_index.rs",
+          "text": "In-memory index of crystal signatures. Exports `CrystalIndex`, `IndexEntry`. Organizes `CrystalSignature` instances for fast lookup by hash. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c05",
+          "source": "crates/pse-evidence/src/signature_cache.rs",
+          "text": "Signature caching layer for the archive. Exports `SignatureCache`, `CacheEntry`. Wraps `CrystalSignature` lookups in an LRU cache. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c06",
+          "source": "crates/pse-memory/src/lru_eviction.rs",
+          "text": "LRU eviction policy for pattern memory. Exports `LruPolicy`, `EvictionEntry`. Manages eviction of least-recently-used patterns by access timestamp. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c07",
+          "source": "crates/pse-core/src/engine.rs",
+          "text": "Main orchestration engine. Exports `Engine`, `GlobalState`, `macro_step`. Coordinates all PSE layers including memory and evidence subsystems. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c08",
+          "source": "crates/pse-types/src/lib.rs",
+          "text": "Crate root for pse-types. Re-exports all shared types including CrystalSignature, NodeId, VertexState. No inline tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c09",
+          "source": "reports/type_api_change_impact.json",
+          "text": "Impact analysis from a prior CrystalSignature API change. Documents which modules were affected at that time and required updates.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c10",
+          "source": "target/debug/pse-memory",
+          "text": "Debug build binary for pse-memory crate. Compiled test runner executable for the last successful build.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c11",
+          "source": "Cargo.lock",
+          "text": "Dependency lock file. Records pinned versions of all 94 transitive dependencies.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s01_c12",
+          "source": "Cargo.toml",
+          "text": "Workspace manifest. Declares all 8 member crates and shared dependency requirements.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["scl_s01_c01", "scl_s01_c02"],
+        "causal_logs": [],
+        "causal_commands": ["cargo build -p pse-memory -p pse-evidence"],
+        "correct_next_actions": [
+          "inspect crates/pse-memory/src/memory.rs CrystalSignature usage",
+          "inspect crates/pse-evidence/src/archive.rs CrystalSignature usage"
+        ],
+        "rejected_false_paths": [
+          "crates/pse-types/src/crystal.rs",
+          "crates/pse-memory/src/crystal_index.rs",
+          "crates/pse-evidence/src/signature_cache.rs"
+        ],
+        "resolution_label": "crystal_signature_field_removal_callsite"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only", "scale", "compile_error"]
+    },
+    {
+      "trace_id": "scale_s02",
+      "title": "Compile error — NodeId missing Hash impl, two modules fail to build",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo build -p pse-graph",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "error[E0277]: the trait bound `NodeId: Hash` is not satisfied (2 locations)",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "user_report",
+          "message": "NodeId derive macros changed last commit — Hash was removed from #[derive(...)]",
+          "timestamp_hint": null
+        }
+      ],
+      "candidates": [
+        {
+          "id": "scl_s02_c01",
+          "source": "crates/pse-graph/src/node.rs",
+          "text": "NodeId and Node type definitions. Exports `NodeId`, `Node`, `NodeKind`. Core identifier type used across all graph operations. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "scl_s02_c02",
+          "source": "crates/pse-graph/src/persistent_graph.rs",
+          "text": "Persistent hash-DAG storage. Exports `PersistentGraph`, `GraphEntry`. Uses `NodeId` as `HashMap` key in internal storage structures. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "scl_s02_c03",
+          "source": "crates/pse-graph/src/hash_strategy.rs",
+          "text": "Pluggable hash strategy for graph operations. Exports `HashStrategy`, `DefaultHash`, `StableHash`. Configures which hash algorithm to apply to graph entries. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c04",
+          "source": "crates/pse-graph/src/node_hash_registry.rs",
+          "text": "Registry mapping NodeId instances to pre-computed hash values for repeated lookups. Exports `NodeHashRegistry`, `HashEntry`. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c05",
+          "source": "crates/pse-graph/src/observation_adapter.rs",
+          "text": "Observation ingestion adapter. Exports `PassthroughAdapter`, `FastPassthroughAdapter`. Transforms domain observations into graph-compatible node representations. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c06",
+          "source": "crates/pse-graph/src/tensor_archive.rs",
+          "text": "5D tensor state archive. Exports `TensorArchive`, `StateVector`. Stores p, rho, omega, chi, eta state embeddings keyed by graph node. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c07",
+          "source": "crates/pse-graph/src/derive_vertex_id.rs",
+          "text": "Implements the `derive_vertex_id` function for automatic vertex ID derivation. Exports `derive_vertex_id`, `VertexDerivation`. Related to node identity generation. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c08",
+          "source": "crates/pse-graph/src/clustering.rs",
+          "text": "Clustering coefficient computation. Exports `clustering_coefficient`, `ClusteringResult`. Graph-local measure of neighborhood density. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c09",
+          "source": "crates/pse-graph/src/lib.rs",
+          "text": "Crate root for pse-graph. Re-exports PersistentGraph, NodeId, PassthroughAdapter. No inline tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c10",
+          "source": "target/nextest/last-run/test-results.json",
+          "text": "nextest structured test output from most recent CI run. Per-test pass/fail status for all crates.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c11",
+          "source": "Cargo.lock",
+          "text": "Dependency lock file. Records pinned versions of all 94 transitive dependencies.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s02_c12",
+          "source": "Cargo.toml",
+          "text": "Workspace manifest. No dependency changes in recent commits.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["scl_s02_c01", "scl_s02_c02"],
+        "causal_logs": [],
+        "causal_commands": ["cargo build -p pse-graph"],
+        "correct_next_actions": [
+          "inspect crates/pse-graph/src/node.rs NodeId derive attributes",
+          "inspect crates/pse-graph/src/persistent_graph.rs HashMap<NodeId, ...> usage"
+        ],
+        "rejected_false_paths": [
+          "crates/pse-graph/src/hash_strategy.rs",
+          "crates/pse-graph/src/node_hash_registry.rs",
+          "crates/pse-graph/src/derive_vertex_id.rs"
+        ],
+        "resolution_label": "node_id_missing_hash_impl"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only", "scale", "compile_error", "trait_impl"]
+    },
+    {
+      "trace_id": "scale_s03",
+      "title": "Feature flag regression — three navigator modules call topology without cfg guard",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo test -p pse-navigator --no-default-features",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "error[E0433]: failed to resolve: use of undeclared crate `pse_topology` (3 errors)",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "user_report",
+          "message": "topology is a non-default optional feature — three files forgot #[cfg(feature = topology)] guards",
+          "timestamp_hint": null
+        }
+      ],
+      "candidates": [
+        {
+          "id": "scl_s03_c01",
+          "source": "crates/pse-navigator/src/triton.rs",
+          "text": "TRITON pattern space explorer. Exports `TritonNavigator`, `ExplorationStep`. Uses spectral guidance functions from pse-topology. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "scl_s03_c02",
+          "source": "crates/pse-navigator/src/singularity.rs",
+          "text": "Singularity detection module. Exports `SingularityDetector`, `ResonanceOutlier`. Calls spectral decomposition from pse-topology. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "scl_s03_c03",
+          "source": "crates/pse-navigator/src/spiral.rs",
+          "text": "Golden-angle spiral generator. Exports `NavigatorSpiral`, `SpiralConfig`. References Fiedler vector from topology crate for gradient alignment. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "scl_s03_c04",
+          "source": "crates/pse-navigator/src/feature_matrix.rs",
+          "text": "Feature flag declarations for pse-navigator. Exports `NavigatorFeature`, `FeatureSet`. Declares which capabilities are default vs optional. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c05",
+          "source": "crates/pse-navigator/src/topology_compat.rs",
+          "text": "Compatibility shim for topology-feature-gated operations. Exports `TopologyCompat`, `NullSpectral`. Provides no-op stubs when topology feature is disabled. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c06",
+          "source": "crates/pse-topology/src/lib.rs",
+          "text": "Crate root for pse-topology. Re-exports SpectralDecomposition, TopologicalSignature, ctqw_propagate. The crate being imported, not the caller.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c07",
+          "source": "crates/pse-navigator/src/mesh.rs",
+          "text": "SimplexMesh implementation. Exports `SimplexMesh`, vertex/edge/simplex management. Geometric structure only — no direct pse-topology imports. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c08",
+          "source": "crates/pse-navigator/src/betti.rs",
+          "text": "Betti number computation for mesh topology. Exports `BettiNumbers`, `HomologyGroup`. Uses only pse-types primitives — topology-crate import is feature-guarded. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c09",
+          "source": "crates/pse-navigator/src/gradient_guide.rs",
+          "text": "Spectral gradient guidance for navigation. Exports `GradientGuide`, `SpectralGradient`. Wraps topology calls behind a local trait — feature guard is already present. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c10",
+          "source": "crates/pse-navigator/src/navigator.rs",
+          "text": "Main Navigator trait and step orchestration. Exports `Navigator`, `NavigationStep`. Delegates to triton, spiral, and singularity sub-modules. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c11",
+          "source": "crates/pse-navigator/Cargo.toml",
+          "text": "Crate manifest for pse-navigator. Declares pse-topology as an optional dependency under the topology feature flag.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c12",
+          "source": "target/tmp/feature_test_output.json",
+          "text": "Test output from a prior no-default-features run. Different set of feature-gated modules was affected at that time.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c13",
+          "source": "Cargo.toml",
+          "text": "Workspace manifest. No feature flag changes in recent commits.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s03_c14",
+          "source": "Cargo.lock",
+          "text": "Dependency lock file. Records pinned versions of all 94 transitive dependencies.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["scl_s03_c01", "scl_s03_c02", "scl_s03_c03"],
+        "causal_logs": [],
+        "causal_commands": ["cargo test -p pse-navigator --no-default-features"],
+        "correct_next_actions": [
+          "add #[cfg(feature = topology)] guard in crates/pse-navigator/src/triton.rs",
+          "add #[cfg(feature = topology)] guard in crates/pse-navigator/src/singularity.rs",
+          "add #[cfg(feature = topology)] guard in crates/pse-navigator/src/spiral.rs"
+        ],
+        "rejected_false_paths": [
+          "crates/pse-navigator/src/feature_matrix.rs",
+          "crates/pse-navigator/src/topology_compat.rs",
+          "crates/pse-topology/src/lib.rs"
+        ],
+        "resolution_label": "cfg_guard_missing_three_modules"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only", "scale", "feature_flag", "multi_causal"]
+    },
+    {
+      "trace_id": "scale_s04",
+      "title": "API deprecation — three call sites still using ctqw_propagate_v1()",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo build --workspace 2>&1 | grep deprecated",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "warning: use of deprecated function `ctqw_propagate_v1`: use `ctqw_propagate` instead (3 occurrences)",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "user_report",
+          "message": "ctqw_propagate_v1 will be removed in next release — need to migrate all three call sites",
+          "timestamp_hint": null
+        }
+      ],
+      "candidates": [
+        {
+          "id": "scl_s04_c01",
+          "source": "crates/pse-core/src/resonance.rs",
+          "text": "Resonance computation module. Exports `compute_resonance`, `ResonanceField`. Uses quantum walk propagation in the resonance scoring path. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "scl_s04_c02",
+          "source": "crates/pse-navigator/src/triton.rs",
+          "text": "TRITON pattern space explorer. Exports `TritonNavigator`, `ExplorationStep`. Uses quantum walk propagation for spectral guidance. Has inline unit tests.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "scl_s04_c03",
+          "source": "crates/pse-topology/tests/propagation_integration.rs",
+          "text": "Integration test for quantum walk propagation behavior. Tests propagation across chain and ring topologies. No inline unit tests — integration scope.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "scl_s04_c04",
+          "source": "crates/pse-topology/src/ctqw.rs",
+          "text": "Continuous-time quantum walk implementation. Exports `ctqw_propagate`, `ctqw_propagate_v1`, `CtqwConfig`. Defines both the deprecated and current API versions. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c05",
+          "source": "crates/pse-topology/src/spectral_legacy.rs",
+          "text": "Legacy spectral functions kept for backward compatibility. Exports wrappers around deprecated APIs with deprecation markers. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c06",
+          "source": "crates/pse-topology/src/decompose_compat.rs",
+          "text": "Compatibility shim for spectral decomposition API migration. Exports `DecomposeCompat`. Bridges v1 and current decomposition interfaces. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c07",
+          "source": "crates/pse-core/src/mandorla.rs",
+          "text": "Mandorla formation operator. Exports `MandorlaOperator`, `MandorlaConfig`. Uses topology primitives for intersection computation via current API. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c08",
+          "source": "crates/pse-core/src/cascade.rs",
+          "text": "Cascade operator for morphogenic updates. Exports `CascadeOperator`, `CascadeStep`. Handles downstream state propagation — no quantum walk calls. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c09",
+          "source": "crates/pse-topology/src/kuramoto.rs",
+          "text": "Kuramoto synchronization model. Exports `kuramoto_step`, `KuramotoConfig`. Oscillation model separate from quantum walk propagation. Has inline unit tests.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c10",
+          "source": "docs/ctqw_migration_guide.md",
+          "text": "Migration guide for ctqw_propagate_v1 to ctqw_propagate. Describes the API difference and required call site changes. Reference document — no executable code.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c11",
+          "source": "target/tmp/deprecation_warnings_log.txt",
+          "text": "Captured compiler deprecation warnings from a prior build. May document different or additional occurrences than the current build.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c12",
+          "source": "Cargo.lock",
+          "text": "Dependency lock file. Records pinned versions of all 94 transitive dependencies.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "scl_s04_c13",
+          "source": "Cargo.toml",
+          "text": "Workspace manifest. No API-related dependency changes in recent commits.",
+          "tags": ["distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["scl_s04_c01", "scl_s04_c02", "scl_s04_c03"],
+        "causal_logs": [],
+        "causal_commands": ["cargo build --workspace"],
+        "correct_next_actions": [
+          "replace ctqw_propagate_v1 with ctqw_propagate in crates/pse-core/src/resonance.rs",
+          "replace ctqw_propagate_v1 with ctqw_propagate in crates/pse-navigator/src/triton.rs",
+          "replace ctqw_propagate_v1 with ctqw_propagate in crates/pse-topology/tests/propagation_integration.rs"
+        ],
+        "rejected_false_paths": [
+          "crates/pse-topology/src/ctqw.rs",
+          "crates/pse-topology/src/spectral_legacy.rs",
+          "docs/ctqw_migration_guide.md"
+        ],
+        "resolution_label": "api_deprecation_three_callsites"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only", "scale", "api_deprecation", "multi_causal"]
+    }
+  ]
+}
