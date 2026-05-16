@@ -802,6 +802,100 @@ Prioritaetsregeln:
 Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
+
+# ─── NCTCS Closure Layer: PSE-NCTCS-CONFORMANCE-01 ───────────────────────────
+
+def build_raw_prompt_nctcs(case):
+    ctx = case.get("nctcs_context", {})
+    checks = ctx.get("conformance_checks", {})
+    mat_rule = ctx.get("materialization_rule", "")
+    checks_info = ("Konformitaets-Checks: " + ", ".join(f"{k}={v}" for k, v in checks.items())) if checks else ""
+    rule_info = f"Materialisierungsregel: {mat_rule[:120]}" if mat_rule else ""
+    context_block = "\n".join(x for x in [checks_info, rule_info] if x)
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein NCTCS-Konformitaets-Analyst (PSE-NCTCS-CONFORMANCE-01).
+
+AUFGABE: {case['title']}
+
+{context_block}
+
+KANDIDATEN:
+{items}
+
+Welche 3 Kandidaten sind korrekt fuer diese Situation?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_nctcs(case):
+    ctx = case.get("nctcs_context", {})
+    checks = ctx.get("conformance_checks", {})
+    mat_rule = ctx.get("materialization_rule", "")
+    desc = ctx.get("description", "")
+    checks_info = "\n".join(f"  {k}: {v}" for k, v in checks.items()) if checks else ""
+    items = "\n".join(
+        f"  [{c['id']}] class={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE NCTCS-Evaluierungsrahmen (PSE-NCTCS-CONFORMANCE-01).
+
+== KOGNITIONS-CONSTRAINTS (NCTCS Closure Layer) ==
+Konformitaets-Klassen (kumulativ — jede erfordert alle vorherigen):
+  C0_FormalTyped:              NullCenter exogen, Projektion distinct
+  C1_PhaseGatedVisibility:     C0 AND visibility.passed AND candidate_requires_visibility_passed
+  C2_GateBoundMaterialization: C1 AND materialization.passed AND no_direct_fabric_to_tensor_mutation
+  C3_AuditableTensor:          C2 AND trace_replay.passed (100% Replay-Identitaet)
+  C4_MacroControl:             C3 AND MacroControlState abgeleitet aus Tensor-History
+
+reached_class = hoechste Klasse fuer die c<n>_passed=true gilt (kumulativ!)
+  -> Wenn c2_passed=false: reached_class = C1 (NICHT C2, nicht C3, nicht C4)
+
+NctcsGateOutcome Taxonomie:
+  Pass         -> is_materializing()=TRUE (einziger Outcome der Tensor-Revision erlaubt)
+  Hold         -> is_materializing()=false (Tensor bleibt unveraendert)
+  Refine       -> is_materializing()=false (kein Tensor-Commit im Refinement-Zyklus)
+  Reject       -> is_materializing()=false
+  Quarantine   -> is_materializing()=false
+  NoUpdate     -> is_materializing()=false
+  HandoffReady -> is_materializing()=false
+
+C2-Invariante: Ephemeral Fabric DARF NICHT direkt den persistenten Tensor mutieren.
+  Alle Tensor-Updates MUESSEN durch die Gate-Kaskade gehen.
+  no_direct_fabric_to_tensor_mutation=false -> C2 Pflichtverletzung
+
+MacroControlState (C4) Derivation:
+  DARF abgeleitet werden aus: null_center_ref, field_tensor (via Tensor-History),
+    trace_head, policies, certificates, eval_summary_hash
+  DARF NICHT aus: Resonanz-Feld, Ephemeral Fabric, Agent-State, Phase-State direkt
+
+Konformitaets-Checks:
+{checks_info}
+
+Materialisierungsregel: {mat_rule[:200]}
+
+{desc}
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [reached_class, causal, spec_outcome, spec_obligation, gate_materializes,
+                       c2_constraint, recovery_action, diagnostic, inspect_path, valid_next_op]
+  UNTERDRUECKEN: Tags [wrong_class, wrong_outcome, wrong_status, spec_violation, masks_problem,
+                       ephemeral_source, c2_violation, c4_violation, gate_no_update, distractor]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
 # ─── Schema-Dispatch ─────────────────────────────────────────────────────────
 
 PROMPT_BUILDERS = {
@@ -815,6 +909,7 @@ PROMPT_BUILDERS = {
     "v1_dynamics_fixture":                (build_raw_prompt_dynamics, build_pse_prompt_dynamics),
     "v1_signature_fixture":               (build_raw_prompt_signature, build_pse_prompt_signature),
     "v1_tpt_mtl_fixture":                 (build_raw_prompt_tpt_mtl, build_pse_prompt_tpt_mtl),
+    "v1_nctcs_fixture":                   (build_raw_prompt_nctcs, build_pse_prompt_nctcs),
 }
 
 SCHEMA_LABELS = {
@@ -828,6 +923,7 @@ SCHEMA_LABELS = {
     "v1_dynamics_fixture":                "Dynamics — PSE-TRAVERSE-DYNAMICS-01",
     "v1_signature_fixture":               "Signature — PSE-TRAVERSE-SIGNATURE-01",
     "v1_tpt_mtl_fixture":                 "Topology — PSE-TRAVERSE-TPT-MTL-04",
+    "v1_nctcs_fixture":                   "NCTCS — PSE-NCTCS-CONFORMANCE-01",
 }
 
 
