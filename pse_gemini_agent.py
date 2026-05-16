@@ -13,6 +13,7 @@ Fuehre aus (vom pse-Ordner):
 import json
 import os
 import sys
+import time
 import urllib.request
 import urllib.error
 
@@ -44,7 +45,7 @@ def get_api_key():
 
 # ─── Gemini aufrufen ──────────────────────────────────────────────────────────
 
-def call_gemini(api_key, prompt):
+def call_gemini(api_key, prompt, _retry=True):
     url = f"{GEMINI_URL}?key={api_key}"
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
@@ -65,6 +66,11 @@ def call_gemini(api_key, prompt):
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8", errors="replace")
+        if e.code == 429 and _retry:
+            wait = 65
+            print(f"       Rate-Limit (429) -- warte {wait}s und versuche nochmal...")
+            time.sleep(wait)
+            return call_gemini(api_key, prompt, _retry=False)
         return f"HTTP_ERROR:{e.code}:{error_body[:200]}"
     except Exception as e:
         return f"ERROR:{e}"
@@ -166,6 +172,9 @@ def run_case(case, api_key, case_num, total_cases):
         print(f"       Top-3:  {raw_top3}")
         print(f"       Treffer: {raw_hits}/{len(ground_truth)}")
 
+    # 7s gap keeps us well under the free-tier 10 RPM limit
+    time.sleep(7)
+
     # --- PSE ---
     print("\n  [2/2] PSE-Exoskelett aktiv...")
     pse_text = call_gemini(api_key, build_pse_prompt(case))
@@ -238,6 +247,8 @@ def main():
     # Alle Cases durchlaufen
     results = []
     for i, case in enumerate(cases, 1):
+        if i > 1:
+            time.sleep(7)
         result = run_case(case, api_key, i, len(cases))
         results.append(result)
 
