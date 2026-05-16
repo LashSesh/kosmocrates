@@ -274,9 +274,47 @@ pub struct TraceReplayReport {
     pub score_attribution_audits: Vec<TraceScoreAttributionAudit>,
     pub trace_score_attribution_summary: TraceScoreAttributionSummary,
     pub trace_feature_design_report: Option<TraceFeatureDesignReport>,
+    pub trace_corpus_load_report: Option<TraceCorpusLoadReport>,
+    pub trace_corpus_fixture_descriptor: Option<TraceCorpusFixtureDescriptor>,
     pub trace_corpus_descriptor: Option<TraceCorpusDescriptor>,
     pub trace_corpus_expansion_report: Option<TraceCorpusExpansionReport>,
     pub trace_corpus_stability_summary: Option<TraceCorpusStabilitySummary>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TraceCorpusSourceKind {
+    BuiltinStatic,
+    ExternalFixture,
+    MixedBuiltinAndFixture,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCorpusLoadReport {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub source_kind: TraceCorpusSourceKind,
+    pub builtin_trace_count: usize,
+    pub external_fixture_trace_count: usize,
+    pub total_loaded_trace_count: usize,
+    pub fixture_loading_enabled: bool,
+    pub fixture_path: Option<String>,
+    pub fixture_schema_version: Option<String>,
+    pub load_status: String,
+    pub warnings: Vec<String>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCorpusFixtureDescriptor {
+    pub fixture_schema_version: String,
+    pub fixture_name: String,
+    pub fixture_trace_count: usize,
+    pub intended_layer: String,
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub required_fields: Vec<String>,
+    pub interpretation_labels: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -332,6 +370,44 @@ pub struct TraceCorpusStabilitySummary {
     pub redesign_evidence_label: String,
     pub recommended_next_step: String,
     pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExternalTraceFixtureCase {
+    pub trace_id: String,
+    pub title: String,
+    pub variant_kind: TraceVariantKind,
+    pub events: Vec<ExternalTraceFixtureEvent>,
+    pub candidates: Vec<ExternalTraceFixtureCandidate>,
+    pub ground_truth: ExternalTraceFixtureGroundTruth,
+    pub tags: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExternalTraceFixtureEvent {
+    pub event_id: String,
+    pub source: String,
+    pub message: String,
+    pub timestamp_hint: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExternalTraceFixtureCandidate {
+    pub id: String,
+    pub source: String,
+    pub text: String,
+    pub tags: Vec<String>,
+    pub relevance_rank_hint: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExternalTraceFixtureGroundTruth {
+    pub causal_files: Vec<String>,
+    pub causal_logs: Vec<String>,
+    pub causal_commands: Vec<String>,
+    pub correct_next_actions: Vec<String>,
+    pub rejected_false_paths: Vec<String>,
+    pub resolution_label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -949,6 +1025,7 @@ pub struct TraceDualMetricReport {
     pub trace_reports: Vec<TraceDualMetricTrace>,
     pub metric_redesign_proposal: Option<TraceMetricRedesignProposal>,
     pub layer1_candidate_causal_metric_spec: Option<Layer1CandidateCausalMetricSpec>,
+    pub layer1_metric_migration_plan: Option<Layer1MetricMigrationPlan>,
     pub interpretation_labels: Vec<String>,
 }
 
@@ -969,6 +1046,53 @@ pub struct Layer1CandidateCausalMetricSpec {
     pub freeze_criteria: Vec<String>,
     pub known_limitations: Vec<String>,
     pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Layer1MetricMigrationPlan {
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub current_pse_not_replaced: bool,
+    pub migration_status: String,
+    pub source_metric: String,
+    pub target_primary_metric: String,
+    pub legacy_metric_policy: String,
+    pub promotion_readiness: MetricPromotionReadiness,
+    pub required_guardrails: Vec<String>,
+    pub validation_phases: Vec<MetricValidationPhase>,
+    pub blocking_conditions: Vec<MetricMigrationBlockingCondition>,
+    pub rollback_policy: Vec<String>,
+    pub success_criteria: Vec<String>,
+    pub interpretation_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetricPromotionReadiness {
+    pub corpus_threshold_met: bool,
+    pub replay_identity_confirmed: bool,
+    pub official_metric_preserved: bool,
+    pub dual_metric_reporting_active: bool,
+    pub diagnostic_freeze_present: bool,
+    pub live_agent_validation_completed: bool,
+    pub promotion_allowed: bool,
+    pub readiness_label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetricValidationPhase {
+    pub phase_id: String,
+    pub phase_name: String,
+    pub objective: String,
+    pub required_evidence: String,
+    pub completion_status: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MetricMigrationBlockingCondition {
+    pub condition_id: String,
+    pub description: String,
+    pub severity: String,
+    pub resolution_required: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -7576,6 +7700,130 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
                     "candidate_causal_metric_stable_on_current_corpus".to_string(),
                 ],
             };
+            let layer1_metric_migration_plan = Layer1MetricMigrationPlan {
+                diagnostic_only: true,
+                productive_agent_validated: false,
+                current_pse_not_replaced: true,
+                migration_status: "migration_plan_prepared".to_string(),
+                source_metric: "official_legacy_trace_metric".to_string(),
+                target_primary_metric: "audit_aligned_candidate_causal_metric_for_layer1"
+                    .to_string(),
+                legacy_metric_policy: "preserve_as_compatibility_metric".to_string(),
+                promotion_readiness: MetricPromotionReadiness {
+                    corpus_threshold_met: true,
+                    replay_identity_confirmed: true,
+                    official_metric_preserved: true,
+                    dual_metric_reporting_active: true,
+                    diagnostic_freeze_present: true,
+                    live_agent_validation_completed: false,
+                    promotion_allowed: false,
+                    readiness_label: "ready_for_live_agent_validation_not_promotion".to_string(),
+                },
+                required_guardrails: vec![
+                    "official metric remains available".to_string(),
+                    "audit-aligned metric remains diagnostic until live validation".to_string(),
+                    "productive_agent_validated remains false".to_string(),
+                    "replay identity remains true".to_string(),
+                    "target semantics documented".to_string(),
+                    "no silent metric replacement".to_string(),
+                ],
+                validation_phases: vec![
+                    MetricValidationPhase {
+                        phase_id: "phase_1".to_string(),
+                        phase_name: "diagnostic freeze on 20+ trace corpus".to_string(),
+                        objective: "stabilize diagnostic metric under replay".to_string(),
+                        required_evidence:
+                            "frozen diagnostic spec and dual-metric divergence evidence".to_string(),
+                        completion_status: "completed".to_string(),
+                    },
+                    MetricValidationPhase {
+                        phase_id: "phase_2".to_string(),
+                        phase_name: "expanded corpus beyond 50 traces".to_string(),
+                        objective: "validate robustness on larger corpus".to_string(),
+                        required_evidence: "50+ traces with stable audit-aligned behavior"
+                            .to_string(),
+                        completion_status: "pending".to_string(),
+                    },
+                    MetricValidationPhase {
+                        phase_id: "phase_3".to_string(),
+                        phase_name: "live-agent replay-only shadow evaluation".to_string(),
+                        objective: "confirm shadow-mode relevance without intervention".to_string(),
+                        required_evidence: "shadow replay outcomes aligned with causal targets"
+                            .to_string(),
+                        completion_status: "pending".to_string(),
+                    },
+                    MetricValidationPhase {
+                        phase_id: "phase_4".to_string(),
+                        phase_name: "live-agent assisted intervention A/B test".to_string(),
+                        objective: "measure intervention quality and safety".to_string(),
+                        required_evidence: "A/B evidence of better focus or faster fix path"
+                            .to_string(),
+                        completion_status: "pending".to_string(),
+                    },
+                    MetricValidationPhase {
+                        phase_id: "phase_5".to_string(),
+                        phase_name: "promotion decision".to_string(),
+                        objective: "decide primary-metric promotion".to_string(),
+                        required_evidence: "all prior phases completed with guardrails intact"
+                            .to_string(),
+                        completion_status: "blocked_until_prior_phases_complete".to_string(),
+                    },
+                ],
+                blocking_conditions: vec![
+                    MetricMigrationBlockingCondition {
+                        condition_id: "block_1".to_string(),
+                        description: "no live-agent intervention validation yet".to_string(),
+                        severity: "high".to_string(),
+                        resolution_required: "complete live-agent assisted intervention A/B test"
+                            .to_string(),
+                    },
+                    MetricMigrationBlockingCondition {
+                        condition_id: "block_2".to_string(),
+                        description: "corpus still synthetic-real-trace hybrid".to_string(),
+                        severity: "medium".to_string(),
+                        resolution_required: "expand corpus to broader real-trace coverage"
+                            .to_string(),
+                    },
+                    MetricMigrationBlockingCondition {
+                        condition_id: "block_3".to_string(),
+                        description: "audit ID normalization must remain monitored".to_string(),
+                        severity: "medium".to_string(),
+                        resolution_required:
+                            "maintain normalization monitoring without regressions".to_string(),
+                    },
+                    MetricMigrationBlockingCondition {
+                        condition_id: "block_4".to_string(),
+                        description: "official metric redesign not yet migrated".to_string(),
+                        severity: "medium".to_string(),
+                        resolution_required: "finalize official migration compatibility plan"
+                            .to_string(),
+                    },
+                ],
+                rollback_policy: vec![
+                    "keep legacy official metric".to_string(),
+                    "retain dual metric reporting".to_string(),
+                    "never delete diagnostic evidence fields".to_string(),
+                    "revert promotion if replay identity or target semantics break".to_string(),
+                ],
+                success_criteria: vec![
+                    "audit-aligned metric stable on expanded 50+ corpus".to_string(),
+                    "no replay determinism regression".to_string(),
+                    "live-agent shadow run confirms relevance".to_string(),
+                    "assisted agent A/B shows reduced false focus or faster fix path".to_string(),
+                    "no increase in harmful/wrong-file interventions".to_string(),
+                ],
+                interpretation_labels: vec![
+                    "layer1_metric_migration_plan_present".to_string(),
+                    "diagnostic_only".to_string(),
+                    "productive_agent_not_validated".to_string(),
+                    "current_pse_not_replaced".to_string(),
+                    "official_metric_preserved".to_string(),
+                    "dual_metric_reporting_active".to_string(),
+                    "diagnostic_metric_frozen_v1".to_string(),
+                    "ready_for_live_agent_validation".to_string(),
+                    "not_ready_for_productive_promotion".to_string(),
+                ],
+            };
             let mut trace_reports = Vec::new();
             let mut candidate_count = 0usize;
             let mut distractor_marker_count = 0usize;
@@ -7971,6 +8219,7 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
                         layer1_candidate_causal_metric_spec: Some(
                             layer1_candidate_causal_metric_spec,
                         ),
+                        layer1_metric_migration_plan: Some(layer1_metric_migration_plan),
                         interpretation_labels: dual_metric_labels,
                     }),
                 }),
@@ -7982,6 +8231,54 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
         post_coverage_ranking_failure_summary,
         score_attribution_audits,
         trace_score_attribution_summary,
+        trace_corpus_load_report: Some(TraceCorpusLoadReport {
+            diagnostic_only: true,
+            productive_agent_validated: false,
+            current_pse_not_replaced: true,
+            source_kind: TraceCorpusSourceKind::BuiltinStatic,
+            builtin_trace_count: original_count + harder_count + expanded_count,
+            external_fixture_trace_count: 0,
+            total_loaded_trace_count: original_count + harder_count + expanded_count,
+            fixture_loading_enabled: false,
+            fixture_path: None,
+            fixture_schema_version: Some("v1_external_trace_fixture_scaffold".to_string()),
+            load_status: "builtin_static_corpus_active".to_string(),
+            warnings: vec![
+                "external fixture loading not enabled in BENCH-05G".to_string(),
+                "fixture schema scaffold only; loader not wired".to_string(),
+            ],
+            interpretation_labels: vec![
+                "trace_corpus_load_report_present".to_string(),
+                "builtin_static_corpus_active".to_string(),
+                "external_fixture_loading_not_enabled".to_string(),
+                "diagnostic_only".to_string(),
+                "productive_agent_not_validated".to_string(),
+                "current_pse_not_replaced".to_string(),
+                "ready_for_fixture_loader_implementation".to_string(),
+            ],
+        }),
+        trace_corpus_fixture_descriptor: Some(TraceCorpusFixtureDescriptor {
+            fixture_schema_version: "v1_external_trace_fixture_scaffold".to_string(),
+            fixture_name: "layer1_candidate_causal_trace_fixture_scaffold".to_string(),
+            fixture_trace_count: 0,
+            intended_layer: "Layer-1 Agent Exoskeleton Trace Evaluation".to_string(),
+            diagnostic_only: true,
+            productive_agent_validated: false,
+            required_fields: vec![
+                "trace_id".to_string(),
+                "title".to_string(),
+                "variant_kind".to_string(),
+                "events".to_string(),
+                "candidates".to_string(),
+                "ground_truth".to_string(),
+            ],
+            interpretation_labels: vec![
+                "trace_fixture_schema_scaffold_present".to_string(),
+                "layer1_candidate_causal_metric_compatible".to_string(),
+                "diagnostic_only".to_string(),
+                "external_expansion_path_prepared".to_string(),
+            ],
+        }),
         trace_corpus_descriptor: Some(TraceCorpusDescriptor {
             corpus_name: "agent_exoskeleton_real_trace_corpus".to_string(),
             corpus_version: "v1_scaffold".to_string(),
@@ -8858,7 +9155,49 @@ mod tests {
         );
         assert_eq!(layer1_spec.freeze_status, "frozen_diagnostic_v1");
         assert!(!layer1_spec.freeze_criteria.is_empty());
+        let migration_plan = dm.layer1_metric_migration_plan.as_ref().unwrap();
+        assert_eq!(migration_plan.migration_status, "migration_plan_prepared");
+        assert_eq!(
+            migration_plan.target_primary_metric,
+            "audit_aligned_candidate_causal_metric_for_layer1"
+        );
+        assert!(migration_plan.diagnostic_only);
+        assert!(!migration_plan.productive_agent_validated);
+        assert!(migration_plan.current_pse_not_replaced);
+        assert!(migration_plan.promotion_readiness.corpus_threshold_met);
+        assert!(migration_plan.promotion_readiness.diagnostic_freeze_present);
+        assert!(
+            !migration_plan
+                .promotion_readiness
+                .live_agent_validation_completed
+        );
+        assert!(!migration_plan.promotion_readiness.promotion_allowed);
+        assert!(!migration_plan.validation_phases.is_empty());
+        assert!(!migration_plan.blocking_conditions.is_empty());
         assert!(!layer1_spec.known_limitations.is_empty());
+        let load_report = tr.trace_corpus_load_report.as_ref().unwrap();
+        assert!(load_report.diagnostic_only);
+        assert!(!load_report.productive_agent_validated);
+        assert!(load_report.current_pse_not_replaced);
+        assert_eq!(
+            load_report.source_kind,
+            TraceCorpusSourceKind::BuiltinStatic
+        );
+        assert_eq!(load_report.builtin_trace_count, 20);
+        assert_eq!(load_report.external_fixture_trace_count, 0);
+        assert_eq!(load_report.total_loaded_trace_count, 20);
+        assert!(!load_report.fixture_loading_enabled);
+        assert_eq!(load_report.load_status, "builtin_static_corpus_active");
+        let fixture_desc = tr.trace_corpus_fixture_descriptor.as_ref().unwrap();
+        assert_eq!(
+            fixture_desc.fixture_schema_version,
+            "v1_external_trace_fixture_scaffold"
+        );
+        assert!(fixture_desc.diagnostic_only);
+        assert!(!fixture_desc.productive_agent_validated);
+        assert!(fixture_desc
+            .interpretation_labels
+            .contains(&"trace_fixture_schema_scaffold_present".to_string()));
         let corpus = tr.trace_corpus_descriptor.as_ref().unwrap();
         assert!(!corpus.corpus_name.is_empty());
         assert!(!corpus.corpus_version.is_empty());
