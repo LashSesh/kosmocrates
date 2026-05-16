@@ -1,0 +1,304 @@
+{
+  "fixture_schema_version": "v1_external_trace_fixture_scaffold",
+  "fixture_name": "harder_layer1_trace_fixture_v1",
+  "intended_layer": "Layer-1 Agent Exoskeleton Candidate-Relevance Evaluation",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "cases": [
+    {
+      "trace_id": "hard_trace_001",
+      "title": "Three-module cognitive phase engine regression after refactor",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo test -p pse-cognition --lib -- cognition::tests",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "FAILED tests: phase_transition_order, state_invariant_check, regression_guard_v2 (4 assertions)",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "user_report",
+          "message": "async refactor two hours ago touched phase_engine and state_machine simultaneously",
+          "timestamp_hint": null
+        }
+      ],
+      "candidates": [
+        {
+          "id": "hard_a1",
+          "source": "src/cognition/phase_engine.rs",
+          "text": "Phase engine module. Handles cognitive phase transitions. Last modified 2 hours ago as part of the async refactor. Core logic for scheduling phase steps.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "hard_a2",
+          "source": "src/cognition/state_machine.rs",
+          "text": "State machine for cognitive transitions. Dependency of phase_engine, modified in the same commit. Manages owned state across phase steps.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "hard_a3",
+          "source": "tests/cognition/phase_regression_test.rs",
+          "text": "Regression test suite for phase engine. Four assertions on state transition order now failing. Directly exercises phase_engine and state_machine.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "hard_a4",
+          "source": "src/cognition/phase_engine_v0.rs",
+          "text": "Legacy version of phase engine, kept as reference for the async migration. Not compiled into current build (cfg-gated with #[cfg(feature = legacy)]).",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_a5",
+          "source": "target/tmp/cognition_test_output_2024-11-03.log",
+          "text": "Test output log from 3 months ago. Documents phase engine tests passing at that time. Predates the async refactor.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_a6",
+          "source": "reports/cognition_phase_perf_report.json",
+          "text": "Performance report for phase engine from last sprint. Benchmark data showing latency per phase step. Not failure diagnostics.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_a7",
+          "source": "tests/cognition/phase_perf_test.rs",
+          "text": "Performance test file for phase engine throughput. Measures ops/sec, not correctness. Not currently failing. Not in the same test binary as the failing suite.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_a8",
+          "source": "Cargo.toml",
+          "text": "Build manifest. No changes to cognition crate dependencies in the last 20 commits. Feature flags unchanged.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["hard_a1", "hard_a2", "hard_a3"],
+        "causal_logs": [],
+        "causal_commands": ["cargo test -p pse-cognition --lib -- cognition::tests"],
+        "correct_next_actions": [
+          "inspect src/cognition/phase_engine.rs",
+          "inspect src/cognition/state_machine.rs",
+          "inspect tests/cognition/phase_regression_test.rs"
+        ],
+        "rejected_false_paths": [
+          "src/cognition/phase_engine_v0.rs",
+          "target/tmp/cognition_test_output_2024-11-03.log",
+          "reports/cognition_phase_perf_report.json",
+          "tests/cognition/phase_perf_test.rs"
+        ],
+        "resolution_label": "multi_file_async_refactor_regression"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only", "harder", "multi_causal"]
+    },
+    {
+      "trace_id": "hard_trace_002",
+      "title": "MIRI use-after-free in allocator and pool — two causal modules",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo miri test -p pse-substrate",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "error: Undefined Behavior: use-after-free: pointer to alloc1749 used after dealloc at src/allocator.rs:147",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "output",
+          "message": "MIRI backtrace leads through pool.rs dealloc_block -> allocator.rs free_slot",
+          "timestamp_hint": "t2"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "hard_b1",
+          "source": "crates/pse-substrate/src/allocator.rs",
+          "text": "Custom allocator implementation. Contains unsafe block at line 147 in the dealloc path. MIRI flags use-after-free originating here.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "hard_b2",
+          "source": "crates/pse-substrate/src/pool.rs",
+          "text": "Memory pool managing allocator blocks. Shared ownership invariant violated in dealloc_block. MIRI trace leads here before reaching allocator.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "hard_b3",
+          "source": "crates/pse-substrate/benches/alloc_bench.rs",
+          "text": "Benchmarks for allocator throughput — alloc/dealloc cycles, pool fill rate. Contains no unsafe code. Not in the MIRI violation callstack.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_b4",
+          "source": "crates/pse-substrate/src/allocator_stats.rs",
+          "text": "Statistics collector for allocator: tracks alloc counts, peak usage, fragmentation ratio. Read-only observability module, no unsafe code, not in MIRI trace.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_b5",
+          "source": "target/miri/pse-substrate/2024-09-15/report.txt",
+          "text": "MIRI output from a September run. Documents a different violation (out-of-bounds read), now resolved. Does not describe the current use-after-free.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_b6",
+          "source": "reports/memory_safety_audit_q3.json",
+          "text": "Quarterly memory safety audit covering Q3. Reviewed allocator and pool modules at that time — both passed. Predates the dealloc_block change.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["hard_b1", "hard_b2"],
+        "causal_logs": [],
+        "causal_commands": ["cargo miri test -p pse-substrate"],
+        "correct_next_actions": [
+          "inspect crates/pse-substrate/src/allocator.rs line 147",
+          "inspect crates/pse-substrate/src/pool.rs dealloc_block"
+        ],
+        "rejected_false_paths": [
+          "crates/pse-substrate/benches/alloc_bench.rs",
+          "crates/pse-substrate/src/allocator_stats.rs",
+          "target/miri/pse-substrate/2024-09-15/report.txt",
+          "reports/memory_safety_audit_q3.json"
+        ],
+        "resolution_label": "miri_use_after_free_allocator_pool"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only", "harder", "multi_causal"]
+    },
+    {
+      "trace_id": "hard_trace_003",
+      "title": "Replay hash divergence across primitives, ledger, and replay verifier",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo test -p pse-eval-matrix --lib -- replay::tests",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "FAILED: verify_trial_replay -- ReplayMismatch on all 20 runs",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "output",
+          "message": "hash chain diverges at ledger entry 1: expected 0x3f2a..., got 0x7c1d...",
+          "timestamp_hint": "t2"
+        },
+        {
+          "event_id": "e4",
+          "source": "user_report",
+          "message": "rounding behavior in fixed_sub changed in last commit, may affect hash-sensitive paths",
+          "timestamp_hint": null
+        }
+      ],
+      "candidates": [
+        {
+          "id": "hard_c1",
+          "source": "crates/pse-eval-matrix/src/primitives.rs",
+          "text": "Fixed-point arithmetic module. Recent commit changed rounding behavior in fixed_sub. This is a hash-sensitive operation used in metric calculations written to the ledger.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "hard_c2",
+          "source": "crates/pse-eval-matrix/src/ledger.rs",
+          "text": "Append-only ledger with hash-chained entries. Hash chain computation now diverges after the primitives update. Replay verification reads this chain.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "hard_c3",
+          "source": "crates/pse-eval-matrix/src/replay.rs",
+          "text": "Replay verifier. Returns ReplayMismatch on all current runs. Root cause traces back through ledger hash chain to primitives rounding change.",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "hard_c4",
+          "source": "crates/pse-eval-matrix/src/statistics.rs",
+          "text": "Statistical aggregation module. Uses platform f64, not Fixed-point. Not in the hash-sensitive ledger path. Not involved in the replay failure.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_c5",
+          "source": "crates/pse-eval-matrix/src/scoring.rs",
+          "text": "Scoring module. Reads from ledger entries but does not write them. Downstream of the hash chain. Not causal for the divergence.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_c6",
+          "source": "target/tmp/replay_debug_session_oct.json",
+          "text": "Debug session output from October replay investigation. Replay was passing at that time. Content describes a different hash mismatch, since resolved.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_c7",
+          "source": "reports/determinism_audit_2024.json",
+          "text": "Annual determinism audit from early 2024. Reviewed primitives, ledger, and replay at that time — all passed byte-identity checks. Predates fixed_sub change.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hard_c8",
+          "source": "docs/replay_specification.md",
+          "text": "Normative specification for replay behavior: byte-identity requirement, hash chain rules, invalidation policy. Reference document, no executable code.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["hard_c1", "hard_c2", "hard_c3"],
+        "causal_logs": [],
+        "causal_commands": ["cargo test -p pse-eval-matrix --lib -- replay::tests"],
+        "correct_next_actions": [
+          "inspect crates/pse-eval-matrix/src/primitives.rs fixed_sub change",
+          "inspect crates/pse-eval-matrix/src/ledger.rs hash chain computation",
+          "inspect crates/pse-eval-matrix/src/replay.rs ReplayMismatch path"
+        ],
+        "rejected_false_paths": [
+          "crates/pse-eval-matrix/src/statistics.rs",
+          "crates/pse-eval-matrix/src/scoring.rs",
+          "target/tmp/replay_debug_session_oct.json",
+          "reports/determinism_audit_2024.json",
+          "docs/replay_specification.md"
+        ],
+        "resolution_label": "replay_hash_divergence_primitives_ledger"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only", "harder", "multi_causal"]
+    }
+  ]
+}
