@@ -18,3 +18,8 @@ pse-demo.json
 gemini_key.txt
 .env
 *.key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
