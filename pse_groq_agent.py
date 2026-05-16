@@ -21,7 +21,7 @@ import urllib.error
 
 # ─── Konfiguration ───────────────────────────────────────────────────────────
 
-FIXTURE_PATH = (
+FIXTURE_PATH_DEFAULT = (
     "crates/pse-eval-matrix/fixtures/"
     "agent_exoskeleton/example_trace_fixture_v1.json"
 )
@@ -220,14 +220,18 @@ def run_case(case, api_key, case_num, total_cases):
 
 
 def main():
-    if not os.path.exists(FIXTURE_PATH):
-        print(f"\nFEHLER: Fixture nicht gefunden unter:\n  {FIXTURE_PATH}")
+    # Optionaler Fixture-Pfad als erstes Argument: python pse_groq_agent.py <pfad>
+    fixture_path = sys.argv[1] if len(sys.argv) > 1 else FIXTURE_PATH_DEFAULT
+
+    if not os.path.exists(fixture_path):
+        print(f"\nFEHLER: Fixture nicht gefunden unter:\n  {fixture_path}")
         print("\nBitte dieses Skript vom PSE-Hauptordner aus ausfuehren:")
         print("  cd C:\\...\\pse")
         print("  python pse_groq_agent.py")
+        print("  python pse_groq_agent.py crates/pse-eval-matrix/fixtures/agent_exoskeleton/harder_trace_fixture_v1.json")
         sys.exit(1)
 
-    with open(FIXTURE_PATH, encoding="utf-8") as f:
+    with open(fixture_path, encoding="utf-8") as f:
         fixture = json.load(f)
 
     cases = fixture["cases"]
