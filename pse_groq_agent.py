@@ -318,6 +318,83 @@ Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
 
+# ─── Signature Layer: PSE-TRAVERSE-SIGNATURE-01 ──────────────────────────────
+
+def build_raw_prompt_signature(case):
+    ctx = case.get("signature_context", {})
+    gate = ctx.get("gate_result", {})
+    pareto = ctx.get("pareto_objectives", "")
+    gate_info = ("Gate: " + ", ".join(f"{k}={v}" for k, v in gate.items())) if gate else ""
+    pareto_info = f"Pareto-Ziele: {pareto}" if pareto else ""
+    context_block = "\n".join(x for x in [gate_info, pareto_info] if x)
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Signatur-Analyse-Experte (PSE-TRAVERSE-SIGNATURE-01).
+
+AUFGABE: {case['title']}
+
+{context_block}
+
+KANDIDATEN:
+{items}
+
+Welche 3 Kandidaten sind korrekt fuer diese Situation?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_signature(case):
+    ctx = case.get("signature_context", {})
+    gate = ctx.get("gate_result", {})
+    pareto = ctx.get("pareto_objectives", "")
+    dom_rule = ctx.get("dominance_rule", "")
+    desc = ctx.get("description", "")
+    gate_info = "\n".join(f"  {k}: {v}" for k, v in gate.items()) if gate else ""
+    items = "\n".join(
+        f"  [{c['id']}] item={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    pareto_block = f"Pareto-Ziele: {pareto}\nDominanzkritierium: {dom_rule}" if pareto else ""
+    return f"""Du operierst im PSE Signature-Evaluierungsrahmen (PSE-TRAVERSE-SIGNATURE-01).
+
+== KOGNITIONS-CONSTRAINTS (Signature Layer) ==
+SignatureGate-Checks:
+  gap_score >= min_gap_score
+  degeneracy_score <= max_degeneracy_score
+  fragmentation_score <= max_fragmentation_score
+  RegimeHint in allowed_regimes (wenn konfiguriert)
+
+Pareto-Kriterium (NonDominatedFrontier):
+  A dominiert B genau dann wenn A >= B in ALLEN Zielen UND A > B in mindestens einem
+  Ziele: gap_score (hoeher besser), fragmentation_score (niedriger besser), degeneracy_score (niedriger besser)
+  Einzelziel-Selektion (nur gap ODER nur degeneracy) ist ungueltig
+
+{pareto_block}
+{gate_info}
+{desc}
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [on_frontier, pareto_dominant, causal, valid_remedy,
+                       diagnostic, inspect_path, gap_fix, fragmentation_fix]
+  UNTERDRUECKEN: Tags [dominated, eliminated, masks_problem, spec_violation, bypass,
+                       wrong_phase, wrong_metric, wrong_regime, incomplete_criteria,
+                       single_objective, init_only, data_loss, distractor]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
+
 # ─── Dynamics Layer: PSE-TRAVERSE-DYNAMICS-01 ────────────────────────────────
 
 def build_raw_prompt_dynamics(case):
@@ -655,6 +732,7 @@ PROMPT_BUILDERS = {
     "v1_cognition_fixture":               (build_raw_prompt_cognition, build_pse_prompt_cognition),
     "v1_horizon_fixture":                 (build_raw_prompt_horizon, build_pse_prompt_horizon),
     "v1_dynamics_fixture":                (build_raw_prompt_dynamics, build_pse_prompt_dynamics),
+    "v1_signature_fixture":               (build_raw_prompt_signature, build_pse_prompt_signature),
 }
 
 SCHEMA_LABELS = {
@@ -666,6 +744,7 @@ SCHEMA_LABELS = {
     "v1_cognition_fixture":               "Cognition — PSE-TRAVERSE-COGNITION-01",
     "v1_horizon_fixture":                 "Horizon — PSE-TRAVERSE-HORIZON-03",
     "v1_dynamics_fixture":                "Dynamics — PSE-TRAVERSE-DYNAMICS-01",
+    "v1_signature_fixture":               "Signature — PSE-TRAVERSE-SIGNATURE-01",
 }
 
 
