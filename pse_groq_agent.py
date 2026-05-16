@@ -721,6 +721,87 @@ Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
 
+
+# ─── Topology Layer: PSE-TRAVERSE-TPT-MTL-04 ──────────────────────────────────────────────
+
+def build_raw_prompt_tpt_mtl(case):
+    ctx = case.get("tpt_mtl_context", {})
+    gate = ctx.get("gate_report", {})
+    guard_rule = ctx.get("guard_rule", "")
+    gate_info = ("Gate-Report: " + ", ".join(f"{k}={v}" for k, v in gate.items())) if gate else ""
+    guard_info = f"Guard-Regel: {guard_rule}" if guard_rule else ""
+    context_block = "\n".join(x for x in [gate_info, guard_info] if x)
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Topologie-Pipeline-Analyst (PSE-TRAVERSE-TPT-MTL-04).
+
+AUFGABE: {case['title']}
+
+{context_block}
+
+KANDIDATEN:
+{items}
+
+Welche 3 Kandidaten sind korrekt fuer diese Situation?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_tpt_mtl(case):
+    ctx = case.get("tpt_mtl_context", {})
+    gate = ctx.get("gate_report", {})
+    guard_rule = ctx.get("guard_rule", "")
+    desc = ctx.get("description", "")
+    gate_info = "\n".join(f"  {k}: {v}" for k, v in gate.items()) if gate else ""
+    guard_info = f"Guard-Kriterium: {guard_rule}" if guard_rule else ""
+    items = "\n".join(
+        f"  [{c['id']}] op={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Topologie-Evaluierungsrahmen (PSE-TRAVERSE-TPT-MTL-04).
+
+== KOGNITIONS-CONSTRAINTS (Topology Layer) ==
+outcome_kind() Prioritaet (strikt):
+  (1) !boundary OR !replay  -> Abort        (hoechste Prioritaet, ueberschreibt alles)
+  (2) !truth                -> Quarantine
+  (3) !adapter OR !axis OR !micro_lift OR !carrier -> Recalibrate
+  (4) all_passed AND matrix AND emission    -> Emit
+  (5) sonst                 -> Hold
+
+TopologyGuard Invariante I-08:
+  Jede Mesh-Mutation MUSS TopologyGuardProof erzeugen.
+  Kriterien: delta_beta_i in AllowedShift_i (alle Dim.) AND W_p(PD_old,PD_new) <= theta_PD
+  Kein Proof -> stille Mutation -> I-08-Verletzung (abgelehnt)
+  Proof mit betti_shift_exceeded -> abgelehnt
+  Proof mit pd_distance_exceeded -> abgelehnt
+
+Gate-Report:
+{gate_info}
+{guard_info}
+
+{desc}
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [abort_outcome, spec_outcome, boundary_gate, replay_gate, causal,
+                       valid_proof, passes_guard, valid_next_op, diagnostic, inspect_path]
+  UNTERDRUECKEN: Tags [wrong_priority, impossible_here, masks_problem, spec_violation,
+                       betti_shift_exceeded, pd_distance_exceeded, silent_mutation,
+                       I08_violation, no_proof, config_override, distractor, I05_violation]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
 # ─── Schema-Dispatch ─────────────────────────────────────────────────────────
 
 PROMPT_BUILDERS = {
@@ -733,6 +814,7 @@ PROMPT_BUILDERS = {
     "v1_horizon_fixture":                 (build_raw_prompt_horizon, build_pse_prompt_horizon),
     "v1_dynamics_fixture":                (build_raw_prompt_dynamics, build_pse_prompt_dynamics),
     "v1_signature_fixture":               (build_raw_prompt_signature, build_pse_prompt_signature),
+    "v1_tpt_mtl_fixture":                 (build_raw_prompt_tpt_mtl, build_pse_prompt_tpt_mtl),
 }
 
 SCHEMA_LABELS = {
@@ -745,6 +827,7 @@ SCHEMA_LABELS = {
     "v1_horizon_fixture":                 "Horizon — PSE-TRAVERSE-HORIZON-03",
     "v1_dynamics_fixture":                "Dynamics — PSE-TRAVERSE-DYNAMICS-01",
     "v1_signature_fixture":               "Signature — PSE-TRAVERSE-SIGNATURE-01",
+    "v1_tpt_mtl_fixture":                 "Topology — PSE-TRAVERSE-TPT-MTL-04",
 }
 
 
