@@ -410,6 +410,17 @@ pub struct ExternalTraceFixtureGroundTruth {
     pub resolution_label: String,
 }
 
+/// Top-level JSON file format for external trace fixture files.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExternalTraceFixtureFile {
+    pub fixture_schema_version: String,
+    pub fixture_name: String,
+    pub intended_layer: String,
+    pub diagnostic_only: bool,
+    pub productive_agent_validated: bool,
+    pub cases: Vec<ExternalTraceFixtureCase>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RankedTraceItem {
     pub item_id: String,
@@ -3653,7 +3664,160 @@ pub fn benchmark_scenarios() -> Vec<AgentWorkState> {
     out
 }
 
+struct ExternalFixtureMeta {
+    fixture_path: String,
+    fixture_schema_version: String,
+    fixture_name: String,
+    external_trace_count: usize,
+}
+
+fn fixture_case_to_trace_replay_case(case: ExternalTraceFixtureCase) -> AgentTraceReplayCase {
+    let timeline_events: Vec<AgentTraceEvent> = case
+        .events
+        .iter()
+        .enumerate()
+        .map(|(i, ev)| {
+            let src = ev.source.to_ascii_lowercase();
+            let event_kind = if src.contains("command") {
+                TraceEventKind::CommandRun
+            } else if src.contains("output") {
+                TraceEventKind::CommandOutput
+            } else if src.contains("failure") || src.contains("error") {
+                TraceEventKind::TestFailure
+            } else {
+                TraceEventKind::UserReport
+            };
+            AgentTraceEvent {
+                step_index: i,
+                event_kind,
+                text: ev.message.clone(),
+                referenced_paths: vec![],
+                command: src.contains("command").then(|| ev.message.clone()),
+                outcome: "external_fixture".to_string(),
+                timestamp_label: ev.timestamp_hint.clone(),
+            }
+        })
+        .collect();
+    let candidate_items: Vec<WorkItem> = case
+        .candidates
+        .iter()
+        .map(|c| {
+            let lower_tags: Vec<String> = c.tags.iter().map(|t| t.to_ascii_lowercase()).collect();
+            let item_type = if lower_tags.iter().any(|t| t == "distractor") {
+                WorkItemType::Distractor
+            } else if lower_tags.iter().any(|t| t == "log" || t == "log_file") {
+                WorkItemType::Log
+            } else if lower_tags.iter().any(|t| t == "diff_hint" || t == "diff") {
+                WorkItemType::DiffHint
+            } else {
+                WorkItemType::Repo
+            };
+            WorkItem {
+                id: c.id.clone(),
+                item_type,
+                source: c.source.clone(),
+                text: c.text.clone(),
+                tags: c.tags.clone(),
+                recency_rank: c.relevance_rank_hint.unwrap_or(0).min(255) as u8,
+            }
+        })
+        .collect();
+    let resolution_label = case.ground_truth.resolution_label.clone();
+    AgentTraceReplayCase {
+        trace_id: case.trace_id,
+        title: case.title,
+        source_kind: "external_fixture".to_string(),
+        variant_kind: case.variant_kind,
+        timeline_events,
+        candidate_items,
+        ground_truth: AgentTraceGroundTruth {
+            causal_files: case.ground_truth.causal_files,
+            causal_logs: case.ground_truth.causal_logs,
+            causal_commands: case.ground_truth.causal_commands,
+            correct_next_actions: case.ground_truth.correct_next_actions,
+            rejected_false_paths: case.ground_truth.rejected_false_paths,
+            resolution_label,
+        },
+        expected_resolution_commit_or_label: case.ground_truth.resolution_label,
+        diagnostic_only: true,
+    }
+}
+
+fn validate_and_load_fixture(
+    path: &str,
+) -> Result<(Vec<AgentTraceReplayCase>, ExternalFixtureMeta), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("fixture read error {path}: {e}"))?;
+    let file: ExternalTraceFixtureFile =
+        serde_json::from_slice(&bytes).map_err(|e| format!("fixture parse error {path}: {e}"))?;
+    if file.fixture_schema_version != "v1_external_trace_fixture_scaffold" {
+        return Err(format!(
+            "fixture schema_version mismatch: expected 'v1_external_trace_fixture_scaffold', got '{}'",
+            file.fixture_schema_version
+        ));
+    }
+    if file.fixture_name.is_empty() {
+        return Err("fixture fixture_name must not be empty".to_string());
+    }
+    if !file.diagnostic_only {
+        return Err("fixture diagnostic_only must be true".to_string());
+    }
+    if file.productive_agent_validated {
+        return Err("fixture productive_agent_validated must be false".to_string());
+    }
+    if file.cases.is_empty() {
+        return Err("fixture cases must not be empty".to_string());
+    }
+    let mut seen_ids = std::collections::BTreeSet::new();
+    for case in &file.cases {
+        if case.trace_id.is_empty() {
+            return Err("fixture case trace_id must not be empty".to_string());
+        }
+        if !seen_ids.insert(case.trace_id.clone()) {
+            return Err(format!("fixture duplicate trace_id: '{}'", case.trace_id));
+        }
+        if case.candidates.is_empty() {
+            return Err(format!(
+                "fixture case '{}' has no candidates",
+                case.trace_id
+            ));
+        }
+    }
+    let fixture_schema_version = file.fixture_schema_version;
+    let fixture_name = file.fixture_name;
+    let mut sorted_cases = file.cases;
+    sorted_cases.sort_by(|a, b| a.trace_id.cmp(&b.trace_id));
+    let external_count = sorted_cases.len();
+    let replay_cases: Vec<AgentTraceReplayCase> = sorted_cases
+        .into_iter()
+        .map(fixture_case_to_trace_replay_case)
+        .collect();
+    let meta = ExternalFixtureMeta {
+        fixture_path: path.to_string(),
+        fixture_schema_version,
+        fixture_name,
+        external_trace_count: external_count,
+    };
+    Ok((replay_cases, meta))
+}
+
+pub fn run_agent_exoskeleton_benchmark_with_fixture(
+    fixture_path: &str,
+) -> Result<AgentExoskeletonSuiteReport, String> {
+    let (extra_traces, fixture_meta) = validate_and_load_fixture(fixture_path)?;
+    Ok(run_agent_exoskeleton_benchmark_impl(
+        extra_traces,
+        Some(fixture_meta),
+    ))
+}
+
 pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
+    run_agent_exoskeleton_benchmark_impl(vec![], None)
+}
+
+fn run_agent_exoskeleton_benchmark_impl(
+    extra_traces: Vec<AgentTraceReplayCase>,
+    fixture_meta: Option<ExternalFixtureMeta>,
+) -> AgentExoskeletonSuiteReport {
     fn compute_aggregate(
         reports: &[AgentExoskeletonDiagnosticReport],
     ) -> AgentExoskeletonAggregate {
@@ -3947,7 +4111,25 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
     }
     let mut trace_reports = Vec::new();
     let mut trace_audits = Vec::new();
-    let all_traces = real_trace_replay_cases();
+    let mut all_traces = real_trace_replay_cases();
+    let builtin_original_count = all_traces
+        .iter()
+        .filter(|t| t.variant_kind == TraceVariantKind::Original)
+        .count();
+    let builtin_harder_count = all_traces
+        .iter()
+        .filter(|t| t.variant_kind == TraceVariantKind::Harder)
+        .count();
+    let builtin_expanded_count = all_traces
+        .iter()
+        .filter(|t| t.variant_kind == TraceVariantKind::Expanded)
+        .count();
+    let builtin_expanded_ids: Vec<String> = all_traces
+        .iter()
+        .filter(|t| t.variant_kind == TraceVariantKind::Expanded)
+        .map(|t| t.trace_id.clone())
+        .collect();
+    all_traces.extend(extra_traces.into_iter());
     let original_count = all_traces
         .iter()
         .filter(|t| t.variant_kind == TraceVariantKind::Original)
@@ -8231,53 +8413,103 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
         post_coverage_ranking_failure_summary,
         score_attribution_audits,
         trace_score_attribution_summary,
-        trace_corpus_load_report: Some(TraceCorpusLoadReport {
-            diagnostic_only: true,
-            productive_agent_validated: false,
-            current_pse_not_replaced: true,
-            source_kind: TraceCorpusSourceKind::BuiltinStatic,
-            builtin_trace_count: original_count + harder_count + expanded_count,
-            external_fixture_trace_count: 0,
-            total_loaded_trace_count: original_count + harder_count + expanded_count,
-            fixture_loading_enabled: false,
-            fixture_path: None,
-            fixture_schema_version: Some("v1_external_trace_fixture_scaffold".to_string()),
-            load_status: "builtin_static_corpus_active".to_string(),
-            warnings: vec![
-                "external fixture loading not enabled in BENCH-05G".to_string(),
-                "fixture schema scaffold only; loader not wired".to_string(),
-            ],
-            interpretation_labels: vec![
-                "trace_corpus_load_report_present".to_string(),
-                "builtin_static_corpus_active".to_string(),
-                "external_fixture_loading_not_enabled".to_string(),
-                "diagnostic_only".to_string(),
-                "productive_agent_not_validated".to_string(),
-                "current_pse_not_replaced".to_string(),
-                "ready_for_fixture_loader_implementation".to_string(),
-            ],
+        trace_corpus_load_report: Some({
+            let builtin_count =
+                builtin_original_count + builtin_harder_count + builtin_expanded_count;
+            if let Some(ref fm) = fixture_meta {
+                TraceCorpusLoadReport {
+                    diagnostic_only: true,
+                    productive_agent_validated: false,
+                    current_pse_not_replaced: true,
+                    source_kind: TraceCorpusSourceKind::MixedBuiltinAndFixture,
+                    builtin_trace_count: builtin_count,
+                    external_fixture_trace_count: fm.external_trace_count,
+                    total_loaded_trace_count: builtin_count + fm.external_trace_count,
+                    fixture_loading_enabled: true,
+                    fixture_path: Some(fm.fixture_path.clone()),
+                    fixture_schema_version: Some(fm.fixture_schema_version.clone()),
+                    load_status: "fixture_loaded_successfully".to_string(),
+                    warnings: vec![],
+                    interpretation_labels: vec![
+                        "trace_corpus_load_report_present".to_string(),
+                        "external_fixture_loading_enabled".to_string(),
+                        "mixed_builtin_and_fixture_corpus_active".to_string(),
+                        "diagnostic_only".to_string(),
+                        "productive_agent_not_validated".to_string(),
+                        "current_pse_not_replaced".to_string(),
+                    ],
+                }
+            } else {
+                TraceCorpusLoadReport {
+                    diagnostic_only: true,
+                    productive_agent_validated: false,
+                    current_pse_not_replaced: true,
+                    source_kind: TraceCorpusSourceKind::BuiltinStatic,
+                    builtin_trace_count: builtin_count,
+                    external_fixture_trace_count: 0,
+                    total_loaded_trace_count: builtin_count,
+                    fixture_loading_enabled: false,
+                    fixture_path: None,
+                    fixture_schema_version: Some("v1_external_trace_fixture_scaffold".to_string()),
+                    load_status: "builtin_static_corpus_active".to_string(),
+                    warnings: vec![],
+                    interpretation_labels: vec![
+                        "trace_corpus_load_report_present".to_string(),
+                        "builtin_static_corpus_active".to_string(),
+                        "external_fixture_loading_not_enabled".to_string(),
+                        "diagnostic_only".to_string(),
+                        "productive_agent_not_validated".to_string(),
+                        "current_pse_not_replaced".to_string(),
+                    ],
+                }
+            }
         }),
-        trace_corpus_fixture_descriptor: Some(TraceCorpusFixtureDescriptor {
-            fixture_schema_version: "v1_external_trace_fixture_scaffold".to_string(),
-            fixture_name: "layer1_candidate_causal_trace_fixture_scaffold".to_string(),
-            fixture_trace_count: 0,
-            intended_layer: "Layer-1 Agent Exoskeleton Trace Evaluation".to_string(),
-            diagnostic_only: true,
-            productive_agent_validated: false,
-            required_fields: vec![
-                "trace_id".to_string(),
-                "title".to_string(),
-                "variant_kind".to_string(),
-                "events".to_string(),
-                "candidates".to_string(),
-                "ground_truth".to_string(),
-            ],
-            interpretation_labels: vec![
-                "trace_fixture_schema_scaffold_present".to_string(),
-                "layer1_candidate_causal_metric_compatible".to_string(),
-                "diagnostic_only".to_string(),
-                "external_expansion_path_prepared".to_string(),
-            ],
+        trace_corpus_fixture_descriptor: Some(if let Some(ref fm) = fixture_meta {
+            TraceCorpusFixtureDescriptor {
+                fixture_schema_version: fm.fixture_schema_version.clone(),
+                fixture_name: fm.fixture_name.clone(),
+                fixture_trace_count: fm.external_trace_count,
+                intended_layer: "Layer-1 Agent Exoskeleton Trace Evaluation".to_string(),
+                diagnostic_only: true,
+                productive_agent_validated: false,
+                required_fields: vec![
+                    "trace_id".to_string(),
+                    "title".to_string(),
+                    "variant_kind".to_string(),
+                    "events".to_string(),
+                    "candidates".to_string(),
+                    "ground_truth".to_string(),
+                ],
+                interpretation_labels: vec![
+                    "trace_fixture_loaded_successfully".to_string(),
+                    "layer1_candidate_causal_metric_compatible".to_string(),
+                    "diagnostic_only".to_string(),
+                    "external_fixture_active".to_string(),
+                ],
+            }
+        } else {
+            TraceCorpusFixtureDescriptor {
+                fixture_schema_version: "v1_external_trace_fixture_scaffold".to_string(),
+                fixture_name: "layer1_candidate_causal_trace_fixture_scaffold".to_string(),
+                fixture_trace_count: 0,
+                intended_layer: "Layer-1 Agent Exoskeleton Trace Evaluation".to_string(),
+                diagnostic_only: true,
+                productive_agent_validated: false,
+                required_fields: vec![
+                    "trace_id".to_string(),
+                    "title".to_string(),
+                    "variant_kind".to_string(),
+                    "events".to_string(),
+                    "candidates".to_string(),
+                    "ground_truth".to_string(),
+                ],
+                interpretation_labels: vec![
+                    "trace_fixture_schema_scaffold_present".to_string(),
+                    "layer1_candidate_causal_metric_compatible".to_string(),
+                    "diagnostic_only".to_string(),
+                    "external_expansion_path_prepared".to_string(),
+                ],
+            }
         }),
         trace_corpus_descriptor: Some(TraceCorpusDescriptor {
             corpus_name: "agent_exoskeleton_real_trace_corpus".to_string(),
@@ -8311,15 +8543,13 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
             diagnostic_only: true,
             productive_agent_validated: false,
             current_pse_not_replaced: true,
-            baseline_trace_count: original_count + harder_count,
-            expanded_trace_count: expanded_count,
-            total_trace_count: original_count + harder_count + expanded_count,
+            baseline_trace_count: builtin_original_count + builtin_harder_count,
+            expanded_trace_count: builtin_expanded_count,
+            total_trace_count: builtin_original_count
+                + builtin_harder_count
+                + builtin_expanded_count,
             expansion_status: "expanded_validation_active".to_string(),
-            added_trace_ids: real_trace_replay_cases()
-                .into_iter()
-                .filter(|t| t.variant_kind == TraceVariantKind::Expanded)
-                .map(|t| t.trace_id)
-                .collect(),
+            added_trace_ids: builtin_expanded_ids,
             coverage_labels: vec![
                 "baseline_real_trace_corpus_present".to_string(),
                 "harder_variants_present".to_string(),
@@ -8337,27 +8567,35 @@ pub fn run_agent_exoskeleton_benchmark() -> AgentExoskeletonSuiteReport {
             diagnostic_only: true,
             productive_agent_validated: false,
             current_pse_not_replaced: true,
-            total_trace_count: original_count + harder_count + expanded_count,
-            original_trace_count: original_count,
-            harder_trace_count: harder_count,
-            expanded_trace_count: expanded_count,
+            total_trace_count: builtin_original_count
+                + builtin_harder_count
+                + builtin_expanded_count,
+            original_trace_count: builtin_original_count,
+            harder_trace_count: builtin_harder_count,
+            expanded_trace_count: builtin_expanded_count,
             official_hit_at3_total: 0,
-            audit_aligned_hit_at3_total: original_count + harder_count + expanded_count,
+            audit_aligned_hit_at3_total: builtin_original_count
+                + builtin_harder_count
+                + builtin_expanded_count,
             official_hit_at3_rate: 0.0,
             audit_aligned_hit_at3_rate: 1.0,
             original_audit_aligned_hit_rate: 1.0,
             harder_audit_aligned_hit_rate: 1.0,
             expanded_audit_aligned_hit_rate: 1.0,
-            original_false_negative_count: original_count,
-            harder_false_negative_count: harder_count,
-            expanded_false_negative_count: expanded_count,
+            original_false_negative_count: builtin_original_count,
+            harder_false_negative_count: builtin_harder_count,
+            expanded_false_negative_count: builtin_expanded_count,
             stability_label: "audit_aligned_stable_across_current_corpus".to_string(),
-            redesign_evidence_label: if expanded_count > 0 {
+            redesign_evidence_label: if builtin_expanded_count > 0 {
                 "redesign_evidence_strengthened".to_string()
             } else {
                 "redesign_evidence_inconclusive".to_string()
             },
-            recommended_next_step: if original_count + harder_count + expanded_count >= 20 {
+            recommended_next_step: if builtin_original_count
+                + builtin_harder_count
+                + builtin_expanded_count
+                >= 20
+            {
                 "prepare_layer1_metric_migration_plan".to_string()
             } else {
                 "investigate_expanded_trace_failures".to_string()
@@ -9346,5 +9584,182 @@ mod tests {
             assert_eq!(b.total_score, score);
             assert_eq!(b.unexplained_score_delta, 0);
         }
+    }
+
+    // ── BENCH-05H: External Fixture Loader Tests ─────────────────────────
+
+    #[test]
+    fn fixture_loader_default_no_fixture_source_kind_builtin() {
+        let r = run_agent_exoskeleton_benchmark();
+        let tr = &r.trace_replay_report;
+        let lr = tr.trace_corpus_load_report.as_ref().unwrap();
+        assert_eq!(lr.source_kind, TraceCorpusSourceKind::BuiltinStatic);
+        assert_eq!(lr.builtin_trace_count, 20);
+        assert_eq!(lr.external_fixture_trace_count, 0);
+        assert_eq!(lr.total_loaded_trace_count, 20);
+        assert!(!lr.fixture_loading_enabled);
+        assert_eq!(lr.load_status, "builtin_static_corpus_active");
+        assert!(lr.diagnostic_only);
+        assert!(!lr.productive_agent_validated);
+        assert!(lr.current_pse_not_replaced);
+        assert!(lr
+            .interpretation_labels
+            .contains(&"external_fixture_loading_not_enabled".to_string()));
+        // dual metric and specs must remain intact
+        assert!(tr.trace_feature_design_report.is_some());
+        assert!(r.ablation_aggregate.is_some());
+        assert!(!r.reports.is_empty());
+    }
+
+    #[test]
+    fn fixture_loader_with_valid_fixture_extends_corpus() {
+        let fixture_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/agent_exoskeleton/example_trace_fixture_v1.json"
+        );
+        let r = run_agent_exoskeleton_benchmark_with_fixture(fixture_path)
+            .expect("valid fixture must load without error");
+        let tr = &r.trace_replay_report;
+        let lr = tr.trace_corpus_load_report.as_ref().unwrap();
+        assert_eq!(
+            lr.source_kind,
+            TraceCorpusSourceKind::MixedBuiltinAndFixture
+        );
+        assert_eq!(lr.builtin_trace_count, 20);
+        assert!(lr.external_fixture_trace_count > 0);
+        assert_eq!(
+            lr.total_loaded_trace_count,
+            lr.builtin_trace_count + lr.external_fixture_trace_count
+        );
+        assert!(lr.fixture_loading_enabled);
+        assert_eq!(lr.load_status, "fixture_loaded_successfully");
+        assert!(lr.fixture_path.is_some());
+        assert!(lr
+            .interpretation_labels
+            .contains(&"external_fixture_loading_enabled".to_string()));
+        assert!(lr
+            .interpretation_labels
+            .contains(&"mixed_builtin_and_fixture_corpus_active".to_string()));
+        // total trace count includes external
+        assert!(tr.trace_count > 20);
+        assert_eq!(
+            tr.trace_count,
+            lr.builtin_trace_count + lr.external_fixture_trace_count
+        );
+        // corpus descriptor uses total counts
+        let corpus = tr.trace_corpus_descriptor.as_ref().unwrap();
+        assert_eq!(corpus.trace_count, tr.trace_count);
+        // stability summary covers builtin corpus only (20 traces, 20/20 audit hit)
+        let stab = tr.trace_corpus_stability_summary.as_ref().unwrap();
+        assert_eq!(stab.total_trace_count, 20);
+        assert_eq!(stab.audit_aligned_hit_at3_total, 20);
+        assert_eq!(stab.official_hit_at3_total, 0);
+        assert_eq!(
+            stab.stability_label,
+            "audit_aligned_stable_across_current_corpus"
+        );
+        // fixture descriptor reflects loaded fixture
+        let fd = tr.trace_corpus_fixture_descriptor.as_ref().unwrap();
+        assert_eq!(fd.fixture_trace_count, lr.external_fixture_trace_count);
+        assert!(fd
+            .interpretation_labels
+            .contains(&"trace_fixture_loaded_successfully".to_string()));
+        // safety invariants preserved
+        assert!(tr.diagnostic_only);
+        assert!(!tr.productive_agent_validated);
+        assert!(lr.diagnostic_only);
+        assert!(!lr.productive_agent_validated);
+        assert!(lr.current_pse_not_replaced);
+        // dual metric report must remain Some
+        assert!(!r.reports.is_empty());
+        assert!(r.ablation_aggregate.is_some());
+    }
+
+    #[test]
+    fn fixture_loader_wrong_schema_version_fails_closed() {
+        let bad = r#"{
+            "fixture_schema_version": "v99_wrong",
+            "fixture_name": "bad",
+            "intended_layer": "Layer-1",
+            "diagnostic_only": true,
+            "productive_agent_validated": false,
+            "cases": []
+        }"#;
+        let tmp = std::env::temp_dir().join("pse_test_bad_schema_fixture.json");
+        std::fs::write(&tmp, bad).unwrap();
+        let result = run_agent_exoskeleton_benchmark_with_fixture(tmp.to_str().unwrap());
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("schema_version mismatch"),
+            "expected schema mismatch error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn fixture_loader_empty_cases_fails_closed() {
+        let bad = r#"{
+            "fixture_schema_version": "v1_external_trace_fixture_scaffold",
+            "fixture_name": "empty_fixture",
+            "intended_layer": "Layer-1",
+            "diagnostic_only": true,
+            "productive_agent_validated": false,
+            "cases": []
+        }"#;
+        let tmp = std::env::temp_dir().join("pse_test_empty_cases_fixture.json");
+        std::fs::write(&tmp, bad).unwrap();
+        let result = run_agent_exoskeleton_benchmark_with_fixture(tmp.to_str().unwrap());
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("cases must not be empty"),
+            "expected empty-cases error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn fixture_loader_productive_agent_validated_true_fails_closed() {
+        let bad = r#"{
+            "fixture_schema_version": "v1_external_trace_fixture_scaffold",
+            "fixture_name": "bad_productive",
+            "intended_layer": "Layer-1",
+            "diagnostic_only": true,
+            "productive_agent_validated": true,
+            "cases": []
+        }"#;
+        let tmp = std::env::temp_dir().join("pse_test_productive_validated_fixture.json");
+        std::fs::write(&tmp, bad).unwrap();
+        let result = run_agent_exoskeleton_benchmark_with_fixture(tmp.to_str().unwrap());
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("productive_agent_validated must be false"),
+            "expected productive_agent_validated error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn fixture_loader_deterministic_trace_id_order() {
+        let fixture_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/agent_exoskeleton/example_trace_fixture_v1.json"
+        );
+        let r1 = run_agent_exoskeleton_benchmark_with_fixture(fixture_path).unwrap();
+        let r2 = run_agent_exoskeleton_benchmark_with_fixture(fixture_path).unwrap();
+        assert_eq!(r1, r2, "fixture run must be deterministic");
+        let tr = &r1.trace_replay_report;
+        // external trace IDs should appear in sorted order
+        let external_ids: Vec<&str> = tr
+            .trace_reports
+            .iter()
+            .filter(|rep| rep.scenario_id.starts_with("ext_fixture_"))
+            .map(|rep| rep.scenario_id.as_str())
+            .collect();
+        let mut sorted = external_ids.clone();
+        sorted.sort();
+        assert_eq!(
+            external_ids, sorted,
+            "external traces must appear in deterministic sorted order"
+        );
     }
 }

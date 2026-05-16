@@ -24,7 +24,8 @@ use std::process::ExitCode;
 
 use pse_eval_matrix::{
     append_to_ledger, build_ablation_ladder, init_ledger, plan_runs, render_json_summary,
-    render_markdown_summary, run_agent_exoskeleton_benchmark, run_trial, score_capability_profile,
+    render_markdown_summary, run_agent_exoskeleton_benchmark,
+    run_agent_exoskeleton_benchmark_with_fixture, run_trial, score_capability_profile,
     score_ledger, summarize_ablation, AblationSummary, ConclusionFlag, EvaluationPlan,
     EvaluationRunLedger, EvaluationSpec, EvaluationSummaryReport, Fixed, Preset,
     SyntheticTrialExecutor, TrialReport, VariantSummary, WorkloadSummary,
@@ -411,6 +412,11 @@ fn fixed_to_str(f: &Fixed) -> String {
 
 fn cmd_agent_exoskeleton(args: &[String]) -> CliResult<()> {
     let out = flag_value(args, "--out")?;
-    let report = run_agent_exoskeleton_benchmark();
+    let report = if let Some(fixture_path) = opt_flag_value(args, "--trace-fixture") {
+        run_agent_exoskeleton_benchmark_with_fixture(&fixture_path)
+            .map_err(|e| format!("fixture load failed: {e}"))?
+    } else {
+        run_agent_exoskeleton_benchmark()
+    };
     write_canonical(&report, Some(out), "agent exoskeleton report")
 }
