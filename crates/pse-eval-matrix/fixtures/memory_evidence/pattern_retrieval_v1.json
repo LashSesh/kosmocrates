@@ -1,0 +1,202 @@
+{
+  "fixture_schema_version": "v1_pattern_retrieval_fixture",
+  "fixture_name": "memory_evidence_retrieval_v1",
+  "intended_layer": "Layer-3 Memory / Evidence Pattern Retrieval Evaluation",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "_design_note": "Neutral pattern descriptions. PSE constraints (resonance proximity, verification status, crystal hash integrity) are the only reliable signal.",
+  "cases": [
+    {
+      "trace_id": "mem_m01",
+      "title": "New observation crystal — which archived patterns are the closest matches?",
+      "query_description": "Query crystal: phase transition with drift d=0.71, coupling coefficient 0.44, Fiedler signature [0.08, 0.31, 0.77]. Find matching archived patterns.",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "memory_lookup",
+          "message": "PatternMemory.lookup(query_crystal) -> 10 candidates returned",
+          "timestamp_hint": "t0"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "mem_m01_c01",
+          "source": "pattern_crystal_4a7f",
+          "text": "Archived crystal 4a7f. Phase transition event, drift 0.69, coupling 0.43. Fiedler signature [0.09, 0.30, 0.78]. Cosine similarity 0.97. Resonance proximity 0.94. Verification: passed all gates.",
+          "tags": ["causal", "inspect_path", "high_resonance", "verified", "canonical"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "mem_m01_c02",
+          "source": "pattern_crystal_2b3e",
+          "text": "Archived crystal 2b3e. Phase transition variant, drift 0.73, coupling 0.46. Fiedler signature [0.07, 0.32, 0.76]. Cosine similarity 0.94. Resonance proximity 0.91. Verification: passed all gates.",
+          "tags": ["causal", "inspect_path", "high_resonance", "verified"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "mem_m01_c03",
+          "source": "pattern_crystal_9c1d",
+          "text": "Archived crystal 9c1d. Phase transition label, drift 0.68, coupling 0.41. Fiedler signature [0.11, 0.29, 0.79]. Cosine similarity 0.91. Resonance proximity 0.48. Verification: hash mismatch detected.",
+          "tags": ["red_herring", "distractor", "hash_mismatch", "unverified"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m01_c04",
+          "source": "pattern_crystal_7f2a",
+          "text": "Archived crystal 7f2a. Phase transition label, drift 0.70, coupling 0.45. Fiedler signature [0.08, 0.31, 0.77]. Cosine similarity 0.99. Resonance proximity 0.21. Verification: gate satisfaction failed.",
+          "tags": ["red_herring", "distractor", "low_confidence", "unverified"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m01_c05",
+          "source": "pattern_crystal_5e8b",
+          "text": "Archived crystal 5e8b. Oscillation event, drift 0.31, coupling 0.81. Fiedler signature [0.44, 0.12, 0.39]. Cosine similarity 0.41. Resonance proximity 0.33. Verification: passed.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m01_c06",
+          "source": "pattern_crystal_1a9c",
+          "text": "Archived crystal 1a9c. Cascade event, drift 0.55, coupling 0.62. Fiedler signature [0.22, 0.55, 0.61]. Cosine similarity 0.38. Resonance proximity 0.29. Verification: passed.",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m01_c07",
+          "source": "pattern_crystal_6d4f_stale",
+          "text": "Archived crystal 6d4f (stale). Phase transition label, drift 0.72, coupling 0.44. Crystal from session 14 months ago. Resonance proximity 0.88. Verification: PoR trace not monotone.",
+          "tags": ["stale_crystal", "distractor", "red_herring"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m01_c08",
+          "source": "pattern_crystal_3b7e_stale",
+          "text": "Archived crystal 3b7e (stale). Phase transition event, drift 0.70, coupling 0.43. Crystal from 9 months ago, marked as superseded by a newer canonical form. Resonance proximity 0.79.",
+          "tags": ["stale_crystal", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m01_c09",
+          "source": "memory_index_snapshot.json",
+          "text": "Snapshot of the pattern memory index at last checkpoint. Lists all crystal IDs, their insertion timestamps, and LRU eviction scores.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m01_c10",
+          "source": "retrieval_log_prev_session.txt",
+          "text": "Log of pattern retrieval operations from the previous session. Records which crystals were returned for which queries at that time.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["mem_m01_c01", "mem_m01_c02"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "load pattern_crystal_4a7f as primary match",
+          "load pattern_crystal_2b3e as secondary match"
+        ],
+        "rejected_false_paths": [
+          "pattern_crystal_9c1d (hash mismatch)",
+          "pattern_crystal_7f2a (gate failure)",
+          "pattern_crystal_6d4f_stale (stale crystal)"
+        ],
+        "resolution_label": "crystal_retrieval_resonance_verified"
+      },
+      "ground_truth_label": "Relevante Muster",
+      "tags": ["external", "fixture", "layer3_memory", "diagnostic_only", "pattern_retrieval"]
+    },
+    {
+      "trace_id": "mem_m02",
+      "title": "Evidence chain audit — which chains still pass full integrity verification?",
+      "query_description": "Audit 8 archived evidence chains. Identify which chains pass all verification gates: SHA-256 hash integrity, gate satisfaction, PoR trace monotonicity, operator drift bounds.",
+      "variant_kind": "Harder",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "evidence_audit",
+          "message": "Archive.verify_all() -> 8 chains checked, partial failures detected",
+          "timestamp_hint": "t0"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "mem_m02_c01",
+          "source": "evidence_chain_c7a2",
+          "text": "Evidence chain c7a2. Length: 12 entries. SHA-256 chain intact. All gate observations satisfied. PoR trace strictly monotone. Operator drift within bounds (0.04). Content-addressed hash verified.",
+          "tags": ["causal", "inspect_path", "verified", "canonical"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "mem_m02_c02",
+          "source": "evidence_chain_f3b8",
+          "text": "Evidence chain f3b8. Length: 9 entries. SHA-256 chain intact. All gate observations satisfied. PoR trace strictly monotone. Operator drift within bounds (0.07). Content-addressed hash verified.",
+          "tags": ["causal", "inspect_path", "verified", "canonical"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "mem_m02_c03",
+          "source": "evidence_chain_a1e5",
+          "text": "Evidence chain a1e5. Length: 11 entries. SHA-256 chain intact. Gate satisfaction: 7/9 passed. PoR trace: non-monotone step at entry 6. Content-addressed hash verified.",
+          "tags": ["red_herring", "distractor", "unverified"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m02_c04",
+          "source": "evidence_chain_d9c3",
+          "text": "Evidence chain d9c3. Length: 8 entries. SHA-256 hash mismatch at entry 4. Gate satisfaction not checkable. PoR trace not verified. Content-address invalid.",
+          "tags": ["red_herring", "distractor", "hash_mismatch", "unverified"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m02_c05",
+          "source": "evidence_chain_b6f1",
+          "text": "Evidence chain b6f1. Length: 14 entries. SHA-256 chain intact. Gate satisfaction: all passed. PoR trace: monotone. Operator drift: 0.31 — exceeds allowed bound of 0.10. Hash verified.",
+          "tags": ["red_herring", "distractor", "low_confidence"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m02_c06",
+          "source": "evidence_chain_e4d7",
+          "text": "Evidence chain e4d7. Length: 6 entries. SHA-256 chain intact. Gate satisfaction: 4/6. Operator drift within bounds. PoR trace: one non-monotone transition. Hash verified.",
+          "tags": ["red_herring", "distractor", "unverified"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m02_c07",
+          "source": "archive_integrity_report_q2.json",
+          "text": "Quarterly archive integrity report from Q2. Documents which chains passed verification at that time. Predates recent crystal modifications.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "mem_m02_c08",
+          "source": "audit_log_prev_run.txt",
+          "text": "Audit log from previous verification run. Records per-chain pass/fail outcomes and timestamps for that session.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["mem_m02_c01", "mem_m02_c02"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "mark evidence_chain_c7a2 as verified — ready for use",
+          "mark evidence_chain_f3b8 as verified — ready for use"
+        ],
+        "rejected_false_paths": [
+          "evidence_chain_a1e5 (PoR non-monotone)",
+          "evidence_chain_d9c3 (hash mismatch)",
+          "evidence_chain_b6f1 (operator drift exceeded)"
+        ],
+        "resolution_label": "evidence_chain_integrity_audit"
+      },
+      "ground_truth_label": "Valide Evidence-Chains",
+      "tags": ["external", "fixture", "layer3_evidence", "diagnostic_only", "integrity_audit"]
+    }
+  ]
+}

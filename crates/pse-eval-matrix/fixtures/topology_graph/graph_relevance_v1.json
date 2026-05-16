@@ -1,0 +1,231 @@
+{
+  "fixture_schema_version": "v1_graph_relevance_fixture",
+  "fixture_name": "topology_graph_relevance_v1",
+  "intended_layer": "Layer-2 Topology / Graph Navigation Relevance Evaluation",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "_design_note": "Neutral node/subgraph descriptions. PSE topology constraints (Fiedler, phase coupling, Betti) are the only signal distinguishing causal from distractor.",
+  "cases": [
+    {
+      "trace_id": "topo_t01",
+      "title": "Kuramoto sync failing — which graph regions are causally involved?",
+      "variant_kind": "Harder",
+      "graph_context": {
+        "system_metrics": {
+          "kuramoto_order_parameter": 0.31,
+          "fiedler_eigenvalue": 0.08,
+          "betti_b0": 3,
+          "sync_threshold": 0.75
+        },
+        "description": "Kuramoto synchronization order parameter dropped below threshold. Graph has 3 connected components (B0=3). Fiedler eigenvalue near zero indicates weak connectivity."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "diagnostic",
+          "message": "kuramoto_order_parameter = 0.31, below sync_threshold 0.75",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "diagnostic",
+          "message": "3 connected components detected (B0=3), Fiedler eigenvalue = 0.08",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "topo_t01_c01",
+          "source": "region_alpha",
+          "text": "Region alpha — 12 nodes, 18 edges. Fiedler proximity score 0.09. Phase coupling coefficient 0.41. Bridges to two other components. Internal sync order: 0.28.",
+          "tags": ["causal", "inspect_path", "high_fiedler", "phase_coupled", "bridge"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "topo_t01_c02",
+          "source": "region_gamma",
+          "text": "Region gamma — 8 nodes, 7 edges. Fiedler proximity score 0.11. Isolated component (B0 contribution). Phase desynchronization origin point. Internal sync order: 0.19.",
+          "tags": ["causal", "inspect_path", "high_fiedler", "isolated"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "topo_t01_c03",
+          "source": "region_epsilon",
+          "text": "Region epsilon — 6 nodes, 5 edges. Fiedler proximity score 0.07. Second isolated component. Low internal coupling, contributes to B0=3. Internal sync order: 0.22.",
+          "tags": ["causal", "inspect_path", "high_fiedler"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "topo_t01_c04",
+          "source": "region_beta",
+          "text": "Region beta — 31 nodes, 54 edges. Fiedler proximity score 0.91. Well-connected hub cluster. Phase coupling coefficient 0.88. Internal sync order: 0.79.",
+          "tags": ["red_herring", "distractor", "leaf"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t01_c05",
+          "source": "region_delta",
+          "text": "Region delta — 22 nodes, 38 edges. Fiedler proximity score 0.84. Peripheral ring structure with high local connectivity. Internal sync order: 0.81.",
+          "tags": ["red_herring", "distractor", "peripheral"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t01_c06",
+          "source": "region_zeta",
+          "text": "Region zeta — 17 nodes, 29 edges. Fiedler proximity score 0.77. Dense clique sub-structure. No bridges to other components. Internal sync order: 0.83.",
+          "tags": ["red_herring", "distractor", "isolated"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t01_c07",
+          "source": "region_eta",
+          "text": "Region eta — 14 nodes, 22 edges. Fiedler proximity score 0.72. Stable peripheral cluster. Phase coupling coefficient 0.69. Internal sync order: 0.76.",
+          "tags": ["red_herring", "distractor", "peripheral"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t01_c08",
+          "source": "spectral_report_prev_run.json",
+          "text": "Spectral analysis report from previous run. Documents Fiedler eigenvalue and component structure at that time. Predates the current desynchronization event.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t01_c09",
+          "source": "topology_baseline_q3.json",
+          "text": "Topology baseline snapshot from Q3. Records Betti numbers, sync order, and component structure from before recent graph modifications.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t01_c10",
+          "source": "region_theta",
+          "text": "Region theta — 9 nodes, 11 edges. Fiedler proximity score 0.65. Loosely coupled peripheral cluster. Internal sync order: 0.71. Not a bridge.",
+          "tags": ["red_herring", "distractor", "peripheral", "spectral_noise"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["topo_t01_c01", "topo_t01_c02", "topo_t01_c03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "inspect region_alpha bridge connectivity",
+          "inspect region_gamma isolated component",
+          "inspect region_epsilon isolated component"
+        ],
+        "rejected_false_paths": [
+          "region_beta",
+          "region_delta",
+          "region_zeta"
+        ],
+        "resolution_label": "kuramoto_sync_failure_weak_fiedler_regions"
+      },
+      "ground_truth_label": "Kausale Graph-Regionen",
+      "tags": ["external", "fixture", "layer2_topology", "diagnostic_only", "kuramoto", "fiedler"]
+    },
+    {
+      "trace_id": "topo_t02",
+      "title": "Navigator stuck in local minimum — which escape paths are topologically valid?",
+      "variant_kind": "Harder",
+      "graph_context": {
+        "system_metrics": {
+          "current_betti_b1": 2,
+          "spectral_gradient_norm": 0.04,
+          "singularity_proximity": 0.91,
+          "exploration_depth": 14
+        },
+        "description": "TritonNavigator has been in the same simplex region for 14 exploration steps. Spectral gradient norm near zero. Two topological holes (B1=2) detected nearby. Singularity proximity high."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "diagnostic",
+          "message": "ExplorationStep.is_stuck = true after 14 iterations, gradient_norm = 0.04",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "diagnostic",
+          "message": "SingularityDetector: resonance_outlier detected at proximity 0.91, B1=2",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "topo_t02_c01",
+          "source": "path_north_ridge",
+          "text": "North ridge path — 7 edges. Betti B1 transition: crosses a topological hole boundary. Spectral gradient alignment 0.78. Singularity proximity decreases along path to 0.31.",
+          "tags": ["causal", "inspect_path", "bridge", "causal_connector"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "topo_t02_c02",
+          "source": "path_spiral_exit",
+          "text": "Spiral exit path — 5 edges. Golden-angle step sequence, aligns with Fiedler gradient direction. Betti B0 preserved. Expected singularity proximity after: 0.22.",
+          "tags": ["causal", "inspect_path", "causal_connector", "high_fiedler"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "topo_t02_c03",
+          "source": "path_local_loop_a",
+          "text": "Local loop path A — 4 edges. Stays within the current simplex neighborhood. Spectral gradient alignment 0.06. Betti numbers unchanged. Does not reduce singularity proximity.",
+          "tags": ["red_herring", "distractor", "peripheral"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t02_c04",
+          "source": "path_local_loop_b",
+          "text": "Local loop path B — 6 edges. Variant of the same local neighborhood. Spectral gradient alignment 0.08. Increases singularity proximity slightly.",
+          "tags": ["red_herring", "distractor", "peripheral"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t02_c05",
+          "source": "path_gradient_descent",
+          "text": "Gradient descent path — 9 edges. Follows raw energy gradient without topological constraint. Spectral alignment 0.44. Crosses B1 hole interior — topologically invalid.",
+          "tags": ["red_herring", "distractor", "spectral_noise"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t02_c06",
+          "source": "path_backtrack",
+          "text": "Backtrack path — 3 edges back to previous visited node. Spectral gradient alignment 0.02. Returns to already-explored region with no topological improvement.",
+          "tags": ["red_herring", "distractor", "leaf"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t02_c07",
+          "source": "exploration_history_cache.json",
+          "text": "Cached exploration history for this navigator session. Lists all visited nodes, step counts, and gradient values across 14 iterations.",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "topo_t02_c08",
+          "source": "topology_baseline_snapshot.json",
+          "text": "Topology baseline from initialization. Records initial Betti numbers, simplex structure, and spectral decomposition at exploration start.",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["topo_t02_c01", "topo_t02_c02"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "take path_north_ridge to cross topological hole boundary",
+          "take path_spiral_exit following Fiedler gradient direction"
+        ],
+        "rejected_false_paths": [
+          "path_local_loop_a",
+          "path_local_loop_b",
+          "path_gradient_descent"
+        ],
+        "resolution_label": "navigator_stuck_topological_escape"
+      },
+      "ground_truth_label": "Valide Escape-Pfade",
+      "tags": ["external", "fixture", "layer2_topology", "diagnostic_only", "navigator", "betti", "singularity"]
+    }
+  ]
+}

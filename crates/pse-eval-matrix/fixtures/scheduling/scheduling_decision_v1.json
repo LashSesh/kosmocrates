@@ -1,0 +1,206 @@
+{
+  "fixture_schema_version": "v1_scheduling_decision_fixture",
+  "fixture_name": "scheduling_decision_v1",
+  "intended_layer": "Layer-4 Scheduling Decision Evaluation",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "_design_note": "Neutral task descriptions. PSE scheduling constraints (drift/friction/shock thresholds, MaxPressure strategy) are the only reliable signal for prioritization.",
+  "cases": [
+    {
+      "trace_id": "sched_sc01",
+      "title": "High drift scenario — which tasks have highest execution priority?",
+      "task_type": "prioritize",
+      "scheduling_context": {
+        "system_metrics": {
+          "drift": 0.84,
+          "friction": 0.28,
+          "shock": 0.11
+        },
+        "strategy": "MaxPressure",
+        "description": "Drift d=0.84 is above the 0.7 threshold. MaxPressure strategy active. Constraint-fixing and pressure-relief tasks should be prioritized."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "scheduler",
+          "message": "compute_substeps(d=0.84, F=0.28, S=0.11) -> strategy=MaxPressure, priority_queue has 8 tasks",
+          "timestamp_hint": "t0"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "sched_sc01_t01",
+          "source": "task_constraint_repair_alpha",
+          "text": "Repair violated constraints in the alpha cognitive phase. Resolves 3 open constraint violations flagged in last macro_step. Estimated duration: 2 sub-steps.",
+          "tags": ["causal", "pressure_relief", "constraint_fix", "critical_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "sched_sc01_t02",
+          "source": "task_kairos_gate_recheck",
+          "text": "Re-evaluate Kairos gate conditions after constraint repair. Required before next phase transition can proceed. Estimated duration: 1 sub-step.",
+          "tags": ["causal", "kairos_aligned", "constraint_fix", "critical_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "sched_sc01_t03",
+          "source": "task_drift_damping",
+          "text": "Apply drift-damping operator to reduce system drift below threshold. Direct response to current d=0.84. Estimated duration: 1 sub-step.",
+          "tags": ["causal", "pressure_relief", "constraint_fix"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "sched_sc01_t04",
+          "source": "task_memory_compaction",
+          "text": "Compact pattern memory LRU cache. Evicts least-recently-used patterns to reclaim memory. Low urgency, does not affect drift or constraint state. Estimated duration: 3 sub-steps.",
+          "tags": ["red_herring", "distractor", "background", "can_wait", "low_priority"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc01_t05",
+          "source": "task_telemetry_flush",
+          "text": "Flush telemetry buffer to external sink. Uploads accumulated metrics and trace events. Deferred-safe — no impact on current system pressure. Estimated duration: 2 sub-steps.",
+          "tags": ["red_herring", "distractor", "deferred", "background", "can_wait"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc01_t06",
+          "source": "task_pressure_report_gen",
+          "text": "Generate system pressure report for operator review. Summarizes drift, friction, shock metrics and trend lines. Low execution urgency. Estimated duration: 1 sub-step.",
+          "tags": ["red_herring", "distractor", "low_priority", "can_wait"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc01_t07",
+          "source": "task_topology_snapshot",
+          "text": "Capture current topology snapshot to archive. Periodic baseline update for topology monitoring. Not time-critical, can be deferred without affecting constraint state. Estimated duration: 4 sub-steps.",
+          "tags": ["red_herring", "distractor", "deferred", "background"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc01_t08",
+          "source": "task_ledger_gc",
+          "text": "Garbage-collect stale entries from evaluation ledger. Removes entries older than retention window. Not related to current drift condition. Estimated duration: 5 sub-steps.",
+          "tags": ["red_herring", "distractor", "background", "can_wait", "non_critical"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["sched_sc01_t01", "sched_sc01_t02", "sched_sc01_t03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "execute task_constraint_repair_alpha",
+          "execute task_kairos_gate_recheck",
+          "execute task_drift_damping"
+        ],
+        "rejected_false_paths": [
+          "task_memory_compaction",
+          "task_telemetry_flush",
+          "task_pressure_report_gen"
+        ],
+        "resolution_label": "high_drift_maxpressure_constraint_fix"
+      },
+      "ground_truth_label": "Prioritaets-Tasks (ausfuehren)",
+      "tags": ["external", "fixture", "layer4_scheduling", "diagnostic_only", "high_drift", "maxpressure"]
+    },
+    {
+      "trace_id": "sched_sc02",
+      "title": "High shock scenario — which tasks should be deferred to reduce load?",
+      "task_type": "defer",
+      "scheduling_context": {
+        "system_metrics": {
+          "drift": 0.38,
+          "friction": 0.61,
+          "shock": 0.93
+        },
+        "strategy": "MaxPressure",
+        "description": "Shock S=0.93 is above 0.8 threshold. System needs load reduction. Defer all non-critical background tasks to allow pressure recovery."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "scheduler",
+          "message": "compute_substeps(d=0.38, F=0.61, S=0.93) -> shock_mode=active, defer_non_critical",
+          "timestamp_hint": "t0"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "sched_sc02_t01",
+          "source": "task_telemetry_flush",
+          "text": "Flush telemetry buffer to external sink. Uploads accumulated metrics. No impact on current shock condition. Can resume after shock recovery. Estimated duration: 2 sub-steps.",
+          "tags": ["causal", "can_wait", "deferred", "background", "non_critical"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "sched_sc02_t02",
+          "source": "task_ledger_gc",
+          "text": "Garbage-collect stale ledger entries beyond retention window. Maintenance task with no bearing on current shock state. Can be deferred safely. Estimated duration: 5 sub-steps.",
+          "tags": ["causal", "can_wait", "background", "non_critical"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "sched_sc02_t03",
+          "source": "task_topology_snapshot",
+          "text": "Capture topology snapshot for archive. Periodic monitoring task. Non-urgent — no system state is lost if deferred during shock. Estimated duration: 4 sub-steps.",
+          "tags": ["causal", "can_wait", "deferred", "background"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "sched_sc02_t04",
+          "source": "task_shock_absorber",
+          "text": "Apply shock-absorption operator to reduce S toward safe range. Direct response to S=0.93. Must execute to allow system pressure recovery. Estimated duration: 1 sub-step.",
+          "tags": ["red_herring", "distractor", "pressure_relief", "critical_path"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc02_t05",
+          "source": "task_load_shedder",
+          "text": "Shed non-essential processing load from active pipeline. Reduces shock by dropping low-priority work items from the current queue. Estimated duration: 1 sub-step.",
+          "tags": ["red_herring", "distractor", "pressure_relief", "critical_path"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc02_t06",
+          "source": "task_kairos_gate_eval",
+          "text": "Evaluate Kairos gate for phase transition readiness. Required for any phase change. Time-sensitive — gate window may close if deferred. Estimated duration: 1 sub-step.",
+          "tags": ["red_herring", "distractor", "kairos_aligned", "critical_path"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc02_t07",
+          "source": "task_constraint_monitor",
+          "text": "Run constraint satisfaction check across active cognitive constraints. Detects new violations before they propagate. Low deferral risk within 2 sub-steps. Estimated duration: 1 sub-step.",
+          "tags": ["red_herring", "distractor", "constraint_fix"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc02_t08",
+          "source": "task_evidence_verify",
+          "text": "Run integrity verification on new evidence entries submitted since last audit. Required for ledger consistency. Not deferrable beyond 3 sub-steps. Estimated duration: 2 sub-steps.",
+          "tags": ["red_herring", "distractor", "critical_path"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["sched_sc02_t01", "sched_sc02_t02", "sched_sc02_t03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "defer task_telemetry_flush",
+          "defer task_ledger_gc",
+          "defer task_topology_snapshot"
+        ],
+        "rejected_false_paths": [
+          "task_shock_absorber (must execute now)",
+          "task_load_shedder (must execute now)",
+          "task_kairos_gate_eval (time-sensitive)"
+        ],
+        "resolution_label": "high_shock_defer_non_critical"
+      },
+      "ground_truth_label": "Aufgaben zum Zurueckstellen",
+      "tags": ["external", "fixture", "layer4_scheduling", "diagnostic_only", "high_shock", "defer_mode"]
+    }
+  ]
+}
