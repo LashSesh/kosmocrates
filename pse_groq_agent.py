@@ -8,6 +8,7 @@ Unterstuetzt alle fuenf Fixture-Schemas:
   v1_pattern_retrieval_fixture        -- Layer 3: Memory / Evidence-Retrieval
   v1_scheduling_decision_fixture      -- Layer 4: Scheduling-Entscheidungen
   v1_macro_step_fixture               -- Layer 5: Core Engine macro_step() Orchestration
+  v1_cognition_fixture                -- Cognition: PSE-TRAVERSE-COGNITION-01
 
 Vergleicht in jedem Schema:
   1. Raw LLM:        Groq/Llama ohne PSE-Struktur
@@ -315,6 +316,110 @@ Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
 
+# ─── Layer Cognition: PSE-TRAVERSE-COGNITION-01 ───────────────────────────────
+
+def build_raw_prompt_cognition(case):
+    ctx = case.get("cognition_context", {})
+    gate = ctx.get("handoff_gate", {})
+    task_type = case.get("task_type", "select_recovery_actions")
+
+    if task_type == "select_admitted_wormholes":
+        question = "Welche 3 Wormhole-Vorschlaege erfuellen alle Zulassungskriterien?"
+    else:
+        question = "Welche 3 Recovery-Aktionen sind fuer diesen Gate-Fehler korrekt?"
+
+    gate_info = ""
+    if gate:
+        gate_info = "Gate-Zustand: " + ", ".join(
+            f"{k}={v}" for k, v in gate.items() if k != "passed"
+        ) + f", passed={gate.get('passed', '?')}"
+    desc = ctx.get("description", "")
+
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Kognitions-System-Analyst.
+
+AUFGABE: {case['title']}
+
+Kontext:
+{gate_info}
+{desc}
+
+KANDIDATEN:
+{items}
+
+{question}
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_cognition(case):
+    ctx = case.get("cognition_context", {})
+    gate = ctx.get("handoff_gate", {})
+    task_type = case.get("task_type", "select_recovery_actions")
+    desc = ctx.get("description", "")
+
+    failed_gate = ctx.get("failed_gate", "")
+    admission_gate = ctx.get("admission_gate", "")
+
+    if task_type == "select_admitted_wormholes":
+        ziel = "ZIEL: Identifiziere Wormhole-Vorschlaege die ALLE vier Kriterien erfuellen"
+        boost = "HOCHPRIORITAT: Tags [admitted, valid_reason_code, budget_within_limit, audit_traced, causal]"
+        suppress = "UNTERDRUECKEN: Tags [rejected, invalid_reason_code, budget_exceeded, zero_audit_trace, ttl_exceeded, distractor]"
+        gate_context = f"Zulassungsgate: {admission_gate}"
+    else:
+        ziel = f"ZIEL: Identifiziere Recovery-Aktionen fuer den fehlgeschlagenen Gate: {failed_gate}"
+        boost = "HOCHPRIORITAT: Tags [spec_policy, valid_next_op, causal] mit passendem Gate-Label"
+        suppress = "UNTERDRUECKEN: Tags [wrong_gate, wrong_module, wrong_layer, wrong_context, last_resort, distractor]"
+        gate_status = " | ".join(
+            f"{k}={v}" for k, v in gate.items() if isinstance(v, bool)
+        ) if gate else ""
+        gate_context = f"Gate-Zustand: {gate_status}"
+
+    items = "\n".join(
+        f"  [{c['id']}] aktion={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Kognitions-Evaluierungsrahmen (PSE-TRAVERSE-COGNITION-01).
+
+== KOGNITIONS-CONSTRAINTS (Cognition Layer) ==
+Pipeline: CanonicalState -> State5D -> SpiralMemory -> ConstraintLattice ->
+          HypercubePuzzle -> PhasePanorama -> Scheduler -> Wormhole ->
+          SelfModel -> DualTrigger -> Fixpoint -> Singularity -> HandoffGate
+
+{gate_context}
+{desc}
+
+{ziel}
+
+Prioritaetsregeln:
+  {boost}
+  {suppress}
+
+Gate-Policy-Mapping (nur fuer Recovery-Faelle):
+  G_perc Fehler     -> RefineConstraints (Perkolation)
+  G_panorama Fehler -> ExpandPanorama
+  G_self Fehler     -> CalibrateOperators
+  G_trigger Fehler  -> WaitForPhaseWindow
+
+Wormhole-Zulassung (4-faches AND-Kriterium):
+  Budget(w) <= B_max AND TTL(w) <= TTL_max AND Reason(w) in R AND ReplayTrace != 0
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
+
 # ─── Layer 5: Core Engine macro_step() Orchestration ─────────────────────────
 
 def build_raw_prompt_macro_step(case):
@@ -399,6 +504,7 @@ PROMPT_BUILDERS = {
     "v1_pattern_retrieval_fixture":       (build_raw_prompt_memory, build_pse_prompt_memory),
     "v1_scheduling_decision_fixture":     (build_raw_prompt_scheduling, build_pse_prompt_scheduling),
     "v1_macro_step_fixture":              (build_raw_prompt_macro_step, build_pse_prompt_macro_step),
+    "v1_cognition_fixture":               (build_raw_prompt_cognition, build_pse_prompt_cognition),
 }
 
 SCHEMA_LABELS = {
@@ -407,6 +513,7 @@ SCHEMA_LABELS = {
     "v1_pattern_retrieval_fixture":       "Layer 3 — Memory / Evidence",
     "v1_scheduling_decision_fixture":     "Layer 4 — Scheduling",
     "v1_macro_step_fixture":              "Layer 5 — Core Engine macro_step()",
+    "v1_cognition_fixture":               "Cognition — PSE-TRAVERSE-COGNITION-01",
 }
 
 
