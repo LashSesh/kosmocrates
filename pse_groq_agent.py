@@ -994,6 +994,102 @@ Prioritaetsregeln:
 Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
+
+# ─── Phase Matrix: PHASEMATRIX-HIVEMIND-03 ────────────────────────────────────
+
+def build_raw_prompt_phase_matrix(case):
+    ctx = case.get("phase_matrix_context", {})
+    gate = ctx.get("gate_report", {})
+    inv1 = ctx.get("invariant1_rule", "")
+    gate_info = ("Gate-Report: " + ", ".join(f"{k}={v}" for k, v in gate.items())) if gate else ""
+    inv_info = f"Invariant-1-Regel: {inv1[:160]}" if inv1 else ""
+    context_block = "\n".join(x for x in [gate_info, inv_info] if x)
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Phase-Matrix-Analyst (PHASEMATRIX-HIVEMIND-03).
+
+AUFGABE: {case['title']}
+
+{context_block}
+
+KANDIDATEN:
+{items}
+
+Welche 3 Kandidaten sind korrekt fuer diese Situation?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_phase_matrix(case):
+    ctx = case.get("phase_matrix_context", {})
+    gate = ctx.get("gate_report", {})
+    inv1 = ctx.get("invariant1_rule", "")
+    desc = ctx.get("description", "")
+    gate_info = "\n".join(f"  {k}: {v}" for k, v in gate.items()) if gate else ""
+    items = "\n".join(
+        f"  [{c['id']}] op={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Phase-Matrix-Evaluierungsrahmen (PHASEMATRIX-HIVEMIND-03).
+
+== KOGNITIONS-CONSTRAINTS (Phase Matrix — HIVEMIND-03 / 03.1) ==
+StitcherGate-Formel:
+  G_stitch = G_conv AND G_mci AND G_delta AND G_budget AND G_trace AND G_boundary AND G_evidence
+
+StitchFailurePolicy Prioritaetsreihenfolge (strikt):
+  (1) !g_boundary -> StitchFailurePolicy::BoundaryViolation   (hoechste Prioritaet)
+  (2) !g_delta    -> StitchFailurePolicy::KeepTensorUnchanged
+  (3) !g_trace    -> StitchFailurePolicy::RequireRecompute
+  (4) sonst       -> StitchFailurePolicy::RejectCandidate
+
+G_mci fail-closed: kein MirrorConsistencyReport fuer Kandidat -> G_mci=false (sofort!)
+
+Invariant 1 (Fabric-H/Fabric-T Separation):
+  Fabric-H Events DUERFEN NICHT direkt Fabric-T mutieren.
+  Fabric-T aendert sich NUR via CouplingUpdate[], das eine passed StitcherGateReport referenziert.
+  CouplingUpdate ohne StitcherGateReport-Referenz -> Invariant-1-Verletzung
+  CouplingUpdate mit StitcherGateReport(passed=false) -> Invariant-1-Verletzung
+  ResonanceFabricState schreibt direkt auf FieldTensorState -> Invariant-1-Verletzung
+
+Dissolution-Grundsatz:
+  Dissolution DARF Arbeitszustand komprimieren, MUSS ABER erhalten:
+    Trace, Evidence, Gate-History
+  Loeschen von Trace-Eintraegen bei Dissolution -> Spec-Verletzung!
+
+Handoff-Regel:
+  Handoff erzeugt NUR Kandidaten-Referenzen.
+  Handoff ERSTELLT NIEMALS externe Commit- oder Finalisierungs-Artefakte.
+  PSE-Bridge ist der EINZIGE Crystal-Commit-Pfad.
+
+Gate-Report:
+{gate_info}
+Invariant-1: {inv1[:200]}
+
+{desc}
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [boundary_violation, keep_tensor_unchanged, require_recompute,
+                       valid_coupling_update, invariant1_satisfied, gate_passed_ref,
+                       causal, spec_outcome, recovery_action, diagnostic, inspect_path]
+  UNTERDRUECKEN: Tags [wrong_policy, g_delta_policy, g_trace_policy, invariant1_violation,
+                       no_gate_ref, failed_gate_ref, direct_fabric_mutation,
+                       dissolution_grundsatz, trace_deletion, handoff_violation,
+                       determinism_violation, masks_problem, spec_violation, distractor]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
 # ─── Schema-Dispatch ─────────────────────────────────────────────────────────
 
 PROMPT_BUILDERS = {
@@ -1009,6 +1105,7 @@ PROMPT_BUILDERS = {
     "v1_tpt_mtl_fixture":                 (build_raw_prompt_tpt_mtl, build_pse_prompt_tpt_mtl),
     "v1_nctcs_fixture":                   (build_raw_prompt_nctcs, build_pse_prompt_nctcs),
     "v1_metatron_fixture":                (build_raw_prompt_metatron, build_pse_prompt_metatron),
+    "v1_phase_matrix_fixture":             (build_raw_prompt_phase_matrix, build_pse_prompt_phase_matrix),
 }
 
 SCHEMA_LABELS = {
@@ -1024,6 +1121,7 @@ SCHEMA_LABELS = {
     "v1_tpt_mtl_fixture":                 "Topology — PSE-TRAVERSE-TPT-MTL-04",
     "v1_nctcs_fixture":                   "NCTCS — PSE-NCTCS-CONFORMANCE-01",
     "v1_metatron_fixture":                "Metatron — PSE-METATRON-MONOLITH-01",
+    "v1_phase_matrix_fixture":             "Phase Matrix — PHASEMATRIX-HIVEMIND-03",
 }
 
 
