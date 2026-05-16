@@ -1,0 +1,251 @@
+{
+  "fixture_schema_version": "v1_macro_step_fixture",
+  "fixture_name": "pse_core_macro_step_v1",
+  "intended_layer": "Layer-5 Core Engine macro_step() Orchestration Evaluation",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "_design_note": "Neutral operator descriptions — no engine-state names, no metric thresholds, no phase labels in candidate texts. PSE operator-phase tags (valid_next_op, recovery_path, wrong_phase, init_only, completed) are the only reliable signal distinguishing correct next operators from invalid ones. Name-trap distractors whose names superficially suggest correctness for the scenario.",
+  "cases": [
+    {
+      "trace_id": "ms_c01",
+      "title": "PoR trace non-monotone — which operators restore engine integrity before retry?",
+      "task_type": "select_operators",
+      "engine_context": {
+        "engine_state": "Resonating",
+        "por_status": "non_monotone_step_detected",
+        "gate_evaluated": false,
+        "consensus_attempted": false,
+        "pattern_memory_consulted": false,
+        "description": "The PoR FSM emitted a non-monotone trace step during resonance computation. The Kairos gate has not yet been evaluated. Recovery operators must restore FSM and carrier state before the gate check can proceed safely."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "por_fsm",
+          "message": "PoRFsm::step() -> non_monotone at position 7, expected strictly increasing sequence",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "engine",
+          "message": "engine_state=Resonating, gate not yet evaluated, abort_recovery required",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "ms_c01_op01",
+          "source": "por_fsm_reset",
+          "text": "Resets the proof-of-resonance finite state machine to its initial state. Clears the accumulated step sequence and prepares the FSM for a fresh trace from the next observation batch.",
+          "tags": ["causal", "recovery_path", "valid_next_op", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "ms_c01_op02",
+          "source": "restore_neutrality",
+          "text": "Resets the cascade context to a neutral baseline state. Clears the carrier interference pattern and mandorla accumulator so the next computation starts from a clean carrier configuration.",
+          "tags": ["causal", "recovery_path", "valid_next_op"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "ms_c01_op03",
+          "source": "morphogenic_update",
+          "text": "Applies the morphogenic update step to the constraint state. Advances the internal morphogenic clock and adjusts the constraint weight vector toward the attractor configuration.",
+          "tags": ["causal", "recovery_path", "valid_next_op"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "ms_c01_op04",
+          "source": "kairos_gate_evaluate",
+          "text": "Evaluates the 8-fold Kairos gate composition. Checks each metric component (d, q, r, g, j, p, n, k) against its threshold and computes the AND result.",
+          "tags": ["red_herring", "distractor", "wrong_phase", "premature"],
+          "relevance_rank_hint": null,
+          "_trap": "Name contains 'gate' — sounds relevant when PoR trace is bad, but gate evaluation must not proceed until trace is repaired."
+        },
+        {
+          "id": "ms_c01_op05",
+          "source": "dual_consensus_resolve",
+          "text": "Runs the dual consensus protocol over the current crystal precursor. Executes primal and dual cascade operator chains and computes the mirror consistency index.",
+          "tags": ["red_herring", "distractor", "wrong_phase", "premature"],
+          "relevance_rank_hint": null,
+          "_trap": "Consensus requires a valid gate-pass; invoking it during PoR failure is an illegal sequencing error."
+        },
+        {
+          "id": "ms_c01_op06",
+          "source": "build_crystal_with_id",
+          "text": "Constructs a new SemanticCrystal from the validated crystal precursor. Assigns a deterministic content-addressed identifier and populates the crystal fields from the precursor metrics.",
+          "tags": ["red_herring", "distractor", "wrong_phase"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ms_c01_op07",
+          "source": "batch_data_helix_project",
+          "text": "Projects the current observation batch onto the data-helix at the active intrinsic time coordinate. Computes the helix vector from observation content digests.",
+          "tags": ["red_herring", "distractor", "completed", "background"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ms_c01_op08",
+          "source": "pattern_memory_lookup",
+          "text": "Queries the topological similarity index for archived crystals matching the current candidate signature. Returns the closest matching crystal if resonance proximity exceeds the configured threshold.",
+          "tags": ["red_herring", "distractor", "wrong_order"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ms_c01_op09",
+          "source": "build_metatron_phase_ladder",
+          "text": "Constructs the Metatron cuboctahedron phase ladder from the canonical 13-vertex geometry. Computes evenly distributed phase offsets from the cuboctahedral vertex angles.",
+          "tags": ["red_herring", "distractor", "init_only"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ms_c01_op10",
+          "source": "topology_signature_compute",
+          "text": "Computes the topology signature of the current persistent graph. Returns spectral gap, Cheeger estimate, Kuramoto coherence, mean propagation time, and Betti numbers.",
+          "tags": ["red_herring", "distractor", "background", "low_priority"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["ms_c01_op01", "ms_c01_op02", "ms_c01_op03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "invoke por_fsm_reset to clear the non-monotone trace",
+          "invoke restore_neutrality to reset carrier cascade state",
+          "invoke morphogenic_update to re-sync constraint weights"
+        ],
+        "rejected_false_paths": [
+          "kairos_gate_evaluate (premature — gate requires healthy PoR trace)",
+          "dual_consensus_resolve (premature — consensus requires gate to pass first)",
+          "build_metatron_phase_ladder (init-only operator, wrong phase)"
+        ],
+        "resolution_label": "por_non_monotone_recovery_sequence"
+      },
+      "ground_truth_label": "Korrekte Recovery-Operatoren",
+      "tags": ["external", "fixture", "layer5_core", "diagnostic_only", "por_recovery", "honest"]
+    },
+    {
+      "trace_id": "ms_c02",
+      "title": "Dual consensus rejected — which operators diagnose the primal-score shortfall?",
+      "task_type": "select_operators",
+      "engine_context": {
+        "engine_state": "Crystallizing",
+        "gate_passed": true,
+        "seam_check_passed": true,
+        "consensus_result": "primal_score_below_threshold",
+        "primal_score": 0.41,
+        "threshold": 0.60,
+        "por_trace_status": "monotone",
+        "description": "The Kairos gate passed. Seam check passed. Dual consensus ran and returned primal_score=0.41 < threshold=0.60. The crystal was not built. PoR trace was clean. Diagnosis targets the cascade context feeding the consensus operators."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "dual_consensus",
+          "message": "primal_score=0.41 < threshold=0.60 -> consensus rejected, crystal not built",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "engine",
+          "message": "engine_state=Rejected(consensus failed), gate_passed=true, seam_passed=true",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "ms_c02_op01",
+          "source": "inspect_cascade_context",
+          "text": "Reads the cascade context fields that were supplied to the consensus operators. Reports the active carrier index, helix-pair state, phase ladder offset, and data-helix projection that were active during the consensus run.",
+          "tags": ["causal", "diagnostic", "inspect_path", "valid_next_op"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "ms_c02_op02",
+          "source": "check_mandorla_kappa",
+          "text": "Reads the kappa field of the most recently computed mandorla. Returns the coherence value and compares it against the configured carrier lambda and mu_r parameters.",
+          "tags": ["causal", "diagnostic", "inspect_path", "valid_next_op"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "ms_c02_op03",
+          "source": "attempt_carrier_migration",
+          "text": "Evaluates whether the active carrier should migrate to a different phase-ladder slot. Compares current carrier kappa against all alternatives and promotes the highest-coherence slot.",
+          "tags": ["causal", "diagnostic", "valid_next_op", "recovery_path"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "ms_c02_op04",
+          "source": "por_fsm_reset",
+          "text": "Resets the proof-of-resonance finite state machine to its initial state. Clears the accumulated step sequence and prepares the FSM for a fresh trace from the next observation batch.",
+          "tags": ["red_herring", "distractor", "wrong_phase"],
+          "relevance_rank_hint": null,
+          "_trap": "PoR trace was clean (monotone). Resetting the FSM wastes a verified trace and does not address the consensus failure."
+        },
+        {
+          "id": "ms_c02_op05",
+          "source": "archive_crystal_commit",
+          "text": "Commits the fully built SemanticCrystal to the evidence archive. Appends the crystal and its commit proof to the SHA-256 hash chain and advances the archive sequence number.",
+          "tags": ["red_herring", "distractor", "wrong_phase"],
+          "relevance_rank_hint": null,
+          "_trap": "No crystal was built — consensus failed before crystallization completed. Archive commit has no crystal to write."
+        },
+        {
+          "id": "ms_c02_op06",
+          "source": "pattern_memory_store",
+          "text": "Stores the fingerprint of the newly committed crystal into the topological similarity index. Extracts the candidate signature from the crystal's region and inserts it into the pattern memory.",
+          "tags": ["red_herring", "distractor", "wrong_phase"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ms_c02_op07",
+          "source": "restore_neutrality",
+          "text": "Resets the cascade context to a neutral baseline state. Clears the carrier interference pattern and mandorla accumulator so the next computation starts from a clean carrier configuration.",
+          "tags": ["red_herring", "distractor", "wrong_context"],
+          "relevance_rank_hint": null,
+          "_trap": "Correct for PoR or resonance failures but this is a consensus failure. Neutralizing the cascade does not diagnose why primal_score was low."
+        },
+        {
+          "id": "ms_c02_op08",
+          "source": "falsification_surrogate_run",
+          "text": "Generates k surrogate observation batches and re-runs the engine on each. Computes the empirical p-value as the fraction of surrogates whose maximum kappa matched or exceeded the real batch.",
+          "tags": ["red_herring", "distractor", "wrong_order"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ms_c02_op09",
+          "source": "kairos_gate_recheck",
+          "text": "Re-evaluates the 8-fold Kairos gate composition against the current metric snapshot. Returns a fresh GateSnapshot with all component values and the AND result.",
+          "tags": ["red_herring", "distractor", "completed", "redundant"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ms_c02_op10",
+          "source": "build_metatron_phase_ladder",
+          "text": "Constructs the Metatron cuboctahedron phase ladder from the canonical 13-vertex geometry. Computes evenly distributed phase offsets from the cuboctahedral vertex angles.",
+          "tags": ["red_herring", "distractor", "init_only"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["ms_c02_op01", "ms_c02_op02", "ms_c02_op03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "inspect_cascade_context to read carrier/helix state during failed consensus",
+          "check_mandorla_kappa to evaluate carrier coherence as root cause",
+          "attempt_carrier_migration to promote a higher-kappa carrier slot"
+        ],
+        "rejected_false_paths": [
+          "por_fsm_reset (PoR trace was clean — wrong failure mode)",
+          "archive_crystal_commit (no crystal was built — wrong phase)",
+          "kairos_gate_recheck (gate already passed — redundant)"
+        ],
+        "resolution_label": "consensus_failure_cascade_context_diagnosis"
+      },
+      "ground_truth_label": "Diagnose-Operatoren",
+      "tags": ["external", "fixture", "layer5_core", "diagnostic_only", "consensus_failure", "honest"]
+    }
+  ]
+}
