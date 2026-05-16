@@ -1,0 +1,242 @@
+{
+  "fixture_schema_version": "v1_dynamics_fixture",
+  "fixture_name": "dynamics_layer_v1",
+  "intended_layer": "Dynamics Layer PSE-TRAVERSE-DYNAMICS-01",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "_design_note": "Neutral operator descriptions. No raw metric values in candidate texts. PSE dynamics tags (gate_01_failclosed, valid_next_op, path_delta_repair, wrong_parameter, increases_delta, init_only) are the only reliable signal. Name-trap: DynamicGateDecision::Fire sounds like success but is impossible when proof is None (GATE-01 is unconditional). MorphodynamicCompressor::Split sounds like 'resolving' but increases path_delta.",
+  "cases": [
+    {
+      "trace_id": "dyn_c01",
+      "title": "GATE-01: proof is None — what is the deterministic gate outcome and recovery?",
+      "task_type": "select_gate_outcome",
+      "dynamics_context": {
+        "gate_result": {
+          "proof_supplied": false,
+          "decision": "Hold",
+          "passed": false,
+          "reason_code": "no_proof"
+        },
+        "description": "evaluate_dynamic_gate was called with proof=None. GATE-01 mandates fail-closed behavior: when no TransitionProof is supplied, the gate always returns Hold regardless of DynamicGateConfig thresholds. The decision is unconditional — no config adjustment can produce Fire without a valid proof."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "evaluate_dynamic_gate",
+          "message": "proof=None -> GATE-01 fail-closed -> DynamicGateDecision::Hold, reason_code=no_proof",
+          "timestamp_hint": "t0"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "dyn_c01_op01",
+          "source": "DynamicGateDecision_Hold",
+          "text": "The gate decision is unconditionally Hold when no transition proof is supplied. GATE-01 encodes this as a spec invariant: the absence of a proof is not a recoverable config issue — it is a hard precondition failure.",
+          "tags": ["causal", "gate_01_failclosed", "spec_outcome", "valid_next_op"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "dyn_c01_op02",
+          "source": "recompute_transition_proof",
+          "text": "Runs TransitionProof::compute over the current tick's prev and next state vectors, the live FieldSignal, and the CompressorStats. Produces a valid proof that can be passed to the gate on the next tick.",
+          "tags": ["causal", "valid_next_op", "gate_01_failclosed", "recovery_path"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "dyn_c01_op03",
+          "source": "diagnose_why_proof_is_None",
+          "text": "Reads the dynamic tick log to determine whether the proof was skipped because compute_proof=false in DynamicTickInput, or because an earlier state lift failed. Identifies the upstream cause.",
+          "tags": ["causal", "diagnostic", "inspect_path", "gate_01_failclosed"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "dyn_c01_op04",
+          "source": "DynamicGateDecision_Fire",
+          "text": "The gate decision indicating the transition proof passed all threshold checks. Returned when passed=true and all reason checks succeed.",
+          "tags": ["red_herring", "distractor", "wrong_outcome", "impossible_here"],
+          "relevance_rank_hint": null,
+          "_trap": "Fire is the desired outcome but is impossible when proof=None — GATE-01 is unconditional. The name sounds like the right answer."
+        },
+        {
+          "id": "dyn_c01_op05",
+          "source": "relax_DynamicGateConfig_thresholds",
+          "text": "Raises max_path_delta, lowers min_alignment, or disables require_energy_decrease in the gate config to reduce the number of conditions that can cause a Hold.",
+          "tags": ["red_herring", "distractor", "wrong_fix", "config_irrelevant"],
+          "relevance_rank_hint": null,
+          "_trap": "Config thresholds are irrelevant when proof=None — GATE-01 bypasses all threshold checks entirely. Relaxing config does not produce Fire."
+        },
+        {
+          "id": "dyn_c01_op06",
+          "source": "use_default_proof_placeholder",
+          "text": "Substitutes a default zero-initialized TransitionProof to satisfy the non-None requirement and allow the gate to proceed to threshold evaluation.",
+          "tags": ["red_herring", "distractor", "invalid_bypass"],
+          "relevance_rank_hint": null,
+          "_trap": "A zero-initialized proof would have proof.valid=false, triggering another Hold on the proof_invalid reason code. Not a valid workaround."
+        },
+        {
+          "id": "dyn_c01_op07",
+          "source": "skip_gate_evaluation",
+          "text": "Bypasses the dynamic gate check and advances the tick state directly without emitting a DynamicGateReport.",
+          "tags": ["red_herring", "distractor", "spec_violation"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "dyn_c01_op08",
+          "source": "adapt_homeostasis_policy",
+          "text": "Calls DynamicPolicy::adapt_homeostasis to adjust the policy kind toward Homeostasis when current_density diverges from target_density.",
+          "tags": ["red_herring", "distractor", "wrong_context"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "dyn_c01_op09",
+          "source": "increase_learning_rate",
+          "text": "Raises the learning_rate parameter in DynamicPolicy to accelerate per-tick state updates in the MorphodynamicCompressor.",
+          "tags": ["red_herring", "distractor", "wrong_parameter"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "dyn_c01_op10",
+          "source": "null_center_unfold_dynamics",
+          "text": "Re-initializes the DynamicTraversalState from a fresh NullCenter, clearing all compression graph history and guidance field state.",
+          "tags": ["red_herring", "distractor", "init_only"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["dyn_c01_op01", "dyn_c01_op02", "dyn_c01_op03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "Hold outcome is unconditional per GATE-01 (no config override possible)",
+          "recompute_transition_proof to generate a valid proof for the next tick",
+          "diagnose_why_proof_is_None to find the upstream skip cause"
+        ],
+        "rejected_false_paths": [
+          "DynamicGateDecision::Fire (impossible with None proof — GATE-01 is unconditional)",
+          "relax_DynamicGateConfig_thresholds (config irrelevant when proof=None)",
+          "use_default_proof_placeholder (zero proof produces proof_invalid Hold)"
+        ],
+        "resolution_label": "gate01_none_proof_failclosed"
+      },
+      "ground_truth_label": "GATE-01 Hold-Outcome und Recovery",
+      "tags": ["external", "fixture", "layer_dynamics", "diagnostic_only", "gate01_failclosed", "honest"]
+    },
+    {
+      "trace_id": "dyn_c02",
+      "title": "path_delta_too_high — which compressor and policy actions reduce per-tick movement?",
+      "task_type": "select_compressor_action",
+      "dynamics_context": {
+        "gate_result": {
+          "proof_supplied": true,
+          "proof_valid": true,
+          "decision": "Hold",
+          "passed": false,
+          "reason_code": "path_delta_too_high",
+          "other_checks": "alignment OK, energy OK, density OK"
+        },
+        "description": "DynamicGateReport returned Hold with reason path_delta_too_high. The TransitionProof is valid. Alignment, energy and density checks all passed. The sole failure is excessive per-tick state movement. The MorphodynamicCompressor and DynamicPolicy control how much states move between ticks."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "evaluate_dynamic_gate",
+          "message": "proof.path_delta > config.max_path_delta, reason=path_delta_too_high, decision=Hold",
+          "timestamp_hint": "t0"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "dyn_c02_op01",
+          "source": "MorphodynamicCompressor_Merge",
+          "text": "Merges pairs of compression nodes whose L2 coordinate distance falls within the merge_threshold. Reduces the effective number of distinct state positions, lowering the mean per-tick displacement vector.",
+          "tags": ["causal", "valid_next_op", "path_delta_repair", "merge_reduces_delta"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "dyn_c02_op02",
+          "source": "reduce_policy_learning_rate",
+          "text": "Lowers the learning_rate parameter in DynamicPolicy. Smaller learning rate scales down the per-tick coordinate update step applied by the MorphodynamicCompressor, directly reducing path_delta.",
+          "tags": ["causal", "valid_next_op", "path_delta_repair"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "dyn_c02_op03",
+          "source": "apply_GuidanceField_pruning",
+          "text": "Activates the GuidanceField's low-weight transition pruner. Removes guidance edges that drive large per-tick displacements, constraining the compressor's update magnitude.",
+          "tags": ["causal", "valid_next_op", "path_delta_repair"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "dyn_c02_op04",
+          "source": "MorphodynamicCompressor_Split",
+          "text": "Splits nodes whose mass exceeds split_threshold and variance exceeds variance_threshold into two child nodes at separate coordinate positions.",
+          "tags": ["red_herring", "distractor", "increases_delta", "wrong_operation"],
+          "relevance_rank_hint": null,
+          "_trap": "Split INCREASES node count and creates new positions at larger distances, raising path_delta. Sounds like 'resolving' a stuck state but does the opposite."
+        },
+        {
+          "id": "dyn_c02_op05",
+          "source": "increase_min_alignment_threshold",
+          "text": "Raises the min_alignment value in DynamicGateConfig so the gate requires higher field alignment before firing.",
+          "tags": ["red_herring", "distractor", "wrong_parameter"],
+          "relevance_rank_hint": null,
+          "_trap": "Alignment passed — raising its threshold makes the gate stricter for a check that already succeeded, and does not address path_delta."
+        },
+        {
+          "id": "dyn_c02_op06",
+          "source": "enable_require_energy_decrease",
+          "text": "Sets require_energy_decrease=true in DynamicGateConfig so the gate additionally requires the energy delta to be negative before firing.",
+          "tags": ["red_herring", "distractor", "wrong_parameter"],
+          "relevance_rank_hint": null,
+          "_trap": "Energy check already passed — adding an energy constraint does not fix the path_delta failure and makes firing harder."
+        },
+        {
+          "id": "dyn_c02_op07",
+          "source": "HebbianWeightUpdate",
+          "text": "Applies a Hebbian learning step to all compression graph edges, strengthening frequently traversed connections and weakening dormant ones.",
+          "tags": ["red_herring", "distractor", "indirect_effect"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "dyn_c02_op08",
+          "source": "switch_policy_to_Explore",
+          "text": "Changes DynamicPolicyKind from the current setting to Explore, prioritising broad state coverage over stability.",
+          "tags": ["red_herring", "distractor", "increases_delta", "wrong_policy"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "dyn_c02_op09",
+          "source": "relax_max_path_delta_threshold",
+          "text": "Increases max_path_delta in DynamicGateConfig to accept the current level of per-tick movement without further correction.",
+          "tags": ["red_herring", "distractor", "masks_problem"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "dyn_c02_op10",
+          "source": "reinitialize_compression_graph",
+          "text": "Discards the current CompressionGraph and starts a fresh empty graph for the next tick.",
+          "tags": ["red_herring", "distractor", "init_only"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["dyn_c02_op01", "dyn_c02_op02", "dyn_c02_op03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "MorphodynamicCompressor::Merge to reduce state positions and lower mean displacement",
+          "reduce policy learning_rate to scale down per-tick update magnitude",
+          "apply GuidanceField pruning to remove large-displacement guidance edges"
+        ],
+        "rejected_false_paths": [
+          "MorphodynamicCompressor::Split (increases node spread, raises path_delta)",
+          "increase_min_alignment (alignment passed, wrong parameter)",
+          "enable_require_energy_decrease (energy passed, wrong parameter)"
+        ],
+        "resolution_label": "path_delta_too_high_compressor_merge_rate_reduction"
+      },
+      "ground_truth_label": "Compressor-Aktionen fuer path_delta Reduktion",
+      "tags": ["external", "fixture", "layer_dynamics", "diagnostic_only", "path_delta_repair", "honest"]
+    }
+  ]
+}

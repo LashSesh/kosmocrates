@@ -10,6 +10,7 @@ Unterstuetzt alle fuenf Fixture-Schemas:
   v1_macro_step_fixture               -- Layer 5: Core Engine macro_step() Orchestration
   v1_cognition_fixture                -- Cognition: PSE-TRAVERSE-COGNITION-01
   v1_horizon_fixture                  -- Horizon: PSE-TRAVERSE-HORIZON-03
+  v1_dynamics_fixture                 -- Dynamics: PSE-TRAVERSE-DYNAMICS-01
 
 Vergleicht in jedem Schema:
   1. Raw LLM:        Groq/Llama ohne PSE-Struktur
@@ -317,6 +318,80 @@ Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
 
+# ─── Dynamics Layer: PSE-TRAVERSE-DYNAMICS-01 ────────────────────────────────
+
+def build_raw_prompt_dynamics(case):
+    ctx = case.get("dynamics_context", {})
+    gate = ctx.get("gate_result", {})
+    gate_info = "Gate-Ergebnis: " + ", ".join(f"{k}={v}" for k, v in gate.items()) if gate else "(kein Gate)"
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Dynamics-Layer-Analyst (PSE-TRAVERSE-DYNAMICS-01).
+
+AUFGABE: {case['title']}
+
+{gate_info}
+
+KANDIDATEN:
+{items}
+
+Welche 3 Kandidaten sind korrekt fuer diese Situation?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_dynamics(case):
+    ctx = case.get("dynamics_context", {})
+    gate = ctx.get("gate_result", {})
+    gate_info = "\n".join(f"  {k}: {v}" for k, v in gate.items()) if gate else "(kein Gate)"
+    desc = ctx.get("description", "")
+    items = "\n".join(
+        f"  [{c['id']}] op={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Dynamics-Evaluierungsrahmen (PSE-TRAVERSE-DYNAMICS-01).
+
+== KOGNITIONS-CONSTRAINTS (Dynamics Layer) ==
+GATE-01: proof=None -> immer Hold (unconditional, keine Config-Ausnahme moeglich)
+DynamicGateConfig-Pruefungen (nur wenn proof != None):
+  path_delta <= max_path_delta
+  alignment >= min_alignment
+  energy_delta < 0 (wenn require_energy_decrease=true)
+  abs(density_delta) <= max_density_delta (wenn konfiguriert)
+
+Gate-Ergebnis:
+{gate_info}
+
+{desc}
+
+MorphodynamicCompressor-Operationen:
+  Merge -> reduziert Knotenanzahl und mittlere Verschiebung (path_delta sinkt)
+  Prune -> entfernt schwache Kanten (reduziert Bewegungsimpulse)
+  Split -> erhoeht Knotenanzahl und Verteilung (path_delta steigt!)
+  Hebbian -> passt Kantengewichte an (kein direkter Effekt auf path_delta)
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [gate_01_failclosed, spec_outcome, valid_next_op, path_delta_repair,
+                       diagnostic, inspect_path, recovery_path, merge_reduces_delta]
+  UNTERDRUECKEN: Tags [wrong_outcome, impossible_here, config_irrelevant, invalid_bypass,
+                       wrong_parameter, increases_delta, wrong_operation, masks_problem,
+                       init_only, spec_violation, wrong_context, wrong_policy, distractor]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
+
 # ─── Horizon Layer: PSE-TRAVERSE-HORIZON-03 ──────────────────────────────────
 
 def build_raw_prompt_horizon(case):
@@ -579,6 +654,7 @@ PROMPT_BUILDERS = {
     "v1_macro_step_fixture":              (build_raw_prompt_macro_step, build_pse_prompt_macro_step),
     "v1_cognition_fixture":               (build_raw_prompt_cognition, build_pse_prompt_cognition),
     "v1_horizon_fixture":                 (build_raw_prompt_horizon, build_pse_prompt_horizon),
+    "v1_dynamics_fixture":                (build_raw_prompt_dynamics, build_pse_prompt_dynamics),
 }
 
 SCHEMA_LABELS = {
@@ -589,6 +665,7 @@ SCHEMA_LABELS = {
     "v1_macro_step_fixture":              "Layer 5 — Core Engine macro_step()",
     "v1_cognition_fixture":               "Cognition — PSE-TRAVERSE-COGNITION-01",
     "v1_horizon_fixture":                 "Horizon — PSE-TRAVERSE-HORIZON-03",
+    "v1_dynamics_fixture":                "Dynamics — PSE-TRAVERSE-DYNAMICS-01",
 }
 
 
