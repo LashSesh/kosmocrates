@@ -896,6 +896,104 @@ Prioritaetsregeln:
 Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
+
+# ─── Metatron Closure Layer: PSE-METATRON-MONOLITH-01 ────────────────────────
+
+def build_raw_prompt_metatron(case):
+    ctx = case.get("metatron_context", {})
+    gate = ctx.get("gate_report", {})
+    g_iso_rule = ctx.get("g_iso_rule", "")
+    gate_info = ("Gate-Report: " + ", ".join(f"{k}={v}" for k, v in gate.items())) if gate else ""
+    rule_info = f"G_iso-Regel: {g_iso_rule[:160]}" if g_iso_rule else ""
+    context_block = "\n".join(x for x in [gate_info, rule_info] if x)
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein Metatron-Closure-Analyst (PSE-METATRON-MONOLITH-01).
+
+AUFGABE: {case['title']}
+
+{context_block}
+
+KANDIDATEN:
+{items}
+
+Welche 3 Kandidaten sind korrekt fuer diese Situation?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_metatron(case):
+    ctx = case.get("metatron_context", {})
+    gate = ctx.get("gate_report", {})
+    g_iso_rule = ctx.get("g_iso_rule", "")
+    desc = ctx.get("description", "")
+    gate_info = "\n".join(f"  {k}: {v}" for k, v in gate.items()) if gate else ""
+    items = "\n".join(
+        f"  [{c['id']}] candidate={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Metatron-Evaluierungsrahmen (PSE-METATRON-MONOLITH-01).
+
+== KOGNITIONS-CONSTRAINTS (Metatron Holistic Eigenmode Closure Layer) ==
+Pipeline: ValidationRun -> NCTCSReport -> MacroControlState
+  -> LocalMonolithProjection* -> IsomorphicProjectionReport*
+  -> SpectralGapStitchReport -> MetatronGate -> HolisticEigenmodeState
+
+MetatronGate (G_meta):
+  G_meta = G_nctcs AND G_trace AND G_replay AND G_iso AND G_gap AND G_eval AND G_drift
+  Fail-closed: G_meta=0 -> KEINE HolisticEigenmodeState, nur Diagnostic-Report
+
+MetatronClosureOutcome Varianten:
+  Closed(HolisticEigenmodeState) -> nur wenn G_meta=1
+  Diagnostic(MetatronDiagnosticReport) -> wenn G_meta=0 (Gate-Fehler)
+  Rejected(MetatronRejectionReport) -> nur bei Pre-Flight-Fehler (vor Gate-Auswertung)
+    Beispiel: trace_head=zero -> Rejected; G_gap=false -> Diagnostic (nicht Rejected!)
+
+G_iso Kriterium (strikt):
+  iso_all_passed = !iso_reports.is_empty() AND all(r.passed for r in iso_reports)
+  r.passed = operator_path_compatible AND gate_order_preserved
+             AND trace_dependency_preserved AND replay_dependency_preserved
+  isomorphism_score ist ein berechneter Wert — er ueberschreibt NICHT das passed-Feld!
+  Leere iso_reports Liste -> G_iso=false (unconditional)
+
+G_gap Kriterium:
+  SpectralGapStitchReport.improved_or_preserved = (delta_gap >= 0)
+  delta_gap = post_gap - prior_gap
+  Wenn post_gap < prior_gap -> delta_gap < 0 -> improved_or_preserved=false -> G_gap=false
+
+MetatronOperator ist KEIN Controller:
+  Deterministisch, content-addressed, replayable projection
+  Ableitung aus: persistent field tensor, MacroControlState, Trace, Conformance
+  NICHT aus: Resonanz-Feld, Ephemeral Fabric, Agent-State
+
+Gate-Report:
+{gate_info}
+G_iso-Regel: {g_iso_rule[:200]}
+
+{desc}
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [diagnostic_outcome, g_gap_fail, g_iso_pass, g_iso_fail, causal,
+                       operator_compatible, gate_order_preserved, trace_dep_preserved,
+                       replay_dep_preserved, spec_outcome, recovery_action, diagnostic, inspect_path]
+  UNTERDRUECKEN: Tags [closed_outcome, rejected_outcome, wrong_outcome, impossible_here,
+                       preflight_only, spec_violation, masks_problem, wrong_source, wrong_gate,
+                       empty_iso_list, score_not_gating, wrong_criterion, wrong_artifact, distractor]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
 # ─── Schema-Dispatch ─────────────────────────────────────────────────────────
 
 PROMPT_BUILDERS = {
@@ -910,6 +1008,7 @@ PROMPT_BUILDERS = {
     "v1_signature_fixture":               (build_raw_prompt_signature, build_pse_prompt_signature),
     "v1_tpt_mtl_fixture":                 (build_raw_prompt_tpt_mtl, build_pse_prompt_tpt_mtl),
     "v1_nctcs_fixture":                   (build_raw_prompt_nctcs, build_pse_prompt_nctcs),
+    "v1_metatron_fixture":                (build_raw_prompt_metatron, build_pse_prompt_metatron),
 }
 
 SCHEMA_LABELS = {
@@ -924,6 +1023,7 @@ SCHEMA_LABELS = {
     "v1_signature_fixture":               "Signature — PSE-TRAVERSE-SIGNATURE-01",
     "v1_tpt_mtl_fixture":                 "Topology — PSE-TRAVERSE-TPT-MTL-04",
     "v1_nctcs_fixture":                   "NCTCS — PSE-NCTCS-CONFORMANCE-01",
+    "v1_metatron_fixture":                "Metatron — PSE-METATRON-MONOLITH-01",
 }
 
 
