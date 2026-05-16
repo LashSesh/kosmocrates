@@ -144,7 +144,10 @@ def parse_response(text):
 
 
 def score(top3, ground_truth_ids):
-    return sum(1 for i in top3 if i in ground_truth_ids)
+    """Returns (hits, precision) where hits = recall count, precision = hits/len(top3)."""
+    hits = sum(1 for i in top3 if i in ground_truth_ids)
+    precision = hits / len(top3) if top3 else 0.0
+    return hits, precision
 
 
 # ─── Haupt-Loop ───────────────────────────────────────────────────────────────
@@ -160,30 +163,32 @@ def run_case(case, api_key, case_num, total_cases):
     print(f"  Gesuchte kausale Items: {ground_truth}")
     print(sep)
 
+    gt_count = len(ground_truth)
+
     # --- Raw ---
     print("\n  [1/2] Raw LLM (kein PSE)...")
     raw_text = call_groq(api_key, build_raw_prompt(case))
     raw_top3, _, raw_err = parse_response(raw_text)
-    raw_hits = score(raw_top3, ground_truth)
+    raw_hits, raw_prec = score(raw_top3, ground_truth)
 
     if raw_err:
         print(f"       FEHLER: {raw_err}")
     else:
-        print(f"       Top-3:  {raw_top3}")
-        print(f"       Treffer: {raw_hits}/{len(ground_truth)}")
+        print(f"       Top-3:     {raw_top3}")
+        print(f"       Recall:    {raw_hits}/{gt_count}   Precision: {raw_hits}/{len(raw_top3)} ({raw_prec:.0%})")
 
     # --- PSE ---
     print("\n  [2/2] PSE-Exoskelett aktiv...")
     pse_text = call_groq(api_key, build_pse_prompt(case))
     pse_top3, pse_rejected, pse_err = parse_response(pse_text)
-    pse_hits = score(pse_top3, ground_truth)
+    pse_hits, pse_prec = score(pse_top3, ground_truth)
 
     if pse_err:
         print(f"       FEHLER: {pse_err}")
     else:
         print(f"       Top-3:     {pse_top3}")
         print(f"       Abgelehnt: {pse_rejected}")
-        print(f"       Treffer:   {pse_hits}/{len(ground_truth)}")
+        print(f"       Recall:    {pse_hits}/{gt_count}   Precision: {pse_hits}/{len(pse_top3)} ({pse_prec:.0%})")
 
     # --- Vergleich ---
     print()
@@ -191,13 +196,16 @@ def run_case(case, api_key, case_num, total_cases):
         verdict = "FEHLER — kein Vergleich moeglich"
         symbol = "?"
     elif pse_hits > raw_hits:
-        verdict = "PSE GEWINNT  -- Exoskelett verbessert das Ergebnis"
+        verdict = "PSE GEWINNT  -- mehr kausale Treffer (Recall)"
         symbol = "+"
-    elif pse_hits == raw_hits and pse_hits == len(ground_truth):
+    elif pse_hits == raw_hits and pse_prec > raw_prec:
+        verdict = "PSE PRAEZISER -- gleicher Recall, weniger Distractors in Top-3"
+        symbol = "~+"
+    elif pse_hits == raw_hits and pse_hits == gt_count:
         verdict = "BEIDE KORREKT -- PSE haelt Qualitaet"
         symbol = "="
     elif pse_hits == raw_hits:
-        verdict = "GLEICH -- kein Unterschied (Analyse noetig)"
+        verdict = "GLEICH -- kein messbarer Unterschied"
         symbol = "~"
     else:
         verdict = "RAW GEWINNT  -- PSE-Struktur hat nicht geholfen (Diagnose!)"
@@ -208,11 +216,12 @@ def run_case(case, api_key, case_num, total_cases):
     return {
         "trace_id": trace_id,
         "ground_truth": ground_truth,
-        "raw_llm": {"top3": raw_top3, "hits": raw_hits, "error": raw_err},
+        "raw_llm": {"top3": raw_top3, "hits": raw_hits, "precision": round(raw_prec, 3), "error": raw_err},
         "pse_exoskeleton": {
             "top3": pse_top3,
             "rejected": pse_rejected,
             "hits": pse_hits,
+            "precision": round(pse_prec, 3),
             "error": pse_err,
         },
         "verdict": verdict,
@@ -250,21 +259,29 @@ def main():
 
     # Gesamtauswertung
     valid = [r for r in results if not r["raw_llm"]["error"]]
-    pse_wins = sum(1 for r in valid if r["pse_exoskeleton"]["hits"] > r["raw_llm"]["hits"])
-    ties     = sum(1 for r in valid if r["pse_exoskeleton"]["hits"] == r["raw_llm"]["hits"])
-    raw_wins = sum(1 for r in valid if r["pse_exoskeleton"]["hits"] < r["raw_llm"]["hits"])
+    pse_recall_wins  = sum(1 for r in valid if r["pse_exoskeleton"]["hits"] > r["raw_llm"]["hits"])
+    pse_prec_wins    = sum(1 for r in valid if r["pse_exoskeleton"]["hits"] == r["raw_llm"]["hits"]
+                           and r["pse_exoskeleton"]["precision"] > r["raw_llm"]["precision"])
+    ties             = sum(1 for r in valid if r["pse_exoskeleton"]["hits"] == r["raw_llm"]["hits"]
+                           and r["pse_exoskeleton"]["precision"] == r["raw_llm"]["precision"])
+    raw_wins         = sum(1 for r in valid if r["pse_exoskeleton"]["hits"] < r["raw_llm"]["hits"])
 
     print(f"\n{'=' * 62}")
     print(f"  GESAMTERGEBNIS ({len(valid)} Cases ausgewertet)")
-    print(f"  PSE gewinnt:   {pse_wins}")
-    print(f"  Unentschieden: {ties}")
-    print(f"  Raw gewinnt:   {raw_wins}")
+    print(f"  PSE Recall-Sieg:    {pse_recall_wins}")
+    print(f"  PSE Precision-Sieg: {pse_prec_wins}")
+    print(f"  Unentschieden:      {ties}")
+    print(f"  Raw gewinnt:        {raw_wins}")
     if valid:
-        pse_total = sum(r["pse_exoskeleton"]["hits"] for r in valid)
-        raw_total = sum(r["raw_llm"]["hits"] for r in valid)
-        gt_total  = sum(len(r["ground_truth"]) for r in valid)
-        print(f"  PSE-Trefferquote:  {pse_total}/{gt_total}")
-        print(f"  Raw-Trefferquote:  {raw_total}/{gt_total}")
+        pse_hits_total = sum(r["pse_exoskeleton"]["hits"] for r in valid)
+        raw_hits_total = sum(r["raw_llm"]["hits"] for r in valid)
+        gt_total       = sum(len(r["ground_truth"]) for r in valid)
+        pse_prec_avg   = sum(r["pse_exoskeleton"]["precision"] for r in valid) / len(valid)
+        raw_prec_avg   = sum(r["raw_llm"]["precision"] for r in valid) / len(valid)
+        print(f"  PSE Recall:         {pse_hits_total}/{gt_total}")
+        print(f"  Raw Recall:         {raw_hits_total}/{gt_total}")
+        print(f"  PSE Precision avg:  {pse_prec_avg:.0%}")
+        print(f"  Raw Precision avg:  {raw_prec_avg:.0%}")
     print(f"{'=' * 62}")
 
     os.makedirs("target/tmp", exist_ok=True)
