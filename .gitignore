@@ -13,3 +13,8 @@ Thumbs.db
 *.zip
 bench_window_ablation.json
 pse-demo.json
+
+# PSE Gemini Agent
+gemini_key.txt
+.env
+*.key
