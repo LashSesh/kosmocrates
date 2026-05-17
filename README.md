@@ -1,4 +1,4 @@
-# PSE — Post-Symbolic (Computation) Engine
+# PSE — Post-Symbolic Exoskeleton
 
 PSE is a **post-symbolic cognitive substrate** — a multi-layer formal architecture that
 sits between purely symbolic (GOFAI) and purely sub-symbolic (connectionist) computation,
