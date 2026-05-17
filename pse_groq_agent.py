@@ -1099,6 +1099,103 @@ Prioritaetsregeln:
 Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
+# ─── Cross-Layer Integration (Phase 2) ───────────────────────────────────────
+
+def build_raw_prompt_cross_layer(case):
+    ctx = case.get("cross_layer_context", {})
+    layers = ", ".join(ctx.get("layers_involved", []))
+    desc = ctx.get("description", "")
+    items = "\n".join(
+        f"  [{c['id']}] {c['source']}: {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du bist ein PSE-Integrations-Analyst.
+
+AUFGABE: {case['title']}
+
+Layer-Kombination: {layers}
+Kontext: {desc[:200]}
+
+KANDIDATEN:
+{items}
+
+Welche 3 Kandidaten sind korrekt fuer diese Situation?
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"]}}"""
+
+
+def build_pse_prompt_cross_layer(case):
+    ctx = case.get("cross_layer_context", {})
+    layers = ctx.get("layers_involved", [])
+    desc = ctx.get("description", "")
+    items = "\n".join(
+        f"  [{c['id']}] src={c['source']}\n"
+        f"           tags={c['tags']}\n"
+        f"           {c['text'][:140]}"
+        for c in case["candidates"]
+    )
+    return f"""Du operierst im PSE Cross-Layer-Evaluierungsrahmen (Phase 2 — Inter-Layer Integration).
+
+== KOGNITIONS-CONSTRAINTS (Cross-Layer Integration) ==
+
+ADAMANT Axiom 6.1.1 — Artifact Supremacy:
+  Maschinen-lesbare Artefakte (z.B. MaterializationAudit) ueberschreiben Zusammenfassungs-Reports.
+  NCTCS Hauptreport c2=true wird durch MaterializationAudit (no_direct_fabric_to_tensor_mutation=false)
+  auf reached_class=C1 korrigiert. Die artefakt-korrigierte Klasse bestimmt G_nctcs.
+
+NCTCS -> Metatron G_nctcs:
+  G_nctcs erfordert: NCTCS artifact-korrigierte reached_class >= C2.
+  G_nctcs=false -> G_meta=false -> MetatronClosureOutcome::Diagnostic (fail-closed).
+  Hauptreport-Zusammenfassung ohne Artefakt-Abgleich ist ungueltig (Axiom 6.1.1).
+
+Signature -> TPT-MTL AdapterGate:
+  AdapterGate prueft: referenced SignatureGateReport.passed == true.
+  Frontier-Mitgliedschaft eines Blueprints != SignatureGate-Bestehen.
+  AdapterGate=false -> TptMtlOutcomeKind::Recalibrate (Prioritaet-Ast 3, nicht Abort!).
+  Abort erfordert BoundaryGate oder ReplayGate-Fehler (Ast 1) — nicht AdapterGate.
+
+Horizon G_dual -> Dynamics Live-Graph:
+  Horizon Recondense_duality_coupling ist Voraussetzung fuer den aktuellen Live-Graph.
+  Korrekte Cycle-N-Tags in Dynamics entbinden NICHT von der Horizon-Abhaengigkeit.
+  Recondense_tension_damping loest duality_ok=false NICHT (falsches Sub-Ziel).
+  Dynamics path_delta MUSSEN warten bis Horizon recondensation_status=done.
+
+Phase Matrix -> Metatron G_trace:
+  G_trace erfordert: ALLE CouplingUpdates im Batch haben Cycle-N StitcherGateReport-Referenzen.
+  G_trace ist konjunktiv — eine DeterminismViolation schlaegt den Gate fehl (KEIN Mehrheitsvotum).
+  G_trace != G_replay: G_replay prueft Replay-Identitaet, G_trace prueft Cycle-Determinismus.
+  G_trace=false -> G_meta=false -> MetatronClosureOutcome::Diagnostic.
+
+Metatron Fail-Closed Invariante:
+  HolisticEigenmodeState DARF NICHT produziert werden wenn G_meta=false.
+  Keine gefilterte Teilmenge, kein Status-Annotation-Workaround umgeht diese Regel.
+
+Layer-Kombination: {", ".join(layers)}
+{desc}
+
+Prioritaetsregeln:
+  HOCHPRIORITAT: Tags [causal, g_nctcs_false, artifact_corrected, g_trace_false,
+                       adapter_gate_false, dynamics_deferred, diagnostic_outcome,
+                       recovery_action, inspect_path, horizon_dependency,
+                       cross_layer_nctcs_metatron, cross_layer_signature_tptmtl,
+                       cross_layer_horizon_dynamics, cross_layer_phasematrix_metatron]
+  UNTERDRUECKEN: Tags [distractor, artifact_supremacy_violation, wrong_g_nctcs,
+                       closed_outcome, impossible_here, spec_violation, fail_closed_violation,
+                       wrong_outcome, wrong_priority, stale_input, wrong_subvariant,
+                       dependency_violation, stale_graph, g_trace_misread,
+                       timestamp_manipulation, wrong_gate_reasoning, bypass]
+
+== AUFGABE ==
+{case['title']}
+
+== KANDIDATEN ==
+{items}
+
+== PFLICHTFORMAT ==
+Antworte NUR mit diesem JSON (keine Erklaerung):
+{{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
+
+
 # ─── Schema-Dispatch ─────────────────────────────────────────────────────────
 
 PROMPT_BUILDERS = {
@@ -1115,6 +1212,7 @@ PROMPT_BUILDERS = {
     "v1_nctcs_fixture":                   (build_raw_prompt_nctcs, build_pse_prompt_nctcs),
     "v1_metatron_fixture":                (build_raw_prompt_metatron, build_pse_prompt_metatron),
     "v1_phase_matrix_fixture":             (build_raw_prompt_phase_matrix, build_pse_prompt_phase_matrix),
+    "v1_cross_layer_fixture":              (build_raw_prompt_cross_layer, build_pse_prompt_cross_layer),
 }
 
 SCHEMA_LABELS = {
@@ -1131,6 +1229,7 @@ SCHEMA_LABELS = {
     "v1_nctcs_fixture":                   "NCTCS — PSE-NCTCS-CONFORMANCE-01",
     "v1_metatron_fixture":                "Metatron — PSE-METATRON-MONOLITH-01",
     "v1_phase_matrix_fixture":             "Phase Matrix — PHASEMATRIX-HIVEMIND-03",
+    "v1_cross_layer_fixture":              "Cross-Layer — Integration Phase 2",
 }
 
 

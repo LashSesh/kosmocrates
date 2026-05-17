@@ -87,6 +87,10 @@ STACK = [
         "Phase Matrix — PHASEMATRIX-HIVEMIND-03",
         "crates/pse-eval-matrix/fixtures/phase_matrix/phase_matrix_layer_v1.json",
     ),
+    (
+        "Cross-Layer — Integration Phase 2",
+        "crates/pse-eval-matrix/fixtures/cross_layer/cross_layer_v1.json",
+    ),
 ]
 
 FULLSTACK_OUTPUT = "target/tmp/pse_fullstack_report.json"
