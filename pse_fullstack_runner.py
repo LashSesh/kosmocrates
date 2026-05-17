@@ -7,8 +7,9 @@ an aggregated readiness report.
 
 Usage:
   GROQ_API_KEY=gsk_... python pse_fullstack_runner.py
-  python pse_fullstack_runner.py   # prompts for key
+  python pse_fullstack_runner.py                          # prompts for key
   python pse_fullstack_runner.py --layers cognition horizon dynamics
+  python pse_fullstack_runner.py --start-layer 8          # resume from layer N (1-based)
 """
 
 import json
@@ -17,6 +18,7 @@ import sys
 import time
 
 from pse_groq_agent import (
+    TpdLimitError,
     call_groq,
     get_api_key,
     parse_response,
@@ -84,6 +86,10 @@ STACK = [
     (
         "Phase Matrix — PHASEMATRIX-HIVEMIND-03",
         "crates/pse-eval-matrix/fixtures/phase_matrix/phase_matrix_layer_v1.json",
+    ),
+    (
+        "Cross-Layer — Integration Phase 2",
+        "crates/pse-eval-matrix/fixtures/cross_layer/cross_layer_v1.json",
     ),
 ]
 
@@ -272,42 +278,9 @@ def print_grand_total(layer_results):
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
-def main():
-    # Optional: filter layers via --layers arg
-    filter_keys = set()
-    if "--layers" in sys.argv:
-        idx = sys.argv.index("--layers")
-        filter_keys = {k.lower() for k in sys.argv[idx + 1:]}
-
-    stack = STACK
-    if filter_keys:
-        stack = [
-            (label, path) for label, path in STACK
-            if any(k in label.lower() for k in filter_keys)
-        ]
-        if not stack:
-            print(f"Keine Layer gefunden fuer Filter: {filter_keys}")
-            sys.exit(1)
-
-    print(f"\nPSE FULL-STACK-VALIDATION RUNNER")
-    print(f"Layers: {len(stack)}  |  Modell: {GROQ_MODEL}")
-    print(f"Output: {FULLSTACK_OUTPUT}")
-
-    api_key = get_api_key()
-
-    layer_results = []
-    for i, (label, path) in enumerate(stack, 1):
-        result = run_fixture(label, path, api_key, i, len(stack))
-        layer_results.append(result)
-        # Pause between layers to avoid sustained rate pressure
-        if i < len(stack):
-            time.sleep(2)
-
-    print_grand_total(layer_results)
-
-    # ─── Save report ───────────────────────────────────────────────────────────
+def _save_report(layer_results, stack_size):
+    """Persist the report to disk; safe to call on partial runs."""
     os.makedirs("target/tmp", exist_ok=True)
-
     valid_layers = [lr for lr in layer_results if lr.get("summary")]
     all_slots = sum(lr["summary"]["gt_slots"]   for lr in valid_layers)
     pse_grand = sum(lr["summary"]["pse_recall"] for lr in valid_layers)
@@ -317,7 +290,8 @@ def main():
         "runner": "pse_fullstack_runner",
         "model": GROQ_MODEL,
         "timestamp_hint": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "stack_size": len(stack),
+        "stack_size": stack_size,
+        "layers_completed": len(layer_results),
         "grand_summary": {
             "total_cases": sum(lr["summary"]["valid_cases"] for lr in valid_layers),
             "total_slots": all_slots,
@@ -342,6 +316,73 @@ def main():
         json.dump(report, f, ensure_ascii=False, indent=2)
 
     print(f"\nGespeichert: {FULLSTACK_OUTPUT}")
+
+
+def main():
+    # Optional: filter layers via --layers arg
+    filter_keys = set()
+    if "--layers" in sys.argv:
+        idx = sys.argv.index("--layers")
+        # Collect args until next flag (or end)
+        filter_keys = {
+            k.lower() for k in sys.argv[idx + 1:]
+            if not k.startswith("--")
+        }
+
+    # Optional: resume from layer N (1-based)
+    start_layer = 1
+    if "--start-layer" in sys.argv:
+        idx = sys.argv.index("--start-layer")
+        try:
+            start_layer = int(sys.argv[idx + 1])
+        except (IndexError, ValueError):
+            print("FEHLER: --start-layer braucht eine Zahl, z.B. --start-layer 8")
+            sys.exit(1)
+
+    stack = STACK
+    if filter_keys:
+        stack = [
+            (label, path) for label, path in STACK
+            if any(k in label.lower() for k in filter_keys)
+        ]
+        if not stack:
+            print(f"Keine Layer gefunden fuer Filter: {filter_keys}")
+            sys.exit(1)
+
+    if start_layer > 1:
+        if start_layer > len(stack):
+            print(f"FEHLER: --start-layer {start_layer} > Stack-Groesse {len(stack)}")
+            sys.exit(1)
+        print(f"\n[Resume] Ueberspringe Layer 1-{start_layer - 1}, starte bei Layer {start_layer}")
+        stack = stack[start_layer - 1:]
+
+    print(f"\nPSE FULL-STACK-VALIDATION RUNNER")
+    print(f"Layers: {len(stack)}  |  Modell: {GROQ_MODEL}")
+    print(f"Output: {FULLSTACK_OUTPUT}")
+
+    api_key = get_api_key()
+
+    layer_results = []
+    tpd_hit = False
+    for i, (label, path) in enumerate(stack, start_layer):
+        try:
+            result = run_fixture(label, path, api_key, i, len(STACK))
+        except TpdLimitError as e:
+            print(f"\n[!!] TPD-Limit (Tokens-per-Day) erschoepft bei Layer {i}: {label}")
+            print(f"     Fehlermeldung: {e}")
+            print(f"     Bitte morgen weitermachen mit:  --start-layer {i}")
+            tpd_hit = True
+            break
+        layer_results.append(result)
+        if i < len(STACK):
+            time.sleep(2)
+
+    if layer_results:
+        print_grand_total(layer_results)
+        _save_report(layer_results, len(STACK))
+
+    if tpd_hit:
+        sys.exit(2)
 
 
 if __name__ == "__main__":

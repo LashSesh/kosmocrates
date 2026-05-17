@@ -204,6 +204,115 @@
       },
       "ground_truth_label": "Aufgaben zum Zurueckstellen",
       "tags": ["external", "fixture", "layer4_scheduling", "diagnostic_only", "high_shock", "honest"]
+    },
+    {
+      "trace_id": "sched_sc03",
+      "title": "Mixed-label scenario — which tasks have highest execution priority given an imminent deadline window?",
+      "task_type": "prioritize",
+      "scheduling_context": {
+        "system_metrics": {
+          "drift": 0.61,
+          "friction": 0.44,
+          "shock": 0.22
+        },
+        "strategy": "MaxPressure",
+        "description": "Moderate drift, routine system state. MaxPressure strategy active. Three tasks have an imminent deadline_miss_window that expires within the current execution cycle. Task names and descriptions are deliberately ambiguous — some background-sounding tasks carry deadline_imminent tags; some urgently-named tasks are actually deferrable. Only PSE scheduling tags reveal which tasks must execute now."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "scheduler",
+          "message": "compute_substeps(d=0.61, F=0.44, S=0.22) -> strategy=MaxPressure, 3 tasks deadline_imminent detected",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "deadline_monitor",
+          "message": "deadline_miss_window expiry in current cycle for: evidence_compaction, constraint_deadline_check, gate_refresh_required",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "sched_sc03_t01",
+          "source": "task_evidence_compaction",
+          "text": "Evidence compaction cycle. Consolidates low-density evidence entries in the archive to reclaim index capacity. Estimated duration: 2 sub-steps.",
+          "tags": ["causal", "deadline_imminent", "critical_path", "pressure_relief"],
+          "relevance_rank_hint": 1,
+          "_design_note": "Sounds like background maintenance (compaction), but has deadline_imminent tag — must execute this cycle."
+        },
+        {
+          "id": "sched_sc03_t02",
+          "source": "task_constraint_deadline_check",
+          "text": "Constraint deadline verification pass. Reviews active cognitive constraints to identify those approaching their configured expiry boundary. Estimated duration: 1 sub-step.",
+          "tags": ["causal", "deadline_imminent", "constraint_fix", "kairos_aligned"],
+          "relevance_rank_hint": 2,
+          "_design_note": "Monitoring-sounding name, but carries deadline_imminent because the constraints themselves have deadlines."
+        },
+        {
+          "id": "sched_sc03_t03",
+          "source": "task_gate_refresh_required",
+          "text": "Phase gate observation refresh. Re-evaluates cached gate observations that will become stale if not refreshed before the end of the current execution window. Estimated duration: 1 sub-step.",
+          "tags": ["causal", "deadline_imminent", "kairos_aligned", "critical_path"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "sched_sc03_t04",
+          "source": "task_urgent_telemetry_upload",
+          "text": "Urgent telemetry upload. Transmits the current session's buffered metric events to the external monitoring sink. Flagged as urgent by the monitoring subsystem. Estimated duration: 3 sub-steps.",
+          "tags": ["red_herring", "distractor", "can_wait", "background", "non_critical"],
+          "relevance_rank_hint": null,
+          "_trap": "Name contains 'urgent' — strong name-trap. Tags reveal this is deferrable (can_wait, background). The urgency flag from the monitoring subsystem is not a scheduler deadline."
+        },
+        {
+          "id": "sched_sc03_t05",
+          "source": "task_critical_topology_backup",
+          "text": "Critical topology backup pass. Writes a redundant snapshot of the current graph topology to the backup store for disaster recovery. Estimated duration: 4 sub-steps.",
+          "tags": ["red_herring", "distractor", "can_wait", "deferred", "background"],
+          "relevance_rank_hint": null,
+          "_trap": "Name contains 'critical' — strong name-trap. Tags reveal it is deferrable. Backup tasks do not have execution-cycle deadlines."
+        },
+        {
+          "id": "sched_sc03_t06",
+          "source": "task_pressure_anomaly_log",
+          "text": "Pressure anomaly event logger. Records detected pressure anomalies to the time-series event store for post-run analysis. Estimated duration: 1 sub-step.",
+          "tags": ["red_herring", "distractor", "low_priority", "can_wait"],
+          "relevance_rank_hint": null,
+          "_trap": "Name contains 'pressure' — sounds relevant under MaxPressure strategy. It is a recorder, not a pressure-relief action."
+        },
+        {
+          "id": "sched_sc03_t07",
+          "source": "task_memory_index_rebuild",
+          "text": "Memory index rebuild. Reconstructs the pattern memory lookup index from archived crystal entries. Estimated duration: 6 sub-steps.",
+          "tags": ["red_herring", "distractor", "background", "can_wait"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "sched_sc03_t08",
+          "source": "task_ledger_rotation",
+          "text": "Evaluation ledger rotation. Archives completed ledger segments and opens a fresh segment for the next evaluation window. Estimated duration: 2 sub-steps.",
+          "tags": ["red_herring", "distractor", "background", "can_wait", "non_critical"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["sched_sc03_t01", "sched_sc03_t02", "sched_sc03_t03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "execute task_evidence_compaction (deadline_imminent — must complete this cycle)",
+          "execute task_constraint_deadline_check (deadline_imminent — constraint expiry boundary)",
+          "execute task_gate_refresh_required (deadline_imminent — cached observations stale after this window)"
+        ],
+        "rejected_false_paths": [
+          "task_urgent_telemetry_upload (name-trap: 'urgent' label from monitoring, not a scheduler deadline — can_wait)",
+          "task_critical_topology_backup (name-trap: 'critical' label, but no imminent deadline — deferred)",
+          "task_pressure_anomaly_log (name-trap: 'pressure' — recorder, not pressure-relief — can_wait)"
+        ],
+        "resolution_label": "deadline_imminent_name_trap_scheduling"
+      },
+      "ground_truth_label": "Deadline-gebundene Prioritaets-Tasks",
+      "tags": ["external", "fixture", "layer4_scheduling", "diagnostic_only", "deadline_imminent", "hardening", "honest"]
     }
   ]
 }
