@@ -233,6 +233,108 @@
       },
       "ground_truth_label": "Zugelassene Wormhole-Vorschlaege",
       "tags": ["external", "fixture", "layer_cognition", "diagnostic_only", "wormhole_admission", "honest"]
+    },
+    {
+      "trace_id": "cog_c03",
+      "title": "Wormhole admission audit — proposals with non-zero but replay-invalid traces",
+      "task_type": "select_admitted_wormholes",
+      "cognition_context": {
+        "admission_gate": "Budget(w) <= B_max AND TTL(w) <= TTL_max AND Reason(w) in R AND ReplayTrace(w).is_valid()",
+        "valid_reason_codes": ["ConstraintBridge", "SpiralMemoryRecall", "AttractorShortcut", "HorizonAlignment", "CarrierMigration", "ProjectionPreparation"],
+        "description": "Eight wormhole proposals submitted. The admission gate requires a replay-valid audit trace — not merely a non-zero trace. A trace exists and is non-zero but fails replay verification (hash mismatch on replay, superseded session reference, or trace_replay_valid=false flag) when the trace field is populated. All four criteria are conjunctive. Proposals with non-zero but replay-invalid traces fail the fourth criterion exactly as proposals with zero traces do."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "wormhole_hypernet",
+          "message": "admit_wormhole() for 8 proposals: Budget AND TTL AND Reason AND ReplayTrace.is_valid()",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "wormhole_hypernet",
+          "message": "3 admitted (trace replay-valid), 5 rejected (2 trace_replay_invalid, 1 budget_over, 1 ttl_over, 1 invalid_reason)",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "cog_c03_w01",
+          "source": "proposal_attractor_valid",
+          "text": "Attractor shortcut to a confirmed resonance stable state. Reason code AttractorShortcut registered. Budget and TTL within configured limits. Audit trace populated, non-zero, and passed replay verification in the current cognition session.",
+          "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "trace_replay_valid"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "cog_c03_w02",
+          "source": "proposal_carrier_valid",
+          "text": "Carrier migration link to an alternative phase-ladder slot. Reason code CarrierMigration from the admitted set. Budget and TTL nominal. Audit trace present, non-zero, replay verification passed — trace_replay_valid=true.",
+          "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "trace_replay_valid"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "cog_c03_w03",
+          "source": "proposal_horizon_valid",
+          "text": "Horizon alignment pre-handoff edge. Reason code HorizonAlignment declared. All four admission fields within bounds. Audit trace populated and confirmed replay-valid for the active cognition session.",
+          "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "trace_replay_valid"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "cog_c03_w04",
+          "source": "proposal_spiral_trace_hash_mismatch",
+          "text": "Spiral memory recall shortcut to an indexed resonance attractor. Reason code SpiralMemoryRecall registered. Budget and TTL within limits. Audit trace present and non-zero. Replay verification detected a hash mismatch between the stored trace and the recomputed trace.",
+          "tags": ["red_herring", "rejected", "trace_replay_invalid", "trace_hash_mismatch"],
+          "relevance_rank_hint": null,
+          "_trap": "Trace is non-zero — superficially satisfies 'ReplayTrace != 0'. The admission gate requires is_valid(), not just != zero. A non-zero trace with a hash mismatch fails replay verification and fails the fourth criterion."
+        },
+        {
+          "id": "cog_c03_w05",
+          "source": "proposal_constraint_trace_stale_session",
+          "text": "Constraint bridge connecting two separated feasible regions. Reason code ConstraintBridge from the admitted set. Budget and TTL within bounds. Audit trace present and non-zero, originating from a prior superseded cognition session.",
+          "tags": ["red_herring", "rejected", "trace_replay_invalid", "trace_stale_session"],
+          "relevance_rank_hint": null,
+          "_trap": "Trace is non-zero but was produced in a different (superseded) cognition session. Replay verification fails because the trace context no longer matches the current session state. is_valid() = false."
+        },
+        {
+          "id": "cog_c03_w06",
+          "source": "proposal_projection_budget_over",
+          "text": "Projection preparation shortcut. Reason code ProjectionPreparation registered. Budget allocation exceeds B_max. TTL within bounds. Audit trace valid.",
+          "tags": ["red_herring", "rejected", "budget_exceeded"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "cog_c03_w07",
+          "source": "proposal_direct_ttl_over",
+          "text": "Direct traversal shortcut to a known stable state. Reason code AttractorShortcut declared. Budget within limits. Declared lease duration exceeds TTL_max. Audit trace valid.",
+          "tags": ["red_herring", "rejected", "ttl_exceeded"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "cog_c03_w08",
+          "source": "proposal_coverage_no_reason",
+          "text": "Exploratory coverage shortcut declared for broad region access. No formal reason code assigned from the admitted set R. Budget and TTL within bounds. Trace present and replay-valid.",
+          "tags": ["red_herring", "rejected", "invalid_reason_code"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["cog_c03_w01", "cog_c03_w02", "cog_c03_w03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "admit proposal_attractor_valid (AttractorShortcut, budget/TTL within bounds, trace replay-valid)",
+          "admit proposal_carrier_valid (CarrierMigration, all criteria satisfied, trace_replay_valid=true)",
+          "admit proposal_horizon_valid (HorizonAlignment, all four criteria within bounds, trace replay-valid)"
+        ],
+        "rejected_false_paths": [
+          "proposal_spiral_trace_hash_mismatch (trace non-zero but hash mismatch on replay — is_valid()=false)",
+          "proposal_constraint_trace_stale_session (trace non-zero but from superseded session — is_valid()=false)",
+          "proposal_projection_budget_over (budget exceeds B_max)"
+        ],
+        "resolution_label": "wormhole_admission_trace_replay_validity_required"
+      },
+      "ground_truth_label": "Zugelassene Wormholes (replay-valide Traces)",
+      "tags": ["external", "fixture", "layer_cognition", "diagnostic_only", "wormhole_admission", "hardening", "honest"]
     }
   ]
 }

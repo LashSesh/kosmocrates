@@ -237,6 +237,116 @@
       },
       "ground_truth_label": "Compressor-Aktionen fuer path_delta Reduktion",
       "tags": ["external", "fixture", "layer_dynamics", "diagnostic_only", "path_delta_repair", "honest"]
+    },
+    {
+      "trace_id": "dyn_c03",
+      "title": "path_delta_too_high — which compressor actions operate on the current tick's live graph?",
+      "task_type": "select_compressor_action",
+      "dynamics_context": {
+        "gate_result": {
+          "proof_supplied": true,
+          "proof_valid": true,
+          "decision": "Hold",
+          "passed": false,
+          "reason_code": "path_delta_too_high",
+          "other_checks": "alignment OK, energy OK, density OK"
+        },
+        "tick_state": "current_cycle_N",
+        "description": "DynamicGateReport returned Hold with path_delta_too_high. Proof valid. All other checks passed. Recovery requires operations applied to the CURRENT CYCLE (N) compression graph and policy state. Name-trap: some candidates describe the correct operations (Merge, learning_rate reduction, GuidanceField pruning) but are applied to a cached snapshot from a previous tick (cycle N-2). Per the dynamics contract, operations on stale tick snapshots do not affect the current cycle's path_delta — they modify an outdated, no-longer-active graph state."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "evaluate_dynamic_gate",
+          "message": "proof.path_delta > max_path_delta, reason=path_delta_too_high, current_cycle=N",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "tick_context",
+          "message": "live_compression_graph=cycle_N; cached_snapshot=cycle_N-2 (stale, not active)",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "dyn_c03_op01",
+          "source": "Merge_current_cycle",
+          "text": "Merges pairs of compression nodes in the current cycle (N) live CompressionGraph whose L2 coordinate distance falls within merge_threshold. Operates on the active graph state, directly reducing the current tick's mean displacement.",
+          "tags": ["causal", "valid_next_op", "path_delta_repair", "current_cycle", "live_graph"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "dyn_c03_op02",
+          "source": "reduce_learning_rate_current_policy",
+          "text": "Lowers learning_rate in the current cycle (N) DynamicPolicy instance. The reduced rate is applied to the live policy governing the active tick, scaling down the displacement step for subsequent compressor updates in this cycle.",
+          "tags": ["causal", "valid_next_op", "path_delta_repair", "current_cycle"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "dyn_c03_op03",
+          "source": "GuidanceField_pruning_live",
+          "text": "Activates the GuidanceField pruner on the live (cycle N) guidance state. Removes high-displacement edges from the active field, constraining compressor update magnitude for the current tick.",
+          "tags": ["causal", "valid_next_op", "path_delta_repair", "current_cycle", "live_graph"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "dyn_c03_op04",
+          "source": "Merge_stale_snapshot",
+          "text": "Merges compression nodes in the cached cycle N-2 snapshot. The merge operation targets nodes whose coordinates exceeded merge_threshold at that earlier tick.",
+          "tags": ["red_herring", "distractor", "stale_cycle_reference", "no_effect_on_current_delta"],
+          "relevance_rank_hint": null,
+          "_trap": "Merge is the correct operation type, but applied to the stale cycle N-2 snapshot. The current cycle's live graph is not modified. This action does not reduce the current tick's path_delta."
+        },
+        {
+          "id": "dyn_c03_op05",
+          "source": "reduce_learning_rate_stale_policy",
+          "text": "Reduces the learning_rate in the cached policy snapshot from cycle N-2. The change is written to the archived policy record, not to the live policy governing the current tick.",
+          "tags": ["red_herring", "distractor", "stale_cycle_reference", "no_effect_on_current_delta"],
+          "relevance_rank_hint": null,
+          "_trap": "Correct operation, wrong target. Modifying a stale policy snapshot has no effect on the live policy driving cycle N's compressor updates."
+        },
+        {
+          "id": "dyn_c03_op06",
+          "source": "MorphodynamicCompressor_Split",
+          "text": "Splits nodes in the current cycle's compression graph whose mass and variance exceed configured thresholds into two child nodes at separate coordinate positions.",
+          "tags": ["red_herring", "distractor", "increases_delta", "wrong_operation"],
+          "relevance_rank_hint": null,
+          "_trap": "Split increases node count and spreads coordinates further apart, raising path_delta. Wrong operation for path_delta_too_high."
+        },
+        {
+          "id": "dyn_c03_op07",
+          "source": "relax_max_path_delta_threshold",
+          "text": "Increases max_path_delta in DynamicGateConfig to accept the current level of per-tick movement.",
+          "tags": ["red_herring", "distractor", "masks_problem"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "dyn_c03_op08",
+          "source": "reinitialize_from_cache",
+          "text": "Restores the current cycle's compression graph from the cycle N-2 cached snapshot, replacing the live graph with the earlier state.",
+          "tags": ["red_herring", "distractor", "init_only", "stale_cycle_reference"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["dyn_c03_op01", "dyn_c03_op02", "dyn_c03_op03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "Merge on current cycle (N) live CompressionGraph to reduce mean displacement",
+          "reduce learning_rate on current cycle (N) live DynamicPolicy",
+          "GuidanceField pruning on live cycle (N) field to constrain update magnitude"
+        ],
+        "rejected_false_paths": [
+          "Merge_stale_snapshot (correct operation, wrong target — cycle N-2 snapshot is not the live graph)",
+          "reduce_learning_rate_stale_policy (correct operation, wrong target — stale policy has no effect on current tick)",
+          "MorphodynamicCompressor_Split (increases path_delta, wrong operation)"
+        ],
+        "resolution_label": "path_delta_repair_current_cycle_only"
+      },
+      "ground_truth_label": "path_delta Reduktion auf aktuellem Tick (nicht stale Snapshot)",
+      "tags": ["external", "fixture", "layer_dynamics", "diagnostic_only", "path_delta_repair", "hardening", "honest"]
     }
   ]
 }

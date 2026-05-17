@@ -255,6 +255,131 @@
       },
       "ground_truth_label": "Korrekte Policy und Recovery (G_visible)",
       "tags": ["external", "fixture", "layer_horizon", "diagnostic_only", "visibility_gate_failure", "honest"]
+    },
+    {
+      "trace_id": "hor_c03",
+      "title": "G_dual failure — which policy applies, and which Recondense variant is spec-correct?",
+      "task_type": "select_recovery",
+      "horizon_context": {
+        "crossing_gate": {
+          "g_visible": true,
+          "g_cone": true,
+          "g_causal": true,
+          "g_dual": false,
+          "tension_ok": true,
+          "attenuation_ok": true,
+          "crossing_allowed": false
+        },
+        "duality_violations": 1,
+        "description": "HorizonCrossingGate failed on G_dual only. g_visible, g_cone, g_causal all passed. Tension and attenuation within bounds. The DualityReport shows the collapse path and emission path resolve to different NullCenter projections — a duality coupling mismatch. The spec table maps !g_dual (with tension_ok and attenuation_ok passing) to Recondense. Name-trap: one candidate correctly names Recondense but describes it as addressing tension damping — the wrong sub-cause. The correct Recondense variant addresses null-center coupling realignment, not tension."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "horizon_crossing_gate",
+          "message": "select_failure_policy(g_visible=true, g_cone=true, g_causal=true, g_dual=false, tension_ok=true, attn_ok=true) -> Recondense",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "outcome_for_policy",
+          "message": "HorizonFailurePolicy::Recondense -> HorizonV3Outcome::NeedsRecondensation",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "hor_c03_p01",
+          "source": "NeedsRecondensation_outcome",
+          "text": "Horizon outcome variant that holds the current chart epoch and emits a hold report recommending carrier phase recondensation to realign the duality coupling between the collapse and emission paths.",
+          "tags": ["causal", "spec_outcome", "duality_gate", "valid_next_op"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "hor_c03_p02",
+          "source": "Recondense_policy_duality",
+          "text": "Failure policy triggering carrier phase recondensation to realign the null-center projection of the collapse path with the emission path. Addresses the duality coupling mismatch reported in the DualityReport.",
+          "tags": ["causal", "spec_policy", "duality_gate", "valid_next_op"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "hor_c03_p03",
+          "source": "inspect_duality_failure",
+          "text": "Reads the DualityReport to identify which carrier's collapse path diverges from the emission path's NullCenter projection. Computes the coupling distance and identifies the misaligned carrier.",
+          "tags": ["causal", "diagnostic", "inspect_path", "duality_gate"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "hor_c03_p04",
+          "source": "Recondense_policy_tension",
+          "text": "Recondensation policy variant that reduces accumulated boundary tension and signal attenuation by compressing the phase field along the carrier axis. Restores tension and attenuation to within nominal bounds.",
+          "tags": ["red_herring", "distractor", "wrong_recondense_variant", "tension_gate_policy"],
+          "relevance_rank_hint": null,
+          "_trap": "Recondense is the correct policy name — but this variant addresses tension damping, not null-center duality coupling. Tension_ok and attenuation_ok both passed. Applying the tension-variant of Recondense does not resolve a duality coupling mismatch. The spec-correct Recondense here targets the collapse/emission path realignment."
+        },
+        {
+          "id": "hor_c03_p05",
+          "source": "MigrateCarrier_policy",
+          "text": "Failure policy that promotes an alternative phase-ladder slot to restore the correct emission order for the next crossing attempt.",
+          "tags": ["red_herring", "distractor", "wrong_gate", "causal_gate_policy"],
+          "relevance_rank_hint": null,
+          "_trap": "MigrateCarrier applies when g_causal fails. g_causal passed — wrong gate. The word 'dual' might suggest carrier switching, but carrier migration addresses ordering, not null-center coupling."
+        },
+        {
+          "id": "hor_c03_p06",
+          "source": "WaitForHorizon_policy",
+          "text": "Failure policy that holds the chart epoch until a phase window opens satisfying the minimum visibility threshold.",
+          "tags": ["red_herring", "distractor", "wrong_gate", "visibility_gate_policy"],
+          "relevance_rank_hint": null,
+          "_trap": "WaitForHorizon applies when g_visible fails. g_visible passed — wrong gate."
+        },
+        {
+          "id": "hor_c03_p07",
+          "source": "RefineProjectionCone_policy",
+          "text": "Failure policy that adjusts cone angle and focus parameters to bring the cone focus score within the required range.",
+          "tags": ["red_herring", "distractor", "wrong_gate", "cone_gate_policy"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hor_c03_p08",
+          "source": "check_projection_cone_focus",
+          "text": "Re-evaluates the cone focus score by computing the angular deviation from the configured projection axis.",
+          "tags": ["red_herring", "distractor", "completed", "cone_gate"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hor_c03_p09",
+          "source": "inspect_causal_violations",
+          "text": "Reads the carrier order violations from the CausalAdmissibilityReport and compares declared vs observed sequence hashes.",
+          "tags": ["red_herring", "distractor", "completed", "causal_gate"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "hor_c03_p10",
+          "source": "Abort_policy",
+          "text": "Failure policy that terminates the horizon pipeline run without emitting a hold report.",
+          "tags": ["red_herring", "distractor", "last_resort"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["hor_c03_p01", "hor_c03_p02", "hor_c03_p03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "NeedsRecondensation outcome (spec outcome for G_dual failure)",
+          "Recondense policy — duality variant (realigns null-center coupling, NOT tension damping)",
+          "inspect_duality_failure (identify which carrier's collapse path diverges)"
+        ],
+        "rejected_false_paths": [
+          "Recondense_policy_tension (correct policy name, wrong variant — addresses tension which passed, not duality coupling)",
+          "MigrateCarrier (causal gate policy — g_causal passed, wrong gate)",
+          "WaitForHorizon (visibility gate policy — g_visible passed, wrong gate)"
+        ],
+        "resolution_label": "dual_gate_failure_recondense_duality_variant"
+      },
+      "ground_truth_label": "Recondense (Dualitaets-Variante) bei G_dual-Fehler",
+      "tags": ["external", "fixture", "layer_horizon", "diagnostic_only", "dual_gate_failure", "hardening", "honest"]
     }
   ]
 }

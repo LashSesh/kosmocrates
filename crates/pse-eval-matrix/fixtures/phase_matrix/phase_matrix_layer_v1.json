@@ -251,6 +251,113 @@
       },
       "ground_truth_label": "Fabric-H/T Invariant-1-Audit: Gueltige CouplingUpdates",
       "tags": ["external", "fixture", "layer_phase_matrix", "diagnostic_only", "fabric_invariant", "honest"]
+    },
+    {
+      "trace_id": "pm_c03",
+      "title": "CouplingUpdate cycle audit — which updates carry a StitcherGateReport from the correct evaluation cycle (cycle N)?",
+      "task_type": "select_valid_coupling_updates",
+      "phase_matrix_context": {
+        "determinism_invariant": "Every CouplingUpdate must reference a StitcherGateReport that was issued in the same evaluation cycle as the update itself (cycle N). A gate report from a prior cycle (N-1 or earlier) may carry passed=true but it is not valid proof for a current-cycle update. Using a prior-cycle report as the gate reference produces a DeterminismViolation because the update cannot be deterministically replayed against the current cycle's gate state.",
+        "current_cycle": "N",
+        "description": "A batch of eight CouplingUpdates is under audit for Fabric-H to Fabric-T path validity. Each update must satisfy two conditions: (1) it carries a StitcherGateReport reference with passed=true, AND (2) that StitcherGateReport was issued in the current evaluation cycle (cycle N). Updates that reference a passed report from cycle N-1 or N-2 fail the determinism invariant even though their gate report shows passed=true. Updates with no gate reference are Invariant 1 violations. Updates that directly mutate Fabric-T bypass the gate path entirely."
+      },
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "stitch_pipeline",
+          "message": "audit CouplingUpdate batch: checking gate_report.cycle == current_cycle (N) AND gate_report.passed == true",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "stitch_pipeline",
+          "message": "result: 3 current-cycle valid updates, 3 prior-cycle determinism_violation, 1 no-gate-ref invariant1_violation, 1 direct_mutation",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "pm_c03_u01",
+          "source": "coupling_update_alpha_cycle_N",
+          "text": "CouplingUpdate for a convergent cluster candidate. References StitcherGateReport gate_alpha issued in the current evaluation cycle (cycle N). Report records passed=true. All sub-gates passed in this cycle.",
+          "tags": ["causal", "valid_coupling_update", "current_cycle_gate", "determinism_satisfied"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "pm_c03_u02",
+          "source": "coupling_update_beta_cycle_N",
+          "text": "CouplingUpdate for a mirror-consistent stitch candidate. References StitcherGateReport gate_beta issued in cycle N. The report's passed field is true; all sub-gate checks (convergence, mirror, delta, boundary, evidence) completed in the current cycle.",
+          "tags": ["causal", "valid_coupling_update", "current_cycle_gate", "determinism_satisfied"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "pm_c03_u03",
+          "source": "coupling_update_gamma_cycle_N",
+          "text": "CouplingUpdate for a boundary-aligned candidate. StitcherGateReport gate_gamma was issued in cycle N with passed=true. Tensor delta norm within configured threshold, evaluated in this cycle.",
+          "tags": ["causal", "valid_coupling_update", "current_cycle_gate", "determinism_satisfied"],
+          "relevance_rank_hint": 3
+        },
+        {
+          "id": "pm_c03_u04",
+          "source": "coupling_update_delta_prior_cycle_N1",
+          "text": "CouplingUpdate for a high-convergence candidate. References StitcherGateReport gate_delta from cycle N-1, where passed=true. The candidate was re-queued from the previous cycle and its prior gate result is being reused as proof.",
+          "tags": ["red_herring", "rejected", "determinism_violation", "prior_cycle_gate"],
+          "relevance_rank_hint": null,
+          "_trap": "The gate report carries passed=true, but it was issued in cycle N-1. The determinism invariant requires the StitcherGateReport to be from the same evaluation cycle as the update. Reusing a prior-cycle passed report is a DeterminismViolation."
+        },
+        {
+          "id": "pm_c03_u05",
+          "source": "coupling_update_epsilon_prior_cycle_N1",
+          "text": "CouplingUpdate for a drift-stabilizing candidate. The referenced StitcherGateReport gate_epsilon has passed=true and all sub-gates satisfied, but the report was generated in cycle N-1 during a preliminary evaluation pass.",
+          "tags": ["red_herring", "rejected", "determinism_violation", "prior_cycle_gate"],
+          "relevance_rank_hint": null,
+          "_trap": "A prior-cycle gate report, even with passed=true and all sub-gates satisfied, does not provide valid same-cycle proof. The current cycle may have different Fabric-H state, making the prior report non-deterministic as a proof for cycle N."
+        },
+        {
+          "id": "pm_c03_u06",
+          "source": "coupling_update_zeta_prior_cycle_N2",
+          "text": "CouplingUpdate that reuses StitcherGateReport gate_zeta from cycle N-2. The report is marked passed=true and was generated for the same candidate hash during an earlier evaluation window.",
+          "tags": ["red_herring", "rejected", "determinism_violation", "prior_cycle_gate"],
+          "relevance_rank_hint": null,
+          "_trap": "Cycle N-2 gate report reuse. The staleness is even greater than N-1. The determinism invariant applies regardless of how distant the prior cycle is — any cross-cycle gate reference is a violation."
+        },
+        {
+          "id": "pm_c03_u07",
+          "source": "coupling_update_eta_no_gate_ref",
+          "text": "CouplingUpdate for a resonance-triggered candidate. The update carries no StitcherGateReport reference — it was emitted directly from the MorphodynamicField event without gate evaluation.",
+          "tags": ["red_herring", "rejected", "invariant1_violation", "no_gate_ref"],
+          "relevance_rank_hint": null,
+          "_trap": "No gate reference at all. Invariant 1 requires every Fabric-T update to reference a passed gate report from the current cycle. Missing reference is an Invariant 1 violation distinct from the cycle-mismatch determinism violation."
+        },
+        {
+          "id": "pm_c03_u08",
+          "source": "resonance_fabric_direct_write_cycle_N",
+          "text": "ResonanceFabricState event that writes updated field coordinates directly to FieldTensorState during cycle N, skipping the StitcherGate evaluation entirely for this resonance pulse.",
+          "tags": ["red_herring", "rejected", "invariant1_violation", "direct_fabric_mutation"],
+          "relevance_rank_hint": null,
+          "_trap": "Direct Fabric-H to Fabric-T mutation. Invariant 1 prohibits this regardless of which cycle the event occurs in."
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["pm_c03_u01", "pm_c03_u02", "pm_c03_u03"],
+        "causal_logs": [],
+        "causal_commands": [],
+        "correct_next_actions": [
+          "coupling_update_alpha_cycle_N (current-cycle StitcherGateReport, passed=true)",
+          "coupling_update_beta_cycle_N (current-cycle StitcherGateReport, passed=true)",
+          "coupling_update_gamma_cycle_N (current-cycle StitcherGateReport, passed=true)"
+        ],
+        "rejected_false_paths": [
+          "coupling_update_delta_prior_cycle_N1 (passed=true but gate from cycle N-1 — DeterminismViolation)",
+          "coupling_update_epsilon_prior_cycle_N1 (passed=true but gate from cycle N-1 — DeterminismViolation)",
+          "coupling_update_zeta_prior_cycle_N2 (gate from cycle N-2 — DeterminismViolation)",
+          "coupling_update_eta_no_gate_ref (no gate reference — Invariant 1 violation)",
+          "resonance_fabric_direct_write_cycle_N (direct Fabric-H mutation — Invariant 1 violation)"
+        ],
+        "resolution_label": "phase_matrix_coupling_update_same_cycle_determinism"
+      },
+      "ground_truth_label": "CouplingUpdate Cycle-N-Determinismus: Nur aktuelle Gate-Reports gueltig",
+      "tags": ["external", "fixture", "layer_phase_matrix", "diagnostic_only", "determinism_violation", "hardening", "honest"]
     }
   ]
 }
