@@ -1,32 +1,77 @@
-# PSE — Post-Symbolic Engine
+# PSE — Post-Symbolic (Computation) Engine
 
-A streaming computation engine that detects structural events in observation
-streams and emits **content-addressed, falsifiable, deterministic crystal
-artifacts** — without symbols, statistics, or trained models.
+PSE is a **post-symbolic cognitive substrate** — a multi-layer formal architecture that
+sits between purely symbolic (GOFAI) and purely sub-symbolic (connectionist) computation,
+reducing to neither.
 
-PSE is single-binary, single-thread-fast, audit-grade by construction.
+The base layer emits **content-addressed, falsifiable, deterministic crystal artifacts**
+from structured observation streams. Above it, a stack of formal traversal layers provides
+geometric and topological constraints that govern how probabilistic reasoning navigates a
+problem space. The complete architecture is constitutionally governed by the
+**ADAMANT protocol** (`ADAMANT_v1.0.0.pdf`), which enforces Artifact Supremacy,
+fail-closed gate semantics, deterministic replay identity, and Dissolution-Grundsatz
+across every layer.
+
+For *what post-symbolic computation means as a category*, see
+**[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 
 ---
 
-## What it does
+## Architecture
 
-You feed PSE a stream of observations. PSE projects each observation onto
-a topological substrate (a 5D-embedded graph), tests whether the current
-configuration resonates with a carrier helix-pair (Mandorla coherence κ),
-gates the test through eight conjunctive metrics (Kairos), runs a dual
-cascade-consensus, optionally falsifies against surrogate streams, and
-— when a configuration survives all of that — emits a **Crystal**: a
-content-addressed (SHA-256 / JCS) record of *which graph region produced
-the resonance, under which constraints, with which provenance*.
+PSE is organised into three tiers:
 
-Crystals are byte-identical across replays, verifiable against the
-EU AI Act compliance proof in [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md),
-accumulate across sessions via the pattern-memory index, and compose
-through an algebra of operators (`compose / dual / bridge / query /
-interpolate`).
+### Tier 1 — Core Engine
 
-For *what kind of computation this is* and *why it's a category of its
-own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
+The observation-to-crystal pipeline. Feeds an observation stream into a 5D-embedded
+topological graph, tests resonance with a carrier helix-pair (Mandorla coherence κ),
+gates through eight conjunctive Kairos metrics, runs dual cascade-consensus, optionally
+falsifies against surrogate streams, and — when a configuration survives all of that —
+emits a **Crystal**: a content-addressed (SHA-256 / JCS) record of which graph region
+produced the resonance, under which constraints, with which provenance.
+
+Crystals are byte-identical across replays, EU AI Act compliant
+([`docs/COMPLIANCE.md`](docs/COMPLIANCE.md)), accumulate across sessions via the
+pattern-memory index, and compose through an algebra of operators
+(`compose / dual / bridge / query / interpolate`).
+
+### Tier 2 — Traversal Agent Stack
+
+Eight formal cognitive layers that navigate problem spaces deterministically above the
+core engine. Every layer is **fail-closed**: gate failure never produces a commit.
+The PSE-Bridge is the only path to a `SemanticCrystal`.
+
+| Layer | Spec ID | Function |
+|---|---|---|
+| Traversal Agent | PSE-TRAVERSE-v0.1 | ProblemSpec → DoFGraph → CollapsePlan → Candidate pipeline |
+| Signature | PSE-TRAVERSE-SIGNATURE-01 | Spectral blueprint search, Pareto-optimal frontier |
+| Dynamics | PSE-TRAVERSE-DYNAMICS-01 | Morphodynamic tick stabilization over lifted state |
+| Horizon | PSE-TRAVERSE-HORIZON-03 | Null-centered hypertoroidal phase geometry |
+| Cognition | PSE-TRAVERSE-COGNITION-01 | Panoptic 720° solvability landscape |
+| Phase Matrix | PHASEMATRIX-HIVEMIND-03 | Morphodynamic resonance cell substrate |
+| Dual-Fabric Stitch | PHASEMATRIX-HIVEMIND-03.1 | Persistent field tensor / ephemeral fabric isolation |
+| Topology (TPT-MTL) | PSE-TRAVERSE-TPT-MTL-04 | Topological panoptic triangulation + Möbius micro-lift |
+| NCTCS | PSE-NCTCS-CONFORMANCE-01 | Null-centered toroidal control closure (C0–C4) |
+| Metatron | PSE-METATRON-MONOLITH-01 | Holistic eigenmode closure, G_meta conjunction |
+
+### Tier 3 — Governance
+
+The **ADAMANT protocol** (`ADAMANT_v1.0.0.pdf`) is the constitutional architectural
+contract referenced by every layer. Key invariants it enforces:
+
+- **Artifact Supremacy (Axiom 6.1.1)** — machine-readable artifacts override documentation
+  summaries; a `MaterializationAudit` record is authoritative over a conformance report.
+- **Fail-closed gates** — no output when G = 0, regardless of partial satisfaction.
+- **Dissolution-Grundsatz** — trace, evidence, and gate history are preserved across
+  compaction; removal is a spec violation.
+- **Deterministic replay** — two runs over byte-identical inputs produce byte-identical
+  outputs at every layer.
+
+The **eval matrix** (PSE-EVAL-MATRIX-01) is the structured validation instrument.
+It runs diagnostic cases across all layers and scores PSE against a raw-LLM baseline.
+Current status: **PSE 100% recall, Raw LLM 52–63% recall**, across 50+ diagnostic cases
+spanning 14 layers. All results are `diagnostic_only=true` pending productive-task
+validation.
 
 ---
 
@@ -41,19 +86,20 @@ own*, see **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 | Throughput on commodity hardware | Verified |
 | Adaptive Kairos calibration | Opt-in, working |
 | Diagnostic surface (`state.last_gate`, `pse-demo`) | Live |
-| **PSE Traversal Agent v0.1** (post-symbolic agent layer) | **Complete** |
+| **PSE Traversal Agent v0.1** | **Complete** |
 | **Signature layer** (PSE-TRAVERSE-SIGNATURE-01) | **Shipped** |
 | **Dynamics layer** (PSE-TRAVERSE-DYNAMICS-01) | **Shipped** |
 | **Horizon layer** (PSE-TRAVERSE-HORIZON-03) | **Shipped** |
 | **Cognition layer** (PSE-TRAVERSE-COGNITION-01) | **Shipped** |
-| **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
-| **Phase matrix layer** (PHASEMATRIX-HIVEMIND-03) | **Shipped** |
-| **Dual-Fabric Stitch Layer** (PHASEMATRIX-HIVEMIND-03.1) | **Shipped** |
+| **Phase Matrix layer** (PHASEMATRIX-HIVEMIND-03) | **Shipped** |
+| **Dual-Fabric Stitch layer** (PHASEMATRIX-HIVEMIND-03.1) | **Shipped** |
 | **Topology layer** (PSE-TRAVERSE-TPT-MTL-04) | **Shipped** |
 | **NCTCS closure layer** (PSE-NCTCS-CONFORMANCE-01) | **Shipped** |
 | **Holistic eigenmode layer** (PSE-METATRON-MONOLITH-01) | **Shipped** |
 | **Domain validation layer** (PSE-VALIDATION-RUNNER-DOMAIN-01) | **Shipped** |
-| Calibration on real production data | **Open frontier** |
+| **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
+| **ADAMANT protocol** (constitutional governance contract) | **v1.0.0** |
+| Productive-task validation (`productive_agent_validated`) | **Open frontier** |
 
 Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 
@@ -65,15 +111,10 @@ Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
 | `B05` determinism check | **PASS** (bit-identical replay) |
 | Workspace test suite | **928 / 928** passing |
 
-The original i3 dual-core baseline of 655 K obs/sec is exceeded on observe
-and matched on the full pipeline. See `cargo run --release --example
-bench_full -p pse-core`.
-
-The engine produces **0 crystals on default thresholds** for unconfigured
-synthetic workloads — by design. Crystal formation requires either real
-data the metrics were calibrated for, or the opt-in adaptive calibrator
-(see `pse-demo`). Calibration on a real domain is the work that turns
-this from "well-built engine" into "deployed product".
+The engine produces **0 crystals on default thresholds** for unconfigured synthetic
+workloads — by design. Crystal formation requires either real data the metrics were
+calibrated for, or the opt-in adaptive calibrator (see `pse-demo`). Calibration on a
+real domain is the work that turns this from "well-built engine" into "deployed product".
 
 ---
 
@@ -126,14 +167,12 @@ if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
 
 ---
 
-## PSE Traversal Agent v0.1
+## Layer detail: Traversal Agent
 
-PSE is the **Commit-/Evidence-/Falsifier-Kern**. The new
-[`pse-traverse`](crates/pse-traverse) crate ships the **agent layer**
-on top: a deterministic controller that turns a *structured problem
-space* into a *fail-closed traversal of degrees of freedom*, then
-binds successful candidates to PSE crystals via the bridge — never
-fabricating crystals on its own.
+The [`pse-traverse`](crates/pse-traverse) crate is the **agent layer** above the core
+engine: a deterministic controller that turns a structured problem space into a
+fail-closed traversal of degrees of freedom, then binds successful candidates to PSE
+crystals via the bridge — never fabricating crystals on its own.
 
 > *Ein post-symbolischer Traversierungsagent ist ein Agent, der nicht
 > nur Antworten produziert, sondern Problemräume topologisch erschließt,
@@ -160,8 +199,8 @@ ProblemSpec  →  FieldCube         (dimensions, constraints, couplings, paths,
              →  CommitOutcome      (Crystal | NoCrystal | EvidenceOnly | GateFailed)
 ```
 
-The **signature layer** exposes a blueprint search surface for
-multi-cycle traversal optimisation:
+The **signature layer** exposes a blueprint search surface for multi-cycle traversal
+optimisation:
 
 ```text
 BlueprintSearch  →  TraversalBlueprint[]  (DeterministicGrid: quantization_scale
@@ -173,8 +212,11 @@ SearchAutopilot                            (Exploration → Exploitation → Ref
                                            → Validation → Complete)
 ```
 
-The optional **dynamics layer** (PSE-TRAVERSE-DYNAMICS-01) stabilises problem
-spaces over ticked state transitions before final candidate generation:
+---
+
+## Layer detail: Dynamics (PSE-TRAVERSE-DYNAMICS-01)
+
+Stabilises problem spaces over ticked state transitions before final candidate generation:
 
 ```text
 BaseState[]  →  LiftedState[]    (N → N+1 lift, auxiliary = logical tick)
@@ -186,17 +228,20 @@ BaseState[]  →  LiftedState[]    (N → N+1 lift, auxiliary = logical tick)
              →  DynamicTickReport (content-addressed, replay-identical)
 ```
 
-`dynamic_run()` executes ticks until a `DynamicStopCondition` is met and
-embeds the `DynamicRunReport` as an optional field in `TraversalRunReport`.
-`DynamicPolicy` supports `Explore / Exploit / Homeostasis` with deterministic
-density-based adaption (POLICY-01). No SemanticCrystals are produced by the
-dynamics layer — PSE-bridge remains the sole commit path.
+`dynamic_run()` executes ticks until a `DynamicStopCondition` is met and embeds the
+`DynamicRunReport` as an optional field in `TraversalRunReport`. `DynamicPolicy` supports
+`Explore / Exploit / Homeostasis` with deterministic density-based adaption (POLICY-01).
+No SemanticCrystals are produced by the dynamics layer — PSE-bridge remains the sole
+commit path.
 
-The optional **horizon layer** (PSE-TRAVERSE-HORIZON-03) wraps a
-projection-capable state in a null-centered hypertoroidal phase-space
-geometry and only finalises when every conjunctive sub-gate
-(`G_visible ∧ G_cone ∧ G_causal ∧ G_dual`) plus the upstream
-Projection-v0.2 outcome is satisfied:
+---
+
+## Layer detail: Horizon (PSE-TRAVERSE-HORIZON-03)
+
+Wraps a projection-capable state in a null-centered hypertoroidal phase-space geometry
+and only finalises when every conjunctive sub-gate
+(`G_visible ∧ G_cone ∧ G_causal ∧ G_dual`) plus the upstream Projection-v0.2 outcome
+is satisfied:
 
 ```text
 StableState   →  NullCenter         (canonical reference id)
@@ -218,23 +263,22 @@ StableState   →  NullCenter         (canonical reference id)
                                      v0.2 cert / emission / replay)
 ```
 
-Every gate-relevant scalar is a `CanonicalNumber` (no platform floats);
-every keyed structure is `BTreeMap`; every list is sorted before
-hashing. Two runs with byte-identical descriptors and inputs produce
-byte-identical reports and certificates. **The horizon layer never
-produces a `SemanticCrystal`** — the existing PSE-Bridge remains the
-only commit path. Failure modes resolve to a deterministic
-`HorizonFailurePolicy` (`WaitForHorizon` / `RefineProjectionCone` /
-`MigrateCarrier` / `Recondense` / `Hold` / `Abort`) and a corresponding
-`HorizonV3Outcome` variant; no fabricated emissions ever leak past
-`G_v0.3 = 0`.
+Every gate-relevant scalar is a `CanonicalNumber` (no platform floats); every keyed
+structure is `BTreeMap`; every list is sorted before hashing. Two runs with byte-identical
+descriptors and inputs produce byte-identical reports and certificates. **The horizon layer
+never produces a `SemanticCrystal`** — the existing PSE-Bridge remains the only commit
+path. Failure modes resolve to a deterministic `HorizonFailurePolicy`
+(`WaitForHorizon` / `RefineProjectionCone` / `MigrateCarrier` / `Recondense` / `Hold` /
+`Abort`) and a corresponding `HorizonV3Outcome` variant.
 
-The optional **cognition layer** (PSE-TRAVERSE-COGNITION-01) wraps the
-problem's reachable solvability landscape in a panoptic phase space.
-Instead of asking *"may this state finalise?"* (the projection layer's
-question) it asks *"which states, constraints, phases, memory paths,
-attractors, carriers, non-local routes and finalisation candidates are
-visible, latent, blocked or dominant?"*:
+---
+
+## Layer detail: Cognition (PSE-TRAVERSE-COGNITION-01)
+
+Wraps the problem's reachable solvability landscape in a panoptic phase space. Instead of
+asking *"may this state finalise?"* (the projection layer's question) it asks *"which
+states, constraints, phases, memory paths, attractors, carriers, non-local routes and
+finalisation candidates are visible, latent, blocked or dominant?"*:
 
 ```text
 ProblemSpec/Traversal/Projection inputs
@@ -264,64 +308,50 @@ ProblemSpec/Traversal/Projection inputs
   →  CognitionReport             (content-addressed, replay-stable)
 ```
 
-The cognition kernel **never** finalises, **never** commits, and
-**never** constructs a `SemanticCrystal` or `FinalizedEmission`. It
-hands `CognitionCandidateBundle`s off to projection-v0.2 *only* when
-every sub-gate fires; otherwise it emits a deterministic
-`CognitionHoldReport` with a `CognitionFailurePolicy` and a
-`CognitionRecoveryAction`. Every audit input — 5D state, operator
-declarations, hit-sets, lattice, puzzle, panorama, scheduler,
-wormholes, self-model, calibration, trigger, bundle — is float-free,
-`BTreeMap`-keyed, sorted-before-hashing, and JCS-canonicalised.
+The cognition kernel **never** finalises, **never** commits, and **never** constructs a
+`SemanticCrystal` or `FinalizedEmission`. It hands `CognitionCandidateBundle`s off to
+projection-v0.2 *only* when every sub-gate fires; otherwise it emits a deterministic
+`CognitionHoldReport` with a `CognitionFailurePolicy` and a `CognitionRecoveryAction`.
 
-The optional **phase-matrix layer** (PHASEMATRIX-HIVEMIND-03) is the
-morphodynamic resonance cell substrate that sits below the cognition
-kernel. It instantiates `PhaseCell`s in a `CellPool` over a
-`PhaseSubnet` (with matrix-boundary enforcement at insertion: foreign
-parents are rejected), runs each cell's `LocalResonanceProcessor` to
-emit `ResonancePulse`s, forms `ResonanceCluster`s through five
-fail-closed gates (`G_cluster`, `G_morph`, `G_intent`, `G_dissolve`
-plus the matrix-boundary check), composes a four-edge `FunnelGraph`
-(Spatial / Temporal / Semantic / Resonance, validated acyclic by
-WHITE/GRAY/BLACK DFS), advances a `MorphodynamicField`
-(`H = α · Φ + β · µ`), produces a `ConvergenceField` and an
-`IntentCandidate`, and finally compacts the working state into a
-`ClusterTrace` + `DissolutionReport` while preserving trace, evidence
-and lifecycle history (the **Dissolution-Grundsatz**). The substrate
-emits `CellToHandoffCandidate`s only — no `SemanticCrystal`, no
-`FinalizedEmission` — so the PSE-Bridge remains the only commit
-path. `run_cell_substrate_cycle` drives the full deterministic cycle,
-two runs over the same `(input, rd)` are byte-identical, and the
-`phase-matrix` CLI exposes `cluster-cycle` / `cluster-replay` /
-`cluster-verify` / `cell-pool` for audits and golden fixtures.
+---
 
-The additive **Dual-Fabric Field-Tensor Stitch Layer**
-(PHASEMATRIX-HIVEMIND-03.1) extends the phase-matrix layer with a
-persistent `FieldTensorState` (Fabric-T) and an ephemeral
-`ResonanceFabricState` (Fabric-H). Fabric-H is derived deterministically
-from each `CellSubstrateCycleReport` and may never directly mutate
-Fabric-T (Invariant 1 / isolation guarantee). Fabric-T evolves
-exclusively through accepted `CouplingUpdate`s, gated by the
-seven-sub-gate `StitcherGate` conjunction
+## Layer detail: Phase Matrix (PHASEMATRIX-HIVEMIND-03)
+
+The morphodynamic resonance cell substrate that sits below the cognition kernel.
+Instantiates `PhaseCell`s in a `CellPool` over a `PhaseSubnet`, runs each cell's
+`LocalResonanceProcessor` to emit `ResonancePulse`s, forms `ResonanceCluster`s through
+five fail-closed gates (`G_cluster`, `G_morph`, `G_intent`, `G_dissolve` plus
+matrix-boundary check), composes a four-edge `FunnelGraph` (Spatial / Temporal /
+Semantic / Resonance, validated acyclic by WHITE/GRAY/BLACK DFS), advances a
+`MorphodynamicField` (`H = α · Φ + β · µ`), produces a `ConvergenceField` and an
+`IntentCandidate`, and finally compacts the working state into a `ClusterTrace` +
+`DissolutionReport` while preserving trace, evidence and lifecycle history
+(the **Dissolution-Grundsatz**). The substrate emits `CellToHandoffCandidate`s only —
+no `SemanticCrystal`, no `FinalizedEmission` — so the PSE-Bridge remains the only commit
+path.
+
+The **Dual-Fabric Field-Tensor Stitch Layer** (PHASEMATRIX-HIVEMIND-03.1) extends this
+with a persistent `FieldTensorState` (Fabric-T) and an ephemeral `ResonanceFabricState`
+(Fabric-H). Fabric-H is derived deterministically from each `CellSubstrateCycleReport`
+and **may never directly mutate Fabric-T** (Invariant 1 / isolation guarantee). Fabric-T
+evolves exclusively through accepted `CouplingUpdate`s, gated by the seven-sub-gate
+`StitcherGate` conjunction
 `G_stitch = G_conv ∧ G_mci ∧ G_delta ∧ G_budget ∧ G_trace ∧ G_boundary ∧ G_evidence`
-(fail-closed). Every accepted update increments `tensor_revision` and
-extends the `FieldTensorTrace` append-only audit log (the
-**Dissolution-Grundsatz** equivalent for the stitch layer). The
-`StitchCycleBundle` is the replay anchor: same `StitchRunDescriptor`
-+ same `tensor_before` + same `CellSubstrateCycleReport` →
-byte-identical `StitcherReport`. The `phase-matrix` CLI gains seven
-new subcommands: `stitch-fabric`, `stitch-candidates`, `stitch-gate`,
-`stitch-apply`, `stitch-cycle`, `stitch-replay`, and `tensor-inspect`.
+(fail-closed). Every accepted update increments `tensor_revision` and extends the
+`FieldTensorTrace` append-only audit log (the **Dissolution-Grundsatz** equivalent for
+the stitch layer).
 
-The optional **topology layer** (PSE-TRAVERSE-TPT-MTL-04) adds a
-**Topological Panoptic Triangulation and Möbius-Tripolar Micro-Lift**
-(TPT-MTL) substrate. Instead of point-wise projections it triangulates
-a 5D phase-space window into a `MeshHolo`, lifts each point through a
-`PrimaryPhase` → `DualAntiphase` (MTL-D1 Möbius reflection) →
-`SeamComponent` triple, guards every mesh mutation with a
-`TopologyGuard` (Betti-shift ∈ AllowedShift ∧ W_p ≤ θ\_PD), and
-gates the resulting `TopologicalCrystalCandidate` through thirteen
-fail-closed gates before materialising a `TptMtlBundle`:
+---
+
+## Layer detail: Topology (PSE-TRAVERSE-TPT-MTL-04)
+
+**Topological Panoptic Triangulation and Möbius-Tripolar Micro-Lift** (TPT-MTL). Instead
+of point-wise projections it triangulates a 5D phase-space window into a `MeshHolo`,
+lifts each point through a `PrimaryPhase` → `DualAntiphase` (MTL-D1 Möbius reflection)
+→ `SeamComponent` triple, guards every mesh mutation with a `TopologyGuard`
+(Betti-shift ∈ AllowedShift ∧ W_p ≤ θ\_PD), and gates the resulting
+`TopologicalCrystalCandidate` through thirteen fail-closed gates before materialising a
+`TptMtlBundle`:
 
 ```text
 PhaseSpaceWindow  →  AxisBridgeReport  (semantic / runtime / carrier separation)
@@ -337,39 +367,59 @@ PhaseSpaceWindow  →  AxisBridgeReport  (semantic / runtime / carrier separatio
                   →  ReplayManifest    (5-digest verification anchor)
 ```
 
-Conformance class **TPTM-5**. Ten invariants (I-01 … I-10) are enforced
-at every stage: state-before-topology, window-before-point,
-axis-separation (I-03), topology-before-claim, gate-before-emission,
-ephemeral-exploration/persistent-proof, stateless null-center (I-06),
-antiphase-by-declared-proof (I-07), TopologyGuard-on-mutation (I-08),
-budgeted recursion (I-09), replay-identity (I-10). The layer **never**
-produces a `SemanticCrystal`; the existing PSE-Bridge remains the sole
-commit path.
+Conformance class **TPTM-5**. Ten invariants (I-01 … I-10) enforced at every stage.
+The layer **never** produces a `SemanticCrystal`; the existing PSE-Bridge remains the
+sole commit path.
 
-Feature flags: `topology` (core), `topology-cli`, `topology-mtl`,
-`topology-refine`, `topology-carrier`, `topology-reinterpret`,
-`topology-handoff`. The `pse-traverse-topology-cli` binary exposes
-fourteen subcommands: `inspect window axis triangulate lift weight
-refine carrier reinterpret gate bundle replay verify run`.
+---
 
-Ten TPT-MTL metrics are registered with `pse-eval-matrix`:
-`tpt_adapter_totality_rate`, `tpt_axis_bridge_validity`,
-`tpt_mesh_determinism_identity`, `tpt_topology_robustness`,
-`tpt_micro_lift_coverage`, `tpt_seam_consistency_rate`,
-`tpt_carrier_continuity`, `tpt_false_crystal_rate`,
-`tpt_trace_completeness`, `tpt_replay_identity`.
+## Layer detail: NCTCS (PSE-NCTCS-CONFORMANCE-01)
 
-The optional **eval-matrix layer** (PSE-EVAL-MATRIX-01) wraps every
-post-symbolic layer above into a structural research instrument —
-**not** a benchmark harness. It binds system variants (B0_Baseline …
-B7_FullStack, plus B8_PhaseMatrix when the substrate is enabled),
-workload families (StreamEvent, AnomalyRegime, TraversalPuzzle,
-CodeAgentPatch, DocSynthesis, MemoryReuse, HorizonFinalization,
-CognitionPanorama, MultiAgent, MorphoCellSubstrate, DualFabricStitch), domain datasets,
-metric specs (primary outcome / post-symbolic structural / system /
-cognition / agent), calibration states, ablations, replay
-verification, statistical aggregation, and qualitative reviewer
-rubrics into one reproducible tensor:
+Null-Centered Toroidal Control Closure Layer. Classifies conformance C0–C4 from a
+deterministic pipeline:
+
+```text
+NullCenterRef  →  NullProjectionAudit  (K0 ≠ π0(K0))
+               →  PhaseVisibilityAudit
+               →  CandidateFormationAudit
+               →  MaterializationAudit  (no direct fabric→tensor mutation; fail-closed)
+               →  TraceReplayContractReport
+               →  classify_conformance  (C0–C4, cumulative prerequisite chain)
+               →  MacroControlState     (C4 only; derived from null_center + tensor
+                                         + trace, NEVER from resonance or coherence)
+               →  NctcsClosureBundle    (content-addressed, byte-identical replay)
+```
+
+Conformance classes are cumulative: `reached_class` is the highest class whose
+prerequisite chain is fully satisfied. A `MaterializationAudit` artifact recording
+`no_direct_fabric_to_tensor_mutation=false` overrides a conformance report summary
+that records `c2=true` — **Artifact Supremacy (ADAMANT Axiom 6.1.1)** applies.
+
+---
+
+## Layer detail: Metatron (PSE-METATRON-MONOLITH-01)
+
+Holistic Eigenmode Closure Layer. Evaluates the fail-closed composite gate
+`G_meta = G_nctcs ∧ G_trace ∧ G_replay ∧ G_iso ∧ G_gap ∧ G_eval ∧ G_drift`
+over the full PSE stack. `HolisticEigenmodeState` (M0–M5 conformance, content-addressed,
+replayable) is produced only when `G_meta = 1`; gate failure yields a
+`MetatronDiagnosticReport` (fail-closed, no HolisticEigenmodeState under any
+circumstances).
+
+G_iso requires ≥ 1 `IsomorphicProjectionReport` with `passed = true`; an empty list
+unconditionally fails G_iso. `isomorphism_score` is a computed metric and does not
+override the `passed` determination. `MetatronOperator` is **not a controller** — it
+derives state from the persistent field tensor and MacroControlState, never from the
+ephemeral resonance field.
+
+---
+
+## Layer detail: Eval Matrix (PSE-EVAL-MATRIX-01)
+
+The eval matrix wraps every post-symbolic layer into a structural research instrument —
+**not** a benchmark harness. It binds system variants (B0_Baseline … B7_FullStack),
+workload families, domain datasets, metric specs, calibration states, ablations, replay
+verification, and statistical aggregation into one reproducible tensor.
 
 ```text
 EvaluationSpec ─┐
@@ -385,51 +435,17 @@ CalibrationProf┘                              JCS-canonical, replayable)
                                               ├─ score   ── CapabilityProfile,
                                               │            Safety-Adjusted Utility,
                                               │            Layer Marginal Utility
-                                              ├─ ablate  ── B6 → noCognition,
-                                              │            noSpiralMemory,
-                                              │            noConstraintLattice, …
+                                              ├─ ablate  ── B6 → noCognition, …
                                               └─ report  ── Markdown / JSON
-                                                           (no metric recompute)
 ```
 
-The crate provides five built-in presets (§18): `agent-cognition`,
-`streaming-event-detection`, `post-symbolic-ablation`,
-`phase-matrix-substrate` (B0 / B7 / B8 over the `MorphoCellSubstrate`
-workload, scored against the full PHASEMATRIX-HIVEMIND-03 cell-substrate
-metric set), and `dual-fabric-stitch` (B0 / B8 / B9 over the
-`DualFabricStitch` workload, scored against all 16 B9 metrics: the 10
-cell-substrate metrics plus the 6 Dual-Fabric Stitch metrics). A `TrialExecutor`
-trait lets external pipelines (PSE, pse-traverse, horizon, cognition,
-phase-matrix, or third-party systems) plug in; the bundled
-`SyntheticTrialExecutor` is what golden fixtures and the property
-tests use, and pins the cell-substrate metrics to the fail-closed
-floor whenever the variant does not own the `CELL_SUBSTRATE` layer
-bit so the B8 uplift is observable. Every score / metric / gate value is a `CanonicalNumber`
-(no platform floats), the ledger is append-only with a rolling chain
-hash, and the spec's `Schlussformel` is enforced: a system counts as
-*empirically improved* only when
-`ΔU_task > 0 ∧ ΔU_safety ≥ 0 ∧ ReplayIdentity = 1 ∧ InvalidRunRate ≤ ε
-∧ LMU_target > 0` — otherwise the result is a *diagnostic finding*,
-not an improvement claim.
+**Schlussformel** (§23): a system counts as *empirically improved* only when
+`ΔU_task > 0 ∧ ΔU_safety ≥ 0 ∧ ReplayIdentity = 1 ∧ InvalidRunRate ≤ ε ∧ LMU_target > 0`
+— otherwise the result is a *diagnostic finding*, surfaced as a `ConclusionFlag`.
 
-Spec compliance highlights:
+---
 
-* **Determinism.** Every keyed collection is `BTreeMap`, every list
-  sorted, every output round-tripped through JCS (RFC 8785). Two runs
-  on the same `ProblemSpec` produce **byte-identical** reports
-  (verified by `tests/replay_byte_identity.rs`).
-* **Fail-closed.** A gate failure NEVER produces a commit. It produces
-  a `GateReport` with a `FailurePolicy` (Refine / Excise / Boundary /
-  Abort). The PSE bridge is the *only* path to a `SemanticCrystal`.
-* **PSE-anchored.** `PseMacroStepCommitter` calls `pse_core::macro_step`
-  and inspects `state.last_gate`. If PSE rejects, the traversal report
-  carries a `NoCrystal { reason, gate_snapshot_json }` — never a
-  fabricated crystal.
-* **Replayable.** `TraversalRunReport` embeds the full `ProblemSpec` so
-  `pse-traverse-cli replay` can re-derive cube/graph/plan/excisions
-  without external context and assert canonical-byte identity.
-
-Run it:
+## CLI reference
 
 ```bash
 # Inspect the structured problem space
@@ -510,12 +526,7 @@ cargo run --release -p pse-eval-matrix-cli -- replay --bundle target/eval/bundle
 cargo run --release -p pse-eval-matrix-cli -- score  --spec target/eval/spec.json   --bundle target/eval/bundle.json --out target/eval/summary.json
 cargo run --release -p pse-eval-matrix-cli -- report --summary target/eval/summary.json --format md --out target/eval/summary.md
 
-# Stamp + close the eval matrix over the new cell-substrate layer
-cargo run --release -p pse-eval-matrix-cli -- init \
-    --template phase-matrix-substrate --out target/eval/phase_spec.json
-
-# Run a full PHASEMATRIX-HIVEMIND-03 cell-substrate cycle and verify
-# byte-identical replay (binary: phase-matrix)
+# Run a full PHASEMATRIX-HIVEMIND-03 cell-substrate cycle and verify replay
 cargo run --release -p pse-phase-matrix-cli -- cluster-cycle \
     target/phase/input.json --rd target/phase/rd.json \
     --out target/phase/cycle.json
@@ -540,7 +551,6 @@ cargo run --release -p pse-metatron-cli -- replay  \
     target/run_dir/metatron_closure_report.json
 
 # Run the domain validation layer (PSE-VALIDATION-RUNNER-DOMAIN-01)
-# Embedded ground-truth fixture (seismo / vitals / binance scenarios):
 cargo run --release -p pse-validation-runner-cli -- run \
     --profile domain \
     --domain-manifest validation_domains/embedded_ground_truth/manifest.json \
@@ -551,31 +561,11 @@ cargo run --release -p pse-bench-gt --bin bench_gt -- \
     --scenario seismo --format json --out /tmp/seismo.json
 ```
 
-The MVP solver in `run` is a one-value-per-dimension template — by
-design. Real solvers (template / LLM / tool / human) plug in via the
-`Candidate`-producing surface; the gating, fail-closed conversion and
-PSE binding are the same regardless.
-
-See `pse_nctcs_conformance_spec_v0_1.pdf.pdf` (PSE-NCTCS-CONFORMANCE-01),
-`PSE-METATRON-MONOLITH-01.pdf` (PSE-METATRON-MONOLITH-01),
-`pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`,
-`pse_traverse_signature_spec.pdf` (PSE-TRAVERSE-SIGNATURE-01),
-`pse_traverse_dynamics_spec_v0_1.pdf` (PSE-TRAVERSE-DYNAMICS-01),
-`pse_traverse_horizon_spec_v0_3.pdf` (PSE-TRAVERSE-HORIZON-03),
-`pse_traverse_cognition_spec_v0_1.pdf` (PSE-TRAVERSE-COGNITION-01),
-`PSE_EVAL_MATRIX_01.pdf` (PSE-EVAL-MATRIX-01),
-`PHASEMATRIX_HIVEMIND_03.pdf` (PHASEMATRIX-HIVEMIND-03) and
-`ADAMANT_v1.0.0.pdf` (the constitutional architectural contract
-referenced by every layer above) for the specs this layer realises,
-and `topologisches_traversierungsframework_v3.pdf` for the underlying
-topological framework.
-
 ---
 
-## Architecture
+## Workspace layout
 
-The workspace ships **28 crates**, **10 domain adapters**, **11 tool
-binaries**:
+28 crates, 10 domain adapters, 11 tool binaries:
 
 ```
 crates/
@@ -613,52 +603,16 @@ crates/
                   fail-closed) → HolisticEigenmodeState (only on pass;
                   content-addressed, replayable, M0–M5 conformance class)
   phase-matrix    PHASEMATRIX-HIVEMIND-03 morphodynamic resonance cell
-                  substrate: PhaseSubnet / PhaseCell / CellPool →
-                  LocalResonanceProcessor → ResonancePulse →
-                  ResonanceCluster + ClusterLifecycle → FunnelGraph
-                  (DFS-acyclic over Spatial / Temporal / Semantic /
-                  Resonance edges) → MorphodynamicField (H = α·Φ + β·µ)
-                  + ClusterMorphologyEvent → ConvergenceField →
-                  TensionToIntentOperator → IntentCandidate →
-                  ClusterTrace → DissolutionReport
-                  (Dissolution-Grundsatz: trace + evidence + lifecycle
-                  history are preserved across compaction) →
-                  CellToHandoffCandidate (no commit artefacts —
-                  PSE-Bridge remains the only commit path);
-                  five fail-closed gates (G_cluster, G_morph,
-                  G_intent, G_dissolve, plus matrix-boundary check);
-                  run_cell_substrate_cycle drives the full
-                  deterministic cycle.
+                  substrate + PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric
+                  Field-Tensor Stitch Layer
   pse-validation-runner
                   Validation runner + PSE-NCTCS-CONFORMANCE-01 closure
-                  layer (nctcs/ submodule): NullCenterRef →
-                  NullProjectionAudit → PhaseVisibilityAudit →
-                  CandidateFormationAudit → MaterializationAudit →
-                  TraceReplayContractReport → classify_conformance (C0–C4)
-                  → MacroControlState (C4 only) → NctcsClosureBundle
-                  (content-addressed, replayable); fail-closed gate
-                  semantics; 8 NCTCS metrics in pse-eval-matrix
+                  layer + PSE-VALIDATION-RUNNER-DOMAIN-01
   pse-traverse    PSE Traversal Agent v0.1 + Signature + Dynamics + Horizon
                   + Cognition (PSE-TRAVERSE-SIGNATURE-01,
                   PSE-TRAVERSE-DYNAMICS-01, PSE-TRAVERSE-HORIZON-03,
-                  PSE-TRAVERSE-COGNITION-01):
-                  ProblemSpec → FieldCube → DoFGraph → CollapsePlan →
-                  StructuralOperator → Signature → SignatureDiagnostics →
-                  SignatureGate → [optional: BaseState→LiftedState→FieldSignal→
-                  GuidanceField→Compressor→TransitionProof→DynamicGate] →
-                  [optional: NullCenter→HorizonChart→PhaseRays→ProjectionCone→
-                  CausalAdmissibility→DualityCheck→HorizonCrossingGate→
-                  HorizonCertificate] →
-                  [optional: CognitiveState5D→SpiralMemory→ConstraintLattice→
-                  HypercubePuzzle→PhasePanorama→ScorpioPhaseScheduler→
-                  GovernedWormhole→SelfModelTensor→FixpointCalibration→
-                  SingularityTrigger→CognitionHandoffGate→
-                  CognitionCandidateBundle] →
-                  Candidate → GateReport → PSE-bridge (fail-closed);
-                  BlueprintSearch, SearchLedger, SearchAutopilot,
-                  dynamic_tick / dynamic_run for multi-cycle stabilisation,
-                  run_horizon_v3 for null-centered horizon finalisation,
-                  run_cognition for panoptic phase cognition
+                  PSE-TRAVERSE-COGNITION-01)
+  pse-eval-matrix PSE-EVAL-MATRIX-01 evaluation matrix
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -696,10 +650,12 @@ tools/
                       (binary: pse-eval-matrix)
   pse-phase-matrix-cli PHASEMATRIX-HIVEMIND-03 CLI:
                       cell-pool / cluster-cycle / cluster-replay /
-                      cluster-verify
+                      cluster-verify / stitch-fabric / stitch-candidates /
+                      stitch-gate / stitch-apply / stitch-cycle /
+                      stitch-replay / tensor-inspect
                       (binary: phase-matrix)
   pse-validation-runner-cli
-                      Validation runner CLI (extended with NCTCS commands):
+                      Validation runner CLI:
                       nctcs-close / nctcs-replay / nctcs-verify
                       (binary: pse-validation-runner)
   pse-metatron-cli    PSE-METATRON-MONOLITH-01 CLI:
@@ -710,220 +666,36 @@ tools/
 
 ---
 
-## What's new since the last README
+## Specifications
 
-The previous README described the engine before Strands E through P. The
-short version of what changed:
-
-* **E** — Engine made *real*. Data stream gets its own helix; Mandorla
-  becomes actual standing-wave interference of carrier and data; 5D
-  state grounded in graph topology; cascade operators became real
-  resonance tests; CrystalAdapter; resonance fingerprint query;
-  resonance-landscape-aware TRITON.
-* **F** — Sliding-window ground-truth bench scenarios (seismo, vitals
-  AFib, Binance regime shift) with EventScopedAdapter.
-* **G** — TRITON BBO benchmark vs random and Halton.
-* **H** — EU AI Act compliance proof sketch.
-* **I** — Semantic phase hint on `Observation` (avalanche-hash fallback
-  preserved).
-* **J** — Adaptive carrier tracker (per-tick re-selection).
-* **K** — `CapsuleSealer` with AES-GCM counter-reuse detector.
-* **L** — Full TRITON navigator in BBO benchmark.
-* **M** — Operator algebra: `compose / dual / bridge / query / interpolate`.
-* **N** — Generative interpolation primitive.
-* **P.1** — Hot-path `eprintln` → `tracing` (+15 % throughput).
-* **P.2** — Visible engine: `state.last_gate` exposes the full
-  `GateSnapshot` every tick. Bug fix: `q` (coherence) is now the
-  *fraction* of intrinsic carrier coherence preserved by the data,
-  not the absolute κ (whose ≈ 0.54 ceiling made the 0.5 threshold
-  structurally unreachable). New `pse-demo` binary.
-* **P.3** — `AdaptiveCalibrator`: rolling-history quantile thresholds.
-  Engine self-calibrates per workload. Opt-in; default path unchanged.
-  d-metric extended to include p90 + vertex-set churn for
-  windowed-streaming workloads.
-* **Signature layer (PSE-TRAVERSE-SIGNATURE-01)** — full spectral
-  operator/diagnostics/gate/blueprint-search layer on top of the Traversal Agent:
-  `StructuralOperator` (Laplacian matrix profile from `DoFGraph`) →
-  `Signature` (sorted fixed-point spectral values, Jacobi eigensolver
-  for n ≤ 8, `MatrixProfileApprox` for larger graphs) →
-  `SignatureDiagnostics` (five scores in [0,1] + advisory `RegimeHint`) →
-  `SignatureGate` (configurable thresholds, fail-closed or diagnostic-only).
-  Blueprint search: `BlueprintSearch` with `DeterministicGrid` policy
-  (quantization_scale × lambda_hard grid), `NonDominatedFrontier`
-  (Pareto tracker), `SearchLedger` (hash-chained evaluation log),
-  `SearchAutopilot` (5-phase state machine). CLI extended with
-  `--signature`, `--signature-gate`, and `search` subcommand.
-
-* **Dynamics layer (PSE-TRAVERSE-DYNAMICS-01)** — optional morphodynamic
-  tick engine extracted from neutral DioniceOS mechanics:
-  `CanonicalNumber` (scale-9 banker's-rounding fixed-point), `Hash256`/`StableId`
-  content addresses, `BaseState`/`LiftedState` (N→N+1 lift/projection),
-  `FieldAbsorber` (alignment/dispersion/pressure), `GuidanceField` (relax +
-  gradient), `MorphodynamicCompressor` (Hebbian/Split/Merge/Prune),
-  `TransitionProof` (path_delta/energy_delta), `DynamicGate` (fail-closed
-  Fire/Hold), `dynamic_tick` (total — valid on empty input, TICK-01),
-  `dynamic_run` (tick loop with configurable stop conditions).
-  `DynamicRunReport` embedded optionally in `TraversalRunReport`.
-  CLI: `dynamics init|tick|run|replay|inspect`.
-
-* **Horizon layer (PSE-TRAVERSE-HORIZON-03)** — optional null-centered
-  horizon geometry that makes Projection-v0.2 finalisation strictly
-  more rigorous: `HorizonRunDescriptorV3` (canonicalisation version,
-  thresholds, policies — `HorizonThresholdsV3` /
-  `HorizonPoliciesV3`), `NullCenterUnfold` (`N → HorizonChart`,
-  content-addressed, replay-stable), `PhaseRayLift`
-  (deterministic `(carrier, epoch) → PhaseRay` over a hypertorus T^n,
-  default n = 4), `EventHorizonWindowV3` + `HorizonVisibility`,
-  `ProjectionCone` + `ProjectionConeCheck`,
-  `CausalAdmissibilityReport` (declared vs observed carrier order),
-  `CollapseEmissionDuality` (round-trip back to the same NullCenter),
-  `HorizonCrossingGate`
-  (`G_visible ∧ G_cone ∧ G_causal ∧ G_dual ∧ tension ∧ attenuation`),
-  combined gate `G_v0.3 = G_projection_v2 ∧ G_cross ∧ ReplayReady`,
-  `HorizonV3Outcome` (`Finalized` / `Hold` / `WaitForHorizon` /
-  `RefineCone` / `NeedsCarrierMigration` / `Recondense` /
-  `ProjectionOnly` / `InvalidInput` / `DeterminismViolation`),
-  `HorizonCertificate` (chain hash over rd, chart, crossing, v0.2 cert
-  and emission), `replay_hash_of` for byte-identity audit. Feature
-  flags: `horizon` (default-on), `horizon-cli`,
-  `horizon-projection-v2`, `horizon-pse-bridge`, `horizon-adapters`.
-  Float-free in every audit path; `BTreeMap`-only for keyed
-  collections; sorted lists; JCS-canonicalised reports.
-  CLI: `pse-traverse-horizon inspect|chart|rays|crossing|finalize|replay|verify`.
-  No `SemanticCrystal` is constructed inside the horizon modules — the
-  PSE-Bridge remains the only commit path.
-
-* **Cognition layer (PSE-TRAVERSE-COGNITION-01)** — optional panoptic
-  phase cognition kernel that turns problem / traversal / dynamics /
-  reactive / projection state into a canonical, replayable map of the
-  reachable solvability landscape:
-  `CognitionRunDescriptor`, `CanonicalCognitionState`,
-  `CognitiveState5D` (5-tuple `(ψ, ρ, ω, χ, τ)` plus derived potential
-  / energy / entropy / stability), typed operator algebra
-  (`DoubleKick / ThresholdSweep / PathInvariance / WormholeFunnel`
-  with explicit domain/codomain type-checking),
-  `SpiralMemoryAddress` / `SpiralMemoryHitSet` (resonance-distance
-  addressing, sorted by `(resonance, hash)`),
-  `ConstraintLatticeCognition` (weighted constraint mass, entropy
-  reduction, feasible-set uniqueness, perkolation gate),
-  `HypercubePuzzleState` with hidden-single detection and
-  `EntropyCollapseCertificate`,
-  `PhasePanorama` (current + counterfactual 360° horizons → 720°
-  total) and `ChoiceGeometryReport`,
-  `ScorpioPhaseScheduler` (deterministic activation windows; **no**
-  steganography, **no** hidden channels),
-  `GovernedWormhole` admission gate
-  (`Budget ∧ TTL ∧ ReasonCode ∧ ReplayTrace`),
-  `SelfModelTensor` + `DualTriggerFeedbackGate` (ordered
-  `(t1 ∧ t2 ∧ Δϕ)` sequence),
-  `FixpointCalibrationShell` with PoR-acceptance and
-  `CarrierMigrationPlan` (anti-drift),
-  `SingularityTriggerReport` over a deterministic stability proxy,
-  `CognitionHandoffGate`
-  (`G_perc ∧ G_panorama ∧ G_self ∧ G_trigger ∧ ReplayReady`),
-  `CognitionCandidateBundle` for handoff to projection-v0.2,
-  `CognitionReport` and `CognitionHoldReport` (with
-  `CognitionFailurePolicy` and `CognitionRecoveryAction`).
-  Feature flags: `cognition` (default-on), `cognition-cli`,
-  `cognition-simulation`, `cognition-spiral-memory`,
-  `cognition-hypercube`, `cognition-scorpio-phase`,
-  `cognition-wormholes`, `cognition-calibration`,
-  `cognition-projection-handoff`. Float-free in every audit path;
-  `BTreeMap` keyed; lists sorted before hashing; JCS-canonicalised
-  reports; **no `SemanticCrystal`, no `FinalizedEmission`** inside the
-  cognition modules — the kernel hands `CognitionCandidateBundle`s to
-  projection-v0.2, which alone may finalise.
-  CLI: `pse-traverse-cognition inspect|observe|state5|memory-query|lattice|puzzle|panorama|calibrate|trigger|bundle|replay|verify`.
-
-* **Eval matrix (PSE-EVAL-MATRIX-01)** — empirical benchmark matrix
-  for post-symbolic cognition systems. New `pse-eval-matrix` crate
-  + `pse-eval-matrix` CLI:
-  * Data model: `EvaluationSpec` (content-addressed, validatable),
-    `SystemVariantSpec` over the B0 → B7 layer ladder (with explicit
-    `LayerMask` bitset), `WorkloadSpec` over nine mandatory families,
-    `DatasetManifest` with `calibration` / `validation` / `test`
-    splits, `GroundTruthProfile` (synthetic-exact / unit-test-oracle
-    / historical / human-adjudicated), `MetricSpec` with declared
-    direction + aggregation + invalidation rules, `MetricObservation`,
-    `EvaluationRunLedger` (append-only, hash-chained),
-    `EvaluationRunEntry`, `TrialReport`, `ReplayObservation`,
-    `EvaluationSummaryReport`, `CapabilityProfile`, `AblationSummary`,
-    `StatisticalSummary`, `ReviewerReport` (qualitative rubric),
-    `FailureRecord` over the spec's failure taxonomy.
-  * Operators: `plan_runs` (deterministic plan from spec),
-    `run_trial` + `TrialExecutor` trait (pluggable;
-    `SyntheticTrialExecutor` is the reference implementation),
-    `init_ledger` + `append_to_ledger` + `verify_ledger_chain`
-    (rolling chain hash), `verify_trial_replay` (byte-identity),
-    `score_ledger` (no metric recompute), `score_capability_profile`
-    (`U_task / U_replay / U_safety / U_cognition / U_efficiency /
-    U_calibration / U_robustness` + `Safety-Adjusted Utility`),
-    `cognition_uplift`, `layer_marginal_utility`,
-    `summarize_ablation`, `bootstrap_mean_ci` (deterministic seeded
-    LCG, no platform RNG), `exact_binomial_ci`, `paired_mean_diff`.
-  * Three built-in presets (§18): `agent-cognition`,
-    `streaming-event-detection`, `post-symbolic-ablation`.
-  * Feature flags: `eval-matrix` (default-on), `eval-cli`,
-    `eval-agent`, `eval-cognition`, `eval-streams`,
-    `eval-statistics`, `eval-reports`.
-  * Float-free in every score / metric / gate path:
-    `CanonicalNumber` only, gcd-normalised rationals, `BTreeMap`
-    keyed, sorted lists before hashing, JCS-canonical reports;
-    no wall-clock timestamps in audit hashes; no platform RNG;
-    `score` aggregates strictly from declared `MetricObservation`s.
-  * **Schlussformel** (§23): a system counts as *empirically improved*
-    only when `ΔU_task > 0 ∧ ΔU_safety ≥ 0 ∧ ReplayIdentity = 1 ∧
-    InvalidRunRate ≤ ε ∧ LMU_target > 0` — otherwise the result is a
-    *diagnostic finding*, surfaced as a `ConclusionFlag`.
-  * CLI: `pse-eval-matrix init|validate|plan|run|replay|score|ablate|compare|report`.
-
-* **NCTCS closure layer (PSE-NCTCS-CONFORMANCE-01)** — Null-Centered
-  Toroidal Control Closure Layer as a submodule of `pse-validation-runner`.
-  Classifies conformance C0–C4 from a deterministic pipeline:
-  `NullCenterRef` (exogenous, not a phase state, not an agent) →
-  `NullProjectionAudit` (K0 ≠ π0(K0)) → `PhaseVisibilityAudit` →
-  `CandidateFormationAudit` → `MaterializationAudit` (no direct
-  fabric→tensor mutation; fail-closed gate semantics) →
-  `TraceReplayContractReport` → two-pass `classify_conformance` →
-  `MacroControlState` (C4 only; derived from null_center + tensor +
-  trace, NEVER from resonance or coherence alone) → `NctcsClosureBundle`
-  (content-addressed, byte-identical replay). Eight NCTCS metrics
-  registered in `pse-eval-matrix`. CLI: `nctcs-close / nctcs-replay /
-  nctcs-verify`.
-
-* **Holistic eigenmode layer (PSE-METATRON-MONOLITH-01)** — Holistic
-  Eigenmode Closure Layer as a submodule of `pse-metatron`. Evaluates
-  the fail-closed composite gate G_meta = G_nctcs ∧ G_trace ∧ G_replay
-  ∧ G_iso ∧ G_gap ∧ G_eval ∧ G_drift over the full PSE stack.
-  `HolisticEigenmodeState` (M0–M5 conformance, content-addressed,
-  replayable) is produced only when G_meta = 1; gate failure yields
-  a `MetatronDiagnosticReport` (fail-closed). G_iso requires ≥ 1
-  `IsomorphicProjectionReport` with `passed = true` (no vacuous pass
-  on empty input). Self-contained `closure/primitives.rs` avoids the
-  cyclic crate dependency via pse-traverse. Binary `pse-metatron`
-  (new tool `pse-metatron-cli`): `inspect / project-local / isomorphism /
-  spectral-gap / close / replay / verify` (7 subcommands).
-
-The 8-fold Kairos AND, falsifier gating, content-address scheme, and
-EU-AI-Act compliance proof are unchanged across all of the above —
-calibration moves; the *contract* doesn't.
+| Document | Covers |
+|---|---|
+| `ADAMANT_v1.0.0.pdf` | Constitutional architectural contract (all layers) |
+| `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf` | Traversal Agent v0.1 |
+| `pse_traverse_signature_spec.pdf` | PSE-TRAVERSE-SIGNATURE-01 |
+| `pse_traverse_dynamics_spec_v0_1.pdf` | PSE-TRAVERSE-DYNAMICS-01 |
+| `pse_traverse_horizon_spec_v0_3.pdf` | PSE-TRAVERSE-HORIZON-03 |
+| `pse_traverse_cognition_spec_v0_1.pdf` | PSE-TRAVERSE-COGNITION-01 |
+| `PHASEMATRIX_HIVEMIND_03.pdf` | PHASEMATRIX-HIVEMIND-03 / 03.1 |
+| `pse_nctcs_conformance_spec_v0_1.pdf` | PSE-NCTCS-CONFORMANCE-01 |
+| `PSE-METATRON-MONOLITH-01.pdf` | PSE-METATRON-MONOLITH-01 |
+| `PSE_EVAL_MATRIX_01.pdf` | PSE-EVAL-MATRIX-01 |
+| `topologisches_traversierungsframework_v3.pdf` | Underlying topological framework |
 
 ---
 
 ## Where to go next
 
-* **Reading**: [`docs/POST_SYMBOLIC.md`](docs/POST_SYMBOLIC.md) — what
-  this paradigm *is*, why it's a category, what it can and cannot do.
-* **Reading**: [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) — EU AI Act
-  formal compliance proof sketch.
-* **Running**: `cargo run --release -p pse-demo` — see the engine work
-  end-to-end, with gate diagnostics, in under a minute.
-* **Calibrating**: pick a domain you care about (or use one of the ten
-  shipped adapters), feed real observations through, watch `state.last_gate`,
-  tune. The diagnostic surface is the lever.
-* **Extending**: implement `ObservationAdapter` for your data source;
-  optionally implement `DomainAdapter` for domain-specific vocabulary.
-  The trait surface is two methods.
+* **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)** — what post-symbolic computation
+  *is* as a category, why it's distinct, what it can and cannot do.
+* **[docs/COMPLIANCE.md](docs/COMPLIANCE.md)** — EU AI Act formal compliance proof sketch.
+* **`cargo run --release -p pse-demo`** — see the core engine end-to-end, with gate
+  diagnostics, in under a minute.
+* **Calibrating** — pick a domain (or use one of the ten shipped adapters), feed real
+  observations through, watch `state.last_gate`, tune. The diagnostic surface is the lever.
+* **Extending** — implement `ObservationAdapter` for your data source; optionally
+  implement `DomainAdapter` for domain-specific vocabulary. The trait surface is two
+  methods.
 
 ---
 
@@ -941,9 +713,9 @@ calibration moves; the *contract* doesn't.
 | Dependency updates | Dependabot (weekly Cargo, monthly Actions) | `.github/dependabot.yml` |
 | Security policy | Private vulnerability reporting + threat model | [`SECURITY.md`](SECURITY.md) |
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development loop and
-the determinism / replay rules every contribution must respect, and
-[`CHANGELOG.md`](CHANGELOG.md) for the release log.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development loop and the determinism /
+replay rules every contribution must respect, and [`CHANGELOG.md`](CHANGELOG.md) for the
+release log.
 
 ---
 
