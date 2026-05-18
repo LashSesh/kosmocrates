@@ -157,28 +157,28 @@
         {
           "id": "cog_c02_w01",
           "source": "proposal_constraint_bridge",
-          "text": "Non-local edge declared for structural bridging between two constraint cluster nodes in separated feasible regions. Reason code ConstraintBridge registered. Budget and TTL within configured limits. Audit trace populated and non-zero.",
+          "text": "Non-local edge declared for structural bridging between two constraint cluster nodes in separated feasible regions. Reason code ConstraintBridge registered.",
           "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "audit_traced"],
           "relevance_rank_hint": 1
         },
         {
           "id": "cog_c02_w02",
           "source": "proposal_spiral_recall",
-          "text": "Shortcut connecting the current cognition state to a resonance attractor previously indexed by the spiral memory. Reason code SpiralMemoryRecall registered. Budget and TTL nominal. Audit trace non-zero.",
+          "text": "Shortcut connecting the current cognition state to a resonance attractor previously indexed by the spiral memory. Reason code SpiralMemoryRecall registered.",
           "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "audit_traced"],
           "relevance_rank_hint": 2
         },
         {
           "id": "cog_c02_w03",
           "source": "proposal_projection_prep",
-          "text": "Pre-handoff alignment edge linking the current cognition output to the projection target state. Reason code ProjectionPreparation declared. All four admission fields satisfy the configured bounds.",
+          "text": "Pre-handoff alignment edge linking the current cognition output to the projection target state. Reason code ProjectionPreparation declared.",
           "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "audit_traced"],
           "relevance_rank_hint": 3
         },
         {
           "id": "cog_c02_w04",
           "source": "proposal_direct_path",
-          "text": "Shortest-path shortcut between source and target nodes selected for traversal efficiency. No formal reason code class assigned from the admitted set.",
+          "text": "Shortest-path shortcut between source and target nodes selected for traversal efficiency. No formal reason code class registered.",
           "tags": ["red_herring", "rejected", "invalid_reason_code", "no_declared_reason"],
           "relevance_rank_hint": null,
           "_trap": "Sounds useful ('direct', 'efficiency') but has no valid ReasonCode — admission gate requires Reason(w) in R."
@@ -186,21 +186,21 @@
         {
           "id": "cog_c02_w05",
           "source": "proposal_attractor_budget_over",
-          "text": "Attractor shortcut to a known stable state with a valid reason code from the admitted set. Budget allocation for this proposal exceeds the configured maximum by a substantial margin.",
+          "text": "Attractor shortcut to a known stable state. Reason code AttractorShortcut declared.",
           "tags": ["red_herring", "rejected", "budget_exceeded"],
           "relevance_rank_hint": null
         },
         {
           "id": "cog_c02_w06",
           "source": "proposal_horizon_no_trace",
-          "text": "Horizon alignment shortcut to a future phase window candidate. Reason code HorizonAlignment registered. Budget and TTL within limits. Audit trace field was not populated — the provenance signature is absent.",
+          "text": "Horizon alignment shortcut to a future phase window candidate. Reason code HorizonAlignment registered.",
           "tags": ["red_herring", "rejected", "zero_audit_trace"],
           "relevance_rank_hint": null
         },
         {
           "id": "cog_c02_w07",
           "source": "proposal_carrier_ttl_over",
-          "text": "Carrier migration link to an alternative phase-ladder slot. Reason code CarrierMigration registered from the admitted set. Budget within bounds. Lease duration declared above the configured TTL maximum.",
+          "text": "Carrier migration link to an alternative phase-ladder slot. Reason code CarrierMigration registered.",
           "tags": ["red_herring", "rejected", "ttl_exceeded"],
           "relevance_rank_hint": null
         },
@@ -261,28 +261,28 @@
         {
           "id": "cog_c03_w01",
           "source": "proposal_attractor_valid",
-          "text": "Attractor shortcut to a confirmed resonance stable state. Reason code AttractorShortcut registered. Budget and TTL within configured limits. Audit trace populated, non-zero, and passed replay verification in the current cognition session.",
+          "text": "Attractor shortcut to a confirmed resonance stable state. Reason code AttractorShortcut registered.",
           "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "trace_replay_valid"],
           "relevance_rank_hint": 1
         },
         {
           "id": "cog_c03_w02",
           "source": "proposal_carrier_valid",
-          "text": "Carrier migration link to an alternative phase-ladder slot. Reason code CarrierMigration from the admitted set. Budget and TTL nominal. Audit trace present, non-zero, replay verification passed — trace_replay_valid=true.",
+          "text": "Carrier migration link to an alternative phase-ladder slot. Reason code CarrierMigration from the admitted set.",
           "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "trace_replay_valid"],
           "relevance_rank_hint": 2
         },
         {
           "id": "cog_c03_w03",
           "source": "proposal_horizon_valid",
-          "text": "Horizon alignment pre-handoff edge. Reason code HorizonAlignment declared. All four admission fields within bounds. Audit trace populated and confirmed replay-valid for the active cognition session.",
+          "text": "Horizon alignment pre-handoff edge. Reason code HorizonAlignment declared.",
           "tags": ["causal", "admitted", "valid_reason_code", "budget_within_limit", "trace_replay_valid"],
           "relevance_rank_hint": 3
         },
         {
           "id": "cog_c03_w04",
           "source": "proposal_spiral_trace_hash_mismatch",
-          "text": "Spiral memory recall shortcut to an indexed resonance attractor. Reason code SpiralMemoryRecall registered. Budget and TTL within limits. Audit trace present and non-zero. Replay verification detected a hash mismatch between the stored trace and the recomputed trace.",
+          "text": "Spiral memory recall shortcut to an indexed resonance attractor. Reason code SpiralMemoryRecall registered.",
           "tags": ["red_herring", "rejected", "trace_replay_invalid", "trace_hash_mismatch"],
           "relevance_rank_hint": null,
           "_trap": "Trace is non-zero — superficially satisfies 'ReplayTrace != 0'. The admission gate requires is_valid(), not just != zero. A non-zero trace with a hash mismatch fails replay verification and fails the fourth criterion."
@@ -290,7 +290,7 @@
         {
           "id": "cog_c03_w05",
           "source": "proposal_constraint_trace_stale_session",
-          "text": "Constraint bridge connecting two separated feasible regions. Reason code ConstraintBridge from the admitted set. Budget and TTL within bounds. Audit trace present and non-zero, originating from a prior superseded cognition session.",
+          "text": "Constraint bridge connecting two separated feasible regions. Reason code ConstraintBridge from the admitted set.",
           "tags": ["red_herring", "rejected", "trace_replay_invalid", "trace_stale_session"],
           "relevance_rank_hint": null,
           "_trap": "Trace is non-zero but was produced in a different (superseded) cognition session. Replay verification fails because the trace context no longer matches the current session state. is_valid() = false."

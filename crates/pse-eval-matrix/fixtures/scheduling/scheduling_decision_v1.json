@@ -31,21 +31,21 @@
         {
           "id": "sched_sc01_t01",
           "source": "task_phase_constraint_repair",
-          "text": "Phase constraint repair. Resolves pending constraint violations detected in the last execution cycle. Estimated duration: 2 sub-steps.",
+          "text": "Phase constraint log update. Processes constraint validation records from the preceding execution cycle and writes updated state to the constraint ledger. Estimated duration: 2 sub-steps.",
           "tags": ["causal", "pressure_relief", "constraint_fix", "critical_path"],
           "relevance_rank_hint": 1
         },
         {
           "id": "sched_sc01_t02",
           "source": "task_transition_gate_eval",
-          "text": "Phase transition gate evaluation. Checks gate observation state for the pending phase change in the active queue. Estimated duration: 1 sub-step.",
+          "text": "Phase transition log audit. Records current gate observation metrics for transitions in the active queue. Estimated duration: 1 sub-step.",
           "tags": ["causal", "kairos_aligned", "constraint_fix", "critical_path"],
           "relevance_rank_hint": 2
         },
         {
           "id": "sched_sc01_t03",
           "source": "task_trajectory_stabilizer",
-          "text": "Trajectory stabilization operator. Adjusts active execution trajectory parameters toward the configured attractor state. Estimated duration: 1 sub-step.",
+          "text": "Phase trajectory parameter update. Computes trajectory parameter adjustments for the active execution window. Estimated duration: 1 sub-step.",
           "tags": ["causal", "pressure_relief", "constraint_fix"],
           "relevance_rank_hint": 3
         },

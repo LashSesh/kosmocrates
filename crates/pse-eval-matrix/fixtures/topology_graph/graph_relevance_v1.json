@@ -154,21 +154,21 @@
         {
           "id": "topo_t02_c02",
           "source": "path_spiral_exit",
-          "text": "Path S-5 — spiral-sequence exit route. 5-edge path following the golden-angle departure vector from the current position.",
+          "text": "Path S-5 — spiral-sequence traversal path. 5-edge sequence following the golden-angle direction from the current position.",
           "tags": ["causal", "inspect_path", "causal_connector", "high_fiedler"],
           "relevance_rank_hint": 2
         },
         {
           "id": "topo_t02_c03",
           "source": "path_local_loop_a",
-          "text": "Path L-A — local neighborhood loop. 4-edge circular route through the immediately adjacent simplex vertices.",
+          "text": "Path L-A — local neighborhood path. 4-edge route through the immediately adjacent simplex vertices.",
           "tags": ["red_herring", "distractor", "peripheral"],
           "relevance_rank_hint": null
         },
         {
           "id": "topo_t02_c04",
           "source": "path_local_loop_b",
-          "text": "Path L-B — extended local loop. 6-edge traversal through a slightly larger neighborhood radius from current position.",
+          "text": "Path L-B — extended neighborhood path. 6-edge traversal through a slightly larger neighborhood radius from current position.",
           "tags": ["red_herring", "distractor", "peripheral"],
           "relevance_rank_hint": null
         },
@@ -245,28 +245,28 @@
         {
           "id": "topo_t03_m01",
           "source": "mutation_alpha_with_proof",
-          "text": "Mesh mutation adding a boundary-crossing edge between cluster A and cluster G. Accompanied by a TopologyGuardProof artifact issued for this mutation's mesh_id and cycle. Both sub-criteria certified in the proof.",
+          "text": "Mesh mutation adding a boundary-crossing edge between cluster A and cluster G. Evaluation records submitted for this mutation's mesh_id and cycle.",
           "tags": ["causal", "valid_mutation", "topology_guard_proof_present", "i08_satisfied"],
           "relevance_rank_hint": 1
         },
         {
           "id": "topo_t03_m02",
           "source": "mutation_beta_with_proof",
-          "text": "Mesh mutation merging two peripheral nodes in cluster E. Accompanied by a TopologyGuardProof artifact with matching mesh_id. Betti shift certified within AllowedShift range. Wasserstein distance certified within bound.",
+          "text": "Mesh mutation merging two peripheral nodes in cluster E. Evaluation records submitted with matching mesh_id and cycle reference.",
           "tags": ["causal", "valid_mutation", "topology_guard_proof_present", "i08_satisfied"],
           "relevance_rank_hint": 2
         },
         {
           "id": "topo_t03_m03",
           "source": "mutation_gamma_with_proof",
-          "text": "Mesh mutation rewiring a bridge link in the cross-sector coordination module. TopologyGuardProof issued for this mutation. Proof includes signed digest confirming both the shift vector and the persistence diagram distance.",
+          "text": "Mesh mutation rewiring a bridge link in the cross-sector coordination module. Evaluation records issued for this mutation with signed digest.",
           "tags": ["causal", "valid_mutation", "topology_guard_proof_present", "i08_satisfied"],
           "relevance_rank_hint": 3
         },
         {
           "id": "topo_t03_m04",
           "source": "mutation_delta_no_proof",
-          "text": "Mesh mutation adding an east-west corridor link between cluster G and cluster E. The mutation description confirms that the Betti shift is within the allowed range and the persistence diagram distance is below threshold. No TopologyGuardProof artifact was produced for this mutation.",
+          "text": "Mesh mutation adding an east-west corridor link between cluster G and cluster E. No evaluation record artifact was produced for this mutation's mesh_id and cycle.",
           "tags": ["red_herring", "rejected", "no_topology_guard_proof", "i08_violation"],
           "relevance_rank_hint": null,
           "_trap": "Criteria satisfaction described in text is NOT authoritative. I-08 requires a signed TopologyGuardProof artifact — absence of the proof makes this mutation non-conformant regardless of the described criteria values."
@@ -274,7 +274,7 @@
         {
           "id": "topo_t03_m05",
           "source": "mutation_epsilon_wrong_scope",
-          "text": "Mesh mutation extending the north cluster boundary. Accompanied by a TopologyGuardProof artifact. The proof was issued for the previous topology snapshot's mesh_id, not for the current mesh revision.",
+          "text": "Mesh mutation extending the north cluster boundary. An evaluation record artifact exists for this mutation. The artifact references a prior topology snapshot identifier rather than the current mesh revision.",
           "tags": ["red_herring", "rejected", "proof_scope_mismatch", "i08_violation"],
           "relevance_rank_hint": null,
           "_trap": "A TopologyGuardProof is only valid for the exact mesh_id it was issued for. Reusing a proof from a prior topology snapshot is non-conformant — the proof does not cover this mutation's mesh state."
@@ -282,7 +282,7 @@
         {
           "id": "topo_t03_m06",
           "source": "mutation_zeta_wp_exceeded",
-          "text": "Mesh mutation splitting a hub node in cluster B into two lower-degree nodes. TopologyGuardProof present with matching mesh_id. The proof records the Betti shift as within AllowedShift but logs the Wasserstein distance as exceeding θ_PD.",
+          "text": "Mesh mutation splitting a hub node in cluster B into two lower-degree nodes. Evaluation record present with matching mesh_id. The record logs both the Betti shift measurement and the Wasserstein distance for the pre- and post-mutation persistence diagrams.",
           "tags": ["red_herring", "rejected", "wp_exceeded", "i08_violation"],
           "relevance_rank_hint": null,
           "_trap": "A TopologyGuardProof that records a failed sub-criterion is not a passing proof — it is a failure record. Both Δβ and W_p must be certified as satisfying their bounds."

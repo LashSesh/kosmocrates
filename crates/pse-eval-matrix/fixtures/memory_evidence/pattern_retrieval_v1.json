@@ -126,42 +126,42 @@
         {
           "id": "mem_m02_c01",
           "source": "evidence_chain_c7a2",
-          "text": "Evidence chain c7a2. Length: 12 entries. SHA-256 chain intact. All gate observations satisfied. PoR trace strictly monotone. Operator drift within bounds (0.04). Content-addressed hash verified.",
+          "text": "Evidence chain c7a2. Length: 12 entries. Records gate observation and PoR sequence events for the active processing window.",
           "tags": ["causal", "inspect_path", "verified", "canonical"],
           "relevance_rank_hint": 1
         },
         {
           "id": "mem_m02_c02",
           "source": "evidence_chain_f3b8",
-          "text": "Evidence chain f3b8. Length: 9 entries. SHA-256 chain intact. All gate observations satisfied. PoR trace strictly monotone. Operator drift within bounds (0.07). Content-addressed hash verified.",
+          "text": "Evidence chain f3b8. Length: 9 entries. Records candidate evaluation events and gate observation results from the recent submission batch.",
           "tags": ["causal", "inspect_path", "verified", "canonical"],
           "relevance_rank_hint": 2
         },
         {
           "id": "mem_m02_c03",
           "source": "evidence_chain_a1e5",
-          "text": "Evidence chain a1e5. Length: 11 entries. SHA-256 chain intact. Gate satisfaction: 7/9 passed. PoR trace: non-monotone step at entry 6. Content-addressed hash verified.",
+          "text": "Evidence chain a1e5. Length: 11 entries. Records gate observation and PoR sequence events from a prior active window.",
           "tags": ["red_herring", "distractor", "unverified"],
           "relevance_rank_hint": null
         },
         {
           "id": "mem_m02_c04",
           "source": "evidence_chain_d9c3",
-          "text": "Evidence chain d9c3. Length: 8 entries. SHA-256 hash mismatch at entry 4. Gate satisfaction not checkable. PoR trace not verified. Content-address invalid.",
+          "text": "Evidence chain d9c3. Length: 8 entries. Records operational events from an earlier processing period.",
           "tags": ["red_herring", "distractor", "hash_mismatch", "unverified"],
           "relevance_rank_hint": null
         },
         {
           "id": "mem_m02_c05",
           "source": "evidence_chain_b6f1",
-          "text": "Evidence chain b6f1. Length: 14 entries. SHA-256 chain intact. Gate satisfaction: all passed. PoR trace: monotone. Operator drift: 0.31 — exceeds allowed bound of 0.10. Hash verified.",
+          "text": "Evidence chain b6f1. Length: 14 entries. Records candidate evaluations and operational transitions across an extended window. Operator drift recorded across the chain.",
           "tags": ["red_herring", "distractor", "low_confidence"],
           "relevance_rank_hint": null
         },
         {
           "id": "mem_m02_c06",
           "source": "evidence_chain_e4d7",
-          "text": "Evidence chain e4d7. Length: 6 entries. SHA-256 chain intact. Gate satisfaction: 4/6. Operator drift within bounds. PoR trace: one non-monotone transition. Hash verified.",
+          "text": "Evidence chain e4d7. Length: 6 entries. Records candidate observations and phase transitions from a processing window.",
           "tags": ["red_herring", "distractor", "unverified"],
           "relevance_rank_hint": null
         },
@@ -221,21 +221,21 @@
         {
           "id": "mem_m03_c01",
           "source": "pattern_crystal_a3f9",
-          "text": "Archived crystal a3f9. SHA-256 hash verified intact. All gate observations satisfied. Validity window currently active for this session. PoR trace strictly monotone. All four recall preconditions passed.",
+          "text": "Archived crystal a3f9. Phase transition event, drift moderate, coupling mid-range. Content-addressed and indexed in the standard archive.",
           "tags": ["causal", "recall_eligible", "hash_valid", "gates_passed", "validity_window_active", "por_monotone"],
           "relevance_rank_hint": 1
         },
         {
           "id": "mem_m03_c02",
           "source": "pattern_crystal_d7c4",
-          "text": "Archived crystal d7c4. SHA-256 chain intact. Gate observations: all passed. Validity window active. PoR trace: monotone throughout all entries. Content-addressed hash verified against current registry.",
+          "text": "Archived crystal d7c4. Phase transition variant, drift moderate, coupling mid-range. Content-addressed and indexed in the standard archive.",
           "tags": ["causal", "recall_eligible", "hash_valid", "gates_passed", "validity_window_active", "por_monotone"],
           "relevance_rank_hint": 2
         },
         {
           "id": "mem_m03_c03",
           "source": "pattern_crystal_b8e1",
-          "text": "Archived crystal b8e1. SHA-256 hash verified intact. All gate observations satisfied. PoR trace strictly monotone. Content-addressed hash current. Validity window for this crystal expired two processing cycles ago and has not been renewed.",
+          "text": "Archived crystal b8e1. Phase transition label, drift moderate. Content-addressed hash registered in the archive from a prior active session.",
           "tags": ["red_herring", "rejected", "validity_window_expired", "recall_ineligible"],
           "relevance_rank_hint": null,
           "_trap": "Hash intact and gates passed — the first two criteria look valid. The validity_window expiry is the disqualifying condition. ADAMANT memory doctrine: a crystal with an expired validity_window MUST NOT be recalled even if hash and gate conditions are satisfied. Freshness is a mandatory fourth criterion."
@@ -243,7 +243,7 @@
         {
           "id": "mem_m03_c04",
           "source": "pattern_crystal_f2a6",
-          "text": "Archived crystal f2a6. SHA-256 hash verified intact. All gate observations satisfied. Validity window currently active. PoR trace contains a non-monotone transition at entry 5 where the sequence number decreases.",
+          "text": "Archived crystal f2a6. Phase transition label, drift moderate, coupling mid-range. PoR events recorded across multiple entries in the archive.",
           "tags": ["red_herring", "rejected", "por_non_monotone", "recall_ineligible"],
           "relevance_rank_hint": null,
           "_trap": "Three of the four criteria pass. A single non-monotone PoR step is sufficient to disqualify — the conjunctive gate requires all four conditions."
@@ -251,7 +251,7 @@
         {
           "id": "mem_m03_c05",
           "source": "pattern_crystal_c9b3",
-          "text": "Archived crystal c9b3. SHA-256 hash intact. Gate observations: 5 of 7 satisfied, 2 pending. Validity window active. PoR trace monotone.",
+          "text": "Archived crystal c9b3. Phase transition variant. Gate observation records span 7 evaluation steps in the archive.",
           "tags": ["red_herring", "rejected", "gates_partial", "recall_ineligible"],
           "relevance_rank_hint": null
         },
