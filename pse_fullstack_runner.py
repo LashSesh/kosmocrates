@@ -23,8 +23,10 @@ from pse_groq_agent import (
     get_api_key,
     parse_response,
     run_case,
+    run_case_productive,
     score,
     GROQ_MODEL,
+    PRODUCTIVE_SCHEMAS,
     PROMPT_BUILDERS,
     SCHEMA_LABELS,
 )
@@ -91,6 +93,10 @@ STACK = [
         "Cross-Layer — Integration Phase 2",
         "crates/pse-eval-matrix/fixtures/cross_layer/cross_layer_v1.json",
     ),
+    (
+        "Productive — Free-Form Generation",
+        "crates/pse-eval-matrix/fixtures/productive/productive_v1.json",
+    ),
 ]
 
 FULLSTACK_OUTPUT = "target/tmp/pse_fullstack_report.json"
@@ -136,7 +142,7 @@ def run_fixture(label, path, api_key, layer_num, total_layers):
         fixture = json.load(f)
 
     schema = fixture.get("fixture_schema_version", "v1_external_trace_fixture_scaffold")
-    if schema not in PROMPT_BUILDERS:
+    if schema not in PROMPT_BUILDERS and schema not in PRODUCTIVE_SCHEMAS:
         print(f"  [!!] FEHLER: Unbekanntes Schema '{schema}'")
         return {
             "layer": label,
@@ -146,12 +152,15 @@ def run_fixture(label, path, api_key, layer_num, total_layers):
             "summary": None,
         }
 
-    raw_fn, pse_fn = PROMPT_BUILDERS[schema]
     cases = fixture["cases"]
 
     case_results = []
     for i, case in enumerate(cases, 1):
-        result = run_case(case, api_key, i, len(cases), raw_fn, pse_fn)
+        if schema in PRODUCTIVE_SCHEMAS:
+            result = run_case_productive(case, api_key, i, len(cases))
+        else:
+            raw_fn, pse_fn = PROMPT_BUILDERS[schema]
+            result = run_case(case, api_key, i, len(cases), raw_fn, pse_fn)
         case_results.append(result)
         # Small pause between cases to be polite to the API
         if i < len(cases):
