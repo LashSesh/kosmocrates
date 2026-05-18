@@ -27,13 +27,13 @@
         {
           "event_id": "e1",
           "source": "horizon_crossing_gate",
-          "message": "select_failure_policy(g_visible=true, g_cone=true, g_causal=false, g_dual=true, tension_ok=true, attn_ok=true) -> MigrateCarrier",
+          "message": "select_failure_policy(g_visible=true, g_cone=true, g_causal=false, g_dual=true, tension_ok=true, attn_ok=true) -> failure policy selected per spec table",
           "timestamp_hint": "t0"
         },
         {
           "event_id": "e2",
           "source": "outcome_for_policy",
-          "message": "HorizonFailurePolicy::MigrateCarrier -> HorizonV3Outcome::NeedsCarrierMigration",
+          "message": "selected failure policy maps to corresponding HorizonV3Outcome variant",
           "timestamp_hint": "t1"
         }
       ],
@@ -41,28 +41,28 @@
         {
           "id": "hor_c01_p01",
           "source": "NeedsCarrierMigration_outcome",
-          "text": "Horizon outcome variant that holds the current pipeline state and emits a hold report recommending promotion of an alternative phase-ladder slot to restore the correct emission order.",
+          "text": "Horizon outcome variant that holds the current pipeline state and emits a diagnostic hold report indicating the crossing cannot proceed.",
           "tags": ["causal", "spec_outcome", "causal_gate", "valid_next_op"],
           "relevance_rank_hint": 1
         },
         {
           "id": "hor_c01_p02",
           "source": "MigrateCarrier_policy",
-          "text": "Failure policy that selects an alternative carrier from the configured phase ladder. Promotes the slot whose emission order aligns with the declared carrier sequence for the next crossing attempt.",
+          "text": "Failure policy that initiates alternative carrier selection from the configured phase ladder. Promotes a different slot to re-establish the required phase ordering for the next crossing attempt.",
           "tags": ["causal", "spec_policy", "causal_gate", "valid_next_op"],
           "relevance_rank_hint": 2
         },
         {
           "id": "hor_c01_p03",
           "source": "inspect_causal_violations",
-          "text": "Reads the violations list from the causal admissibility report. Compares the declared order hash against the observed order hash and identifies which carriers are out of sequence.",
+          "text": "Reads the violations list from the causal admissibility report. Identifies the carrier and ray entries involved in the reported discrepancy.",
           "tags": ["causal", "diagnostic", "inspect_path", "causal_gate"],
           "relevance_rank_hint": 3
         },
         {
           "id": "hor_c01_p04",
           "source": "RefineProjectionCone_policy",
-          "text": "Failure policy that adjusts the projection cone angle and focus parameters toward the configured bounds. Reduces cone dispersion to bring the focus score within the required range.",
+          "text": "Failure policy that adjusts phase field projection geometry parameters toward their configured bounds.",
           "tags": ["red_herring", "distractor", "wrong_gate", "cone_gate_policy"],
           "relevance_rank_hint": null,
           "_trap": "RefineProjectionCone is the spec policy for G_cone failure. g_cone passed — wrong gate."
@@ -70,7 +70,7 @@
         {
           "id": "hor_c01_p05",
           "source": "WaitForHorizon_policy",
-          "text": "Failure policy that holds the pipeline at the current chart state until an EventHorizonWindow opens a phase epoch satisfying the minimum visibility threshold.",
+          "text": "Failure policy that holds the pipeline at the current chart state until an admissible phase epoch becomes available.",
           "tags": ["red_herring", "distractor", "wrong_gate", "visibility_gate_policy"],
           "relevance_rank_hint": null,
           "_trap": "WaitForHorizon applies when only g_visible fails. g_visible passed here — wrong gate. The name suggests a universally valid waiting strategy."
@@ -78,7 +78,7 @@
         {
           "id": "hor_c01_p06",
           "source": "Recondense_policy",
-          "text": "Failure policy that triggers carrier phase recondensation to reduce boundary tension and signal attenuation accumulated in the phase field during the current chart epoch.",
+          "text": "Failure policy that triggers a carrier phase recondensation cycle on the current chart epoch.",
           "tags": ["red_herring", "distractor", "wrong_gate", "tension_gate_policy"],
           "relevance_rank_hint": null,
           "_trap": "Recondense applies when tension_ok or attenuation_ok fails, or when g_dual fails. All passed — wrong gate."

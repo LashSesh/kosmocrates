@@ -58,12 +58,12 @@ class TpdLimitError(Exception):
     pass
 
 
-def call_groq(api_key, prompt, _retry=True):
+def call_groq(api_key, prompt, _retry=True, max_tokens=512):
     body = json.dumps({
         "model": GROQ_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
-        "max_tokens": 512,
+        "max_tokens": max_tokens,
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -88,7 +88,7 @@ def call_groq(api_key, prompt, _retry=True):
             if _retry:
                 print("       Rate-Limit (429) -- warte 10s...")
                 time.sleep(10)
-                return call_groq(api_key, prompt, _retry=False)
+                return call_groq(api_key, prompt, _retry=False, max_tokens=max_tokens)
         return f"HTTP_ERROR:{e.code}:{error_body[:300]}"
     except Exception as e:
         return f"ERROR:{e}"
@@ -1196,6 +1196,308 @@ Antworte NUR mit diesem JSON (keine Erklaerung):
 {{"top3": ["<id1>", "<id2>", "<id3>"], "rejected": ["<id4>", ...]}}"""
 
 
+# ─── Productive Validation Layer ─────────────────────────────────────────────
+#
+# Free-form generation tasks. No candidate list. Scored by required_elements
+# substring matching. PSE constraints supply the formal vocabulary.
+
+PSE_AUDIT_CONSTRAINTS = """\
+AUDIT-CONSTRAINTS (strikt anwenden):
+
+Phase Matrix — G_trace (Determinismus-Invariante):
+  G_trace prueft Cycle-Determinismus: ALLE CouplingUpdates im Batch MUESSEN eine
+  StitcherGateReport-Referenz aus dem AKTUELLEN Zyklus (cycle N) enthalten.
+  CouplingUpdate mit cycle N-1 Referenz -> DeterminismViolation (stale).
+  CouplingUpdate ohne gate_ref -> G_mci fail-closed -> sofortige Ablehnung.
+  G_trace ist konjunktiv: EIN DeterminismViolation -> G_trace=false (kein Mehrheitsvotum).
+
+NCTCS — Axiom 6.1.1 Artifact Supremacy:
+  Maschinen-lesbare Artefakte (MaterializationAudit) ueberschreiben Zusammenfassungs-Reports.
+  MaterializationAudit: no_direct_fabric_to_tensor_mutation=false -> C2 NICHT erreicht.
+  Artifact-korrigierte reached_class: wenn c2 durch Artefakt widerlegt -> reached_class=C1.
+  G_nctcs erfordert artifact-korrigierte reached_class >= C2.
+  Artefakt-Korrektur hat Vorrang vor NctcsConformanceSummary (egal was Summary sagt).
+
+NCTCS — NctcsGateOutcome is_materializing():
+  Pass         -> is_materializing()=TRUE  (einziger Outcome der Tensor-Revision erlaubt)
+  Hold         -> is_materializing()=false
+  Refine       -> is_materializing()=false
+  Reject       -> is_materializing()=false
+  Quarantine   -> is_materializing()=false
+  NoUpdate     -> is_materializing()=false
+  HandoffReady -> is_materializing()=false
+  NUR Pass erlaubt Tensor-Update. Jede andere Zuweisung ist eine Spec-Verletzung.
+
+TPT-MTL — I-08 TopologyGuardProof Invariante:
+  Jede Mesh-Mutation MUSS einen TopologyGuardProof erzeugen.
+  Kein Proof -> stille Mutation -> I-08-Verletzung (sofort abgelehnt).
+  Proof mit betti_shift_exceeded=true -> I-08-Verletzung.
+  Proof mit pd_distance_exceeded=true -> I-08-Verletzung (W_p > theta_PD).
+  W_p = Wasserstein-Persistenzdiagramm-Abstand (theta_PD ist der Schwellwert).
+
+Cross-Layer — Metatron fail-closed Invariante:
+  G_meta = G_nctcs AND G_trace AND G_replay AND G_iso AND G_gap AND G_eval AND G_drift
+  G_nctcs=false -> G_meta=false -> MetatronClosureOutcome::Diagnostic (NICHT Closed).
+  HolisticEigenmodeState DARF NICHT produziert werden wenn G_meta=false.
+  Keine gefilterte Ausgabe umgeht diese Invariante.
+"""
+
+PSE_RECOVERY_CONSTRAINTS = """\
+RECOVERY-CONSTRAINTS (inter-layer Abhaengigkeiten):
+
+Horizon -> Dynamics (Dualitaets-Kopplung):
+  Horizon Recondense_duality_coupling ist Voraussetzung fuer den Dynamics Live-Graphen.
+  g_dual=false -> Horizon muss Recondense (spezifisch: Recondense fuer duality) ausfuehren.
+  Dynamics path_delta Berechnungen MUESSEN warten bis recondensation_status=done.
+  Korrekte Cycle-N-Tags in Dynamics entbinden NICHT von der Horizon-Abhaengigkeit.
+  Dynamics MorphodynamicCompressor: Merge reduziert Knotenanzahl und path_delta.
+
+NCTCS -> Metatron (G_nctcs gate cascade):
+  C2 Pflichtanforderung: no_direct_fabric_to_tensor_mutation=true.
+  C2 Fehler -> G_nctcs=false -> G_meta=false -> MetatronClosureOutcome::Diagnostic.
+  HolisticEigenmodeState nur wenn G_meta=true (fail-closed).
+  gate cascade: C2 -> G_nctcs -> G_meta -> MetatronClosureOutcome.
+
+Signature -> TPT-MTL (AdapterGate):
+  AdapterGate prueft: referenced SignatureGateReport.passed == true.
+  Frontier-Mitgliedschaft eines Blueprints != SignatureGate bestanden.
+  AdapterGate=false -> TptMtlOutcomeKind::Recalibrate (Prioritaet-Ast 3).
+  Abort erfordert BoundaryGate oder ReplayGate-Fehler (Ast 1) — NICHT AdapterGate.
+  Remediation: Signature muss SignatureGateReport(passed=true) produzieren.
+
+Phase Matrix -> Metatron (G_trace Konjunktion):
+  G_trace ist konjunktiv: ALLE CouplingUpdates muessen current cycle Referenzen haben.
+  Auch zwei stale Updates von acht -> G_trace=false (kein Mehrheitsvotum).
+  G_trace=false -> G_meta=false -> MetatronClosureOutcome::Diagnostic.
+  Remediation: alle stale Updates mit current cycle StitcherGateReports ersetzen.
+
+Cognition Pipeline (Gate-Fehler-Recovery):
+  G_perc Fehler     -> RefineConstraints
+  G_panorama Fehler -> ExpandPanorama
+  G_self Fehler     -> CalibrateOperators
+  G_trigger Fehler  -> WaitForPhaseWindow
+  Wormhole-Zulassung: Budget(w) <= B_max AND TTL(w) <= TTL_max AND Reason(w) in R AND ReplayTrace != 0
+  Wormhole admittieren via: AdmitWormhole(wormhole, reason_code)
+  Wenn Panorama nicht erweiterbar: QuerySpiralMemory fuer AttractorShortcut (counterfactual Traversierung)
+"""
+
+PSE_GATE_TRACE_CONSTRAINTS = """\
+GATE-TRACE-CONSTRAINTS (deterministische Entscheidungstabellen):
+
+TPT-MTL outcome_kind() Prioritaetsreihenfolge (strikt, branch 1 zuerst):
+  branch 1: !boundary OR !replay  -> TptMtlOutcomeKind::Abort        (hoechste Prioritaet)
+  branch 2: !truth                -> TptMtlOutcomeKind::Quarantine
+  branch 3: !adapter OR !axis OR !micro_lift OR !carrier -> TptMtlOutcomeKind::Recalibrate
+  branch 4: all_passed AND matrix AND emission           -> TptMtlOutcomeKind::Emit
+  branch 5: sonst                 -> TptMtlOutcomeKind::Hold
+  adapter=false triggert branch 3 -> Recalibrate (NICHT Abort — Abort nur bei boundary/replay).
+
+StitchFailurePolicy Prioritaetsreihenfolge (strikt, branch 1 zuerst):
+  branch 1: !g_boundary -> StitchFailurePolicy::BoundaryViolation   (hoechste Prioritaet)
+  branch 2: !g_delta    -> StitchFailurePolicy::KeepTensorUnchanged
+  branch 3: !g_trace    -> StitchFailurePolicy::RequireRecompute
+  branch 4: sonst       -> StitchFailurePolicy::RejectCandidate
+  g_delta=false triggert branch 2 -> KeepTensorUnchanged (NUR wenn g_boundary=true).
+
+Dynamics GATE-01 (fail-closed, unconditional):
+  proof=None -> GATE-01 -> Hold (unconditional).
+  KEIN config-Parameter kann dieses Verhalten ueberschreiben.
+  max_path_delta, min_alignment, require_energy_decrease werden NICHT geprueft wenn proof=None.
+  Erst wenn proof != None: DynamicGateConfig-Pruefungen aktiv.
+
+HorizonCrossingGate Policy-Tabelle (strikt):
+  !g_visible (alle anderen true) -> WaitForHorizon   -> HorizonV3Outcome::WaitForHorizon
+  !g_cone                        -> RefineProjectionCone -> HorizonV3Outcome::RefineCone
+  !g_causal                      -> MigrateCarrier   -> HorizonV3Outcome::NeedsCarrierMigration
+  !tension_ok ODER !attenuation_ok -> Recondense     -> HorizonV3Outcome::Recondense
+  !g_dual                        -> Recondense       -> HorizonV3Outcome::Recondense
+  g_causal prueft causal admissibility: die declared Carrier-Trajektorie muss mit der
+    observed Trajektorie uebereinstimmen. Diskrepanz -> g_causal=false.
+
+NCTCS reached_class + Axiom 6.1.1:
+  Kumulatives Schema: C0 < C1 < C2 < C3 < C4.
+  reached_class aus checks: hoechstes C_n fuer das alle C_0..C_n bestanden.
+  Axiom 6.1.1 Korrektur: MaterializationAudit(no_direct_fabric_to_tensor_mutation=false)
+    -> C2-Invariante verletzt -> artifact-korrigierte reached_class = C1 (unabhaengig von checks).
+  Jede Klasse hat eine obligation-Ebene (C1-obligation, C2-obligation, etc.).
+  G_nctcs = artifact-korrigierte reached_class >= C2.
+"""
+
+
+def _fmt_context(ctx):
+    """Format task_context dict as indented key: value lines."""
+    lines = []
+    for k, v in ctx.items():
+        if isinstance(v, (dict, list)):
+            lines.append(f"  {k}: {json.dumps(v, ensure_ascii=False)}")
+        else:
+            lines.append(f"  {k}: {v}")
+    return "\n".join(lines) if lines else "  (leer)"
+
+
+def _fmt_events(events):
+    if not events:
+        return "  (keine Ereignisse)"
+    return "\n".join(
+        f"  [{e.get('timestamp_hint','?')}] {e.get('source','?')}: {e.get('message','')}"
+        for e in events
+    )
+
+
+def build_raw_prompt_productive(case):
+    ctx_str = _fmt_context(case.get("task_context", {}))
+    evt_str = _fmt_events(case.get("events", []))
+    return f"""You are a PSE system analyst.
+
+TASK TYPE: {case.get('task_type', 'audit')}
+TASK: {case['title']}
+
+{case.get('task_description', '')}
+
+CONTEXT:
+{ctx_str}
+
+EVENTS:
+{evt_str}
+
+Provide a detailed analysis. Use complete sentences. Name all relevant items by their IDs.
+"""
+
+
+def build_pse_prompt_productive(case):
+    task_type = case.get("task_type", "audit")
+    if task_type == "audit":
+        constraints = PSE_AUDIT_CONSTRAINTS
+    elif task_type == "recovery_plan":
+        constraints = PSE_RECOVERY_CONSTRAINTS
+    else:
+        constraints = PSE_GATE_TRACE_CONSTRAINTS
+
+    ctx_str = _fmt_context(case.get("task_context", {}))
+    evt_str = _fmt_events(case.get("events", []))
+    return f"""Du operierst im PSE Produktiv-Validierungsrahmen.
+
+AUFGABEN-TYP: {task_type}
+
+== KOGNITIONS-CONSTRAINTS ==
+{constraints}
+
+== AUFGABE ==
+{case['title']}
+
+{case.get('task_description', '')}
+
+== KONTEXT ==
+{ctx_str}
+
+== EREIGNISSE ==
+{evt_str}
+
+Erstelle eine vollstaendige Analyse in ganzen Saetzen.
+Benutze die formalen PSE-Bezeichnungen (z.B. G_trace, DeterminismViolation, Recondense, etc.).
+"""
+
+
+PRODUCTIVE_SCHEMAS = {"v1_productive_task_fixture"}
+
+
+def run_case_productive(case, api_key, case_num, total_cases):
+    trace_id = case["trace_id"]
+    required = case["ground_truth"]["required_elements"]
+    gt_label = case.get("ground_truth_label", "Gesuchte Elemente")
+
+    sep = "=" * 62
+    print(f"\n{sep}")
+    print(f"  CASE {case_num}/{total_cases}: {trace_id}")
+    print(f"  {case['title']}")
+    print(f"  {gt_label}")
+    print(f"  Erforderliche Elemente ({len(required)}): {required}")
+    print(sep)
+
+    # --- Raw ---
+    print("\n  [1/2] Raw LLM (kein PSE)...")
+    raw_text = call_groq(api_key, build_raw_prompt_productive(case), max_tokens=1024)
+    raw_err = None
+    if raw_text.startswith("HTTP_ERROR") or raw_text.startswith("ERROR"):
+        raw_err = raw_text
+        raw_hits = 0
+    else:
+        raw_lower = raw_text.lower()
+        raw_hits = sum(1 for e in required if e.lower() in raw_lower)
+        found = [e for e in required if e.lower() in raw_lower]
+        missing = [e for e in required if e.lower() not in raw_lower]
+        print(f"       Hits: {raw_hits}/{len(required)}")
+        if found:
+            print(f"       Gefunden: {found}")
+        if missing:
+            print(f"       Fehlend:  {missing}")
+
+    if raw_err:
+        print(f"       FEHLER: {raw_err}")
+
+    # --- PSE ---
+    print("\n  [2/2] PSE-Rahmen aktiv...")
+    pse_text = call_groq(api_key, build_pse_prompt_productive(case), max_tokens=1024)
+    pse_err = None
+    if pse_text.startswith("HTTP_ERROR") or pse_text.startswith("ERROR"):
+        pse_err = pse_text
+        pse_hits = 0
+    else:
+        pse_lower = pse_text.lower()
+        pse_hits = sum(1 for e in required if e.lower() in pse_lower)
+        found = [e for e in required if e.lower() in pse_lower]
+        missing = [e for e in required if e.lower() not in pse_lower]
+        print(f"       Hits: {pse_hits}/{len(required)}")
+        if found:
+            print(f"       Gefunden: {found}")
+        if missing:
+            print(f"       Fehlend:  {missing}")
+
+    if pse_err:
+        print(f"       FEHLER: {pse_err}")
+
+    # --- Vergleich ---
+    print()
+    if raw_err or pse_err:
+        verdict = "FEHLER — kein Vergleich moeglich"
+        symbol = "?"
+    elif pse_hits > raw_hits:
+        verdict = "PSE GEWINNT — mehr erforderliche Elemente gefunden"
+        symbol = "+"
+    elif pse_hits == raw_hits and pse_hits == len(required):
+        verdict = "BEIDE KORREKT — alle Elemente gefunden"
+        symbol = "="
+    elif pse_hits == raw_hits:
+        verdict = "GLEICH — kein messbarer Unterschied"
+        symbol = "~"
+    else:
+        verdict = "RAW GEWINNT — PSE-Rahmen hat nicht geholfen (Diagnose!)"
+        symbol = "-"
+
+    print(f"  [{symbol}] {verdict}")
+
+    raw_prec = round(raw_hits / len(required), 3) if required else 0.0
+    pse_prec = round(pse_hits / len(required), 3) if required else 0.0
+
+    return {
+        "trace_id": trace_id,
+        "ground_truth": required,
+        "raw_llm": {
+            "response_preview": raw_text[:300] if not raw_err else "",
+            "hits": raw_hits,
+            "precision": raw_prec,
+            "error": raw_err,
+        },
+        "pse_exoskeleton": {
+            "response_preview": pse_text[:300] if not pse_err else "",
+            "hits": pse_hits,
+            "precision": pse_prec,
+            "error": pse_err,
+        },
+        "verdict": verdict,
+    }
+
+
 # ─── Schema-Dispatch ─────────────────────────────────────────────────────────
 
 PROMPT_BUILDERS = {
@@ -1230,6 +1532,7 @@ SCHEMA_LABELS = {
     "v1_metatron_fixture":                "Metatron — PSE-METATRON-MONOLITH-01",
     "v1_phase_matrix_fixture":             "Phase Matrix — PHASEMATRIX-HIVEMIND-03",
     "v1_cross_layer_fixture":              "Cross-Layer — Integration Phase 2",
+    "v1_productive_task_fixture":          "Productive — Free-Form Generation",
 }
 
 

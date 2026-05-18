@@ -25,13 +25,13 @@
         {
           "event_id": "e1",
           "source": "classify_conformance",
-          "message": "c0=true, c1=true, c2=false (no_direct_fabric_to_tensor_mutation=false) -> reached_class=C1_PhaseGatedVisibility",
+          "message": "c0=true, c1=true, c2=false (no_direct_fabric_to_tensor_mutation=false) -> conformance classification complete",
           "timestamp_hint": "t0"
         },
         {
           "event_id": "e2",
           "source": "classify_conformance",
-          "message": "obligation C2-GATE-BOUND-MATERIALIZATION opened: recovery=route all tensor updates through gate cascade",
+          "message": "open proof obligation recorded: recovery=route tensor updates through gate evaluation path",
           "timestamp_hint": "t1"
         }
       ],
@@ -39,21 +39,21 @@
         {
           "id": "nctcs_c01_a01",
           "source": "C1_PhaseGatedVisibility_class",
-          "text": "Conformance class reached when NullCenter is exogenous, projection distinction passes, and all candidates require a visible phase cell as a prerequisite. The highest class for which the cumulative check succeeded given the reported audit results.",
+          "text": "Conformance class requiring NullCenter exogeneity, projection distinction, and phase-cell prerequisites for all candidates.",
           "tags": ["causal", "reached_class", "c1_pass", "spec_outcome", "valid_next_op"],
           "relevance_rank_hint": 1
         },
         {
           "id": "nctcs_c01_a02",
           "source": "C2_GATE_BOUND_MATERIALIZATION_obligation",
-          "text": "Open proof obligation requiring that the ephemeral fabric not directly mutate the persistent field tensor. The obligation is raised when a stitch candidate updates tensor state without traversing the gate cascade, failing the C2 condition.",
+          "text": "Proof obligation requiring that ephemeral fabric state not directly update the persistent field tensor. Raised when a materialization event is detected outside the gate evaluation path.",
           "tags": ["causal", "c2_fail", "spec_obligation", "valid_next_op"],
           "relevance_rank_hint": 2
         },
         {
           "id": "nctcs_c01_a03",
           "source": "route_tensor_updates_through_gate_cascade",
-          "text": "Recovery action for the C2-GATE-BOUND-MATERIALIZATION obligation. Ensures every stitch candidate is submitted to the gate evaluation path and that tensor_after_hash differs from tensor_before_hash only when a gate report with outcome Pass was recorded for that candidate.",
+          "text": "Routes stitch candidate evaluation through the gate evaluation path. Ensures tensor hash changes are conditioned on the gate report outcome recorded for that candidate.",
           "tags": ["causal", "c2_fail", "recovery_action", "valid_next_op"],
           "relevance_rank_hint": 3
         },
@@ -283,7 +283,7 @@
         {
           "event_id": "e3",
           "source": "artifact_reconciliation",
-          "message": "ADAMANT Axiom 6.1.1: artifact is authoritative over summary. Artifact overrides c2_passed=true -> c2_passed=false. Recomputed reached_class=C1_PhaseGatedVisibility.",
+          "message": "ADAMANT Axiom 6.1.1: artifact is authoritative over summary. Artifact overrides c2_passed=true -> c2_passed=false. Recomputed conformance classification applied.",
           "timestamp_hint": "t2"
         }
       ],
@@ -291,7 +291,7 @@
         {
           "id": "nctcs_c03_a01",
           "source": "C1_PhaseGatedVisibility_artifact_authoritative",
-          "text": "Artifact-corrected conformance class. After applying ADAMANT Axiom 6.1.1, the MaterializationAudit artifact overrides the main report's c2=true entry. With c2_passed=false, the highest class for which the cumulative check passes is C1_PhaseGatedVisibility.",
+          "text": "Conformance class derived by applying ADAMANT Axiom 6.1.1 artifact authority. The MaterializationAudit artifact is the normative record and overrides the main report's materialization compliance entry.",
           "tags": ["causal", "reached_class", "c1_pass", "artifact_authority", "spec_outcome"],
           "relevance_rank_hint": 1
         },
@@ -305,14 +305,14 @@
         {
           "id": "nctcs_c03_a03",
           "source": "route_stitch_candidate_7f3a_through_gate_cascade",
-          "text": "Recovery action: resubmit stitch_candidate_7f3a through the full gate cascade and ensure tensor_after_hash only changes when a Pass outcome is recorded for that candidate. Satisfies the C2-GATE-BOUND-MATERIALIZATION obligation.",
+          "text": "Resubmits stitch_candidate_7f3a through the gate cascade. Ensures tensor_after_hash changes only when a Pass outcome is recorded for that candidate's gate_report_hash.",
           "tags": ["causal", "c2_fail", "recovery_action"],
           "relevance_rank_hint": 3
         },
         {
           "id": "nctcs_c03_a04",
           "source": "C3_AuditableTensor_from_main_report",
-          "text": "Conformance class stated in the main NctcsConformanceReport summary. The summary records c2=true and c3=true, concluding reached_class=C3_AuditableTensor.",
+          "text": "Conformance class recorded in the NctcsConformanceReport summary. The summary reflects the classifier output at the time of report generation.",
           "tags": ["red_herring", "distractor", "wrong_class", "artifact_supremacy_violation"],
           "relevance_rank_hint": null,
           "_trap": "The main report summary is overridden by the machine-readable MaterializationAudit artifact under ADAMANT Axiom 6.1.1. Using the main report's reached_class without reconciling the artifact is an Artifact Supremacy violation."

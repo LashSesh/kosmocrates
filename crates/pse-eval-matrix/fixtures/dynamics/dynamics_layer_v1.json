@@ -148,21 +148,21 @@
         {
           "id": "dyn_c02_op01",
           "source": "MorphodynamicCompressor_Merge",
-          "text": "Merges pairs of compression nodes whose L2 coordinate distance falls within the merge_threshold. Reduces the effective number of distinct state positions, lowering the mean per-tick displacement vector.",
+          "text": "Merges pairs of compression nodes whose L2 coordinate distance falls within the merge_threshold. Reduces the effective number of distinct state positions in the CompressionGraph.",
           "tags": ["causal", "valid_next_op", "path_delta_repair", "merge_reduces_delta"],
           "relevance_rank_hint": 1
         },
         {
           "id": "dyn_c02_op02",
           "source": "reduce_policy_learning_rate",
-          "text": "Lowers the learning_rate parameter in DynamicPolicy. Smaller learning rate scales down the per-tick coordinate update step applied by the MorphodynamicCompressor, directly reducing path_delta.",
+          "text": "Lowers the learning_rate parameter in DynamicPolicy. Scales down the per-tick coordinate update step applied by the MorphodynamicCompressor.",
           "tags": ["causal", "valid_next_op", "path_delta_repair"],
           "relevance_rank_hint": 2
         },
         {
           "id": "dyn_c02_op03",
           "source": "apply_GuidanceField_pruning",
-          "text": "Activates the GuidanceField's low-weight transition pruner. Removes guidance edges that drive large per-tick displacements, constraining the compressor's update magnitude.",
+          "text": "Activates the GuidanceField's low-weight transition pruner. Removes guidance edges with low confidence weights from the active field state.",
           "tags": ["causal", "valid_next_op", "path_delta_repair"],
           "relevance_rank_hint": 3
         },
@@ -177,7 +177,7 @@
         {
           "id": "dyn_c02_op05",
           "source": "increase_min_alignment_threshold",
-          "text": "Raises the min_alignment value in DynamicGateConfig so the gate requires higher field alignment before firing.",
+          "text": "Raises the min_alignment value in DynamicGateConfig, increasing the minimum alignment score required for gate passage.",
           "tags": ["red_herring", "distractor", "wrong_parameter"],
           "relevance_rank_hint": null,
           "_trap": "Alignment passed — raising its threshold makes the gate stricter for a check that already succeeded, and does not address path_delta."
@@ -185,7 +185,7 @@
         {
           "id": "dyn_c02_op06",
           "source": "enable_require_energy_decrease",
-          "text": "Sets require_energy_decrease=true in DynamicGateConfig so the gate additionally requires the energy delta to be negative before firing.",
+          "text": "Sets require_energy_decrease=true in DynamicGateConfig, adding the requirement that energy delta be negative as an additional gate condition.",
           "tags": ["red_herring", "distractor", "wrong_parameter"],
           "relevance_rank_hint": null,
           "_trap": "Energy check already passed — adding an energy constraint does not fix the path_delta failure and makes firing harder."

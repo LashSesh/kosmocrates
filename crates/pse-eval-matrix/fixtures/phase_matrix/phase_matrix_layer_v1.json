@@ -157,28 +157,28 @@
         {
           "id": "pm_c02_u01",
           "source": "coupling_update_alpha",
-          "text": "CouplingUpdate for a convergent cluster candidate. The update carries a reference to a StitcherGateReport whose passed field is true. All sub-gate checks passed for this candidate in the current cycle.",
+          "text": "CouplingUpdate for a convergent cluster candidate. References StitcherGateReport gate_alpha. Submitted in the current evaluation cycle.",
           "tags": ["causal", "valid_coupling_update", "invariant1_satisfied", "gate_passed_ref"],
           "relevance_rank_hint": 1
         },
         {
           "id": "pm_c02_u02",
           "source": "coupling_update_beta",
-          "text": "CouplingUpdate for a mirror-consistent stitch candidate. The update references a passed StitcherGateReport. Gate checks for convergence, mirror-consistency, delta, budget, trace, boundary and evidence all succeeded.",
+          "text": "CouplingUpdate for a mirror-consistent stitch candidate. References StitcherGateReport gate_beta from the current evaluation cycle.",
           "tags": ["causal", "valid_coupling_update", "invariant1_satisfied", "gate_passed_ref"],
           "relevance_rank_hint": 2
         },
         {
           "id": "pm_c02_u03",
           "source": "coupling_update_gamma",
-          "text": "CouplingUpdate for a boundary-aligned cluster candidate. Carries a StitcherGateReport reference where passed=true. Tensor delta norm is within the configured threshold.",
+          "text": "CouplingUpdate for a boundary-aligned cluster candidate. Carries a StitcherGateReport reference. Tensor delta norm recorded in the gate report.",
           "tags": ["causal", "valid_coupling_update", "invariant1_satisfied", "gate_passed_ref"],
           "relevance_rank_hint": 3
         },
         {
           "id": "pm_c02_u04",
           "source": "coupling_update_delta_no_gate_ref",
-          "text": "CouplingUpdate for a high-convergence candidate produced during a MorphodynamicField event. The update carries no StitcherGateReport reference — it was generated directly from the Fabric-H event output.",
+          "text": "CouplingUpdate for a high-convergence candidate produced during a MorphodynamicField event. Generated directly from the Fabric-H event output.",
           "tags": ["red_herring", "rejected", "invariant1_violation", "no_gate_ref"],
           "relevance_rank_hint": null,
           "_trap": "No StitcherGateReport reference. Invariant 1 requires every Fabric-T update to reference a passed gate report. High convergence does not bypass this requirement."
@@ -186,7 +186,7 @@
         {
           "id": "pm_c02_u05",
           "source": "coupling_update_epsilon_failed_gate",
-          "text": "CouplingUpdate that references a StitcherGateReport for this candidate. The gate report records passed=false with failure_policy=RejectCandidate.",
+          "text": "CouplingUpdate that references StitcherGateReport gate_epsilon for this candidate.",
           "tags": ["red_herring", "rejected", "invariant1_violation", "failed_gate_ref"],
           "relevance_rank_hint": null,
           "_trap": "Referencing a StitcherGateReport is necessary but not sufficient — the referenced report must have passed=true. This update references a failed gate, violating Invariant 1."
@@ -202,7 +202,7 @@
         {
           "id": "pm_c02_u07",
           "source": "dissolution_compact_and_clear_trace",
-          "text": "Dissolution operation that compacts the working ResonanceFabricState by removing superseded trace entries and clearing the gate history to reduce memory footprint.",
+          "text": "Dissolution operation that compacts the working ResonanceFabricState to reduce memory footprint.",
           "tags": ["red_herring", "rejected", "dissolution_grundsatz", "trace_deletion"],
           "relevance_rank_hint": null,
           "_trap": "Dissolution may compact working state but MUST preserve trace, evidence and gate history (Dissolution-Grundsatz). Clearing trace entries is a spec violation even if the intention is compaction."
@@ -279,28 +279,28 @@
         {
           "id": "pm_c03_u01",
           "source": "coupling_update_alpha_cycle_N",
-          "text": "CouplingUpdate for a convergent cluster candidate. References StitcherGateReport gate_alpha issued in the current evaluation cycle (cycle N). Report records passed=true. All sub-gates passed in this cycle.",
+          "text": "CouplingUpdate for a convergent cluster candidate. References StitcherGateReport gate_alpha. Candidate evaluation and submission completed in the same processing window.",
           "tags": ["causal", "valid_coupling_update", "current_cycle_gate", "determinism_satisfied"],
           "relevance_rank_hint": 1
         },
         {
           "id": "pm_c03_u02",
           "source": "coupling_update_beta_cycle_N",
-          "text": "CouplingUpdate for a mirror-consistent stitch candidate. References StitcherGateReport gate_beta issued in cycle N. The report's passed field is true; all sub-gate checks (convergence, mirror, delta, boundary, evidence) completed in the current cycle.",
+          "text": "CouplingUpdate for a mirror-consistent stitch candidate. References StitcherGateReport gate_beta. Sub-gate checks completed in the associated evaluation window.",
           "tags": ["causal", "valid_coupling_update", "current_cycle_gate", "determinism_satisfied"],
           "relevance_rank_hint": 2
         },
         {
           "id": "pm_c03_u03",
           "source": "coupling_update_gamma_cycle_N",
-          "text": "CouplingUpdate for a boundary-aligned candidate. StitcherGateReport gate_gamma was issued in cycle N with passed=true. Tensor delta norm within configured threshold, evaluated in this cycle.",
+          "text": "CouplingUpdate for a boundary-aligned candidate. StitcherGateReport gate_gamma issued for this candidate's evaluation window. Tensor delta norm within configured threshold.",
           "tags": ["causal", "valid_coupling_update", "current_cycle_gate", "determinism_satisfied"],
           "relevance_rank_hint": 3
         },
         {
           "id": "pm_c03_u04",
           "source": "coupling_update_delta_prior_cycle_N1",
-          "text": "CouplingUpdate for a high-convergence candidate. References StitcherGateReport gate_delta from cycle N-1, where passed=true. The candidate was re-queued from the previous cycle and its prior gate result is being reused as proof.",
+          "text": "CouplingUpdate for a high-convergence candidate. References StitcherGateReport gate_delta. The candidate was re-queued for the current submission batch.",
           "tags": ["red_herring", "rejected", "determinism_violation", "prior_cycle_gate"],
           "relevance_rank_hint": null,
           "_trap": "The gate report carries passed=true, but it was issued in cycle N-1. The determinism invariant requires the StitcherGateReport to be from the same evaluation cycle as the update. Reusing a prior-cycle passed report is a DeterminismViolation."
@@ -308,7 +308,7 @@
         {
           "id": "pm_c03_u05",
           "source": "coupling_update_epsilon_prior_cycle_N1",
-          "text": "CouplingUpdate for a drift-stabilizing candidate. The referenced StitcherGateReport gate_epsilon has passed=true and all sub-gates satisfied, but the report was generated in cycle N-1 during a preliminary evaluation pass.",
+          "text": "CouplingUpdate for a drift-stabilizing candidate. References StitcherGateReport gate_epsilon generated during candidate pre-evaluation.",
           "tags": ["red_herring", "rejected", "determinism_violation", "prior_cycle_gate"],
           "relevance_rank_hint": null,
           "_trap": "A prior-cycle gate report, even with passed=true and all sub-gates satisfied, does not provide valid same-cycle proof. The current cycle may have different Fabric-H state, making the prior report non-deterministic as a proof for cycle N."
@@ -316,7 +316,7 @@
         {
           "id": "pm_c03_u06",
           "source": "coupling_update_zeta_prior_cycle_N2",
-          "text": "CouplingUpdate that reuses StitcherGateReport gate_zeta from cycle N-2. The report is marked passed=true and was generated for the same candidate hash during an earlier evaluation window.",
+          "text": "CouplingUpdate for a seam-realignment candidate. References StitcherGateReport gate_zeta generated for the same candidate hash during an earlier evaluation window.",
           "tags": ["red_herring", "rejected", "determinism_violation", "prior_cycle_gate"],
           "relevance_rank_hint": null,
           "_trap": "Cycle N-2 gate report reuse. The staleness is even greater than N-1. The determinism invariant applies regardless of how distant the prior cycle is — any cross-cycle gate reference is a violation."
