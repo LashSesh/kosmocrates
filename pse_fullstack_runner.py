@@ -21,15 +21,20 @@ from pse_groq_agent import (
     TpdLimitError,
     call_groq,
     get_api_key,
+    _provider,
     parse_response,
     run_case,
     run_case_productive,
     score,
-    GROQ_MODEL,
+    GROQ_MODEL, CEREBRAS_MODEL,
     PRODUCTIVE_SCHEMAS,
     PROMPT_BUILDERS,
     SCHEMA_LABELS,
 )
+
+def _active_model(api_key):
+    _, model = _provider(api_key)
+    return model
 
 # ─── Canonical stack order ────────────────────────────────────────────────────
 #
@@ -241,7 +246,8 @@ def print_grand_total(layer_results):
     print(f"\n\n{sep}")
     print(f"  FULL-STACK VALIDATION REPORT")
     print(f"  {len(valid_layers)} Layer  |  {all_cases} Cases  |  {all_slots} Evaluation-Slots")
-    print(f"  Modell: {GROQ_MODEL}")
+    model_label = layer_results[0].get("model", GROQ_MODEL) if layer_results else GROQ_MODEL
+    print(f"  Modell: {model_label}")
     print(sep)
     print(f"  PSE Recall (gesamt): {pse_grand}/{all_slots}  "
           f"({pse_grand/all_slots:.1%})" if all_slots else "  PSE Recall: –")
@@ -287,7 +293,7 @@ def print_grand_total(layer_results):
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
-def _save_report(layer_results, stack_size):
+def _save_report(layer_results, stack_size, model=None):
     """Persist the report to disk; safe to call on partial runs."""
     os.makedirs("target/tmp", exist_ok=True)
     valid_layers = [lr for lr in layer_results if lr.get("summary")]
@@ -297,7 +303,7 @@ def _save_report(layer_results, stack_size):
 
     report = {
         "runner": "pse_fullstack_runner",
-        "model": GROQ_MODEL,
+        "model": model or GROQ_MODEL,
         "timestamp_hint": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "stack_size": stack_size,
         "layers_completed": len(layer_results),
@@ -366,10 +372,11 @@ def main():
         stack = stack[start_layer - 1:]
 
     print(f"\nPSE FULL-STACK-VALIDATION RUNNER")
-    print(f"Layers: {len(stack)}  |  Modell: {GROQ_MODEL}")
     print(f"Output: {FULLSTACK_OUTPUT}")
 
     api_key = get_api_key()
+    active_model = _active_model(api_key)
+    print(f"Layers: {len(stack)}  |  Modell: {active_model}")
 
     # Load previous partial report so --start-layer appends instead of overwriting
     layer_results = []
@@ -392,13 +399,14 @@ def main():
             print(f"     Bitte morgen weitermachen mit:  --start-layer {i}")
             tpd_hit = True
             break
+        result["model"] = active_model
         layer_results.append(result)
         if i < len(STACK):
             time.sleep(2)
 
     if layer_results:
         print_grand_total(layer_results)
-        _save_report(layer_results, len(STACK))
+        _save_report(layer_results, len(STACK), model=active_model)
 
     if tpd_hit:
         sys.exit(2)
