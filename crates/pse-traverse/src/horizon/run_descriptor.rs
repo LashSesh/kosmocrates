@@ -53,6 +53,20 @@ impl HorizonRunDescriptorV3 {
         }
         Ok(())
     }
+
+    /// Permissive baseline for tests and smoke-runs. Real callers MUST author their own descriptor.
+    pub fn permissive() -> Self {
+        HorizonRunDescriptorV3 {
+            run_id: "horizon.permissive".into(),
+            projection_v2_report_hash: None,
+            problem_spec_hash: Hash256::zero(),
+            seed: 0,
+            operator_versions: BTreeMap::new(),
+            canonicalization_version: "horizon-v0.3".into(),
+            thresholds: HorizonThresholdsV3::permissive(),
+            policies: HorizonPoliciesV3::default_t4(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

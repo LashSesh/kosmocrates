@@ -18,7 +18,11 @@ use pse_traverse::cognition::{
     CognitionFailurePolicy, CognitionOutcome, CognitionPolicies, CognitionRunDescriptor,
     CognitionThresholds, CognitiveState5D, Fixed,
 };
+use pse_traverse::cognition::pipeline::CognitiveComponents;
 use pse_traverse::dynamic_state::Hash256;
+use pse_traverse::horizon::run_descriptor::HorizonRunDescriptorV3;
+use pse_traverse::orchestration::{run_traverse_stack, FullTraversalInput};
+use pse_traverse::topology::run_descriptor::TptMtlRunDescriptor;
 use serde::Serialize;
 
 // ── Fixed-point helpers ────────────────────────────────────────────────────
@@ -650,6 +654,84 @@ fn run_self_model_stability() -> ScenarioResult {
     )
 }
 
+// ── Scenario 7: Full traversal stack (Cognition → Horizon → Topology) ────────
+
+fn run_full_stack() -> ScenarioResult {
+    // 10 steps: first 4 exploratory (Hold expected), 5-10 convergent (MonolithGate.passed expected).
+    let n_steps = 10usize;
+    let transition_step = 5usize;
+    let mut step_results: Vec<StepResult> = Vec::new();
+
+    for step in 1..=n_steps {
+        let t = step as f64 / n_steps as f64;
+        // Trajectory: low coherence early, ramps up after transition_step.
+        let psi = 0.3 + 0.4 * t;
+        let rho = 0.4 + 0.35 * t;
+        let omega = 0.35 + 0.35 * t;
+        let chi = 0.15;
+        let tau = 0.25 + 0.1 * t;
+
+        let cog_input = CognitionInput {
+            null_center_id: Hash256::zero(),
+            cognitive_components: CognitiveComponents {
+                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+            },
+            source_traversal_report_hash: None,
+            source_projection_report_hash: None,
+            spiral_memory_candidates: vec![],
+            constraint_count: 4,
+            support_strength: f(0.5),
+            logical_step: step as u64,
+            carrier_ids: vec!["stack.bench".into()],
+        };
+
+        let input = FullTraversalInput {
+            cog_input,
+            cog_rd: CognitionRunDescriptor {
+                run_id: format!("bench.stack.{step}"),
+                problem_spec_hash: Hash256::zero(),
+                traversal_report_hash: None,
+                projection_v2_hash: None,
+                seed: 0,
+                operator_versions: BTreeMap::new(),
+                thresholds: CognitionThresholds::permissive(),
+                policies: CognitionPolicies::default_policies(),
+                canonicalization_version: "cognition-v0.1".into(),
+            },
+            horizon_rd: HorizonRunDescriptorV3::permissive(),
+            tpt_rd: TptMtlRunDescriptor::default_permissive(),
+        };
+
+        let result = run_traverse_stack(&input).expect("stack run");
+        let passed = result.gate.passed;
+        let outcome_str = if passed {
+            format!(
+                "MonolithGate(cog={},hor={},topo={})",
+                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology
+            )
+        } else {
+            format!(
+                "Hold(cog={},hor={},topo={})",
+                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology
+            )
+        };
+        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate: None, hold_policy: None });
+    }
+
+    score_scenario(
+        "full_stack",
+        "Monolith: Cognition→Horizon→Topology; all three gates must pass for MonolithGate.passed",
+        n_steps,
+        transition_step,
+        GroundTruth {
+            expected_bundle_steps: (transition_step..=n_steps).collect(),
+            expected_hold_steps: (1..transition_step).collect(),
+            notes: "permissive thresholds; trajectory ramps from exploratory to convergent at step 5".into(),
+        },
+        step_results,
+    )
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -676,6 +758,7 @@ fn main() {
         run_wormhole_admission(),
         run_singularity_detection(),
         run_self_model_stability(),
+        run_full_stack(),
     ];
 
     let passed = results.iter().filter(|r| r.passed).count();
@@ -683,7 +766,7 @@ fn main() {
 
     let output = BenchCognitiveOutput {
         tool: "pse-bench-cognitive",
-        pipeline: "PSE-TRAVERSE-COGNITION-01",
+        pipeline: "PSE-TRAVERSE-COGNITION-01 + HORIZON-03 + TPT-MTL-04",
         scenarios: results,
         summary: Summary {
             total,

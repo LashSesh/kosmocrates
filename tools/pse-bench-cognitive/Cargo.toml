@@ -11,6 +11,6 @@ name = "bench_cognitive"
 path = "src/main.rs"
 
 [dependencies]
-pse-traverse = { path = "../../crates/pse-traverse", features = ["cognition", "cognition-spiral-memory", "cognition-hypercube", "cognition-wormholes"] }
+pse-traverse = { path = "../../crates/pse-traverse", features = ["cognition", "cognition-spiral-memory", "cognition-hypercube", "cognition-wormholes", "horizon", "topology"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
