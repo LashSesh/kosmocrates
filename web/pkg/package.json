@@ -1,0 +1,20 @@
+{
+  "name": "pse-wasm",
+  "type": "module",
+  "collaborators": [
+    "Sebastian Klemm"
+  ],
+  "description": "WebAssembly build of PSE — runs in any browser",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "pse_wasm_bg.wasm",
+    "pse_wasm.js",
+    "pse_wasm.d.ts"
+  ],
+  "main": "pse_wasm.js",
+  "types": "pse_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
