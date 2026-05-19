@@ -35,6 +35,12 @@
 pub mod metrics_bridge;
 pub mod scenarios;
 
+#[cfg(feature = "llm-agent")]
+pub mod llm_executor;
+
+#[cfg(feature = "llm-agent")]
+pub use llm_executor::CerebrasTrialExecutor;
+
 use pse_eval_matrix::{
     primitives::{content_address, EvalError, Hash256},
     reports::{DiagnosticRecord, GateObservation, GateObservationSet, TrialOutputs, TrialReport},
