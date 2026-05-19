@@ -38,6 +38,7 @@ members = [
     "adapters/pse-adapter-modelmon",
     "crates/pse-traverse",
     "crates/pse-eval-matrix",
+    "crates/pse-eval-runner",
     "crates/phase-matrix",
     "tools/pse-audit",
     "tools/pse-bench-bbo",

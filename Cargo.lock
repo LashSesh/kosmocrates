@@ -1844,6 +1844,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-eval-runner"
+version = "0.1.0"
+dependencies = [
+ "pse-eval-matrix",
+ "pse-traverse",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-evidence"
 version = "0.1.0"
 dependencies = [

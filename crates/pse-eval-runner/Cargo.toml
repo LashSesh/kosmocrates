@@ -1,0 +1,24 @@
+[package]
+name = "pse-eval-runner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Real TrialExecutor that drives run_cognition() for agent-relevant workload families"
+
+[lib]
+name = "pse_eval_runner"
+path = "src/lib.rs"
+
+[dependencies]
+pse-eval-matrix = { path = "../pse-eval-matrix" }
+pse-traverse = { path = "../pse-traverse", features = [
+    "cognition",
+    "cognition-spiral-memory",
+    "cognition-hypercube",
+    "cognition-wormholes",
+    "horizon",
+    "topology",
+] }
+serde = { workspace = true }
+serde_json = { workspace = true }
