@@ -95,6 +95,21 @@ pub mod topology;
 #[cfg(all(feature = "cognition", feature = "horizon", feature = "topology"))]
 pub mod orchestration;
 
+/// Fragmented 51% Condensation Layer (PSE-LPCM-IMPLEMENTATION-01).
+///
+/// Additive, ablatable, fail-closed layer that partitions a bounded phase-space
+/// window into local fragments, constructs topology patches, generates candidate
+/// directions, computes normalized support-mass vectors, applies a hysteretic
+/// 51% local majority gate, links accepted condensations via seam percolation,
+/// coarse-grains into hierarchical condensates, and emits a replayable
+/// HierarchicalCollapseReport.
+///
+/// PRIMARY INVARIANT: Local51(U) ⟹ Candidate(U), Candidate(U) ≠ Truth.
+/// Activated with the `lpcm-fragment-collapse` feature.
+/// See [`lpcm::pipeline::run_lpcm`] for the canonical entry point.
+#[cfg(feature = "lpcm-fragment-collapse")]
+pub mod lpcm;
+
 pub use canonical::{canonical_bytes, content_address, hex_address};
 pub use dof::{DoFEdge, DoFGraph, DoFNode, DoFNodeKind, NodeId, NodeStatus};
 pub use excision::{detect_path_excision, OperationalImpact, PathExcision};

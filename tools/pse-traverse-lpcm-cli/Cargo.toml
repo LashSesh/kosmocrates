@@ -1,0 +1,17 @@
+[package]
+name = "pse-traverse-lpcm-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI for the PSE LPCM Fragmented 51% Condensation Layer — inspect / partition / collapse / replay / verify / ablate"
+
+[dependencies]
+pse-traverse = { path = "../../crates/pse-traverse", features = ["lpcm-fragment-collapse"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[[bin]]
+name = "pse-traverse-lpcm"
+path = "src/main.rs"

@@ -38,6 +38,7 @@ members = [
     "adapters/pse-adapter-modelmon",
     "crates/pse-traverse",
     "crates/pse-eval-matrix",
+    "crates/pse-eval-runner",
     "crates/phase-matrix",
     "tools/pse-audit",
     "tools/pse-bench-bbo",
@@ -52,6 +53,7 @@ members = [
     "crates/pse-validation-runner",
     "tools/pse-validation-runner-cli",
     "tools/pse-metatron-cli",
+    "tools/pse-traverse-lpcm-cli",
     "tools/pse-bench-cognitive",
 ]
 
@@ -92,6 +94,7 @@ wasm-bindgen = "0.2"
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 rayon = "1.10"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 
 # ─────────────────────────────────────────────────────────────────────────
 # Release profile: tuned for the single-binary, single-thread-fast

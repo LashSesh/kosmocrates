@@ -84,3 +84,8 @@ topology-refine = ["topology"]
 topology-carrier = ["topology"]
 topology-reinterpret = ["topology"]
 topology-handoff = ["topology"]
+
+# ── PSE-LPCM-IMPLEMENTATION-01 (Fragmented 51% Condensation Layer) ──
+# `lpcm-fragment-collapse` — enables the LPCM layer (HierarchicalCollapseReport,
+#                             LocalCondensationBit, SeamPercolationGraph, etc.).
+lpcm-fragment-collapse = []

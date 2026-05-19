@@ -19,7 +19,7 @@
 use pse_eval_matrix::{
     append_to_ledger, build_ablation_ladder, init_ledger, plan_runs, render_json_summary,
     render_markdown_summary, run_trial, score_capability_profile, score_ledger, summarize_ablation,
-    EvaluationSummaryReport, LayerMask, Preset, SyntheticTrialExecutor,
+    EvaluationSummaryReport, Fixed, LayerMask, Preset, SyntheticTrialExecutor,
 };
 
 fn full_pipeline(preset: Preset) -> EvaluationSummaryReport {
@@ -231,4 +231,79 @@ fn two_full_pipeline_runs_are_byte_identical() {
     let a = full_pipeline(Preset::AgentCognition);
     let b = full_pipeline(Preset::AgentCognition);
     assert_eq!(a.report_id, b.report_id, "summary report id must replay");
+}
+
+#[test]
+fn lpcm_preset_runs_end_to_end() {
+    let summary = full_pipeline(Preset::LpcmFragmentCollapse);
+    let variant_ids: Vec<_> = summary
+        .variant_summaries
+        .iter()
+        .map(|v| v.variant_id.as_str())
+        .collect();
+    assert!(variant_ids.contains(&"B0_Baseline"));
+    assert!(variant_ids.contains(&"B7_FullStack"));
+    assert!(variant_ids.contains(&"B10_LpcmCollapse"));
+}
+
+#[test]
+fn lpcm_b10_outperforms_b7_on_local_condensation_rate() {
+    let spec = Preset::LpcmFragmentCollapse.build().unwrap();
+    let plan = plan_runs(&spec).unwrap();
+    let executor = SyntheticTrialExecutor;
+    let mut reports = Vec::new();
+    let mut ledger = pse_eval_matrix::init_ledger(spec.spec_id.clone()).unwrap();
+    for entry in &plan.entries {
+        let variant = spec
+            .variants
+            .iter()
+            .find(|v| v.variant_id == entry.descriptor.variant_id)
+            .unwrap();
+        let workload = spec
+            .workloads
+            .iter()
+            .find(|w| w.workload_id == entry.descriptor.workload_id)
+            .unwrap();
+        let (report, run_entry) =
+            run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
+                .unwrap();
+        ledger = pse_eval_matrix::append_to_ledger(ledger, run_entry).unwrap();
+        reports.push(report);
+    }
+
+    let pick_metric = |variant_id: &str, metric: &str| -> Fixed {
+        reports
+            .iter()
+            .find(|r| r.variant_id == variant_id)
+            .unwrap()
+            .metrics
+            .iter()
+            .find(|m| m.metric_id == metric)
+            .unwrap()
+            .value
+            .clone()
+    };
+
+    // B10 must strictly beat B7 on local condensation rate (LPCM bit is active).
+    let b7_lcr = pick_metric("B7_FullStack", "lpcm_local_condensation_rate");
+    let b10_lcr = pick_metric("B10_LpcmCollapse", "lpcm_local_condensation_rate");
+    assert!(
+        b10_lcr.cmp(&b7_lcr) == std::cmp::Ordering::Greater,
+        "B10 must have higher local_condensation_rate than B7; got b7={b7_lcr:?} b10={b10_lcr:?}"
+    );
+
+    // B7 (no LPCM bit) must have zero condensation rate.
+    assert_eq!(
+        b7_lcr,
+        Fixed::Rational { num: 0, den: 100 },
+        "B7 (no LPCM) must have zero local_condensation_rate"
+    );
+
+    // B10 false_percolation_rate must be strictly lower than B0.
+    let b0_fpr = pick_metric("B0_Baseline", "lpcm_false_percolation_rate");
+    let b10_fpr = pick_metric("B10_LpcmCollapse", "lpcm_false_percolation_rate");
+    assert!(
+        b10_fpr.cmp(&b0_fpr) == std::cmp::Ordering::Less,
+        "B10 must have lower false_percolation_rate than B0"
+    );
 }

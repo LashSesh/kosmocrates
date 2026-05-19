@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 
 use crate::cell_substrate_metrics::{b9_metric_specs, cell_substrate_metric_specs};
+use crate::lpcm_metrics::lpcm_metric_specs;
 use crate::datasets::DatasetManifest;
 use crate::ground_truth::GroundTruthProfile;
 use crate::metrics::MetricSpec;
@@ -44,6 +45,10 @@ pub enum Preset {
     /// `dual-fabric-stitch` — PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric
     /// Field-Tensor Stitch Layer closure preset.
     DualFabricStitch,
+    /// `lpcm-fragment-collapse` — PSE-LPCM-IMPLEMENTATION-01 Fragmented
+    /// 51% Condensation Layer closure preset: B0 / B7 / B10 over the
+    /// `LpcmFragmentCollapse` workload.
+    LpcmFragmentCollapse,
 }
 
 impl Preset {
@@ -55,6 +60,7 @@ impl Preset {
             "post-symbolic-ablation" => Some(Preset::PostSymbolicAblation),
             "phase-matrix-substrate" => Some(Preset::PhaseMatrixSubstrate),
             "dual-fabric-stitch" => Some(Preset::DualFabricStitch),
+            "lpcm-fragment-collapse" => Some(Preset::LpcmFragmentCollapse),
             _ => None,
         }
     }
@@ -67,6 +73,7 @@ impl Preset {
             Preset::PostSymbolicAblation => Ok(preset_post_symbolic_ablation()?),
             Preset::PhaseMatrixSubstrate => Ok(preset_phase_matrix_substrate()?),
             Preset::DualFabricStitch => Ok(preset_dual_fabric_stitch()?),
+            Preset::LpcmFragmentCollapse => Ok(preset_lpcm_fragment_collapse()?),
         }
     }
 }
@@ -93,6 +100,9 @@ fn workload_for(
         }
         WorkloadFamily::DualFabricStitch => {
             WorkloadSpec::dual_fabric_stitch(id, dataset.dataset_id.clone(), gt_id)
+        }
+        WorkloadFamily::LpcmFragmentCollapse => {
+            WorkloadSpec::lpcm_fragment_collapse(id, dataset.dataset_id.clone(), gt_id)
         }
         // The other families share the StreamEvent shape for the
         // built-in presets — production callers should author their own
@@ -355,6 +365,50 @@ pub fn preset_dual_fabric_stitch() -> Result<EvaluationSpec, EvalError> {
     .with_id()
 }
 
+/// `lpcm-fragment-collapse` preset.
+///
+/// Empirical closure for PSE-LPCM-IMPLEMENTATION-01: variants B0 / B7 / B10
+/// over the `LpcmFragmentCollapse` workload. Scored against the full LPCM
+/// metric set plus the standard task-success / replay / hold-correctness
+/// anchors so the LPCM uplift is comparable against the rest of the matrix.
+///
+/// Primary invariant under test: `B10_LpcmCollapse` must outperform `B7_FullStack`
+/// (which lacks the LPCM bit) on `lpcm_local_condensation_rate` and
+/// `lpcm_coarse_grain_activation_rate`, and both must strictly dominate `B0_Baseline`.
+pub fn preset_lpcm_fragment_collapse() -> Result<EvaluationSpec, EvalError> {
+    let dataset = DatasetManifest::synthetic("d.lpcm_fragment_collapse");
+    let gt = GroundTruthProfile::synthetic_exact();
+    let workloads = vec![workload_for(
+        WorkloadFamily::LpcmFragmentCollapse,
+        "w.lpcm_fragment_collapse",
+        &dataset,
+        Some(&gt),
+    )];
+    let variants = VariantLadder::lpcm_ablation();
+    let mut metrics = vec![
+        MetricSpec::task_success(),
+        MetricSpec::replay_identity(),
+        MetricSpec::hold_correctness(),
+        MetricSpec::false_commit_rate(),
+    ];
+    metrics.extend(lpcm_metric_specs());
+    EvaluationSpec {
+        spec_id: crate::primitives::Hash256::zero(),
+        schema_version: "eval-matrix-v0.1".into(),
+        purpose: EvaluationPurpose::AblationStudy,
+        variants,
+        workloads,
+        datasets: vec![dataset],
+        metrics,
+        experiment_design: ExperimentDesign::default_design(),
+        statistical_plan: StatisticalPlan::default_plan(),
+        determinism_policy: DeterminismPolicy::default(),
+        output_policy: OutputPolicy::default_policy(),
+        tags: BTreeMap::from_iter([("preset".to_string(), "lpcm-fragment-collapse".to_string())]),
+    }
+    .with_id()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,7 +449,32 @@ mod tests {
             Preset::from_tag("dual-fabric-stitch"),
             Some(Preset::DualFabricStitch)
         );
+        assert_eq!(
+            Preset::from_tag("lpcm-fragment-collapse"),
+            Some(Preset::LpcmFragmentCollapse)
+        );
         assert!(Preset::from_tag("nonsense").is_none());
+    }
+
+    #[test]
+    fn lpcm_preset_validates_with_b0_b7_b10() {
+        let s = preset_lpcm_fragment_collapse().unwrap();
+        assert!(s.validate().is_ok());
+        let ids: Vec<_> = s.variants.iter().map(|v| v.variant_id.as_str()).collect();
+        assert!(ids.contains(&"B0_Baseline"));
+        assert!(ids.contains(&"B7_FullStack"));
+        assert!(ids.contains(&"B10_LpcmCollapse"));
+        assert_eq!(s.variants.len(), 3);
+    }
+
+    #[test]
+    fn lpcm_preset_includes_lpcm_metric_set() {
+        let s = preset_lpcm_fragment_collapse().unwrap();
+        let mids: Vec<_> = s.metrics.iter().map(|m| m.metric_id.as_str()).collect();
+        assert!(mids.contains(&"lpcm_local_condensation_rate"));
+        assert!(mids.contains(&"lpcm_false_percolation_rate"));
+        assert!(mids.contains(&"lpcm_replay_identity"));
+        assert!(mids.contains(&"lpcm_coarse_grain_activation_rate"));
     }
 
     #[test]
