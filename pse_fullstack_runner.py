@@ -378,13 +378,14 @@ def main():
     active_model = _active_model(api_key)
     print(f"Layers: {len(stack)}  |  Modell: {active_model}")
 
-    # Load previous partial report so --start-layer appends instead of overwriting
+    # Load previous partial report so --start-layer replaces from that point onward
     layer_results = []
     if start_layer > 1 and os.path.exists(FULLSTACK_OUTPUT):
         try:
             with open(FULLSTACK_OUTPUT, encoding="utf-8") as f:
                 prev = json.load(f)
-            layer_results = prev.get("layers", [])
+            # Keep only layers BEFORE start_layer (0-based index = start_layer - 1)
+            layer_results = prev.get("layers", [])[:start_layer - 1]
             print(f"[Resume] {len(layer_results)} vorherige Layer aus {FULLSTACK_OUTPUT} geladen.")
         except Exception as e:
             print(f"[Warnung] Konnte vorherigen Bericht nicht laden: {e}")
