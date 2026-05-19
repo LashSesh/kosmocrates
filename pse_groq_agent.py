@@ -62,6 +62,11 @@ def _provider(api_key):
     return GROQ_URL, GROQ_MODEL
 
 
+def _inter_call_sleep(api_key):
+    """Seconds to sleep between API calls to respect provider RPM limits."""
+    return 22 if api_key.startswith("csk-") else 3
+
+
 # ─── API aufrufen ─────────────────────────────────────────────────────────────
 
 class TpdLimitError(Exception):
@@ -103,8 +108,9 @@ def call_groq(api_key, prompt, _retry=True, max_tokens=512):
             if "TPD" in error_body or "tokens per day" in error_body.lower():
                 raise TpdLimitError(error_body[:300])
             if _retry:
-                print("       Rate-Limit (429) -- warte 10s...")
-                time.sleep(10)
+                wait = 30 if api_key.startswith("csk-") else 10
+                print(f"       Rate-Limit (429) -- warte {wait}s...")
+                time.sleep(wait)
                 return call_groq(api_key, prompt, _retry=False, max_tokens=max_tokens)
         return f"HTTP_ERROR:{e.code}:{error_body[:300]}"
     except Exception as e:
@@ -1455,6 +1461,7 @@ def run_case_productive(case, api_key, case_num, total_cases):
         print(f"       FEHLER: {raw_err}")
 
     # --- PSE ---
+    time.sleep(_inter_call_sleep(api_key))
     print("\n  [2/2] PSE-Rahmen aktiv...")
     pse_text = call_groq(api_key, build_pse_prompt_productive(case), max_tokens=1024)
     pse_err = None
@@ -1608,6 +1615,7 @@ def run_case(case, api_key, case_num, total_cases, raw_fn, pse_fn):
         print(f"       Recall:    {raw_hits}/{gt_count}   Precision: {raw_hits}/{len(raw_top3) or 1} ({raw_prec:.0%})")
 
     # --- PSE ---
+    time.sleep(_inter_call_sleep(api_key))
     print("\n  [2/2] PSE-Rahmen aktiv...")
     pse_text = call_groq(api_key, pse_fn(case))
     pse_top3, pse_rejected, pse_err = parse_response(pse_text)
