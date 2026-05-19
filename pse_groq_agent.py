@@ -38,7 +38,7 @@ OUTPUT_PATH = "target/tmp/pse_groq_result.json"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-CEREBRAS_MODEL = "llama3.1-70b"
+CEREBRAS_MODEL = "llama3.1-8b"
 CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
 
 # ─── API-Key laden ────────────────────────────────────────────────────────────
