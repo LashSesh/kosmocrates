@@ -38,41 +38,52 @@ OUTPUT_PATH = "target/tmp/pse_groq_result.json"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+CEREBRAS_MODEL = "llama3.3-70b"
+CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
+
 # ─── API-Key laden ────────────────────────────────────────────────────────────
 
 def get_api_key():
-    key = os.environ.get("GROQ_API_KEY", "").strip()
+    key = (os.environ.get("CEREBRAS_API_KEY", "")
+           or os.environ.get("GROQ_API_KEY", "")).strip()
     if not key:
-        print("Groq API-Key eingeben (beginnt mit gsk_...):")
+        print("API-Key eingeben (Groq: gsk_...  /  Cerebras: csk_...):")
         key = input("  > ").strip()
-    if not key.startswith("gsk_"):
-        print("FEHLER: Groq API-Key muss mit 'gsk_' beginnen.")
+    if not (key.startswith("gsk_") or key.startswith("csk_")):
+        print("FEHLER: Key muss mit 'gsk_' (Groq) oder 'csk_' (Cerebras) beginnen.")
         sys.exit(1)
     return key
 
 
-# ─── Groq aufrufen ───────────────────────────────────────────────────────────
+def _provider(api_key):
+    """Return (url, model) based on key prefix."""
+    if api_key.startswith("csk_"):
+        return CEREBRAS_URL, CEREBRAS_MODEL
+    return GROQ_URL, GROQ_MODEL
+
+
+# ─── API aufrufen ─────────────────────────────────────────────────────────────
 
 class TpdLimitError(Exception):
-    """Raised when Groq's tokens-per-day limit is exhausted."""
+    """Raised when the provider's tokens-per-day limit is exhausted."""
     pass
 
 
 def call_groq(api_key, prompt, _retry=True, max_tokens=512):
+    url, model = _provider(api_key)
     body = json.dumps({
-        "model": GROQ_MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0,
         "max_tokens": max_tokens,
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        GROQ_URL,
+        url,
         data=body,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "groq-python/0.11.0",
         },
     )
     try:
