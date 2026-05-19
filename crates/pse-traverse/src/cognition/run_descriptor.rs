@@ -129,6 +129,7 @@ pub enum CognitionFailurePolicy {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CognitionGateKind {
     Percolation,
+    Resonance,
     Panorama,
     SelfModel,
     Trigger,

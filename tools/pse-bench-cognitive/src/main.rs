@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use pse_traverse::cognition::{
     pipeline::{run_cognition, CognitionInput},
-    CognitionOutcome, CognitionPolicies, CognitionRunDescriptor,
+    CognitionFailurePolicy, CognitionOutcome, CognitionPolicies, CognitionRunDescriptor,
     CognitionThresholds, CognitiveState5D, Fixed,
 };
 use pse_traverse::dynamic_state::Hash256;
@@ -64,6 +64,33 @@ fn rd_with_thresholds(scenario: &str, t: CognitionThresholds) -> CognitionRunDes
         operator_versions: BTreeMap::new(),
         thresholds: t,
         policies: CognitionPolicies::default_policies(),
+        canonicalization_version: "cognition-v0.1".into(),
+    }
+}
+
+fn rd_with_wormhole_first(scenario: &str, t: CognitionThresholds) -> CognitionRunDescriptor {
+    let mut policies = CognitionPolicies::default_policies();
+    // Put AdmitWormhole ahead of ExpandPanorama so panorama failure selects it.
+    policies.failure_policy_order = vec![
+        CognitionFailurePolicy::AdmitWormhole,
+        CognitionFailurePolicy::ExpandPanorama,
+        CognitionFailurePolicy::QuerySpiralMemory,
+        CognitionFailurePolicy::RefineConstraints,
+        CognitionFailurePolicy::WaitForPhaseWindow,
+        CognitionFailurePolicy::SplitHypercube,
+        CognitionFailurePolicy::MigrateCarrier,
+        CognitionFailurePolicy::CalibrateOperators,
+        CognitionFailurePolicy::Hold,
+    ];
+    CognitionRunDescriptor {
+        run_id: format!("bench.cognitive.{scenario}"),
+        problem_spec_hash: Hash256::zero(),
+        traversal_report_hash: None,
+        projection_v2_hash: None,
+        seed: 0,
+        operator_versions: BTreeMap::new(),
+        thresholds: t,
+        policies,
         canonicalization_version: "cognition-v0.1".into(),
     }
 }
@@ -267,14 +294,16 @@ fn run_deadlock() -> ScenarioResult {
 ///   (memory recall enables the handoff gate via QuerySpiralMemory path).
 fn run_memory_recall() -> ScenarioResult {
     let n_steps = 10;
-    let transition_step = 7;
+    // Resonance distances to target (psi|rho|omega L1 norm):
+    //   step 1: ~1.27   step 7: ~0.47   step 9: ~0.20   step 10: ~0.07
+    // Threshold 0.25 → only steps 9-10 pass the resonance gate.
+    let transition_step = 9;
 
     // The "stored" memory target
     let memory_target = state_5d(0.6, 0.8, 0.7, 0.2, 0.3);
 
-    // Thresholds: require some resonance (min_resonance > 0)
     let mut t = CognitionThresholds::permissive();
-    t.min_resonance = f(0.1);
+    t.min_resonance = f(0.25);
     let rd = rd_with_thresholds("memory_recall", t);
 
     let mut step_results = Vec::new();
@@ -317,13 +346,13 @@ fn run_memory_recall() -> ScenarioResult {
 
     score_scenario(
         "memory_recall",
-        "Trajectory converging to stored memory state — resonance recall path",
+        "Trajectory converging to stored memory state — resonance gate fires at step 9",
         n_steps,
         transition_step,
         GroundTruth {
             expected_bundle_steps: (transition_step..=n_steps).collect(),
             expected_hold_steps: (1..transition_step).collect(),
-            notes: "Spiral memory resonance increases as 5D state approaches stored target".into(),
+            notes: "min_resonance=0.25; resonance distance drops below threshold at step 9 (d≈0.20)".into(),
         },
         step_results,
     )
@@ -331,28 +360,21 @@ fn run_memory_recall() -> ScenarioResult {
 
 // ── Scenario 4: Wormhole Admission ───────────────────────────────────────
 
-/// Tests that the panorama-gate failure path is reachable and produces
-/// the expected ExpandPanorama recovery policy.
+/// Tests the wormhole admission path end-to-end.
 ///
-/// `select_failure_policy` is hardwired: panorama failure → ExpandPanorama.
-/// `AdmitWormhole` is declared in CognitionPolicies.failure_policy_order but
-/// is not yet wired into the automatic policy selector — this scenario
-/// documents the current pipeline behavior as a baseline.
+/// `failure_policy_order` now drives `select_failure_policy`: by placing
+/// `AdmitWormhole` before `ExpandPanorama`, a panorama failure selects
+/// `AdmitWormhole` as the recovery action.
 ///
-/// All steps should Hold with gate=Panorama, policy=ExpandPanorama.
+/// All steps should Hold with gate=Panorama, policy=AdmitWormhole.
 fn run_wormhole_admission() -> ScenarioResult {
     let n_steps = 6;
-    let _rd = rd_permissive("wormhole_admission");
 
     let mut step_results = Vec::new();
     for step in 1..=n_steps {
-        // State that produces a Hold with AdmitWormhole as recovery:
-        // moderate curvature, near-zero omega (not ready), moderate support.
-        // The failure_policy_order includes AdmitWormhole after ExpandPanorama,
-        // so we need panorama to fail first.
         let mut t = CognitionThresholds::permissive();
-        t.min_panorama_coverage = f(1.5); // forces panorama to fail → triggers AdmitWormhole path
-        let rd_step = rd_with_thresholds("wormhole_admission", t);
+        t.min_panorama_coverage = f(1.5); // panorama coverage = 1/(step+1) < 1.5 → always fails
+        let rd_step = rd_with_wormhole_first("wormhole_admission", t);
 
         let input = CognitionInput {
             null_center_id: hash_from_seed(4),
@@ -386,45 +408,43 @@ fn run_wormhole_admission() -> ScenarioResult {
         step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
     }
 
-    // All steps should Hold with gate=Panorama and policy=ExpandPanorama.
-    // AdmitWormhole is not yet wired into select_failure_policy — that is the finding.
-    let expand_panorama_steps: Vec<usize> = step_results
+    // All steps should Hold with gate=Panorama and policy=AdmitWormhole.
+    let wormhole_steps: Vec<usize> = step_results
         .iter()
-        .filter(|s| s.hold_policy.as_deref() == Some("ExpandPanorama"))
+        .filter(|s| s.hold_policy.as_deref() == Some("AdmitWormhole"))
         .map(|s| s.step)
         .collect();
 
-    let panorama_path_reached = !expand_panorama_steps.is_empty();
+    let wormhole_reached = !wormhole_steps.is_empty();
     let all_hold = step_results.iter().all(|s| !s.passed);
-    let passed = panorama_path_reached && all_hold;
+    let passed = wormhole_reached && all_hold;
 
     let n_hold = step_results.iter().filter(|s| !s.passed).count();
     ScenarioResult {
-        scenario: "panorama_failure_path".into(),
-        description: "Panorama gate failure → ExpandPanorama policy (AdmitWormhole not yet auto-selected)".into(),
+        scenario: "wormhole_admission".into(),
+        description: "Panorama failure with AdmitWormhole-first policy order → AdmitWormhole selected".into(),
         steps: n_steps,
         ground_truth: GroundTruth {
             expected_bundle_steps: vec![],
             expected_hold_steps: (1..=n_steps).collect(),
             notes: format!(
-                "All steps Hold with gate=Panorama, policy=ExpandPanorama. \
-                 AdmitWormhole is declared in CognitionPolicies but select_failure_policy \
-                 is hardwired and does not yet select it automatically. \
-                 ExpandPanorama steps: {expand_panorama_steps:?}"
+                "failure_policy_order has AdmitWormhole before ExpandPanorama; \
+                 panorama gate fails → AdmitWormhole selected. \
+                 Wormhole steps: {wormhole_steps:?}"
             ),
         },
         step_results,
         verdict: ScenarioVerdict {
-            tp: if panorama_path_reached { 1 } else { 0 },
+            tp: if wormhole_reached { 1 } else { 0 },
             fp: 0,
             tn: n_hold,
-            fn_: if panorama_path_reached { 0 } else { 1 },
-            precision: if panorama_path_reached { 1.0 } else { 0.0 },
-            recall: if panorama_path_reached { 1.0 } else { 0.0 },
-            f1: if panorama_path_reached { 1.0 } else { 0.0 },
+            fn_: if wormhole_reached { 0 } else { 1 },
+            precision: if wormhole_reached { 1.0 } else { 0.0 },
+            recall: if wormhole_reached { 1.0 } else { 0.0 },
+            f1: if wormhole_reached { 1.0 } else { 0.0 },
             notes: format!(
-                "Panorama-failure path reachable: {panorama_path_reached}. \
-                 ExpandPanorama at steps: {expand_panorama_steps:?}"
+                "AdmitWormhole path reachable via policy_order: {wormhole_reached}. \
+                 Steps: {wormhole_steps:?}"
             ),
         },
         passed,
