@@ -1398,6 +1398,25 @@ def build_pse_prompt_productive(case):
 
     ctx_str = _fmt_context(case.get("task_context", {}))
     evt_str = _fmt_events(case.get("events", []))
+
+    if task_type == "gate_trace":
+        output_instruction = """\
+Respond in English. Use the exact English PSE technical terms from the constraints verbatim
+(e.g. KeepTensorUnchanged, BoundaryViolation, TptMtlOutcomeKind::Recalibrate, Hold, MigrateCarrier,
+NeedsCarrierMigration, Axiom 6.1.1, etc.).
+MANDATORY EVALUATION PROTOCOL for gate_trace:
+  Step 1: Evaluate EVERY branch in strict priority order, starting at branch 1.
+  Step 2: For each branch — state "branch N", name the gate/condition, evaluate it TRUE or FALSE for the given input values, and write SKIP or FIRES.
+  Step 3: A branch FIRES only when its Boolean condition is TRUE for the given inputs (!g_x fires only when g_x=false).
+  Step 4: Continue to the NEXT branch even if a higher branch did not fire.
+  Step 5: State the final policy/outcome from the first branch that FIRES."""
+    else:
+        output_instruction = """\
+Respond in English. Use the exact English PSE technical terms from the constraints verbatim
+(e.g. G_trace, DeterminismViolation, Recondense, recondensation_status, MigrateCarrier,
+NeedsCarrierMigration, KeepTensorUnchanged, Axiom 6.1.1, MetatronClosureOutcome, etc.).
+Write in complete sentences. Name all relevant items by their exact IDs."""
+
     return f"""Du operierst im PSE Produktiv-Validierungsrahmen.
 
 AUFGABEN-TYP: {task_type}
@@ -1416,10 +1435,7 @@ AUFGABEN-TYP: {task_type}
 == EREIGNISSE ==
 {evt_str}
 
-Respond in English. Use the exact English PSE technical terms from the constraints verbatim
-(e.g. G_trace, DeterminismViolation, Recondense, recondensation_status, MigrateCarrier,
-NeedsCarrierMigration, KeepTensorUnchanged, Axiom 6.1.1, MetatronClosureOutcome, etc.).
-Write in complete sentences. Name all relevant items by their exact IDs.
+{output_instruction}
 """
 
 
