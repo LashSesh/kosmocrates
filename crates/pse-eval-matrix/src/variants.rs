@@ -46,6 +46,9 @@ impl LayerMask {
     /// Bit for the Dual-Fabric Field-Tensor Stitch Layer
     /// (PHASEMATRIX-HIVEMIND-03.1).
     pub const DUAL_FABRIC_STITCH: u32 = 1 << 13;
+    /// Bit for the Fragmented 51% Condensation Layer
+    /// (PSE-LPCM-IMPLEMENTATION-01).
+    pub const LPCM_FRAGMENT_COLLAPSE: u32 = 1 << 14;
 
     /// `B0_Baseline` — naive baseline / classical detector.
     pub const B0_BASELINE: LayerMask = LayerMask(0);
@@ -99,6 +102,11 @@ impl LayerMask {
     /// Stitch Layer (PHASEMATRIX-HIVEMIND-03.1).
     pub const B9_DUAL_FABRIC_STITCH: LayerMask =
         LayerMask(Self::B8_PHASE_MATRIX.0 | Self::DUAL_FABRIC_STITCH);
+    /// `B10_LpcmCollapse` — B7 plus the Fragmented 51% Condensation
+    /// Layer (PSE-LPCM-IMPLEMENTATION-01). Sits downstream from TPT/MTL,
+    /// upstream from projection / validation / NCTCS.
+    pub const B10_LPCM_COLLAPSE: LayerMask =
+        LayerMask(Self::B7_FULL_STACK.0 | Self::LPCM_FRAGMENT_COLLAPSE);
 
     /// True iff every bit in `bits` is set.
     pub fn has(self, bits: u32) -> bool {
@@ -239,6 +247,16 @@ impl SystemVariantSpec {
         )
     }
 
+    /// `B10_LpcmCollapse` — B7 plus the Fragmented 51% Condensation
+    /// Layer (PSE-LPCM-IMPLEMENTATION-01).
+    pub fn lpcm_collapse() -> Self {
+        Self::from_ladder(
+            "B10_LpcmCollapse",
+            LayerMask::B10_LPCM_COLLAPSE,
+            SolverProfile::Template,
+        )
+    }
+
     fn from_ladder(name: &str, mask: LayerMask, solver: SolverProfile) -> Self {
         let probe = (name, mask, solver);
         let config_hash = content_address(&probe).unwrap_or_else(|_| Hash256::zero());
@@ -304,6 +322,17 @@ impl VariantLadder {
         ladder.push(SystemVariantSpec::dual_fabric_stitch());
         ladder
     }
+
+    /// Returns the B0/B7/B10 ladder for PSE-LPCM-IMPLEMENTATION-01
+    /// ablation (baseline vs full stack without LPCM vs full stack with
+    /// LPCM). B10 has the same layer count as B8 (B7 + 1 bit).
+    pub fn lpcm_ablation() -> Vec<SystemVariantSpec> {
+        vec![
+            SystemVariantSpec::baseline(),
+            SystemVariantSpec::full_stack(),
+            SystemVariantSpec::lpcm_collapse(),
+        ]
+    }
 }
 
 #[cfg(test)]
@@ -355,5 +384,27 @@ mod tests {
             prev = c;
         }
         assert_eq!(ladder.len(), 9);
+    }
+
+    #[test]
+    fn b10_lpcm_has_exactly_b7_plus_lpcm_bit() {
+        let m = LayerMask::B10_LPCM_COLLAPSE;
+        assert!(m.has(LayerMask::LPCM_FRAGMENT_COLLAPSE));
+        assert!(m.has(LayerMask::ADAPTIVE_CALIBRATION));
+        assert!(m.has(LayerMask::COGNITION));
+        assert!(!m.has(LayerMask::CELL_SUBSTRATE));
+        assert!(!m.has(LayerMask::DUAL_FABRIC_STITCH));
+    }
+
+    #[test]
+    fn lpcm_ablation_ladder_is_monotone() {
+        let ladder = VariantLadder::lpcm_ablation();
+        assert_eq!(ladder.len(), 3);
+        let mut prev = 0;
+        for v in &ladder {
+            let c = v.layer_mask.count_layers();
+            assert!(c >= prev, "lpcm ablation ladder not monotone");
+            prev = c;
+        }
     }
 }

@@ -52,6 +52,7 @@ members = [
     "crates/pse-validation-runner",
     "tools/pse-validation-runner-cli",
     "tools/pse-metatron-cli",
+    "tools/pse-traverse-lpcm-cli",
     "tools/pse-bench-cognitive",
 ]
 

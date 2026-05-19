@@ -6,7 +6,7 @@ Runs all layer fixtures in canonical stack order and produces
 an aggregated readiness report.
 
 Usage:
-  GROQ_API_KEY=gsk_... python pse_fullstack_runner.py
+  CEREBRAS_API_KEY=csk-... python pse_fullstack_runner.py
   python pse_fullstack_runner.py                          # prompts for key
   python pse_fullstack_runner.py --layers cognition horizon dynamics
   python pse_fullstack_runner.py --start-layer 8          # resume from layer N (1-based)

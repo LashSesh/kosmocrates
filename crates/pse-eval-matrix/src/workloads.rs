@@ -33,6 +33,10 @@ pub enum WorkloadFamily {
     /// — StitcherGate compliance, coupling-update trace preservation,
     /// tensor-revision monotonicity, replay byte-identity.
     DualFabricStitch,
+    /// PSE-LPCM-IMPLEMENTATION-01 Fragmented 51% Condensation Layer
+    /// — local majority gate, seam compatibility, percolation path
+    /// selection, coarse-grain condensation, replay byte-identity.
+    LpcmFragmentCollapse,
 }
 
 /// Canonical list of mandatory families. The matrix MUST cover several
@@ -51,6 +55,7 @@ pub const MANDATORY_WORKLOAD_FAMILIES: &[WorkloadFamily] = &[
     WorkloadFamily::MultiAgent,
     WorkloadFamily::MorphoCellSubstrate,
     WorkloadFamily::DualFabricStitch,
+    WorkloadFamily::LpcmFragmentCollapse,
 ];
 
 /// Per-task budget (limits how many iterations / how much wallclock-equivalent
@@ -236,6 +241,29 @@ impl WorkloadSpec {
         }
     }
 
+    /// Build an `LpcmFragmentCollapse` workload
+    /// (PSE-LPCM-IMPLEMENTATION-01). Success criteria: local gate must
+    /// fire only when warranted (`HoldsAreCorrect`), no candidate may be
+    /// treated as truth (`NoFalseCommit`), replay byte-identity.
+    pub fn lpcm_fragment_collapse(
+        id: impl Into<String>,
+        dataset_id: Hash256,
+        ground_truth_profile: Option<Hash256>,
+    ) -> Self {
+        WorkloadSpec {
+            workload_id: id.into(),
+            family: WorkloadFamily::LpcmFragmentCollapse,
+            input_manifest_hash: dataset_id,
+            ground_truth_profile,
+            task_budget: TaskBudget::permissive(),
+            success_criteria: vec![
+                SuccessCriterion::HoldsAreCorrect,
+                SuccessCriterion::NoFalseCommit,
+                SuccessCriterion::ReplayByteIdentical,
+            ],
+        }
+    }
+
     /// Stable content hash of the workload spec (not stored on the
     /// type itself — used by the runner to anchor `RunDescriptor`s).
     pub fn content_hash(&self) -> Result<Hash256, EvalError> {
@@ -249,12 +277,12 @@ mod tests {
 
     #[test]
     fn mandatory_families_cover_spec_table() {
-        // §4.1 lists nine families; the eval matrix extends to eleven by
-        // adding PHASEMATRIX-HIVEMIND-03 MorphoCellSubstrate and the
-        // PHASEMATRIX-HIVEMIND-03.1 DualFabricStitch families.
-        assert_eq!(MANDATORY_WORKLOAD_FAMILIES.len(), 11);
+        // §4.1 lists nine families; extended to twelve with MorphoCellSubstrate,
+        // DualFabricStitch, and LpcmFragmentCollapse.
+        assert_eq!(MANDATORY_WORKLOAD_FAMILIES.len(), 12);
         assert!(MANDATORY_WORKLOAD_FAMILIES.contains(&WorkloadFamily::MorphoCellSubstrate));
         assert!(MANDATORY_WORKLOAD_FAMILIES.contains(&WorkloadFamily::DualFabricStitch));
+        assert!(MANDATORY_WORKLOAD_FAMILIES.contains(&WorkloadFamily::LpcmFragmentCollapse));
     }
 
     #[test]

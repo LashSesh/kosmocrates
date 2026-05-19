@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-PSE Stack Validation Runner -- Live-Test mit Groq API.
+PSE Stack Validation Runner -- Live-Test mit Cerebras API.
 
-Unterstuetzt alle fuenf Fixture-Schemas:
+Unterstuetzt alle Fixture-Schemas:
   v1_external_trace_fixture_scaffold  -- Layer 1: Agent Exoskeleton (Datei-Relevanz)
   v1_graph_relevance_fixture          -- Layer 2: Topologie / Graph-Navigation
   v1_pattern_retrieval_fixture        -- Layer 3: Memory / Evidence-Retrieval
@@ -11,14 +11,13 @@ Unterstuetzt alle fuenf Fixture-Schemas:
   v1_cognition_fixture                -- Cognition: PSE-TRAVERSE-COGNITION-01
   v1_horizon_fixture                  -- Horizon: PSE-TRAVERSE-HORIZON-03
   v1_dynamics_fixture                 -- Dynamics: PSE-TRAVERSE-DYNAMICS-01
-
 Vergleicht in jedem Schema:
-  1. Raw LLM:        Groq/Llama ohne PSE-Struktur
-  2. PSE-Rahmen:     Groq/Llama mit schicht-spezifischen Kognitions-Constraints
+  1. Raw LLM:        Cerebras/Llama ohne PSE-Struktur
+  2. PSE-Rahmen:     Cerebras/Llama mit schicht-spezifischen Kognitions-Constraints
 
 Aufruf:
   python pse_groq_agent.py [fixture_path]
-  set GROQ_API_KEY=gsk_...  && python pse_groq_agent.py [fixture_path]
+  CEREBRAS_API_KEY=csk-... python pse_groq_agent.py [fixture_path]
 """
 
 import json

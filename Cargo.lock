@@ -2103,6 +2103,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-traverse-lpcm-cli"
+version = "0.1.0"
+dependencies = [
+ "pse-traverse",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "pse-traverse-topology-cli"
 version = "0.1.0"
 dependencies = [

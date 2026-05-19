@@ -427,6 +427,106 @@ impl TrialExecutor for SyntheticTrialExecutor {
                     self_coherence,
                 ));
             }
+            WorkloadFamily::LpcmFragmentCollapse => {
+                // PSE-LPCM-IMPLEMENTATION-01 synthetic observations.
+                // Variants without the LPCM_FRAGMENT_COLLAPSE bit
+                // register floor values: the condensation layer is not
+                // active so local_condensation_rate = 0 and every
+                // candidate path is FalsePercolation.
+                let active = variant.layer_mask.has(LayerMask::LPCM_FRAGMENT_COLLAPSE);
+
+                let local_condensation = if active {
+                    Fixed::Rational {
+                        num: 65 + 2 * layer_count,
+                        den: 100,
+                    }
+                    .min(Fixed::Rational { num: 95, den: 100 })
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let false_percolation = if active {
+                    Fixed::Rational {
+                        num: 1,
+                        den: 100 + 10 * layer_count,
+                    }
+                } else {
+                    Fixed::Rational { num: 1, den: 1 }
+                };
+                let lpcm_replay = Fixed::Rational { num: 1, den: 1 };
+                let coarse_grain = if active {
+                    Fixed::Rational {
+                        num: 60 + 2 * layer_count,
+                        den: 100,
+                    }
+                    .min(Fixed::Rational { num: 92, den: 100 })
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                let percolation_paths = if active {
+                    Fixed::Rational {
+                        num: 2 + layer_count,
+                        den: 1,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 1 }
+                };
+                let triangulable = if active {
+                    Fixed::Rational {
+                        num: 80 + layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 20, den: 100 }
+                };
+                let false_local = if active {
+                    Fixed::Rational {
+                        num: 1,
+                        den: 200 + 20 * layer_count,
+                    }
+                } else {
+                    Fixed::Rational { num: 50, den: 100 }
+                };
+                let seam_accept = if active {
+                    Fixed::Rational {
+                        num: 75 + layer_count,
+                        den: 100,
+                    }
+                } else {
+                    Fixed::Rational { num: 0, den: 100 }
+                };
+                metrics.push(MetricObservation::ok(
+                    "lpcm_local_condensation_rate",
+                    local_condensation,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "lpcm_false_percolation_rate",
+                    false_percolation,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "lpcm_replay_identity",
+                    lpcm_replay,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "lpcm_coarse_grain_activation_rate",
+                    coarse_grain,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "lpcm_percolation_path_count",
+                    percolation_paths,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "lpcm_triangulable_patch_rate",
+                    triangulable,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "lpcm_false_local_collapse_rate",
+                    false_local,
+                ));
+                metrics.push(MetricObservation::ok(
+                    "lpcm_seam_acceptance_rate",
+                    seam_accept,
+                ));
+            }
             WorkloadFamily::DualFabricStitch => {
                 // PHASEMATRIX-HIVEMIND-03.1 Dual-Fabric Stitch observations.
                 // Variants without the DUAL_FABRIC_STITCH bit produce floor
@@ -557,6 +657,13 @@ impl TrialExecutor for SyntheticTrialExecutor {
         if variant.layer_mask.has(LayerMask::CELL_SUBSTRATE) {
             gates.push(GateObservation {
                 gate_name: "cell_substrate_dissolution".into(),
+                passed: true,
+                reason: None,
+            });
+        }
+        if variant.layer_mask.has(LayerMask::LPCM_FRAGMENT_COLLAPSE) {
+            gates.push(GateObservation {
+                gate_name: "lpcm_local51_gate".into(),
                 passed: true,
                 reason: None,
             });
