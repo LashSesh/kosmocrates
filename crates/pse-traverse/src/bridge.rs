@@ -39,6 +39,56 @@ impl<A: pse_graph::ObservationAdapter> PseMacroStepCommitter<A> {
             adapter,
         }
     }
+
+    /// Convenience constructor using the `preset_planning` config so
+    /// callers bridging a Tier-2 `CollapsePlan` into PSE Core get
+    /// properly calibrated thresholds without manual config wiring.
+    pub fn for_planning(adapter: A) -> Self {
+        Self::new(pse_types::Config::preset_planning(), adapter)
+    }
+
+    /// Feed a pre-encoded sequence of observation batches — **one batch
+    /// per logical plan step** — through successive `macro_step` calls.
+    ///
+    /// This is the correct Tier-1/Tier-2 bridge protocol:
+    /// - Tier-2 (traverse) encodes each `CollapseStep` as one batch.
+    /// - Tier-1 (PSE Core) sees a time-evolving graph that grows tick-by-tick.
+    /// - Graph structure, deformation (`d`) and coherence (`q`) metrics
+    ///   evolve naturally, making the Kairos gate meaningful.
+    ///
+    /// Returns the first `SemanticCrystal` produced (if any) together
+    /// with the zero-based tick index at which it formed.
+    pub fn commit_plan_sequence(
+        &mut self,
+        step_batches: &[Vec<Vec<u8>>],
+    ) -> Result<Option<(pse_types::SemanticCrystal, usize)>> {
+        for (tick, batch) in step_batches.iter().enumerate() {
+            match pse_core::macro_step(&mut self.state, batch, &self.config, &self.adapter) {
+                Ok(Some(crystal)) => return Ok(Some((crystal, tick))),
+                Ok(None) => {}
+                Err(e) => return Err(TraverseError::PseCommit(e.to_string())),
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// Encode a `CollapsePlan` as a sequence of per-step observation batches
+/// for use with [`PseMacroStepCommitter::commit_plan_sequence`].
+///
+/// Each [`crate::plan::CollapseStep`] becomes a single observation batch
+/// containing its JSON-serialized representation. Submitting these
+/// sequentially gives PSE Core a time-varying stream where each tick
+/// corresponds to one planning step — so graph structure, deformation
+/// and edge-density metrics grow naturally.
+pub fn plan_to_step_batches(plan: &crate::plan::CollapsePlan) -> Vec<Vec<Vec<u8>>> {
+    plan.steps
+        .iter()
+        .map(|step| {
+            let payload = serde_json::to_vec(step).unwrap_or_default();
+            vec![payload]
+        })
+        .collect()
 }
 
 impl<A: pse_graph::ObservationAdapter> CrystalCommitter for PseMacroStepCommitter<A> {
@@ -134,5 +184,67 @@ mod tests {
             }
             other => panic!("unexpected outcome: {:?}", other),
         }
+    }
+
+    #[test]
+    fn commit_plan_sequence_returns_none_on_empty_batches() {
+        let mut committer =
+            PseMacroStepCommitter::new(pse_types::Config::preset_planning(), passthrough());
+        let result = committer
+            .commit_plan_sequence(&[])
+            .expect("must not panic");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn commit_plan_sequence_runs_all_steps() {
+        let mut committer =
+            PseMacroStepCommitter::for_planning(passthrough());
+        // 5 synthetic step batches — one JSON payload each.
+        let batches: Vec<Vec<Vec<u8>>> = (0..5)
+            .map(|i| {
+                vec![serde_json::to_vec(&serde_json::json!({"step": i, "kind": "assign"}))
+                    .unwrap()]
+            })
+            .collect();
+        // Returns either Some crystal or None — both are valid on this
+        // tiny synthetic workload. The important thing is it doesn't panic.
+        let _ = committer
+            .commit_plan_sequence(&batches)
+            .expect("must not panic");
+        // State must have advanced by at least 5 ticks.
+        assert!(committer.state.commit_index >= 5);
+    }
+
+    #[test]
+    fn plan_to_step_batches_encoding() {
+        use crate::plan::{
+            CollapsePlan, CollapseEffect, CollapseStep, CollapseStepKind, FailurePolicy,
+            OrderingPolicy,
+        };
+        let plan = CollapsePlan {
+            id: "plan.test".into(),
+            field_cube_id: "fc.test".into(),
+            steps: vec![CollapseStep {
+                id: "s0".into(),
+                kind: CollapseStepKind::ResolveDimension,
+                target_nodes: vec![],
+                required_constraints: vec![],
+                expected_effect: CollapseEffect {
+                    estimated_reduction: 0.5,
+                    kind: "resolve".into(),
+                },
+                failure_policy: FailurePolicy::FailClosed,
+            }],
+            ordering_policy: OrderingPolicy::DeterministicLexCoupling,
+            expected_reduction: 0.5,
+            evidence: vec![],
+        };
+        let batches = plan_to_step_batches(&plan);
+        assert_eq!(batches.len(), 1);
+        // Each batch is one payload, and it's non-empty JSON.
+        assert!(!batches[0][0].is_empty());
+        let v: serde_json::Value = serde_json::from_slice(&batches[0][0]).expect("valid JSON");
+        assert!(v.get("id").is_some());
     }
 }
