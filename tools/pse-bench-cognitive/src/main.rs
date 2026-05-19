@@ -654,17 +654,21 @@ fn run_self_model_stability() -> ScenarioResult {
     )
 }
 
-// ── Scenario 7: Full traversal stack (Cognition → Horizon → Topology) ────────
+// ── Scenario 7: Full traversal stack — rolling window ─────────────────────
+//
+// Uses trajectory_window to accumulate history. Topology holds until step 5
+// when 4 historical + 1 current = 5 vertices → EntropyClass::Simplify.
 
 fn run_full_stack() -> ScenarioResult {
-    // 10 steps: first 4 exploratory (Hold expected), 5-10 convergent (MonolithGate.passed expected).
+    use pse_traverse::topology::phase_window::SamplePoint;
+
     let n_steps = 10usize;
-    let transition_step = 5usize;
+    let transition_step = 5usize; // first step with ≥5 points in mesh
     let mut step_results: Vec<StepResult> = Vec::new();
+    let mut trajectory_window: Vec<SamplePoint> = Vec::new();
 
     for step in 1..=n_steps {
         let t = step as f64 / n_steps as f64;
-        // Trajectory: low coherence early, ramps up after transition_step.
         let psi = 0.3 + 0.4 * t;
         let rho = 0.4 + 0.35 * t;
         let omega = 0.35 + 0.35 * t;
@@ -700,33 +704,135 @@ fn run_full_stack() -> ScenarioResult {
             },
             horizon_rd: HorizonRunDescriptorV3::permissive(),
             tpt_rd: TptMtlRunDescriptor::default_permissive(),
+            trajectory_window: trajectory_window.clone(),
         };
 
         let result = run_traverse_stack(&input).expect("stack run");
+        // Grow the window with the step's sample point for next iteration.
+        trajectory_window.push(result.step_sample.clone());
+
         let passed = result.gate.passed;
+        let n_pts = trajectory_window.len(); // after push = history size for next step
         let outcome_str = if passed {
-            format!(
-                "MonolithGate(cog={},hor={},topo={})",
-                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology
-            )
+            format!("Emit(n_hist={},cog={},hor={},topo={})",
+                n_pts - 1, result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
         } else {
-            format!(
-                "Hold(cog={},hor={},topo={})",
-                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology
-            )
+            format!("Hold(n_hist={},cog={},hor={},topo={})",
+                n_pts - 1, result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
         };
         step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate: None, hold_policy: None });
     }
 
     score_scenario(
         "full_stack",
-        "Monolith: Cognition→Horizon→Topology; all three gates must pass for MonolithGate.passed",
+        "Monolith rolling window: topology holds steps 2-4 (mesh <5 pts), emits from step 5; step 1 uses ε-fallback",
         n_steps,
         transition_step,
         GroundTruth {
-            expected_bundle_steps: (transition_step..=n_steps).collect(),
-            expected_hold_steps: (1..transition_step).collect(),
-            notes: "permissive thresholds; trajectory ramps from exploratory to convergent at step 5".into(),
+            expected_bundle_steps: vec![1].into_iter().chain(transition_step..=n_steps).collect(),
+            expected_hold_steps: (2..transition_step).collect(),
+            notes: "step1=ε-fallback(Emit); steps2-4=Hold(Explore/Refine); step5+=Simplify(Emit)".into(),
+        },
+        step_results,
+    )
+}
+
+// ── Scenario 8: Full stack — calibrated cross-layer thresholds ────────────
+//
+// All three layers have non-trivial thresholds. Combined with the rolling
+// window, this demonstrates independent gate contributions:
+//   - Topology  : holds steps 1-4 (mesh too sparse)
+//   - Cognition : holds early steps via min_self_model_coherence=0.45
+//   - Horizon   : permissive (passes once cognition passes)
+// Expected transition at step 6 where coherence rho ≈ 0.61 > 0.45 AND
+// the window has ≥5 points.
+
+fn run_full_stack_calibrated() -> ScenarioResult {
+    use pse_traverse::topology::phase_window::SamplePoint;
+
+    let n_steps = 12usize;
+    let transition_step = 6usize;
+    let mut step_results: Vec<StepResult> = Vec::new();
+    let mut trajectory_window: Vec<SamplePoint> = Vec::new();
+
+    // Calibrated cognition thresholds — non-zero coherence floor.
+    let calibrated_thresholds = CognitionThresholds {
+        min_resonance: f(0.0),
+        max_entropy: f(2.0),
+        min_constraint_mass: f(0.0),
+        min_entropy_reduction: f(0.0),
+        min_feasible_uniqueness: f(0.0),
+        min_panorama_coverage: f(0.0),
+        min_self_model_coherence: f(0.45), // blocks early low-coherence steps
+        max_drift: f(2.0),
+        min_attractor_score: f(0.0),
+        min_trigger_score: f(0.0),
+    };
+
+    for step in 1..=n_steps {
+        let t = step as f64 / n_steps as f64;
+        // rho rises from 0.35 → 0.70; crosses 0.45 at step ~3 but mesh needs ≥5 pts (step 6+).
+        let psi = 0.25 + 0.5 * t;
+        let rho = 0.35 + 0.35 * t;
+        let omega = 0.3 + 0.4 * t;
+        let chi = 0.1;
+        let tau = 0.2 + 0.15 * t;
+
+        let cog_input = CognitionInput {
+            null_center_id: Hash256::zero(),
+            cognitive_components: CognitiveComponents {
+                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+            },
+            source_traversal_report_hash: None,
+            source_projection_report_hash: None,
+            spiral_memory_candidates: vec![],
+            constraint_count: 4,
+            support_strength: f(0.5),
+            logical_step: step as u64,
+            carrier_ids: vec!["stack.cal".into()],
+        };
+
+        let input = FullTraversalInput {
+            cog_input,
+            cog_rd: CognitionRunDescriptor {
+                run_id: format!("bench.stack.cal.{step}"),
+                problem_spec_hash: Hash256::zero(),
+                traversal_report_hash: None,
+                projection_v2_hash: None,
+                seed: 0,
+                operator_versions: BTreeMap::new(),
+                thresholds: calibrated_thresholds.clone(),
+                policies: CognitionPolicies::default_policies(),
+                canonicalization_version: "cognition-v0.1".into(),
+            },
+            horizon_rd: HorizonRunDescriptorV3::permissive(),
+            tpt_rd: TptMtlRunDescriptor::default_permissive(),
+            trajectory_window: trajectory_window.clone(),
+        };
+
+        let result = run_traverse_stack(&input).expect("stack run");
+        trajectory_window.push(result.step_sample.clone());
+
+        let passed = result.gate.passed;
+        let outcome_str = if passed {
+            format!("Emit(cog={},hor={},topo={})",
+                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
+        } else {
+            format!("Hold(cog={},hor={},topo={})",
+                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
+        };
+        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate: None, hold_policy: None });
+    }
+
+    score_scenario(
+        "full_stack_calibrated",
+        "Calibrated monolith: rolling window + min_self_model_coherence=0.45; topology gate is primary discriminator",
+        n_steps,
+        5, // natural topology transition at ≥5 vertices (step 5)
+        GroundTruth {
+            expected_bundle_steps: vec![1].into_iter().chain(5..=n_steps).collect(),
+            expected_hold_steps: (2..5).collect(),
+            notes: "step1=ε-fallback; steps2-4=Hold(topology); step5+=Simplify+coherence".into(),
         },
         step_results,
     )
@@ -759,6 +865,7 @@ fn main() {
         run_singularity_detection(),
         run_self_model_stability(),
         run_full_stack(),
+        run_full_stack_calibrated(),
     ];
 
     let passed = results.iter().filter(|r| r.passed).count();

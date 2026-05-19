@@ -79,12 +79,22 @@ impl From<TopologyError> for StackError {
 // ── Input/Output types ────────────────────────────────────────────────────
 
 /// Combined input for the full traversal stack. One run descriptor per layer.
+///
+/// `trajectory_window` is an ordered list of `SamplePoint`s from previous
+/// steps (oldest first). When non-empty the topology handoff uses this
+/// history plus the current step's point as the mesh input — giving the
+/// triangulator real trajectory geometry instead of a synthetic ε-neighbourhood.
+/// When empty (the default) the handoff falls back to the 5-point ε-neighbourhood
+/// so single-shot calls remain emission-capable.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FullTraversalInput {
     pub cog_input: CognitionInput,
     pub cog_rd: CognitionRunDescriptor,
     pub horizon_rd: HorizonRunDescriptorV3,
     pub tpt_rd: TptMtlRunDescriptor,
+    /// Trajectory context for topology. Serde-defaults to empty (ε-neighbourhood fallback).
+    #[serde(default)]
+    pub trajectory_window: Vec<SamplePoint>,
 }
 
 /// Combined gate: all three pipeline stages must pass for the monolith to
@@ -124,6 +134,9 @@ pub struct FullTraversalResult {
     pub gate: MonolithGate,
     /// Cross-layer replay anchor: `H(cog.replay_hash ‖ horizon.cert_id ‖ topo.candidate_id)`.
     pub replay_hash: Hash256,
+    /// The current step's sample point — append to `FullTraversalInput::trajectory_window`
+    /// before the next call to grow the rolling window.
+    pub step_sample: SamplePoint,
 }
 
 // ── Handoff adapters ──────────────────────────────────────────────────────
@@ -149,17 +162,20 @@ fn cog_to_horizon_input(cog: &CognitionRunResult) -> HorizonInput {
 
 /// Cognition + Horizon → TptMtlInput.
 ///
-/// The 5D cognitive state seeds a local phase-space neighborhood: the canonical
-/// point plus four axis-aligned neighbours at ε = 0.05. Five points yield
-/// C(5,3)=10 simplices → vertex/simplex ratio 2.0 → EntropyClass::Simplify,
-/// which is the minimum for topology emission. All neighbours carry the same
-/// provenance as the canonical point (they probe local geometry, not new state).
+/// When `trajectory_window` is non-empty, the historical points are prepended
+/// and the current 5D state is appended as the final point — giving the
+/// triangulator real trajectory geometry (n points → n*(n-1)*(n-2)/6 simplices).
+/// At n ≥ 5 the mesh reaches EntropyClass::Simplify and becomes emission-capable.
+///
+/// When the window is empty the function falls back to a synthetic 5-point
+/// ε = 0.05 neighbourhood so single-shot calls remain emission-capable.
 ///
 /// The Horizon certificate_id and the Cognition lattice_id are wired in as
 /// horizon_refs and constraint_refs for full cross-layer provenance.
 fn cog_horizon_to_tpt_input(
     cog: &CognitionRunResult,
     horizon: &HorizonRunResult,
+    trajectory_window: &[SamplePoint],
 ) -> Result<TptMtlInput, StackError> {
     // state_digest: deterministic hash of both upstream layers' canonical ids.
     let state_digest_bytes =
@@ -188,22 +204,33 @@ fn cog_horizon_to_tpt_input(
         s.tau_entropy_symmetry.clone(),
     ];
 
-    // Generate 5 points: [base, +ε on each of psi/rho/omega/chi].
-    let mut sample_points: Vec<SamplePoint> = Vec::with_capacity(5);
-    sample_points.push(SamplePoint {
+    let current_point = SamplePoint {
         coordinates: coords_base.clone(),
         provenance: vec![base_prov.clone()],
         status: None,
-    });
-    for axis in 0..4usize {
-        let mut coords = coords_base.clone();
-        coords[axis] = fixed_add(&coords[axis], &eps);
-        sample_points.push(SamplePoint {
-            coordinates: coords,
-            provenance: vec![base_prov.clone()],
-            status: None,
-        });
-    }
+    };
+
+    let sample_points: Vec<SamplePoint> = if trajectory_window.is_empty() {
+        // Single-shot fallback: ε-neighbourhood gives 5 points → Simplify always.
+        let mut pts = Vec::with_capacity(5);
+        pts.push(current_point);
+        for axis in 0..4usize {
+            let mut coords = coords_base.clone();
+            coords[axis] = fixed_add(&coords[axis], &eps);
+            pts.push(SamplePoint {
+                coordinates: coords,
+                provenance: vec![base_prov.clone()],
+                status: None,
+            });
+        }
+        pts
+    } else {
+        // Trajectory mode: history (oldest first) + current state last.
+        // n = window.len() + 1 points → natural hold for n < 5 (Explore/Refine).
+        let mut pts = trajectory_window.to_vec();
+        pts.push(current_point);
+        pts
+    };
 
     // boundary_ref: content-address of the horizon certificate chain.
     let boundary_ref =
@@ -247,7 +274,7 @@ pub fn run_traverse_stack(
     let g_horizon = matches!(&horizon.outcome, HorizonV3Outcome::Finalized { .. });
 
     // ── Stage 3: Topology ─────────────────────────────────────────────────
-    let tpt_input = cog_horizon_to_tpt_input(&cog, &horizon)?;
+    let tpt_input = cog_horizon_to_tpt_input(&cog, &horizon, &input.trajectory_window)?;
     let topo = run_tpt_mtl(&tpt_input, &input.tpt_rd)?;
     let g_topology = topo.outcome.kind == TptMtlOutcomeKind::Emit;
 
@@ -263,13 +290,82 @@ pub fn run_traverse_stack(
     .map_err(|e| StackError::Handoff { reason: e.to_string() })?;
     let replay_hash = Hash256(replay_bytes);
 
+    // ── Step sample — caller appends this to trajectory_window ────────────
+    let s = &cog.state5;
+    let step_sample = SamplePoint {
+        coordinates: [
+            s.psi_semantic_phase.clone(),
+            s.rho_coherence_density.clone(),
+            s.omega_phase_readiness.clone(),
+            s.chi_topological_curvature.clone(),
+            s.tau_entropy_symmetry.clone(),
+        ],
+        provenance: vec![TptEvidenceRef {
+            evidence_id: Hash256::zero(),
+            kind: "cognition.canonical_state".into(),
+            source_digest: cog.canonical_state.state_id.clone(),
+            trace_ref: cog.replay_hash.clone(),
+        }],
+        status: None,
+    };
+
     Ok(FullTraversalResult {
         cognition: cog,
         horizon,
         topology: topo,
         gate,
         replay_hash,
+        step_sample,
     })
+}
+
+// ── Bridge connector (PSE-COMMIT feature) ────────────────────────────────
+
+/// Submit a gate-passed `FullTraversalResult` to the PSE bridge.
+///
+/// Precondition: `result.gate.passed == true`. Returns `Err` if called
+/// with a failed gate so callers don't accidentally commit partial results.
+///
+/// The topology `TopologicalCrystalCandidate` is serialised as the primary
+/// observation payload. The cognition canonical-state is appended as
+/// evidence so the PSE graph can trace the full provenance chain:
+/// cognition → horizon certificate → topology candidate → crystal.
+#[cfg(feature = "pse-commit")]
+pub fn commit_stack_result(
+    result: &FullTraversalResult,
+    committer: &mut dyn crate::bridge::CrystalCommitter,
+) -> crate::Result<crate::report::CommitOutcome> {
+    if !result.gate.passed {
+        return Err(crate::TraverseError::Gate(
+            "commit_stack_result called with gate.passed=false".into(),
+        ));
+    }
+
+    // Primary payload: serialised topology candidate.
+    let topo_payload = serde_json::to_vec(&result.topology.candidate)
+        .map_err(|e| crate::TraverseError::Canonical(e.to_string()))?;
+
+    // Evidence payload: serialised cognition canonical state.
+    let cog_payload = serde_json::to_vec(&result.cognition.canonical_state)
+        .map_err(|e| crate::TraverseError::Canonical(e.to_string()))?;
+
+    use std::collections::BTreeMap;
+    let mut assignments = BTreeMap::new();
+    assignments.insert("g_cognition".into(), result.gate.g_cognition.to_string());
+    assignments.insert("g_horizon".into(), result.gate.g_horizon.to_string());
+    assignments.insert("g_topology".into(), result.gate.g_topology.to_string());
+
+    let candidate = crate::gate::Candidate {
+        id: String::new(),
+        field_cube_id: result.topology.candidate.candidate_id.hex(),
+        assignments,
+        claimed_satisfies: vec!["MonolithGate.passed".into()],
+        payloads: vec![topo_payload],
+        provenance: result.replay_hash.hex(),
+    }
+    .assign_id("stack")?;
+
+    committer.commit_candidate(&candidate, &[cog_payload])
 }
 
 #[cfg(test)]
@@ -318,6 +414,7 @@ mod tests {
             },
             horizon_rd: HorizonRunDescriptorV3::permissive(),
             tpt_rd: TptMtlRunDescriptor::default_permissive(),
+            trajectory_window: vec![],
         }
     }
 
