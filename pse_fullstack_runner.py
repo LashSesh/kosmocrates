@@ -371,7 +371,17 @@ def main():
 
     api_key = get_api_key()
 
+    # Load previous partial report so --start-layer appends instead of overwriting
     layer_results = []
+    if start_layer > 1 and os.path.exists(FULLSTACK_OUTPUT):
+        try:
+            with open(FULLSTACK_OUTPUT, encoding="utf-8") as f:
+                prev = json.load(f)
+            layer_results = prev.get("layers", [])
+            print(f"[Resume] {len(layer_results)} vorherige Layer aus {FULLSTACK_OUTPUT} geladen.")
+        except Exception as e:
+            print(f"[Warnung] Konnte vorherigen Bericht nicht laden: {e}")
+
     tpd_hit = False
     for i, (label, path) in enumerate(stack, start_layer):
         try:
