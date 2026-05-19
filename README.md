@@ -68,10 +68,9 @@ contract referenced by every layer. Key invariants it enforces:
   outputs at every layer.
 
 The **eval matrix** (PSE-EVAL-MATRIX-01) is the structured validation instrument.
-It runs diagnostic cases across all layers and scores PSE against a raw-LLM baseline.
-Current status: **PSE 100% recall, Raw LLM 52–63% recall**, across 50+ diagnostic cases
-spanning 14 layers. All results are `diagnostic_only=true` pending productive-task
-validation.
+It runs diagnostic cases across all layers and verifies spec conformance and replay
+identity. Results are `diagnostic_only=true`; productive-task validation on real-world
+domains is the open frontier.
 
 ---
 
@@ -84,7 +83,7 @@ validation.
 | Falsification (Shuffle, BlockBootstrap, PhaseRandomize) | Complete |
 | EU AI Act compliance proof | Drafted |
 | Throughput on commodity hardware | Verified |
-| Adaptive Kairos calibration | Opt-in, working |
+| Adaptive Kairos calibration | In `Config::calibration`; auto-wired in `GlobalState::new()` |
 | Diagnostic surface (`state.last_gate`, `pse-demo`) | Live |
 | **PSE Traversal Agent v0.1** | **Complete** |
 | **Signature layer** (PSE-TRAVERSE-SIGNATURE-01) | **Shipped** |
@@ -101,20 +100,25 @@ validation.
 | **ADAMANT protocol** (constitutional governance contract) | **v1.0.0** |
 | Productive-task validation (`productive_agent_validated`) | **Open frontier** |
 
-Verified throughput, single-thread, release build, Xeon @ 2.10 GHz:
+Throughput reference, single-thread, release build, Xeon @ 2.10 GHz
+(batch=8 obs, window=8, graph ≤ 50 vertices, 4 carriers):
 
-| Bench | Value |
-|---|---|
-| `B01a` observe-only ingest | up to **2.07 M obs/sec** |
-| `B01b` full pipeline (gate path) | up to **659 K obs/sec** |
-| `B15` `macro_step` end-to-end | **43–110 µs** |
-| `B05` determinism check | **PASS** (bit-identical replay) |
-| Workspace test suite | **928 / 928** passing |
+| Bench | Value | What it measures |
+|---|---|---|
+| `B01a` observe-only ingest | up to **2.07 M obs/sec** | Raw adapter + graph ingest, no gate evaluation |
+| `B01b` full pipeline (gate path) | up to **659 K obs/sec** | Gate eval + embedding, no crystal formation |
+| `B15` `macro_step` end-to-end | **43–110 µs / tick** | Full tick including constraint extraction |
+| `B05` determinism check | **PASS** | Bit-identical replay over 1 000 ticks |
+| Workspace test suite | **1138 / 1138** passing | |
 
-The engine produces **0 crystals on default thresholds** for unconfigured synthetic
-workloads — by design. Crystal formation requires either real data the metrics were
-calibrated for, or the opt-in adaptive calibrator (see `pse-demo`). Calibration on a
-real domain is the work that turns this from "well-built engine" into "deployed product".
+These numbers characterise pipeline latency on a small synthetic workload.
+Crystal formation rate depends on domain and calibration; run `pse-demo` to see
+end-to-end throughput including crystal emission on a structured stream.
+
+The engine produces **0 crystals on default static thresholds** — by design.
+Use `Config::preset_streaming()` or set `config.calibration.enabled = true` for
+adaptive threshold calibration that fires on the top-N% of ticks. See
+[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) for calibration guidance.
 
 ---
 
@@ -141,28 +145,26 @@ Embed PSE in your own program:
 
 ```rust
 use pse_core::{macro_step, GlobalState};
-use pse_core::adaptive::AdaptiveCalibrator;
 use pse_graph::PassthroughAdapter;
 use pse_types::Config;
 
-let config = Config::default();
-let mut state = GlobalState::new(&config);
-
-// Optional: self-calibrating Kairos thresholds.
-state.adaptive = Some(AdaptiveCalibrator::new(0.05, 200, 100));
+// preset_streaming: adaptive carrier + rolling Kairos calibration (top 5% of ticks).
+// Use Config::default() + manual threshold tuning for deterministic replay.
+let config = Config::preset_streaming();
+let mut state = GlobalState::new(&config); // adaptive calibrator auto-wired from config
 
 let adapter = PassthroughAdapter::new("my_source");
 let batch: Vec<Vec<u8>> = vec![serde_json::to_vec(&my_event)?];
 
 if let Ok(Some(crystal)) = macro_step(&mut state, &batch, &config, &adapter) {
-    // crystal.crystal_id is the SHA-256 content address
-    // crystal.region is the set of graph vertices that produced the resonance
-    // crystal.commit_proof carries the falsification p-value (if enabled)
+    // crystal.crystal_id  — SHA-256 content address (byte-identical on replay)
+    // crystal.region      — graph vertices that produced the resonance
+    // crystal.commit_proof — gate values, carrier info, falsification p-value
     println!("crystal: {}", hex::encode(crystal.crystal_id));
 }
 
 // state.last_gate carries the full GateSnapshot (all 8 metrics) for every tick,
-// pass or fail — read it to diagnose why a tick did or didn't crystallize.
+// pass or fail — read it to diagnose which gate is blocking crystal formation.
 ```
 
 ---
@@ -686,16 +688,18 @@ tools/
 
 ## Where to go next
 
+* **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** — step-by-step integration
+  guide: Tier 1 streaming, Tier 2 planning, gate diagnostics, calibration options.
 * **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)** — what post-symbolic computation
   *is* as a category, why it's distinct, what it can and cannot do.
 * **[docs/COMPLIANCE.md](docs/COMPLIANCE.md)** — EU AI Act formal compliance proof sketch.
 * **`cargo run --release -p pse-demo`** — see the core engine end-to-end, with gate
-  diagnostics, in under a minute.
-* **Calibrating** — pick a domain (or use one of the ten shipped adapters), feed real
-  observations through, watch `state.last_gate`, tune. The diagnostic surface is the lever.
+  diagnostics and crystal emission, in under a minute.
+* **Calibrating** — `Config::preset_streaming()` works out of the box on most streaming
+  workloads. For fine-tuning, watch `state.last_gate` (all 8 metrics, every tick) and
+  adjust `config.thresholds` or `config.calibration.target_pass_rate`.
 * **Extending** — implement `ObservationAdapter` for your data source; optionally
-  implement `DomainAdapter` for domain-specific vocabulary. The trait surface is two
-  methods.
+  implement `DomainAdapter` for domain-specific semantic phases. Two methods each.
 
 ---
 
@@ -706,7 +710,7 @@ tools/
 | Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
 | Format | `cargo fmt --all -- --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
-| Tests | `cargo test --workspace --locked` | 928 / 928 passing |
+| Tests | `cargo test --workspace --locked` | 1138 / 1138 passing |
 | Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
 | Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
 | CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |

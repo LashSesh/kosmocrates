@@ -1676,6 +1676,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-bench-cognitive"
+version = "0.1.0"
+dependencies = [
+ "pse-traverse",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-bench-gt"
 version = "0.1.0"
 dependencies = [

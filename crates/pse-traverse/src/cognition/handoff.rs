@@ -95,6 +95,7 @@ impl CognitionCandidateBundle {
 pub struct CognitionHandoffGate {
     pub gate_id: Hash256,
     pub g_perc: bool,
+    pub g_resonance: bool,
     pub g_panorama: bool,
     pub g_self: bool,
     pub g_trigger: bool,
@@ -105,15 +106,17 @@ pub struct CognitionHandoffGate {
 impl CognitionHandoffGate {
     pub fn evaluate(
         g_perc: bool,
+        g_resonance: bool,
         g_panorama: bool,
         g_self: bool,
         g_trigger: bool,
         replay_ready: bool,
     ) -> Result<Self, CognitionError> {
-        let passed = g_perc && g_panorama && g_self && g_trigger && replay_ready;
+        let passed = g_perc && g_resonance && g_panorama && g_self && g_trigger && replay_ready;
         let mut g = CognitionHandoffGate {
             gate_id: Hash256::zero(),
             g_perc,
+            g_resonance,
             g_panorama,
             g_self,
             g_trigger,
@@ -122,6 +125,7 @@ impl CognitionHandoffGate {
         };
         let id = content_address(&(
             g.g_perc,
+            g.g_resonance,
             g.g_panorama,
             g.g_self,
             g.g_trigger,
@@ -142,9 +146,17 @@ mod tests {
 
     #[test]
     fn handoff_gate_fails_closed() {
-        let g = CognitionHandoffGate::evaluate(true, true, true, false, true).unwrap();
+        let g = CognitionHandoffGate::evaluate(true, true, true, true, false, true).unwrap();
         assert!(!g.passed);
-        let g_pass = CognitionHandoffGate::evaluate(true, true, true, true, true).unwrap();
+        let g_pass = CognitionHandoffGate::evaluate(true, true, true, true, true, true).unwrap();
         assert!(g_pass.passed);
+    }
+
+    #[test]
+    fn resonance_gate_blocks_independently() {
+        let g = CognitionHandoffGate::evaluate(true, false, true, true, true, true).unwrap();
+        assert!(!g.passed);
+        assert!(!g.g_resonance);
+        assert!(g.g_perc);
     }
 }

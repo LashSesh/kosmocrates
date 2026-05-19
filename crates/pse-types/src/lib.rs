@@ -529,6 +529,44 @@ pub struct RunDescriptor {
 
 // ─── Configuration Types ──────────────────────────────────────────────────────
 
+/// Adaptive Kairos threshold calibration configuration.
+///
+/// When `enabled`, `GlobalState::new` creates a rolling-history
+/// `AdaptiveCalibrator` that derives per-metric thresholds from quantiles of
+/// recent `GateSnapshot`s. The gate fires on the top `target_pass_rate`
+/// fraction of ticks — "is this tick exceptional relative to recent context?"
+/// — regardless of absolute metric magnitude. This is the standard
+/// novelty-detection contract; it makes PSE deployable out-of-the-box on any
+/// workload without pre-tuning `ThresholdConfig`.
+///
+/// Set `enabled = false` (the default) to keep the static `thresholds`
+/// behaviour, which is required when you need bit-identical determinism
+/// across sessions (e.g. for compliance replay).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct KairosCalibrationConfig {
+    /// Enable adaptive threshold calibration (default: false).
+    pub enabled: bool,
+    /// Fraction of ticks expected to pass the gate (e.g. 0.05 = top 5 %).
+    /// Must be in (0, 1). Typical range: 0.02–0.10.
+    pub target_pass_rate: f64,
+    /// Rolling history window size in ticks.
+    pub window: usize,
+    /// Number of initial ticks during which static thresholds are used
+    /// (calibration is "warming up" its history buffer).
+    pub warmup_ticks: usize,
+}
+
+impl Default for KairosCalibrationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            target_pass_rate: 0.05,
+            window: 200,
+            warmup_ticks: 100,
+        }
+    }
+}
+
 /// Master configuration for the PSE engine.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -546,6 +584,75 @@ pub struct Config {
     /// compatibility; see [`FalsificationConfig`]).
     #[serde(default)]
     pub falsification: FalsificationConfig,
+    /// Adaptive Kairos threshold calibration.
+    ///
+    /// When `enabled`, `GlobalState::new` auto-wires an
+    /// [`AdaptiveCalibrator`](pse_core::adaptive::AdaptiveCalibrator) that
+    /// derives per-metric thresholds from rolling history instead of using
+    /// the static `thresholds` above. This makes the engine work
+    /// out-of-the-box on any workload without per-domain threshold tuning.
+    ///
+    /// `#[serde(default)]` keeps existing configs loadable unchanged.
+    #[serde(default)]
+    pub calibration: KairosCalibrationConfig,
+}
+
+impl Config {
+    /// Preset optimised for **streaming / sliding-window** workloads.
+    ///
+    /// Enables adaptive calibration so the gate fires on the top 5 % of
+    /// recent ticks, enables Strand-J adaptive carrier tracking, and uses
+    /// a generous window (500 ticks, 100-tick warmup) suitable for
+    /// continuously arriving data.
+    pub fn preset_streaming() -> Self {
+        let mut c = Config::default();
+        c.carrier.adaptive = true;
+        c.calibration = KairosCalibrationConfig {
+            enabled: true,
+            target_pass_rate: 0.05,
+            window: 500,
+            warmup_ticks: 100,
+        };
+        c
+    }
+
+    /// Preset optimised for **planning / reasoning-trajectory** workloads.
+    ///
+    /// Uses static thresholds tuned for the kind of structured low-entropy
+    /// data that planning artifacts produce. No adaptive calibration —
+    /// callers who want to run the Tier-2 traverse layer typically control
+    /// the data distribution and can rely on stable thresholds.
+    pub fn preset_planning() -> Self {
+        let mut c = Config::default();
+        // Lower thresholds so the gate passes on structured plan-step data.
+        c.thresholds.d = 0.30;
+        c.thresholds.q = 0.30;
+        c.thresholds.r = 0.30;
+        c.thresholds.g = 0.30;
+        c.thresholds.j = 0.20;
+        c.thresholds.p = 0.30;
+        c.thresholds.n = 0.30;
+        c.thresholds.k = 0.30;
+        c
+    }
+
+    /// Preset optimised for **anomaly detection** workloads.
+    ///
+    /// Adaptive calibration fires on the top 2 % of ticks (very selective),
+    /// with a long history window (1000 ticks) and short warmup (50 ticks)
+    /// so the baseline is established quickly and only genuine outliers
+    /// produce crystals.
+    pub fn preset_anomaly_detection() -> Self {
+        let mut c = Config::default();
+        c.carrier.adaptive = true;
+        c.calibration = KairosCalibrationConfig {
+            enabled: true,
+            target_pass_rate: 0.02,
+            window: 1000,
+            warmup_ticks: 50,
+        };
+        c
+    }
 }
 
 /// Temporal dynamics configuration.
@@ -1062,5 +1169,48 @@ mod tests {
         };
         let h2 = content_address(&core2);
         assert_eq!(h1, h2);
+    }
+
+    // ─── KairosCalibrationConfig & preset tests ──────────────────────────
+
+    #[test]
+    fn kairos_calibration_config_defaults_disabled() {
+        let c = KairosCalibrationConfig::default();
+        assert!(!c.enabled);
+        assert!((c.target_pass_rate - 0.05).abs() < 1e-9);
+        assert_eq!(c.window, 200);
+        assert_eq!(c.warmup_ticks, 100);
+    }
+
+    #[test]
+    fn config_deserializes_without_calibration_section() {
+        // Legacy JSON without calibration section must deserialize
+        // to KairosCalibrationConfig::default() via #[serde(default)].
+        let mut v: serde_json::Value = serde_json::to_value(Config::default()).unwrap();
+        v.as_object_mut().unwrap().remove("calibration");
+        let cfg: Config = serde_json::from_value(v).unwrap();
+        assert!(!cfg.calibration.enabled);
+    }
+
+    #[test]
+    fn preset_streaming_has_adaptive_enabled() {
+        let c = Config::preset_streaming();
+        assert!(c.calibration.enabled);
+        assert!(c.carrier.adaptive);
+    }
+
+    #[test]
+    fn preset_planning_has_lower_thresholds() {
+        let c = Config::preset_planning();
+        assert!(c.thresholds.d < Config::default().thresholds.d);
+        assert!(!c.calibration.enabled);
+    }
+
+    #[test]
+    fn preset_anomaly_detection_is_selective() {
+        let c = Config::preset_anomaly_detection();
+        assert!(c.calibration.enabled);
+        assert!(c.calibration.target_pass_rate < 0.05);
+        assert!(c.calibration.window >= 500);
     }
 }

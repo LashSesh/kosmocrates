@@ -1,0 +1,16 @@
+[package]
+name = "pse-bench-cognitive"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Cognitive-substrate benchmark — validates the PSE-TRAVERSE-COGNITION-01 pipeline on reasoning-trajectory scenarios"
+
+[[bin]]
+name = "bench_cognitive"
+path = "src/main.rs"
+
+[dependencies]
+pse-traverse = { path = "../../crates/pse-traverse", features = ["cognition", "cognition-spiral-memory", "cognition-hypercube", "cognition-wormholes", "horizon", "topology"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

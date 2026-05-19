@@ -86,6 +86,15 @@ pub mod bridge;
 #[cfg(feature = "topology")]
 pub mod topology;
 
+/// Full traversal stack orchestration (§Stack-01).
+///
+/// Chains PSE-TRAVERSE-COGNITION-01 → PSE-TRAVERSE-HORIZON-03 → TPT-MTL-04
+/// with deterministic content-addressed handoffs at each stage boundary.
+/// Activated when all three layer features are enabled (default-on).
+/// See [`orchestration::run_traverse_stack`] for the canonical entry point.
+#[cfg(all(feature = "cognition", feature = "horizon", feature = "topology"))]
+pub mod orchestration;
+
 pub use canonical::{canonical_bytes, content_address, hex_address};
 pub use dof::{DoFEdge, DoFGraph, DoFNode, DoFNodeKind, NodeId, NodeStatus};
 pub use excision::{detect_path_excision, OperationalImpact, PathExcision};

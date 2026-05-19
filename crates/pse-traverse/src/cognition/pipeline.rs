@@ -19,7 +19,7 @@ use super::handoff::{
 };
 use super::hypercube_puzzle::{build_puzzle_minimal, HypercubePuzzleState};
 use super::phase_panorama::{build_panorama_minimal, PhasePanorama};
-use super::primitives::{fixed_ge, CognitionError, EvidenceRef, Fixed};
+use super::primitives::{fixed_ge, fixed_le, CognitionError, EvidenceRef, Fixed};
 use super::replay::replay_hash_of;
 use super::report::{
     CognitionDiagnostic, CognitionHoldReport, CognitionOutcome, CognitionRecoveryAction,
@@ -128,9 +128,10 @@ pub fn run_cognition(
         c.tau.clone(),
     )?;
 
-    // §16.1 step 5 — spiral memory query.
+    // §16.1 step 5 — spiral memory query + resonance gate.
     let epsilon_r = Fixed::quantize(2.0, 9).unwrap();
     let hitset = spiral_memory_query(&state5, &input.spiral_memory_candidates, &epsilon_r)?;
+    let g_resonance = resonance_gate(&hitset, &rd.thresholds.min_resonance);
 
     // §16.1 step 6 — constraint lattice + hypercube puzzle.
     let lattice = build_lattice_minimal(rd, input.constraint_count, &input.support_strength)?;
@@ -179,11 +180,17 @@ pub fn run_cognition(
     .with_id()?;
 
     // §16.1 step 14 — singularity trigger.
+    // epsilon_det = |potential|: instability threshold derived from state geometry.
+    //   High |potential| → large region of state space counts as singular.
+    // epsilon_eigen = |chi|: curvature-based coherence threshold.
+    //   High curvature + low |rho| → singular via eigen_low.
+    let epsilon_det = state5.potential.clone().abs();
+    let epsilon_eigen = state5.chi_topological_curvature.clone().abs();
     let (_, trigger) = evaluate_singularity_trigger(
         &state5,
         &attractor_map,
-        &Fixed::quantize(0.0, 9).unwrap(),
-        &Fixed::quantize(0.0, 9).unwrap(),
+        &epsilon_det,
+        &epsilon_eigen,
         &rd.thresholds.min_trigger_score,
         &rd.thresholds.min_trigger_score,
     )?;
@@ -191,7 +198,8 @@ pub fn run_cognition(
         trigger.passed || fixed_ge(&trigger.trigger_score, &rd.thresholds.min_trigger_score);
 
     // §16.1 step 15 — handoff gate.
-    let handoff_gate = CognitionHandoffGate::evaluate(g_perc, g_panorama, g_self, g_trigger, true)?;
+    let handoff_gate =
+        CognitionHandoffGate::evaluate(g_perc, g_resonance, g_panorama, g_self, g_trigger, true)?;
 
     // Canonical cognition state.
     let canonical_state = CanonicalCognitionState {
@@ -244,8 +252,9 @@ pub fn run_cognition(
             Some(bundle),
         )
     } else {
-        let failure_policy = select_failure_policy(&handoff_gate);
         let failed_gate = first_failed_gate(&handoff_gate);
+        let failure_policy =
+            select_failure_policy(failed_gate, &rd.policies.failure_policy_order);
         let diagnostics = vec![CognitionDiagnostic::new(
             failed_gate,
             format!("handoff gate failed: {failed_gate:?}"),
@@ -309,6 +318,8 @@ pub fn run_cognition(
 fn first_failed_gate(g: &CognitionHandoffGate) -> CognitionGateKind {
     if !g.g_perc {
         CognitionGateKind::Percolation
+    } else if !g.g_resonance {
+        CognitionGateKind::Resonance
     } else if !g.g_panorama {
         CognitionGateKind::Panorama
     } else if !g.g_self {
@@ -322,25 +333,43 @@ fn first_failed_gate(g: &CognitionHandoffGate) -> CognitionGateKind {
     }
 }
 
-fn select_failure_policy(g: &CognitionHandoffGate) -> CognitionFailurePolicy {
-    if !g.g_perc {
-        CognitionFailurePolicy::RefineConstraints
-    } else if !g.g_panorama {
-        CognitionFailurePolicy::ExpandPanorama
-    } else if !g.g_self {
-        CognitionFailurePolicy::CalibrateOperators
-    } else if !g.g_trigger {
-        CognitionFailurePolicy::WaitForPhaseWindow
-    } else {
-        // Replay missing or composite failure ⇒ Hold (deterministic
-        // catch-all per §17.2 spec table).
-        CognitionFailurePolicy::Hold
+/// Recovery policies applicable to each gate kind, in spec-recommended order.
+/// `select_failure_policy` walks the caller's `failure_policy_order` and returns
+/// the first entry that appears in this set — giving the descriptor full control
+/// over escalation priority without touching the gate logic.
+fn policies_for_gate(gate: CognitionGateKind) -> &'static [CognitionFailurePolicy] {
+    use CognitionFailurePolicy::*;
+    use CognitionGateKind::*;
+    match gate {
+        Percolation => &[RefineConstraints, SplitHypercube, CalibrateOperators, Hold],
+        Resonance   => &[QuerySpiralMemory, ExpandPanorama, RefineConstraints, Hold],
+        Panorama    => &[ExpandPanorama, AdmitWormhole, QuerySpiralMemory, Hold],
+        SelfModel   => &[CalibrateOperators, MigrateCarrier, Hold],
+        Trigger     => &[WaitForPhaseWindow, RefineConstraints, Hold],
+        Replay      => &[RequireHumanReview, Hold],
+        Composite   => &[RefineConstraints, Hold],
     }
+}
+
+fn select_failure_policy(
+    gate: CognitionGateKind,
+    policy_order: &[CognitionFailurePolicy],
+) -> CognitionFailurePolicy {
+    let applicable = policies_for_gate(gate);
+    for p in policy_order {
+        if applicable.contains(p) {
+            return *p;
+        }
+    }
+    // Caller's order has no applicable policy — use spec default (first in set).
+    applicable[0]
 }
 
 fn recommend_action(g: &CognitionHandoffGate) -> Option<CognitionRecoveryAction> {
     if !g.g_perc {
         Some(CognitionRecoveryAction::RefineConstraints)
+    } else if !g.g_resonance {
+        Some(CognitionRecoveryAction::QuerySpiralMemory)
     } else if !g.g_panorama {
         Some(CognitionRecoveryAction::ExpandPanorama)
     } else if !g.g_self {
@@ -350,4 +379,20 @@ fn recommend_action(g: &CognitionHandoffGate) -> Option<CognitionRecoveryAction>
     } else {
         None
     }
+}
+
+/// Resonance gate: passes when no resonance is required (min_resonance = 0)
+/// or when the best memory hit is within the resonance distance threshold.
+fn resonance_gate(hitset: &SpiralMemoryHitSet, min_resonance: &Fixed) -> bool {
+    let is_zero = match min_resonance {
+        Fixed::FixedI64 { raw, .. } => *raw == 0,
+        Fixed::Rational { num, .. } => *num == 0,
+    };
+    if is_zero {
+        return true;
+    }
+    hitset
+        .hits
+        .first()
+        .map_or(false, |h| fixed_le(&h.resonance_score, min_resonance))
 }

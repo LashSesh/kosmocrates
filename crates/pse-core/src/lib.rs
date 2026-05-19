@@ -162,6 +162,16 @@ impl GlobalState {
         } else {
             build_phase_ladder(config.carrier.num_carriers, 0.0, 1.0)
         };
+        // Auto-wire adaptive calibrator from config when enabled.
+        let adaptive = if config.calibration.enabled {
+            Some(adaptive::AdaptiveCalibrator::new(
+                config.calibration.target_pass_rate,
+                config.calibration.window,
+                config.calibration.warmup_ticks,
+            ))
+        } else {
+            None
+        };
         Self {
             graph: PersistentGraph::new(),
             candidates: Vec::new(),
@@ -180,7 +190,7 @@ impl GlobalState {
             last_constraint_count: 0,
             last_gate_passed: false,
             last_gate: None,
-            adaptive: None,
+            adaptive,
             scale_state: pse_scale::MultiScaleState::default(),
             pattern_hits: 0,
             memory: PatternMemory::new(MemoryConfig::default()),

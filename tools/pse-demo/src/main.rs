@@ -17,9 +17,8 @@
 use std::time::Instant;
 
 use pse_bench_gt::runner::EventScopedAdapter;
-use pse_core::adaptive::AdaptiveCalibrator;
 use pse_core::{macro_step, GlobalState};
-use pse_types::{Config, GateSnapshot};
+use pse_types::{Config, GateSnapshot, KairosCalibrationConfig};
 
 const N_TICKS: usize = 600;
 const WINDOW_SIZE: usize = 8;
@@ -40,26 +39,33 @@ fn main() {
     println!("=========================================================\n");
     println!("Ticks: {}, sliding window: {}", N_TICKS, WINDOW_SIZE);
 
-    // Enable Strand J adaptive carrier tracking: each tick the active
-    // carrier is re-selected to the phase-ladder slot whose Mandorla κ
-    // against the current data-helix is highest. This lets q saturate
-    // when the data is structured (which is the whole point of the
-    // resonance contract).
-    let mut config = Config::default();
-    config.carrier.adaptive = true;
-    let mut state = GlobalState::new(&config);
-    // Self-calibrating Kairos: fire on the top 5% of recent ticks once we
-    // have 100 ticks of history. Demonstrates the engine working out-of-box
-    // on a workload we haven't pre-tuned for.
+    // Use the streaming preset: Strand-J adaptive carrier + rolling
+    // Kairos calibration (top 5% of ticks, 500-tick window, 100-tick warmup).
+    // PSE_DEMO_ADAPTIVE=0 falls back to the static-threshold preset so
+    // users can compare both modes.
     let adaptive = std::env::var("PSE_DEMO_ADAPTIVE")
         .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
         .unwrap_or(true);
-    if adaptive {
-        // target_pass_rate=0.3 per metric: with eight gates AND-ed and
+    let mut config = if adaptive {
+        // target_pass_rate=0.30 per metric: with eight gates AND-ed and
         // metric correlations on this workload the joint rate lands in
-        // the few-percent range — exactly what novelty detection wants.
-        state.adaptive = Some(AdaptiveCalibrator::new(0.3, 150, 50));
-        println!("Mode: adaptive Kairos (target_pass_rate=0.3, window=150, warmup=50)");
+        // the few-percent range — exactly the novelty-detection contract.
+        let mut c = Config::preset_streaming();
+        c.calibration = KairosCalibrationConfig {
+            enabled: true,
+            target_pass_rate: 0.30,
+            window: 150,
+            warmup_ticks: 50,
+        };
+        c
+    } else {
+        Config::default()
+    };
+    config.carrier.adaptive = true;
+    let state = GlobalState::new(&config);
+    let mut state = state;
+    if adaptive {
+        println!("Mode: adaptive Kairos (target_pass_rate=0.30, window=150, warmup=50)");
     } else {
         println!("Mode: static thresholds (adaptive disabled via PSE_DEMO_ADAPTIVE=0)");
     }
