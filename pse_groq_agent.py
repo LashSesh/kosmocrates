@@ -1393,8 +1393,10 @@ AUFGABEN-TYP: {task_type}
 == EREIGNISSE ==
 {evt_str}
 
-Erstelle eine vollstaendige Analyse in ganzen Saetzen.
-Benutze die formalen PSE-Bezeichnungen (z.B. G_trace, DeterminismViolation, Recondense, etc.).
+Respond in English. Use the exact English PSE technical terms from the constraints verbatim
+(e.g. G_trace, DeterminismViolation, Recondense, recondensation_status, MigrateCarrier,
+NeedsCarrierMigration, KeepTensorUnchanged, Axiom 6.1.1, MetatronClosureOutcome, etc.).
+Write in complete sentences. Name all relevant items by their exact IDs.
 """
 
 
