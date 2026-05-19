@@ -72,7 +72,7 @@
         }
       ],
       "ground_truth": {
-        "required_elements": ["C1", "artifact", "C2", "G_nctcs", "not compliant"],
+        "required_elements": ["C1", "artifact", "C2", "G_nctcs", "is_materializing"],
         "resolution_label": "nctcs_artifact_supremacy_c2_corrected_to_c1"
       },
       "ground_truth_label": "Artifact-korrigiert: C2 -> C1, G_nctcs=false, nicht konform",
@@ -161,7 +161,7 @@
       },
       "events": [],
       "ground_truth": {
-        "required_elements": ["c1", "c2", "Pass", "Hold", "violation"],
+        "required_elements": ["c1", "c2", "Pass", "Hold", "NctcsGateOutcome"],
         "resolution_label": "nctcs_gate_outcome_c1_pass_incorrect_should_be_hold"
       },
       "ground_truth_label": "c1: Pass falsch (c2_passed=false), c2: Hold korrekt; c1 ist Spec-Verletzung",
@@ -201,7 +201,7 @@
         }
       ],
       "ground_truth": {
-        "required_elements": ["G_nctcs", "false", "G_meta", "Diagnostic", "artifact"],
+        "required_elements": ["G_nctcs", "MetatronClosureOutcome", "G_meta", "Diagnostic", "artifact"],
         "resolution_label": "cross_layer_g_nctcs_false_g_meta_false_diagnostic_required"
       },
       "ground_truth_label": "Artifact korrigiert G_nctcs=false, G_meta=false, Metatron muss Diagnostic produzieren",
@@ -351,7 +351,7 @@
         }
       ],
       "ground_truth": {
-        "required_elements": ["conjunctive", "all", "two", "current cycle", "G_trace"],
+        "required_elements": ["conjunctive", "all", "stale", "current cycle", "G_trace"],
         "resolution_label": "phase_matrix_g_trace_conjunctive_two_stale_updates"
       },
       "ground_truth_label": "G_trace konjunktiv: ALLE Updates benoetigen cycle-N Referenzen; zwei stale -> G_trace=false",
