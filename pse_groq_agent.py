@@ -49,15 +49,15 @@ def get_api_key():
     if not key:
         print("API-Key eingeben (Groq: gsk_...  /  Cerebras: csk_...):")
         key = input("  > ").strip()
-    if not (key.startswith("gsk_") or key.startswith("csk_")):
-        print("FEHLER: Key muss mit 'gsk_' (Groq) oder 'csk_' (Cerebras) beginnen.")
+    if not (key.startswith("gsk_") or key.startswith("csk-")):
+        print("FEHLER: Key muss mit 'gsk_' (Groq) oder 'csk-' (Cerebras) beginnen.")
         sys.exit(1)
     return key
 
 
 def _provider(api_key):
     """Return (url, model) based on key prefix."""
-    if api_key.startswith("csk_"):
+    if api_key.startswith("csk-"):
         return CEREBRAS_URL, CEREBRAS_MODEL
     return GROQ_URL, GROQ_MODEL
 
