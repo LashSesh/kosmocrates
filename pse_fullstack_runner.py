@@ -22,6 +22,7 @@ from pse_groq_agent import (
     call_groq,
     get_api_key,
     _provider,
+    _inter_call_sleep,
     parse_response,
     run_case,
     run_case_productive,
@@ -167,9 +168,8 @@ def run_fixture(label, path, api_key, layer_num, total_layers):
             raw_fn, pse_fn = PROMPT_BUILDERS[schema]
             result = run_case(case, api_key, i, len(cases), raw_fn, pse_fn)
         case_results.append(result)
-        # Small pause between cases to be polite to the API
         if i < len(cases):
-            time.sleep(1)
+            time.sleep(_inter_call_sleep(api_key))
 
     # Aggregate layer totals
     valid = [r for r in case_results if not r["raw_llm"]["error"]]
@@ -402,7 +402,7 @@ def main():
         result["model"] = active_model
         layer_results.append(result)
         if i < len(STACK):
-            time.sleep(2)
+            time.sleep(_inter_call_sleep(api_key))
 
     if layer_results:
         print_grand_total(layer_results)
