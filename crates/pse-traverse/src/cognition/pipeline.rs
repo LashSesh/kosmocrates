@@ -180,11 +180,17 @@ pub fn run_cognition(
     .with_id()?;
 
     // §16.1 step 14 — singularity trigger.
+    // epsilon_det = |potential|: instability threshold derived from state geometry.
+    //   High |potential| → large region of state space counts as singular.
+    // epsilon_eigen = |chi|: curvature-based coherence threshold.
+    //   High curvature + low |rho| → singular via eigen_low.
+    let epsilon_det = state5.potential.clone().abs();
+    let epsilon_eigen = state5.chi_topological_curvature.clone().abs();
     let (_, trigger) = evaluate_singularity_trigger(
         &state5,
         &attractor_map,
-        &Fixed::quantize(0.0, 9).unwrap(),
-        &Fixed::quantize(0.0, 9).unwrap(),
+        &epsilon_det,
+        &epsilon_eigen,
         &rd.thresholds.min_trigger_score,
         &rd.thresholds.min_trigger_score,
     )?;

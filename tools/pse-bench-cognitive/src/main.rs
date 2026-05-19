@@ -508,6 +508,148 @@ fn score_scenario(
     }
 }
 
+// ── Scenario 5: Singularity Detection ────────────────────────────────────
+
+/// Tests that the Trigger gate discriminates stable from entropic states.
+///
+/// The pipeline calls evaluate_singularity_trigger with:
+///   epsilon_det   = |potential| = ||tau| - |rho||
+///   epsilon_eigen = |chi|
+///   theta_trigger = min_trigger_score (from rd.thresholds)
+///
+/// g_trigger = trigger.passed || (entropy >= min_trigger_score)
+///
+/// With min_trigger_score = 0.5 and a ramp from stable (tau=0.1) to
+/// entropic (tau=0.9), the trigger fires at the step where tau >= 0.5.
+fn run_singularity_detection() -> ScenarioResult {
+    let n_steps = 10;
+    // entropy = |tau| ramps from 0.18 to 0.9; trigger fires when >= 0.5
+    // → progress = (0.5 - 0.1) / 0.8 = 0.5 → step 5
+    let transition_step = 5;
+
+    let mut t = CognitionThresholds::permissive();
+    t.min_trigger_score = f(0.5);
+    let rd = rd_with_thresholds("singularity_detection", t);
+
+    let mut step_results = Vec::new();
+    for step in 1..=n_steps {
+        let progress = step as f64 / n_steps as f64;
+        // Ramp from coherent-stable (rho high, tau low) to entropic (tau high, rho low)
+        let rho   = 0.7 - progress * 0.6; // 0.63 → 0.07
+        let omega = 0.8 - progress * 0.6; // 0.72 → 0.14
+        let tau   = 0.1 + progress * 0.8; // 0.18 → 0.9
+        let chi   = 0.1 + progress * 0.4; // 0.14 → 0.5
+        let psi   = 0.5;
+
+        let input = CognitionInput {
+            null_center_id: hash_from_seed(5),
+            cognitive_components: pse_traverse::cognition::pipeline::CognitiveComponents {
+                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+            },
+            source_traversal_report_hash: None,
+            source_projection_report_hash: None,
+            spiral_memory_candidates: vec![],
+            constraint_count: 4,
+            support_strength: f(0.5),
+            logical_step: step as u64,
+            carrier_ids: vec!["dim.s".into()],
+        };
+
+        let result = run_cognition(&input, &rd).expect("cognition run");
+        let (passed, outcome_str, hold_gate, hold_policy) = match &result.outcome {
+            CognitionOutcome::CandidateBundle { .. } => (true, "CandidateBundle".into(), None, None),
+            CognitionOutcome::Hold { hold } => {
+                let gate = format!("{:?}", hold.failed_gate);
+                let policy = format!("{:?}", hold.failure_policy);
+                (false, "Hold".into(), Some(gate), Some(policy))
+            }
+        };
+        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+    }
+
+    score_scenario(
+        "singularity_detection",
+        "Stable → entropic trajectory; Trigger gate opens when entropy ≥ min_trigger_score",
+        n_steps,
+        transition_step,
+        GroundTruth {
+            expected_bundle_steps: (transition_step..=n_steps).collect(),
+            expected_hold_steps: (1..transition_step).collect(),
+            notes: "min_trigger_score=0.5; entropy=|tau| crosses threshold at step 5 (tau≈0.5)".into(),
+        },
+        step_results,
+    )
+}
+
+// ── Scenario 6: Self-Model Stability ─────────────────────────────────────
+
+/// Tests that the SelfModel gate blocks drifting states.
+///
+/// passes_gate = stability_index >= min_self_model_coherence
+///             && |entropy| <= max_drift
+///
+/// With min_coherence=0.5 and max_drift=0.4, a ramp from drifting
+/// (rho=0.2, tau=0.8) to stable (rho=0.8, tau=0.15) transitions at step 7.
+fn run_self_model_stability() -> ScenarioResult {
+    let n_steps = 10;
+    // Step 7: rho≈0.62, tau≈0.345 → stability≈0.564 ≥ 0.5, drift=0.345 ≤ 0.4 → Bundle
+    // Step 6: rho≈0.56, tau≈0.410 → drift=0.41 > 0.4 → Hold
+    let transition_step = 7;
+
+    let mut t = CognitionThresholds::permissive();
+    t.min_self_model_coherence = f(0.5);
+    t.max_drift = f(0.4);
+    let rd = rd_with_thresholds("self_model_stability", t);
+
+    let mut step_results = Vec::new();
+    for step in 1..=n_steps {
+        let progress = step as f64 / n_steps as f64;
+        let rho   = 0.2 + progress * 0.6; // 0.26 → 0.86
+        let omega = 0.3 + progress * 0.6; // 0.36 → 0.96
+        let tau   = 0.8 - progress * 0.65; // 0.735 → 0.085
+        let chi   = 0.1;
+        let psi   = 0.5;
+
+        let input = CognitionInput {
+            null_center_id: hash_from_seed(6),
+            cognitive_components: pse_traverse::cognition::pipeline::CognitiveComponents {
+                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+            },
+            source_traversal_report_hash: None,
+            source_projection_report_hash: None,
+            spiral_memory_candidates: vec![],
+            constraint_count: 4,
+            support_strength: f(0.5),
+            logical_step: step as u64,
+            carrier_ids: vec!["dim.t".into()],
+        };
+
+        let result = run_cognition(&input, &rd).expect("cognition run");
+        let (passed, outcome_str, hold_gate, hold_policy) = match &result.outcome {
+            CognitionOutcome::CandidateBundle { .. } => (true, "CandidateBundle".into(), None, None),
+            CognitionOutcome::Hold { hold } => {
+                let gate = format!("{:?}", hold.failed_gate);
+                let policy = format!("{:?}", hold.failure_policy);
+                (false, "Hold".into(), Some(gate), Some(policy))
+            }
+        };
+        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+    }
+
+    score_scenario(
+        "self_model_stability",
+        "Drifting → stable trajectory; SelfModel gate opens when coherence ≥ 0.5 and drift ≤ 0.4",
+        n_steps,
+        transition_step,
+        GroundTruth {
+            expected_bundle_steps: (transition_step..=n_steps).collect(),
+            expected_hold_steps: (1..transition_step).collect(),
+            notes: "min_coherence=0.5, max_drift=0.4; transition at step 7 where rho≈0.62, tau≈0.345".into(),
+        },
+        step_results,
+    )
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -532,6 +674,8 @@ fn main() {
         run_deadlock(),
         run_memory_recall(),
         run_wormhole_admission(),
+        run_singularity_detection(),
+        run_self_model_stability(),
     ];
 
     let passed = results.iter().filter(|r| r.passed).count();
