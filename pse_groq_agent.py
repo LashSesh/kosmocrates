@@ -78,12 +78,18 @@ def call_groq(api_key, prompt, _retry=True, max_tokens=512):
         "max_tokens": max_tokens,
     }).encode("utf-8")
 
+    user_agent = (
+        "cerebras-cloud-sdk-python/1.13.0"
+        if api_key.startswith("csk-")
+        else "groq-python/0.11.0"
+    )
     req = urllib.request.Request(
         url,
         data=body,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            "User-Agent": user_agent,
         },
     )
     try:
