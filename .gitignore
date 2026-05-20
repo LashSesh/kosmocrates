@@ -23,3 +23,4 @@ gemini_key.txt
 __pycache__/
 *.pyc
 *.pyo
+eval_bundle.json

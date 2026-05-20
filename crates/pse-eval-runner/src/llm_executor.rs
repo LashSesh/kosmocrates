@@ -229,29 +229,38 @@ fn call_cerebras(api_key: &str, model: &str, system: &str, user: &str) -> Result
 // ── Deterministic CI stub ─────────────────────────────────────────────────
 
 /// Wenn kein API-Key vorhanden: deterministischer Stub.
-/// "Gute" Phasen (gerade Phasen-Index + gerade Task-Index) erzeugen
-/// alle required_structural in der Antwort → hohe support_strength.
-/// "Schwache" Phasen erzeugen nur die Hälfte → niedrige support_strength.
+///
+/// "Starke" Phasen (gerade Kombinationen aus Task-Index + Phase-Index):
+///   - Vollständige Sätze mit allen required_structural
+///   - Schlussfolgerungs-Marker ("therefore", "recommend")
+///   - Keine Unsicherheits-Marker
+///   → hohe support_strength, hohe ρ, hohe ω, niedrige τ → Bundle
+///
+/// "Schwache" Phasen (ungerade Kombinationen):
+///   - Kurzer Text mit Unsicherheits-Markern ("might", "could")
+///   - Nur halbe required_structural vorhanden
+///   → niedrige support_strength, niedrige ρ, hohe τ → Hold
 fn stub_response(task: &ReasoningTask, phase: &ReasoningPhase, phase_idx: usize) -> String {
     let task_idx = REASONING_TASKS.iter().position(|t| t.id == task.id).unwrap_or(0);
     let strong = (task_idx + phase_idx) % 3 != 0;
 
     if strong {
-        phase
-            .required_structural
-            .iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .join(". ") + ". This concludes the analysis."
+        // Alle Strukturelemente + Schlussfolgerungs-Marker + mehrere Sätze
+        let elements = phase.required_structural.join(", ");
+        format!(
+            "The analysis identifies the following key aspects: {elements}. \
+             Therefore, the recommended approach addresses each constraint directly. \
+             The result is a complete and well-structured solution that satisfies \
+             all stated requirements. This concludes the evaluation."
+        )
     } else {
-        // Liefert nur die erste Hälfte der required_structural → niedrige support_strength
+        // Nur halbe Elemente + Unsicherheits-Marker → schwache kognitive Qualität
         let half = (phase.required_structural.len() / 2).max(1);
-        phase.required_structural[..half]
-            .iter()
-            .copied()
-            .collect::<Vec<_>>()
-            .join(". ")
-            + ". Further analysis needed."
+        let partial = phase.required_structural[..half].join(", ");
+        format!(
+            "This might involve {partial}. Could be relevant, but unclear. \
+             Perhaps more investigation needed."
+        )
     }
 }
 
@@ -274,6 +283,7 @@ fn text_to_cognition_input(
     target_word_count: u32,
     seed: u64,
     logical_step: u64,
+    constraint_count: u32,
 ) -> CognitionInput {
     let lower = response.to_lowercase();
     let word_count = response.split_whitespace().count() as i128;
@@ -319,7 +329,7 @@ fn text_to_cognition_input(
         source_traversal_report_hash: None,
         source_projection_report_hash: None,
         spiral_memory_candidates: vec![mem],
-        constraint_count: required.len() as u32,
+        constraint_count,
         support_strength,
         logical_step,
         carrier_ids: vec!["agent.0".into()],
@@ -405,6 +415,9 @@ impl TrialExecutor for CerebrasTrialExecutor {
                 phase.target_word_count,
                 phase_seed,
                 logical_step,
+                // constraint_count=1: support_strength IS the quality signal.
+                // The percolation gate becomes: support_strength >= min_constraint_mass.
+                1,
             );
 
             // Erwartetes Outcome: Bundle wenn alle Strukturelemente vorhanden.
