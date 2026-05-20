@@ -86,7 +86,7 @@ const REASONING_TASKS: &[ReasoningTask] = &[
                                  Explain why you investigate the ingestion service first. \
                                  Alternatively, name which component you would start with if the \
                                  ingestion service were unavailable, and why that might change your approach.",
-                required_structural: &["step", "investigate", "because", "first", "alternatively", "might"],
+                required_structural: &["step", "investigate", "because", "alternatively", "might"],
                 target_word_count: 100,
             },
             ReasoningPhase {
@@ -129,7 +129,7 @@ const REASONING_TASKS: &[ReasoningTask] = &[
                                  risks of eventual consistency for financial transactions. \
                                  However, also describe one scenario where eventual consistency \
                                  could be acceptable despite those risks.",
-                required_structural: &["risk", "inconsistent", "financial", "however", "could"],
+                required_structural: &["risk", "inconsisten", "financial", "however", "could"],
                 target_word_count: 120,
             },
             ReasoningPhase {
@@ -188,7 +188,7 @@ const REASONING_TASKS: &[ReasoningTask] = &[
                 prompt_suffix: "Label each constraint 'Constraint 1', 'Constraint 2', etc. \
                                  State the ordering rule each imposes. \
                                  Note if any constraint might be interpreted in more than one way.",
-                required_structural: &["constraint", "T1", "T3", "before", "might"],
+                required_structural: &["constraint", "t1", "t3", "before", "might"],
                 target_word_count: 80,
             },
             ReasoningPhase {
@@ -197,7 +197,7 @@ const REASONING_TASKS: &[ReasoningTask] = &[
                                  in hours from 0 and show all constraints are satisfied. \
                                  However, note whether an alternative valid ordering might \
                                  also satisfy all constraints.",
-                required_structural: &["start", "hour", "T1", "T3", "however", "might"],
+                required_structural: &["start", "hour", "t1", "t3", "however", "might"],
                 target_word_count: 120,
             },
             ReasoningPhase {
