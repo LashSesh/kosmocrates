@@ -5,11 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{fixed_ge, fixed_le, Fixed, Hash256};
+use super::primitives::{fixed_ge, Fixed, Hash256};
 use super::run_descriptor::{LpcmThresholds, TiePolicy};
 use super::support_mass::SupportMassVector;
-use super::candidate::CandidateDirection;
-use super::topology_patch::LocalTopologyPatch;
 
 /// The hysteretic condensation bit for a fragment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,7 +185,7 @@ pub fn evaluate_local_condensation(
 
 /// Build a LocalCondensationCandidate from an active condensation bit.
 pub fn build_local_candidate(
-    rd: &super::run_descriptor::LpcmRunDescriptor,
+    _rd: &super::run_descriptor::LpcmRunDescriptor,
     bit: &LocalCondensationBit,
     candidates: &[super::candidate::CandidateDirection],
 ) -> super::primitives::LpcmResult<LocalCondensationCandidate> {

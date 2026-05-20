@@ -27,9 +27,9 @@ use std::process::ExitCode;
 
 use pse_traverse::topology::{
     build_axis_bridge_report, build_phase_space_window, carrier::evaluate_carrier, evolve_mesh,
-    form_topological_crystal_candidate, gate_all, lift_micro_fibers, materialize_bundle,
+    gate_all, lift_micro_fibers,
     refine_recursive, reinterpret_mesh_to_panoptic, replay::ReplayManifest, run_tpt_mtl,
-    seed_mesh_holo, weight_mesh_with_microfibers, AxisBridgeReport, CarrierContext, MeshHolo,
+    seed_mesh_holo, weight_mesh_with_microfibers, MeshHolo,
     MicroFiber, PhaseSpaceWindow, ReinterpretationReport, TptMtlBundle, TptMtlGateReport,
     TptMtlInput, TptMtlRunDescriptor,
 };

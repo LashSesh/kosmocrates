@@ -192,7 +192,7 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     &scenarios[0].ground_truth,
                 )
                 .map_err(|e| format!("failed to apply axis policy profile (fail-closed): {e}"))?;
-                candidate_activation_dets = Some(dets);
+                drop(dets);
                 output.pse_debug.calibration_report.axis_policy_report = rep;
                 refresh_field_diag(&mut output);
             }

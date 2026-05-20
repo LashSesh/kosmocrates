@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::parsers::OpenObligation;
-use crate::primitives::{Hash256, ValidationError, ValidationFailureKind};
+use crate::primitives::{Hash256, ValidationFailureKind};
 
 /// Result of one Eval-Matrix preset run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

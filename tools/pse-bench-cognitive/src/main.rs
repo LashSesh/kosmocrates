@@ -44,6 +44,7 @@ fn state_5d(psi: f64, rho: f64, omega: f64, chi: f64, tau: f64) -> CognitiveStat
 
 // ── Descriptor builders ────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 fn rd_permissive(scenario: &str) -> CognitionRunDescriptor {
     CognitionRunDescriptor {
         run_id: format!("bench.cognitive.{scenario}"),
@@ -751,7 +752,7 @@ fn run_full_stack_calibrated() -> ScenarioResult {
     use pse_traverse::topology::phase_window::SamplePoint;
 
     let n_steps = 12usize;
-    let transition_step = 6usize;
+    let _transition_step = 6usize;
     let mut step_results: Vec<StepResult> = Vec::new();
     let mut trajectory_window: Vec<SamplePoint> = Vec::new();
 
