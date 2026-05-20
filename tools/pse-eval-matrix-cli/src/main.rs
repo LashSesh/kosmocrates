@@ -420,3 +420,4 @@ fn cmd_agent_exoskeleton(args: &[String]) -> CliResult<()> {
     };
     write_canonical(&report, Some(out), "agent exoskeleton report")
 }
+
