@@ -18,7 +18,7 @@ use super::handoff::{
     CognitionCandidate, CognitionCandidateBundle, CognitionHandoffGate, ProjectionHandoffPolicy,
 };
 use super::hypercube_puzzle::{build_puzzle_minimal, HypercubePuzzleState};
-use super::phase_panorama::{build_panorama_minimal, PhasePanorama};
+use super::phase_panorama::{build_panorama_with_quality, PhasePanorama};
 use super::primitives::{fixed_ge, fixed_le, CognitionError, EvidenceRef, Fixed};
 use super::replay::replay_hash_of;
 use super::report::{
@@ -144,7 +144,7 @@ pub fn run_cognition(
     let scheduler = build_scheduler_minimal(&input.carrier_ids, input.logical_step)?;
 
     // §16.1 step 9 — panorama.
-    let panorama = build_panorama_minimal(&null_center_id, input.logical_step)?;
+    let panorama = build_panorama_with_quality(&null_center_id, input.logical_step, &input.support_strength)?;
     let g_panorama = fixed_ge(
         &panorama.coverage_score,
         &rd.thresholds.min_panorama_coverage,

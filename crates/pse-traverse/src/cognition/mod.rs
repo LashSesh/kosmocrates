@@ -87,7 +87,7 @@ pub use operator_algebra::{
     OperatorFamily, OperatorType,
 };
 pub use phase_panorama::{
-    build_panorama_minimal, AttractorCandidate, ChoiceGeometryReport, Horizon360, PhasePanorama,
+    build_panorama_minimal, build_panorama_with_quality, AttractorCandidate, ChoiceGeometryReport, Horizon360, PhasePanorama,
     PhasePath, PhasePathStatus, PhasePathSummary, RecognitionBoundary,
 };
 pub use pipeline::{run_cognition, CognitionInput, CognitionRunResult, CognitiveComponents};
