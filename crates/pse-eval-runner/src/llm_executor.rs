@@ -417,6 +417,7 @@ impl TrialExecutor for CerebrasTrialExecutor {
         let mut cog_outcomes: Vec<CognitionOutcome> = Vec::new();
         let mut gates: Vec<GateObservation> = Vec::new();
         let mut phase_coverages: Vec<(usize, usize)> = Vec::new();
+        let mut panorama_scores: Vec<Fixed> = Vec::new();
 
         for (phase_idx, phase) in task.phases.iter().enumerate() {
             let logical_step = (phase_idx + 1) as u64;
@@ -457,8 +458,8 @@ impl TrialExecutor for CerebrasTrialExecutor {
                 1,
             );
 
-            // Erwartetes Outcome: Bundle wenn alle Strukturelemente vorhanden.
-            let expected = if matched == total {
+            // Erwartetes Outcome: Bundle wenn ≥80 % Strukturelemente vorhanden.
+            let expected = if total == 0 || matched * 5 >= total * 4 {
                 ExpectedOutcome::Bundle
             } else {
                 ExpectedOutcome::Hold
@@ -499,6 +500,7 @@ impl TrialExecutor for CerebrasTrialExecutor {
                 reason: Some(format!("logical_step={logical_step}")),
             });
 
+            panorama_scores.push(cog_result.panorama.coverage_score.clone());
             cog_outcomes.push(cog_result.outcome);
         }
 
@@ -514,6 +516,33 @@ impl TrialExecutor for CerebrasTrialExecutor {
                 num: total_matched as i128,
                 den: total_required.max(1) as i128,
             },
+        ));
+
+        // Panorama-Abdeckung als Mittelwert über alle Phasen.
+        let pano_mean = {
+            let n = panorama_scores.len() as i128;
+            if n == 0 {
+                Fixed::Rational { num: 0, den: 1 }
+            } else {
+                let mut sum = Fixed::Rational { num: 0, den: 1 };
+                for s in &panorama_scores {
+                    sum = pse_eval_matrix::primitives::fixed_add(&sum, s);
+                }
+                match sum {
+                    Fixed::Rational { num, den } => Fixed::Rational {
+                        num,
+                        den: den.saturating_mul(n),
+                    },
+                    Fixed::FixedI64 { raw, scale } => Fixed::Rational {
+                        num: raw as i128,
+                        den: (10i128.pow(scale)).saturating_mul(n),
+                    },
+                }
+            }
+        };
+        metrics.push(pse_eval_matrix::MetricObservation::ok(
+            "panorama_coverage",
+            pano_mean,
         ));
 
         // — Outputs ————————————————————————————————————————————————

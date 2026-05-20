@@ -167,6 +167,18 @@ impl MetricSpec {
         }
     }
 
+    /// `panorama_coverage` — mean horizon coverage across cognition phases.
+    pub fn panorama_coverage() -> Self {
+        MetricSpec {
+            metric_id: "panorama_coverage".into(),
+            family: MetricFamily::Cognition,
+            direction: MetricDirection::HigherIsBetter,
+            primary: false,
+            aggregation: AggregationPolicy::Mean,
+            invalidation_rules: vec![],
+        }
+    }
+
     /// `replay_identity` — primary, higher-is-better (boolean
     /// 0/1, mean ⇒ pass rate).
     pub fn replay_identity() -> Self {

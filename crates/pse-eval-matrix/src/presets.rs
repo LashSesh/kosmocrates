@@ -155,6 +155,7 @@ pub fn preset_agent_cognition() -> Result<EvaluationSpec, EvalError> {
         MetricSpec::replay_identity(),
         MetricSpec::false_commit_rate(),
         MetricSpec::hold_correctness(),
+        MetricSpec::panorama_coverage(),
     ];
     EvaluationSpec {
         spec_id: crate::primitives::Hash256::zero(),
