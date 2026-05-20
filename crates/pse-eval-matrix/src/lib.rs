@@ -50,6 +50,8 @@
 pub mod ablation;
 /// Deterministic diagnostic benchmark for agent exoskeleton relevance fields.
 pub mod agent_exoskeleton;
+/// Generic external fixture loader for PSE layer candidate-selection benchmarks.
+pub mod external_fixture;
 pub mod lpcm_metrics;
 pub mod calibration;
 pub mod cell_substrate_metrics;
@@ -98,6 +100,12 @@ pub use lpcm_metrics::{lpcm_metric_specs, LpcmMetricKind};
 pub use cognition_metrics::{cognition_metric_specs, CognitionMetricKind};
 pub use datasets::{DatasetManifest, DatasetSplit, DatasetSplitKind};
 pub use export::{render_json_summary, render_markdown_summary};
+pub use external_fixture::{
+    score_layer_fixture_selections, summarize_layer_fixture, validate_layer_fixture,
+    ExternalLayerCandidate, ExternalLayerCaseInfo, ExternalLayerCaseScore, ExternalLayerEvent,
+    ExternalLayerFixtureFile, ExternalLayerFixtureReport, ExternalLayerFixtureScoreReport,
+    ExternalLayerGroundTruth,
+};
 pub use failure_taxonomy::{FailureKind, FailureRecord};
 pub use ground_truth::{
     AdjudicationPolicy, GroundTruthProfile, LabelSource, LabelSpace, UncertaintyPolicy,
