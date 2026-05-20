@@ -26,10 +26,9 @@ use pse_eval_matrix::{
     append_to_ledger, build_ablation_ladder, init_ledger, plan_runs, render_json_summary,
     render_markdown_summary, run_agent_exoskeleton_benchmark,
     run_agent_exoskeleton_benchmark_with_fixture, run_trial, score_capability_profile,
-    score_layer_fixture_selections, score_ledger, summarize_ablation, summarize_layer_fixture,
-    validate_layer_fixture, AblationSummary, ConclusionFlag, EvaluationPlan, EvaluationRunLedger,
-    EvaluationSpec, EvaluationSummaryReport, Fixed, Preset, SyntheticTrialExecutor, TrialReport,
-    VariantSummary, WorkloadSummary,
+    score_ledger, summarize_ablation, AblationSummary, ConclusionFlag, EvaluationPlan,
+    EvaluationRunLedger, EvaluationSpec, EvaluationSummaryReport, Fixed, Preset,
+    SyntheticTrialExecutor, TrialReport, VariantSummary, WorkloadSummary,
 };
 
 fn main() -> ExitCode {
@@ -49,7 +48,6 @@ fn main() -> ExitCode {
         "compare" => cmd_compare(&args[2..]),
         "report" => cmd_report(&args[2..]),
         "agent-exoskeleton" => cmd_agent_exoskeleton(&args[2..]),
-        "layer-fixture" => cmd_layer_fixture(&args[2..]),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -78,11 +76,6 @@ const USAGE: &str = "Usage:
   pse-eval-matrix ablate   --spec <spec.json>  --base <variant_id>   --out <ablations.json>
   pse-eval-matrix compare  --summary <summary.json> --baseline <variant_id>
   pse-eval-matrix report   --summary <summary.json> --format <md|json> [--out <path>]
-
-  # External fixture subcommands (any PSE layer fixture file):
-  pse-eval-matrix layer-fixture validate --path <fixture.json>
-  pse-eval-matrix layer-fixture score    --fixture <fixture.json> --selections <sel.json> --out <report.json>
-  pse-eval-matrix layer-fixture batch    --dir <fixtures/> --out <batch_report.json>
 ";
 
 type CliResult<T> = std::result::Result<T, String>;
@@ -428,114 +421,3 @@ fn cmd_agent_exoskeleton(args: &[String]) -> CliResult<()> {
     write_canonical(&report, Some(out), "agent exoskeleton report")
 }
 
-// ── layer-fixture ─────────────────────────────────────────────────────────
-
-fn cmd_layer_fixture(args: &[String]) -> CliResult<()> {
-    let subcmd = args.first().map(|s| s.as_str()).unwrap_or("validate");
-    match subcmd {
-        "validate" => cmd_lf_validate(&args[1..]),
-        "score" => cmd_lf_score(&args[1..]),
-        "batch" => cmd_lf_batch(&args[1..]),
-        other => Err(format!(
-            "unknown layer-fixture subcommand '{other}'\n\
-             use: validate | score | batch"
-        )),
-    }
-}
-
-fn cmd_lf_validate(args: &[String]) -> CliResult<()> {
-    let path = flag_value(args, "--path")?;
-    let fixture = validate_layer_fixture(&path).map_err(|e| format!("validation failed: {e}"))?;
-    let report = summarize_layer_fixture(&fixture);
-    let out = opt_flag_value(args, "--out");
-    if out.is_none() {
-        // Pretty-print to stdout.
-        let json = serde_json::to_string_pretty(&report)
-            .map_err(|e| format!("serialize: {e}"))?;
-        println!("{json}");
-        eprintln!(
-            "OK: {} — {} cases, {} candidates, {} causal",
-            report.fixture_name, report.case_count, report.total_candidates, report.total_causal
-        );
-        return Ok(());
-    }
-    write_canonical(&report, out, "fixture summary")
-}
-
-fn cmd_lf_score(args: &[String]) -> CliResult<()> {
-    let fixture_path = flag_value(args, "--fixture")?;
-    let selections_path = flag_value(args, "--selections")?;
-    let out = opt_flag_value(args, "--out");
-
-    let fixture =
-        validate_layer_fixture(&fixture_path).map_err(|e| format!("fixture: {e}"))?;
-    let selections: std::collections::BTreeMap<String, Vec<String>> = {
-        let bytes = fs::read(&selections_path)
-            .map_err(|e| format!("read {selections_path}: {e}"))?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| format!("parse {selections_path}: {e}"))?
-    };
-    let score = score_layer_fixture_selections(&fixture, &selections);
-    eprintln!(
-        "recall={:.3}  hit@1={:.3}  hit@3={:.3}  distractor_supp={:.3}",
-        score.macro_causal_recall, score.hit_at_1, score.hit_at_3,
-        score.macro_distractor_suppression,
-    );
-    write_canonical(&score, out, "fixture score report")
-}
-
-fn cmd_lf_batch(args: &[String]) -> CliResult<()> {
-    let dir = flag_value(args, "--dir")?;
-    let out = opt_flag_value(args, "--out");
-
-    let entries = fs::read_dir(&dir).map_err(|e| format!("read dir {dir}: {e}"))?;
-    let mut reports: Vec<serde_json::Value> = Vec::new();
-    let mut ok_count = 0usize;
-    let mut err_count = 0usize;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let path_str = path.to_string_lossy().to_string();
-        match validate_layer_fixture(&path_str) {
-            Ok(fixture) => {
-                let summary = summarize_layer_fixture(&fixture);
-                reports.push(serde_json::to_value(&summary).unwrap_or_default());
-                ok_count += 1;
-            }
-            Err(e) => {
-                eprintln!("skip {path_str}: {e}");
-                err_count += 1;
-            }
-        }
-    }
-
-    // Sort by fixture_name for deterministic output.
-    reports.sort_by(|a, b| {
-        let na = a.get("fixture_name").and_then(|v| v.as_str()).unwrap_or("");
-        let nb = b.get("fixture_name").and_then(|v| v.as_str()).unwrap_or("");
-        na.cmp(nb)
-    });
-
-    let batch = serde_json::json!({
-        "loaded": ok_count,
-        "skipped": err_count,
-        "fixtures": reports,
-    });
-    eprintln!("batch: {ok_count} loaded, {err_count} skipped");
-
-    if let Some(out_path) = out {
-        let bytes =
-            serde_json::to_vec_pretty(&batch).map_err(|e| format!("serialize: {e}"))?;
-        fs::write(&out_path, bytes).map_err(|e| format!("write {out_path}: {e}"))?;
-        eprintln!("written to {out_path}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&batch).map_err(|e| format!("serialize: {e}"))?
-        );
-    }
-    Ok(())
-}
