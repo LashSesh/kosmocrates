@@ -55,6 +55,7 @@ members = [
     "tools/pse-metatron-cli",
     "tools/pse-traverse-lpcm-cli",
     "tools/pse-bench-cognitive",
+    "tools/pse-eval-runner-cli",
 ]
 
 [workspace.package]

@@ -1949,6 +1949,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-eval-runner-cli"
+version = "0.1.0"
+dependencies = [
+ "pse-eval-matrix",
+ "pse-eval-runner",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-evidence"
 version = "0.1.0"
 dependencies = [

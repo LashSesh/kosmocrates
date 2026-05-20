@@ -65,19 +65,18 @@ impl CognitionScenario {
 
 /// Real cognition thresholds that make gates meaningful.
 ///
-/// - `min_constraint_mass = 0.3`: constraint_count * support_strength >= 0.3
-///   With support=0.9 and count=4: mass=3.6 → passes.
-///   With support=0.0 and count=4: mass=0.0 → fails.
-/// - `min_panorama_coverage = 0.1`: coverage = 1/(logical_step+1) >= 0.1
-///   Passes when logical_step <= 9.  Fails at step >= 10.
-/// - `min_self_model_coherence = 0.4`: stability_index = rho/(rho+|tau|) >= 0.4
-///   With rho=0.7, tau=0.2: index=0.7/0.9≈0.78 → passes.
-///   With rho=0.1, tau=0.9: index=0.1/1.0=0.1 → fails.
+/// Gate design (mit constraint_count=1 für LLM-Tasks):
+/// - `min_constraint_mass = 0.6`: support_strength >= 0.6 erforderlich.
+///   Starke Antwort (alle Elemente): support=1.0 >= 0.6 → Bundle.
+///   Schwache Antwort (halbe Elemente): support=0.4 < 0.6 → Hold.
+/// - `min_panorama_coverage = 0.1`: 1/(step+1) >= 0.1 → Schritt ≤ 9.
+/// - `min_self_model_coherence = 0.4`: rho/(rho+|tau|) >= 0.4.
+///   Unsichere Antwort (hohe τ): instabile Selbstmodell → Hold.
 pub fn thresholds_b6() -> CognitionThresholds {
     CognitionThresholds {
         min_resonance: f(0.0),
         max_entropy: f(2.0),
-        min_constraint_mass: f(0.3),
+        min_constraint_mass: f(0.6),
         min_entropy_reduction: f(0.0),
         min_feasible_uniqueness: f(0.0),
         min_panorama_coverage: f(0.1),
@@ -379,11 +378,23 @@ pub fn rd_for_scenario(
         CognitionThresholds {
             min_resonance: f(0.0),
             max_entropy: f(2.0),
-            min_constraint_mass: f(0.3 * scale),
+            // scale ∈ (0,1]: mit constraint_count=1 ist gate = support_strength >= threshold.
+            // B6 (scale=1): support >= 0.6 → schwache Antwort (0.4) → Hold.
+            // B3 (scale≈0.5): support >= 0.3 → schwache Antwort (0.4) → Bundle (intermediate).
+            min_constraint_mass: Fixed::Rational {
+                num: (60.0 * scale) as i128,
+                den: 100,
+            },
             min_entropy_reduction: f(0.0),
             min_feasible_uniqueness: f(0.0),
-            min_panorama_coverage: f(0.1 * scale),
-            min_self_model_coherence: f(0.4 * scale),
+            min_panorama_coverage: Fixed::Rational {
+                num: (10.0 * scale) as i128,
+                den: 100,
+            },
+            min_self_model_coherence: Fixed::Rational {
+                num: (40.0 * scale) as i128,
+                den: 100,
+            },
             max_drift: f(2.0),
             min_attractor_score: f(0.0),
             min_trigger_score: f(0.0),
