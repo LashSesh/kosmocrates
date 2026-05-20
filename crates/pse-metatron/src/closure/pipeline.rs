@@ -6,15 +6,13 @@
 //!
 //! The operator MUST NOT mutate any input artifact.
 
-use super::primitives::CanonicalNumber;
-
 use super::gates::MetatronGateReport;
 use super::holistic_state::{
     AggregateGateStatus, HolisticEigenmodeState, MetatronConformanceClass, MetatronValidationStatus,
 };
 use super::isomorphic::IsomorphicProjectionReport;
 use super::local_projection::LocalMonolithProjection;
-use super::primitives::{content_address, EvidenceRef, Fixed, Hash256, MetatronError, NctcsClass};
+use super::primitives::{EvidenceRef, Fixed, Hash256, MetatronError, NctcsClass};
 use super::run_descriptor::MetatronRunDescriptor;
 use super::spectral_gap::SpectralGapStitchReport;
 

@@ -46,10 +46,8 @@ impl SpectralGapStitchReport {
             }
         };
 
-        let improved_or_preserved = match &delta_gap {
-            CanonicalNumber::FixedI64 { raw, .. } => *raw >= 0,
-            _ => false,
-        };
+        let CanonicalNumber::FixedI64 { raw, .. } = &delta_gap;
+        let improved_or_preserved = *raw >= 0;
 
         let partial = SpectralGapStitchReport {
             report_id: Hash256::zero(),

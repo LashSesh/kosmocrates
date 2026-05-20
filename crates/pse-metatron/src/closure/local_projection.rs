@@ -38,16 +38,12 @@ impl LocalMonolithProjection {
         evidence_refs: Vec<EvidenceRef>,
     ) -> Result<Self, MetatronError> {
         use super::primitives::CanonicalNumber;
-        let emitted = match (&resonance_product, &trigger_threshold) {
-            (
-                CanonicalNumber::FixedI64 { raw: r, scale: rs },
-                CanonicalNumber::FixedI64 { raw: t, scale: ts },
-            ) => {
-                let rn = *r * 10i64.pow(ts.saturating_sub(*rs));
-                let tn = *t * 10i64.pow(rs.saturating_sub(*ts));
-                rn >= tn
-            }
-            _ => false,
+        let (CanonicalNumber::FixedI64 { raw: r, scale: rs }, CanonicalNumber::FixedI64 { raw: t, scale: ts }) =
+            (&resonance_product, &trigger_threshold);
+        let emitted = {
+            let rn = *r * 10i64.pow(ts.saturating_sub(*rs));
+            let tn = *t * 10i64.pow(rs.saturating_sub(*ts));
+            rn >= tn
         };
 
         let partial = LocalMonolithProjection {

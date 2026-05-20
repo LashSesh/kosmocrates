@@ -96,7 +96,7 @@ impl TptMtlGateReport {
 
 /// Check the AdapterGate: window valid, points have provenance or NoiseCandidate,
 /// sampling is deterministic.
-fn gate_adapter(window: &PhaseSpaceWindow, rd: &TptMtlRunDescriptor) -> GateResult {
+fn gate_adapter(window: &PhaseSpaceWindow, _rd: &TptMtlRunDescriptor) -> GateResult {
     let mut diagnostics = Vec::new();
 
     if window.sampling_policy_hash == Hash256::zero() {

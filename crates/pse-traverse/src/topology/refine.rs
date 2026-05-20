@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::mesh_holo::MeshHolo;
 use super::persistence::PersistenceDiagram;
-use super::primitives::{tpt_content_address, Hash256, TopologyError};
+use super::primitives::{tpt_content_address, TopologyError};
 use super::run_descriptor::TptMtlRunDescriptor;
 use super::topology_guard::{check_topology_guard, TopologyGuardResult};
 
