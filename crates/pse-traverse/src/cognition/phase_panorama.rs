@@ -133,15 +133,7 @@ impl ChoiceGeometryReport {
     }
 }
 
-/// Build a minimal panorama from a null center and a logical step.
-/// The pipeline can extend this with caller-supplied paths/attractors;
-/// the spec only mandates that current AND counterfactual horizons are
-/// present and that ids are content-addressed.
-pub fn build_panorama_minimal(
-    null_center_id: &Hash256,
-    logical_step: u64,
-) -> Result<PhasePanorama, CognitionError> {
-    let anchor = null_center_id.clone();
+fn build_horizons(anchor: &Hash256) -> Result<(Horizon360, Horizon360), CognitionError> {
     let current = Horizon360 {
         horizon_id: Hash256::zero(),
         anchor_state: anchor.clone(),
@@ -160,9 +152,62 @@ pub fn build_panorama_minimal(
         gate_status_hash: Hash256::zero(),
     }
     .with_id()?;
+    Ok((current, counterfactual))
+}
+
+/// Build a minimal panorama from a null center and a logical step.
+/// The pipeline can extend this with caller-supplied paths/attractors;
+/// the spec only mandates that current AND counterfactual horizons are
+/// present and that ids are content-addressed.
+pub fn build_panorama_minimal(
+    null_center_id: &Hash256,
+    logical_step: u64,
+) -> Result<PhasePanorama, CognitionError> {
+    let (current, counterfactual) = build_horizons(null_center_id)?;
     let coverage_score = Fixed::Rational {
         num: 1,
         den: (logical_step as i128).max(1) + 1,
+    };
+    PhasePanorama {
+        panorama_id: Hash256::zero(),
+        null_center_id: null_center_id.clone(),
+        current_horizon: current,
+        counterfactual_horizon: counterfactual,
+        visible_paths: Vec::new(),
+        latent_paths: Vec::new(),
+        blocked_paths: Vec::new(),
+        attractor_candidates: Vec::new(),
+        recognition_boundaries: Vec::new(),
+        coverage_score,
+    }
+    .with_id()
+}
+
+/// Build a panorama whose `coverage_score` reflects structural quality.
+///
+/// `coverage_score = support_strength / (logical_step + 1)`
+///
+/// This makes panorama_coverage sensitive to how much of the required
+/// structural reasoning was actually present in the cognitive input, rather
+/// than being purely a function of depth (logical_step). A phase with
+/// full structural coverage (support=1.0) scores the same as
+/// `build_panorama_minimal`; a weak phase (support=0.33) scores lower.
+pub fn build_panorama_with_quality(
+    null_center_id: &Hash256,
+    logical_step: u64,
+    support_strength: &Fixed,
+) -> Result<PhasePanorama, CognitionError> {
+    let (current, counterfactual) = build_horizons(null_center_id)?;
+    let step_den = (logical_step as i128).max(1) + 1;
+    let coverage_score = match support_strength {
+        Fixed::Rational { num, den } => Fixed::Rational {
+            num: *num,
+            den: den.saturating_mul(step_den),
+        },
+        Fixed::FixedI64 { raw, scale } => Fixed::Rational {
+            num: *raw as i128,
+            den: (10i128.pow(*scale as u32)).saturating_mul(step_den),
+        },
     };
     PhasePanorama {
         panorama_id: Hash256::zero(),
