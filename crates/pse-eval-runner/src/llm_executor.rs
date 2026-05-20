@@ -82,24 +82,29 @@ const REASONING_TASKS: &[ReasoningTask] = &[
         phases: [
             ReasoningPhase {
                 name: "plan",
-                prompt_suffix: "Outline a 3-step plan to diagnose and resolve this issue. \
-                                 Be specific about which component to investigate first and why.",
-                required_structural: &["step", "investigate", "because", "first", "then"],
-                target_word_count: 80,
-            },
-            ReasoningPhase {
-                name: "execute",
-                prompt_suffix: "Execute the first step of your plan: analyze the ingestion service. \
-                                 Identify at least two specific failure modes with their causes.",
-                required_structural: &["failure", "cause", "rate", "limit", "overflow"],
+                prompt_suffix: "Outline a 3-step plan. Label each step 'Step 1', 'Step 2', 'Step 3'. \
+                                 Explain why you investigate the ingestion service first. \
+                                 Alternatively, name which component you would start with if the \
+                                 ingestion service were unavailable, and why that might change your approach.",
+                required_structural: &["step", "investigate", "because", "first", "alternatively", "might"],
                 target_word_count: 100,
             },
             ReasoningPhase {
+                name: "execute",
+                prompt_suffix: "Analyse the ingestion service. Identify two specific failure modes \
+                                 and their causes. For each failure mode, note whether the root \
+                                 cause might actually originate in a different component.",
+                required_structural: &["failure", "cause", "rate", "limit", "might"],
+                target_word_count: 110,
+            },
+            ReasoningPhase {
                 name: "evaluate",
-                prompt_suffix: "Based on your analysis, state which single change would have the \
-                                 greatest impact. Justify with a specific reasoning chain.",
-                required_structural: &["therefore", "because", "impact", "recommend", "result"],
-                target_word_count: 80,
+                prompt_suffix: "State which single change would have the greatest impact and use \
+                                 'therefore' to connect your reasoning chain. \
+                                 However, name one condition under which this recommendation \
+                                 could produce a worse outcome than the alternative.",
+                required_structural: &["therefore", "because", "impact", "however", "could"],
+                target_word_count: 100,
             },
         ],
     },
@@ -112,24 +117,29 @@ const REASONING_TASKS: &[ReasoningTask] = &[
         phases: [
             ReasoningPhase {
                 name: "plan",
-                prompt_suffix: "List the key trade-offs you must evaluate before making \
-                                 a recommendation. Name at least three distinct trade-offs.",
-                required_structural: &["trade-off", "consistency", "latency", "transaction", "versus"],
-                target_word_count: 80,
-            },
-            ReasoningPhase {
-                name: "execute",
-                prompt_suffix: "Evaluate the consistency trade-off in detail. What are the \
-                                 concrete risks of eventual consistency for financial transactions?",
-                required_structural: &["risk", "inconsistent", "financial", "data", "failure"],
+                prompt_suffix: "Label each trade-off 'Trade-off 1', 'Trade-off 2', 'Trade-off 3'. \
+                                 For each, note whether the balance might shift depending on \
+                                 the transaction volume or consistency requirements.",
+                required_structural: &["trade-off", "consistency", "latency", "transaction", "might"],
                 target_word_count: 100,
             },
             ReasoningPhase {
+                name: "execute",
+                prompt_suffix: "Evaluate the consistency trade-off in detail. State the concrete \
+                                 risks of eventual consistency for financial transactions. \
+                                 However, also describe one scenario where eventual consistency \
+                                 could be acceptable despite those risks.",
+                required_structural: &["risk", "inconsistent", "financial", "however", "could"],
+                target_word_count: 120,
+            },
+            ReasoningPhase {
                 name: "evaluate",
-                prompt_suffix: "Make a final recommendation. State clearly which system to choose \
-                                 and provide exactly two reasons that justify the choice.",
-                required_structural: &["recommend", "because", "first", "second", "choose"],
-                target_word_count: 80,
+                prompt_suffix: "Make a final recommendation: first state which system to choose, \
+                                 second give your primary reason because of the financial context. \
+                                 However, explicitly name one condition under which the other \
+                                 system could become the better choice.",
+                required_structural: &["first", "second", "because", "however", "could"],
+                target_word_count: 100,
             },
         ],
     },
@@ -140,25 +150,30 @@ const REASONING_TASKS: &[ReasoningTask] = &[
         phases: [
             ReasoningPhase {
                 name: "plan",
-                prompt_suffix: "Identify the logical structure of this argument. \
-                                 Name the premises and the conclusion explicitly.",
-                required_structural: &["premise", "conclusion", "therefore", "follows", "argument"],
-                target_word_count: 60,
+                prompt_suffix: "Label each component: 'Premise 1', 'Premise 2', 'Conclusion'. \
+                                 State what follows logically from the premises. \
+                                 Note whether this argument might be interpreted as valid \
+                                 under a different reading.",
+                required_structural: &["premise", "conclusion", "therefore", "follows", "might"],
+                target_word_count: 80,
             },
             ReasoningPhase {
                 name: "execute",
-                prompt_suffix: "Evaluate whether the argument is logically valid. \
-                                 If invalid, name the specific logical fallacy.",
-                required_structural: &["invalid", "fallacy", "affirm", "converse", "does not follow"],
-                target_word_count: 80,
+                prompt_suffix: "Evaluate logical validity. If the argument is invalid, name the \
+                                 specific logical fallacy. \
+                                 Consider whether there might be a charitable interpretation \
+                                 that avoids the fallacy, and if so why it still fails.",
+                required_structural: &["invalid", "fallacy", "affirm", "converse", "might"],
+                target_word_count: 100,
             },
             ReasoningPhase {
                 name: "evaluate",
-                prompt_suffix: "Provide a corrected version of the argument that is \
-                                 logically valid, and explain what additional evidence \
-                                 would be needed to support the original claim.",
-                required_structural: &["corrected", "evidence", "if", "then", "valid"],
-                target_word_count: 80,
+                prompt_suffix: "Provide a corrected argument using 'if ... then ...' structure. \
+                                 State what evidence would be needed for the original claim. \
+                                 However, note one assumption that might still undermine \
+                                 even the corrected version.",
+                required_structural: &["corrected", "evidence", "if", "then", "might"],
+                target_word_count: 100,
             },
         ],
     },
@@ -170,24 +185,28 @@ const REASONING_TASKS: &[ReasoningTask] = &[
         phases: [
             ReasoningPhase {
                 name: "plan",
-                prompt_suffix: "List all constraints explicitly and state which ordering \
-                                 rules they impose on the tasks.",
-                required_structural: &["constraint", "T1", "T3", "before", "after"],
-                target_word_count: 70,
+                prompt_suffix: "Label each constraint 'Constraint 1', 'Constraint 2', etc. \
+                                 State the ordering rule each imposes. \
+                                 Note if any constraint might be interpreted in more than one way.",
+                required_structural: &["constraint", "T1", "T3", "before", "might"],
+                target_word_count: 80,
             },
             ReasoningPhase {
                 name: "execute",
-                prompt_suffix: "Construct a concrete schedule. State the start time of each \
-                                 task in hours from 0. Show that all constraints are satisfied.",
-                required_structural: &["start", "hour", "T1", "T2", "T3", "T4", "satisfied"],
-                target_word_count: 100,
+                prompt_suffix: "Construct a concrete schedule. State the start time of each task \
+                                 in hours from 0 and show all constraints are satisfied. \
+                                 However, note whether an alternative valid ordering might \
+                                 also satisfy all constraints.",
+                required_structural: &["start", "hour", "T1", "T3", "however", "might"],
+                target_word_count: 120,
             },
             ReasoningPhase {
                 name: "evaluate",
-                prompt_suffix: "Calculate the total idle time in your schedule. Determine \
-                                 whether a better schedule exists, and if so why.",
-                required_structural: &["idle", "total", "hours", "optimal", "because"],
-                target_word_count: 70,
+                prompt_suffix: "Calculate the total idle time. Use 'because' to justify whether \
+                                 a schedule with less idle time could exist. \
+                                 Note one assumption about the workday that might not hold in practice.",
+                required_structural: &["idle", "total", "hours", "because", "might"],
+                target_word_count: 80,
             },
         ],
     },
