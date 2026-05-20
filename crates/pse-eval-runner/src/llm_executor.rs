@@ -86,7 +86,7 @@ const REASONING_TASKS: &[ReasoningTask] = &[
                                  Explain why you investigate the ingestion service first. \
                                  Alternatively, name which component you would start with if the \
                                  ingestion service were unavailable, and why that might change your approach.",
-                required_structural: &["step", "service", "backend", "alternatively", "might"],
+                required_structural: &["step", "alternatively", "might"],
                 target_word_count: 100,
             },
             ReasoningPhase {
