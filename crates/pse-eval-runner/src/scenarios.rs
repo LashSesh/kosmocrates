@@ -61,31 +61,6 @@ impl CognitionScenario {
     }
 }
 
-// ── thresholds for B6 (real cognition) ───────────────────────────────────
-
-/// Real cognition thresholds that make gates meaningful.
-///
-/// Gate design (mit constraint_count=1 für LLM-Tasks):
-/// - `min_constraint_mass = 0.6`: support_strength >= 0.6 erforderlich.
-///   Starke Antwort (alle Elemente): support=1.0 >= 0.6 → Bundle.
-///   Schwache Antwort (halbe Elemente): support=0.4 < 0.6 → Hold.
-/// - `min_panorama_coverage = 0.1`: 1/(step+1) >= 0.1 → Schritt ≤ 9.
-/// - `min_self_model_coherence = 0.4`: rho/(rho+|tau|) >= 0.4.
-///   Unsichere Antwort (hohe τ): instabile Selbstmodell → Hold.
-pub fn thresholds_b6() -> CognitionThresholds {
-    CognitionThresholds {
-        min_resonance: f(0.0),
-        max_entropy: f(2.0),
-        min_constraint_mass: f(0.6),
-        min_entropy_reduction: f(0.0),
-        min_feasible_uniqueness: f(0.0),
-        min_panorama_coverage: f(0.1),
-        min_self_model_coherence: f(0.4),
-        max_drift: f(2.0),
-        min_attractor_score: f(0.0),
-        min_trigger_score: f(0.0),
-    }
-}
 
 // ── Scenario builders ─────────────────────────────────────────────────────
 
@@ -283,9 +258,9 @@ pub fn scenario_unstable_self_model(seed: u64) -> CognitionScenario {
     }
 }
 
-/// Wormhole admission: panorama at boundary (step=9, coverage=0.1) + full mass.
+/// Wormhole admission: panorama at boundary (step=7, coverage=0.1) + full mass.
 ///
-/// logical_step=9 → coverage=1/10=0.1 exactly == min_panorama_coverage for B6.
+/// coverage = support_strength / (step+1) = 0.8 / 8 = 0.1 exactly.
 /// `fixed_ge(coverage, min_coverage)` is true when equal → passes.
 /// Both B0 and B6 → Bundle.
 pub fn scenario_wormhole_boundary(seed: u64) -> CognitionScenario {
@@ -307,8 +282,8 @@ pub fn scenario_wormhole_boundary(seed: u64) -> CognitionScenario {
             spiral_memory_candidates: vec![mem_state],
             constraint_count: 5,
             support_strength: f(0.8),
-            // step=9 → coverage=1/10=0.1 == min_panorama_coverage → passes
-            logical_step: 9,
+            // step=7 → coverage = 0.8/8 = 0.1 == min_panorama_coverage → passes exactly
+            logical_step: 7,
             carrier_ids: vec!["c.0".into(), "c.1".into()],
         },
         expected: ExpectedOutcome::Bundle,
@@ -411,5 +386,130 @@ pub fn rd_for_scenario(
         thresholds,
         policies: CognitionPolicies::default_policies(),
         canonicalization_version: "cognition-v0.1".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pse_traverse::cognition::{pipeline::run_cognition, CognitionOutcome};
+
+    use super::*;
+
+    const SEED: u64 = 42;
+
+    fn is_bundle(outcome: &CognitionOutcome) -> bool {
+        matches!(outcome, CognitionOutcome::CandidateBundle { .. })
+    }
+
+    // ── B6: every scenario must hit its expected outcome ──────────────────
+
+    #[test]
+    fn b6_convergent_bundles() {
+        let s = scenario_convergent(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "convergent must bundle under B6");
+    }
+
+    #[test]
+    fn b6_deadlock_holds() {
+        let s = scenario_deadlock(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(!is_bundle(&r.outcome), "deadlock must hold under B6");
+    }
+
+    #[test]
+    fn b6_exploratory_bundle_bundles() {
+        let s = scenario_exploratory_bundle(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "exploratory_bundle must bundle under B6");
+    }
+
+    #[test]
+    fn b6_panorama_collapse_holds() {
+        let s = scenario_panorama_collapse(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(!is_bundle(&r.outcome), "panorama_collapse must hold under B6 (coverage < 0.1)");
+    }
+
+    #[test]
+    fn b6_memory_recall_bundles() {
+        let s = scenario_memory_recall(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "memory_recall must bundle under B6");
+    }
+
+    #[test]
+    fn b6_unstable_self_model_holds() {
+        let s = scenario_unstable_self_model(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(!is_bundle(&r.outcome), "unstable_self_model must hold under B6");
+    }
+
+    #[test]
+    fn b6_wormhole_boundary_bundles() {
+        let s = scenario_wormhole_boundary(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "wormhole_boundary must bundle under B6 (coverage == 0.1 passes)");
+    }
+
+    #[test]
+    fn b6_full_stack_bundles() {
+        let s = scenario_full_stack(SEED);
+        let rd = rd_for_scenario(s.name, 6, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "full_stack must bundle under B6");
+    }
+
+    // ── B0: permissive baseline commits where B6 holds ────────────────────
+
+    #[test]
+    fn b0_deadlock_bundles_false_positive() {
+        let s = scenario_deadlock(SEED);
+        let rd = rd_for_scenario(s.name, 0, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "deadlock must bundle under B0 (permissive — false positive)");
+    }
+
+    #[test]
+    fn b0_panorama_collapse_bundles_false_positive() {
+        let s = scenario_panorama_collapse(SEED);
+        let rd = rd_for_scenario(s.name, 0, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "panorama_collapse must bundle under B0 (no coverage threshold)");
+    }
+
+    #[test]
+    fn b0_unstable_self_model_bundles_false_positive() {
+        let s = scenario_unstable_self_model(SEED);
+        let rd = rd_for_scenario(s.name, 0, SEED);
+        let r = run_cognition(&s.input, &rd).unwrap();
+        assert!(is_bundle(&r.outcome), "unstable_self_model must bundle under B0 (no coherence threshold)");
+    }
+
+    // ── Suite: expected field is always correct ───────────────────────────
+
+    #[test]
+    fn suite_expected_fields_match_b6_outcomes() {
+        let suite = build_scenario_suite(SEED);
+        for s in &suite {
+            let rd = rd_for_scenario(s.name, 6, SEED);
+            let r = run_cognition(&s.input, &rd).unwrap();
+            let got_bundle = is_bundle(&r.outcome);
+            assert_eq!(
+                got_bundle,
+                s.expected_bundle(),
+                "scenario '{}': expected={:?} got bundle={}",
+                s.name,
+                s.expected,
+                got_bundle,
+            );
+        }
     }
 }
