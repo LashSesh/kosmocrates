@@ -7,8 +7,7 @@
 use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{fixed_add, fixed_div, fixed_from_f64, fixed_mul, Fixed, Hash256, LpcmError, LpcmResult};
-use super::candidate::CandidateDirection;
+use super::primitives::{fixed_add, fixed_div, fixed_mul, Fixed, Hash256, LpcmResult};
 
 /// The 7 raw support factors for one candidate in a fragment.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

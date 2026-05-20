@@ -44,6 +44,7 @@
 //! end-to-end pass.
 
 pub mod attractor_map;
+pub mod filter;
 pub mod canonical_state;
 pub mod cognitive_state_5d;
 pub mod constraint_lattice;
@@ -90,6 +91,7 @@ pub use phase_panorama::{
     build_panorama_minimal, build_panorama_with_quality, AttractorCandidate, ChoiceGeometryReport, Horizon360, PhasePanorama,
     PhasePath, PhasePathStatus, PhasePathSummary, RecognitionBoundary,
 };
+pub use filter::{CognitionFilter, FilterResult};
 pub use pipeline::{run_cognition, CognitionInput, CognitionRunResult, CognitiveComponents};
 pub use primitives::{
     fixed_abs_diff, fixed_add, fixed_ge, fixed_le, fixed_sub, max_fixed, min_fixed, CognitionError,

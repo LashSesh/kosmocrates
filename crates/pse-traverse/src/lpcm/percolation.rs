@@ -5,9 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{fixed_add, fixed_from_f64, fixed_ge, Fixed, Hash256, lpcm_content_address, LpcmResult};
+use super::primitives::{fixed_add, fixed_ge, Fixed, Hash256, lpcm_content_address, LpcmResult};
 use super::run_descriptor::LpcmRunDescriptor;
-use super::seam::{SeamEdge, SeamPercolationGraph};
+use super::seam::SeamPercolationGraph;
 
 /// A percolative path through the seam graph.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

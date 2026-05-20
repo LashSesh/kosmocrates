@@ -20,7 +20,6 @@ use std::process::ExitCode;
 use pse_traverse::lpcm::{
     evidence::LpcmInputWindow,
     pipeline::run_lpcm,
-    primitives::{EvidenceRef, Hash256},
     replay::verify_lpcm_replay,
     run_descriptor::{LpcmPolicies, LpcmRunDescriptor, LpcmThresholds},
 };

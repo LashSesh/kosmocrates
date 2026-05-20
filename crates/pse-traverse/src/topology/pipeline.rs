@@ -16,7 +16,7 @@ use super::mesh_holo::{evolve_mesh, seed_mesh_holo, MeshHolo};
 use super::mesh_weights::weight_mesh_with_microfibers;
 use super::micro_fiber::{lift_micro_fibers, MicroFiber};
 use super::phase_window::{build_phase_space_window, PhaseSpaceWindow, TptMtlInput};
-use super::primitives::{tpt_content_address, Hash256, TopologyError};
+use super::primitives::{Hash256, TopologyError};
 use super::refine::refine_recursive;
 use super::reinterpret::{reinterpret_mesh_to_panoptic, ReinterpretationReport};
 use super::replay::ReplayManifest;

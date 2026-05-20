@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{content_address, EvidenceRef, Fixed, Hash256, MetatronError, StableId};
+use super::primitives::{content_address, EvidenceRef, Fixed, Hash256, MetatronError};
 
 /// Conformance class of the Metatron closure run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

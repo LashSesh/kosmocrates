@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{fixed_add, fixed_div, fixed_from_f64, fixed_ge, Fixed, Hash256, lpcm_content_address, LpcmResult};
+use super::primitives::{fixed_add, fixed_div, fixed_ge, Fixed, Hash256, lpcm_content_address, LpcmResult};
 use super::percolation::PercolativePath;
 use super::run_descriptor::{CoarseGrainPolicy, LpcmRunDescriptor};
 

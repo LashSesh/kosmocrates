@@ -14,7 +14,7 @@ use super::local_gate::{
 };
 use super::partition::{partition_window, validate_descriptor};
 use super::percolation::find_percolative_paths;
-use super::primitives::{lpcm_content_address, EvidenceRef, Fixed, Hash256, LpcmResult};
+use super::primitives::{lpcm_content_address, Fixed, Hash256, LpcmResult};
 use super::report::{build_hierarchical_collapse_report, HierarchicalCollapseReport};
 use super::run_descriptor::LpcmRunDescriptor;
 use super::seam::build_seam_percolation_graph;

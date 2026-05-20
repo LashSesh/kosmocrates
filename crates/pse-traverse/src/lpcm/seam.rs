@@ -191,7 +191,7 @@ fn compute_connected_components(
 
     let mut components: Vec<PercolationComponent> = comp_map
         .into_iter()
-        .map(|(root, mut members)| {
+        .map(|(_root, mut members)| {
             members.sort();
             let is_percolating = members.len() > 1;
             let component_id = lpcm_content_address(&members).unwrap_or(Hash256::zero());

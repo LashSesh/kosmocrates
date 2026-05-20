@@ -1,6 +1,5 @@
 //! LPCM primitive types: Hash256, StableId, Fixed, EvidenceRef, ContentAddressed.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 pub use crate::dynamic_state::{CanonicalNumber, Hash256};

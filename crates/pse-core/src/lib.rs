@@ -5,6 +5,7 @@
 
 pub mod adaptive;
 pub mod crystal_adapter;
+pub mod engine_filter;
 pub mod explore;
 pub mod falsify;
 pub mod metatron_attach;
@@ -12,6 +13,7 @@ pub mod query;
 pub mod topology_ops;
 
 pub use crystal_adapter::CrystalAdapter;
+pub use engine_filter::{EngineFilter, StepResult};
 pub use explore::{resonance_landscape_explorer, ResonanceExplorationResult, ResonanceProbe};
 pub use metatron_attach::{
     attach_signature, attach_signature_global, induced_adjacency, signature_for_region,

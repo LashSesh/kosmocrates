@@ -405,8 +405,17 @@ impl TrialExecutor for CerebrasTrialExecutor {
         let api_key = std::env::var("CEREBRAS_API_KEY").unwrap_or_default();
         let layer_count = variant.layer_mask.count_layers();
 
-        // Wähle Task deterministisch per Seed.
-        let task = &REASONING_TASKS[descriptor.seed as usize % REASONING_TASKS.len()];
+        // Wähle Task deterministisch per Workload-ID.
+        // Jede Workload-Familie testet ein spezifisches Reasoning-Muster —
+        // die Zuordnung ist semantisch, nicht zufällig.
+        let task_idx = match workload.workload_id.as_str() {
+            "w.code_agent_patch"  => 0, // system_analysis: Systemkomponenten debuggen
+            "w.traversal_puzzle"  => 1, // trade_off_decision: Pfad-/Optionswahl
+            "w.doc_synthesis"     => 2, // argument_analysis: Argumentstruktur auswerten
+            "w.memory_reuse"      => 3, // constraint_satisfaction: Scheduling/Optimierung
+            _                     => descriptor.seed as usize % REASONING_TASKS.len(),
+        };
+        let task = &REASONING_TASKS[task_idx];
 
         let system_msg = format!(
             "You are a precise reasoning assistant. Scenario:\n\n{}",

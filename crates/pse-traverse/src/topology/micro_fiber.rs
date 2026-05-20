@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::carrier::CarrierContext;
 use super::dual_antiphase::{apply_mtl_d1, DualAntiphase};
 use super::mesh_holo::MeshHolo;
 use super::phase_window::PhaseSpaceWindow;
@@ -13,7 +12,7 @@ use super::primary_phase::{compute_primary_phase, PrimaryPhase};
 use super::primitives::{tpt_content_address, Hash256, TopologyError};
 use super::run_descriptor::TptMtlRunDescriptor;
 use super::seam::{compute_seam, SeamComponent};
-use super::subwindow::{build_local_subwindow, LocalSubwindow};
+use super::subwindow::build_local_subwindow;
 
 /// A complete MicroFiber for one point (TPT-MTL §8.3).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

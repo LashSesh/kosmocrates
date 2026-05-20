@@ -1,7 +1,5 @@
 //! Mesh weighting with MicroFiber signals (TPT-MTL §9.1: WeightMicroMesh).
 
-use serde::{Deserialize, Serialize};
-
 use super::mesh_holo::{MeshEdge, MeshHolo};
 use super::micro_fiber::MicroFiber;
 use super::persistence::add_fixed;

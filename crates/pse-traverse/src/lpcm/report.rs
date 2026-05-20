@@ -129,10 +129,10 @@ fn compute_metrics(
     patch_reports: &[(LocalTopologyPatch, SupportMassVector, super::local_gate::LocalCondensationBit)],
     paths: &[PercolativePath],
     condensates: &[CoarseGrainCondensate],
-    local_candidates: &[LocalCondensationCandidate],
+    _local_candidates: &[LocalCondensationCandidate],
 ) -> LpcmMetrics {
     use super::metrics::LpcmMetrics;
-    use super::primitives::{fixed_from_f64, normalize_rational};
+    use super::primitives::normalize_rational;
 
     let fragment_count = patch_reports.len() as u64;
     let triangulable = patch_reports.iter().filter(|(p, _, _)| p.invariant_summary.is_triangulable).count();

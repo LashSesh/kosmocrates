@@ -111,6 +111,7 @@ impl CommandExecutor for ProcessExecutor {
 }
 
 enum RunError {
+    #[allow(dead_code)]
     Timeout,
     Io(String),
 }

@@ -104,7 +104,6 @@ pub fn run(
                     ValidationPhase::Quality => {
                         let key = command.argv.get(1).cloned().unwrap_or_default();
                         quality_exits.insert(key, failed.exit_code);
-                        quality_failed = true;
                     }
                     ValidationPhase::Benchmark => {
                         let key = command.argv.get(4).cloned().unwrap_or_default();

@@ -2,7 +2,7 @@
 
 use super::evidence::LpcmInputWindow;
 use super::fragment::{FragmentedPhaseSpaceWindow, FragmentRef};
-use super::primitives::{Hash256, LpcmError, LpcmResult, lpcm_content_address};
+use super::primitives::{LpcmError, LpcmResult};
 
 /// Canonicalize the raw input window. Returns an owned canonical copy.
 pub fn canonicalize_input(input: LpcmInputWindow) -> LpcmResult<LpcmInputWindow> {
