@@ -211,19 +211,37 @@ fn call_cerebras(api_key: &str, model: &str, system: &str, user: &str) -> Result
         "temperature": 0
     });
 
-    let resp = client
-        .post("https://api.cerebras.ai/v1/chat/completions")
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .map_err(|e| e.to_string())?;
+    let retry_delays = [5u64, 10, 20];
+    let mut attempt = 0usize;
+    loop {
+        let resp = client
+            .post("https://api.cerebras.ai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .map_err(|e| e.to_string())?;
 
-    let val: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
-    val["choices"][0]["message"]["content"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| format!("unexpected API shape: {val}"))
+        let val: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
+
+        if val["type"] == "too_many_requests_error"
+            || val["error"]["type"] == "too_many_requests_error"
+        {
+            if attempt < retry_delays.len() {
+                let wait = retry_delays[attempt];
+                eprintln!(" [rate-limit, warte {wait}s …]");
+                std::thread::sleep(std::time::Duration::from_secs(wait));
+                attempt += 1;
+                continue;
+            }
+            return Err(format!("unexpected API shape: {val}"));
+        }
+
+        return val["choices"][0]["message"]["content"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| format!("unexpected API shape: {val}"));
+    }
 }
 
 // ── Deterministic CI stub ─────────────────────────────────────────────────
