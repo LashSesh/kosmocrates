@@ -27,3 +27,5 @@ pse-scheduler = { path = "../pse-scheduler" }
 pse-replay = { path = "../pse-replay" }
 pse-manifest = { path = "../pse-manifest" }
 pse-pmhd = { path = "../pse-pmhd" }
+pse-memory = { path = "../pse-memory" }
+serde_json = { workspace = true }

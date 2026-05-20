@@ -1608,6 +1608,7 @@ dependencies = [
  "pse-extract",
  "pse-graph",
  "pse-manifest",
+ "pse-memory",
  "pse-navigator",
  "pse-pmhd",
  "pse-registry",
@@ -1618,6 +1619,7 @@ dependencies = [
  "pse-swarm",
  "pse-topology",
  "pse-types",
+ "serde_json",
 ]
 
 [[package]]

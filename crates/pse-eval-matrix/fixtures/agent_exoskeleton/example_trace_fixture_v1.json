@@ -1,0 +1,155 @@
+{
+  "fixture_schema_version": "v1_external_trace_fixture_scaffold",
+  "fixture_name": "example_layer1_trace_fixture_v1",
+  "intended_layer": "Layer-1 Agent Exoskeleton Candidate-Relevance Evaluation",
+  "diagnostic_only": true,
+  "productive_agent_validated": false,
+  "cases": [
+    {
+      "trace_id": "ext_fixture_trace_001",
+      "title": "External fixture: cargo test failure in pse-eval-matrix",
+      "variant_kind": "Expanded",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo test -p pse-eval-matrix --lib",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "FAILED test agent_exoskeleton::tests::replay_true",
+          "timestamp_hint": "t1"
+        },
+        {
+          "event_id": "e3",
+          "source": "user_report",
+          "message": "trace replay identity broken after recent refactor",
+          "timestamp_hint": null
+        }
+      ],
+      "candidates": [
+        {
+          "id": "ext_c1",
+          "source": "crates/pse-eval-matrix/src/agent_exoskeleton.rs",
+          "text": "causal inspect_path action_required command_context crates/pse-eval-matrix/src/agent_exoskeleton.rs cargo test replay identity source_path",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "ext_c2",
+          "source": "crates/pse-eval-matrix/src/lib.rs",
+          "text": "inspect_path related_module exports replay source_path crates/pse-eval-matrix/src/lib.rs",
+          "tags": ["inspect_path", "related_module"],
+          "relevance_rank_hint": 2
+        },
+        {
+          "id": "ext_c3",
+          "source": "target/tmp/old_report.json",
+          "text": "stale red_herring report_artifact target/tmp/old_report.json unrelated old noncausal",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ext_c4",
+          "source": "target/debug/build",
+          "text": "stale red_herring build_artifact target/debug noncausal unrelated misleading",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ext_c5",
+          "source": "Cargo.lock",
+          "text": "unrelated lock_file dependency noncausal red_herring false_path Cargo.lock",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["ext_c1"],
+        "causal_logs": [],
+        "causal_commands": ["cargo test -p pse-eval-matrix --lib"],
+        "correct_next_actions": ["inspect crates/pse-eval-matrix/src/agent_exoskeleton.rs"],
+        "rejected_false_paths": [
+          "target/tmp/old_report.json",
+          "target/debug/build",
+          "Cargo.lock",
+          "stale_artifact"
+        ],
+        "resolution_label": "source_path_failure"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only"]
+    },
+    {
+      "trace_id": "ext_fixture_trace_002",
+      "title": "External fixture: fmt check failure diagnostic",
+      "variant_kind": "Expanded",
+      "events": [
+        {
+          "event_id": "e1",
+          "source": "command",
+          "message": "cargo fmt --all -- --check",
+          "timestamp_hint": "t0"
+        },
+        {
+          "event_id": "e2",
+          "source": "output",
+          "message": "Diff in crates/pse-eval-matrix/src/agent_exoskeleton.rs",
+          "timestamp_hint": "t1"
+        }
+      ],
+      "candidates": [
+        {
+          "id": "ext_d1",
+          "source": "crates/pse-eval-matrix/src/agent_exoskeleton.rs",
+          "text": "causal inspect_path action_required fmt_fix command_context crates/pse-eval-matrix/src/agent_exoskeleton.rs format diff source_path",
+          "tags": ["causal", "action_required", "inspect_path"],
+          "relevance_rank_hint": 1
+        },
+        {
+          "id": "ext_d2",
+          "source": "target/tmp/fmt_report.json",
+          "text": "stale red_herring report_artifact target/tmp/fmt_report.json unrelated old noncausal",
+          "tags": ["stale", "red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ext_d3",
+          "source": "README.md",
+          "text": "unrelated documentation noncausal red_herring false_path README.md",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ext_d4",
+          "source": "target/debug",
+          "text": "stale build_artifact target/debug noncausal unrelated misleading",
+          "tags": ["stale", "distractor"],
+          "relevance_rank_hint": null
+        },
+        {
+          "id": "ext_d5",
+          "source": "Cargo.toml",
+          "text": "unrelated manifest dependency noncausal red_herring false_path Cargo.toml",
+          "tags": ["red_herring", "distractor"],
+          "relevance_rank_hint": null
+        }
+      ],
+      "ground_truth": {
+        "causal_files": ["ext_d1"],
+        "causal_logs": [],
+        "causal_commands": ["cargo fmt --all -- --check"],
+        "correct_next_actions": ["run cargo fmt on crates/pse-eval-matrix/src/agent_exoskeleton.rs"],
+        "rejected_false_paths": [
+          "target/tmp/fmt_report.json",
+          "README.md",
+          "target/debug",
+          "stale_artifact"
+        ],
+        "resolution_label": "fmt_diff_source_path"
+      },
+      "tags": ["external", "fixture", "layer1_candidate_causal", "diagnostic_only"]
+    }
+  ]
+}
