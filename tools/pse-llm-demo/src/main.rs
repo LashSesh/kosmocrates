@@ -42,7 +42,6 @@ mod observe;
 use std::time::Instant;
 
 use pse_core::{load_memory_from_crystals, macro_step, GlobalState};
-use pse_graph::PassthroughAdapter;
 use pse_types::{Config, SemanticCrystal};
 
 use context::{print_ab_report, render_crystal_context};
@@ -66,7 +65,7 @@ fn pse_config() -> Config {
     config.calibration.window = 20;
     config.calibration.warmup_ticks = 2;
     config.carrier.adaptive = true;
-    // LLM prose via PassthroughAdapter produces much lower metric values than
+    // LLM prose via PassthroughAdapter (avalanche-hash phases) produces much lower metric values than
     // structured sensor data. The static thresholds serve double duty: they
     // are the base for adaptive calibration AND are used directly in the hard
     // seam check (n) that runs after the Kairos gate. Consensus thresholds
@@ -90,7 +89,7 @@ fn pse_config() -> Config {
 fn ingest_text(
     state: &mut GlobalState,
     config: &Config,
-    adapter: &PassthroughAdapter,
+    adapter: &observe::TextPhaseAdapter,
     chunks: &[Vec<u8>],
 ) -> Vec<(SemanticCrystal, Vec<String>)> {
     let window_size = 4;
@@ -145,7 +144,7 @@ fn main() {
         println!();
     }
 
-    let adapter = PassthroughAdapter::new("llm-substrate");
+    let adapter = observe::TextPhaseAdapter::new("llm-substrate");
 
     // ── Session 2+: replay prior responses ───────────────────────────────────
     let mut replay_hits: u64 = 0;

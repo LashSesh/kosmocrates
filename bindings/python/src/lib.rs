@@ -4,11 +4,49 @@
 //!   maturin develop --release   # editable install into current venv
 //!   maturin build  --release    # produce a wheel
 
+use std::f64::consts::TAU;
+
 use ::pse_core::{load_memory_from_crystals, macro_step, GlobalState};
-use ::pse_graph::PassthroughAdapter;
-use ::pse_types::{Config, SemanticCrystal};
+use ::pse_graph::{ObservationAdapter, ObserveError};
+use ::pse_types::{
+    content_address_raw, Config, MeasurementContext, Observation, ProvenanceEnvelope,
+    SemanticCrystal,
+};
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
+
+struct TextPhaseAdapter {
+    source_id: String,
+}
+
+impl TextPhaseAdapter {
+    fn new(source: impl Into<String>) -> Self {
+        Self { source_id: source.into() }
+    }
+}
+
+impl ObservationAdapter for TextPhaseAdapter {
+    fn source_id(&self) -> &str { &self.source_id }
+
+    fn canonicalize(&self, raw: &[u8], context: &MeasurementContext) -> Result<Observation, ObserveError> {
+        let phase = if raw.is_empty() { 0.0 } else {
+            let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
+            (avg / 255.0) * TAU
+        };
+        let payload = raw.to_vec();
+        let digest = content_address_raw(&payload);
+        Ok(Observation {
+            timestamp: 0.0,
+            source_id: self.source_id.clone(),
+            provenance: ProvenanceEnvelope { origin: self.source_id.clone(), chain: Vec::new(), sig: None },
+            payload,
+            context: context.clone(),
+            digest,
+            schema_version: "1.0.0".to_string(),
+            phase_hint: Some(phase),
+        })
+    }
+}
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -76,7 +114,7 @@ fn chunk_text(text: &str) -> Vec<Vec<u8>> {
 fn ingest_chunks(
     state: &mut GlobalState,
     config: &Config,
-    adapter: &PassthroughAdapter,
+    adapter: &TextPhaseAdapter,
     chunks: &[Vec<u8>],
 ) -> Vec<SemanticCrystal> {
     const WINDOW: usize = 4;
@@ -95,7 +133,7 @@ fn ingest_chunks(
 fn ingest_chunks_tracked(
     state: &mut GlobalState,
     config: &Config,
-    adapter: &PassthroughAdapter,
+    adapter: &TextPhaseAdapter,
     chunks: &[Vec<u8>],
 ) -> Vec<(SemanticCrystal, Vec<String>)> {
     const WINDOW: usize = 4;
@@ -250,7 +288,7 @@ impl PseCrystalRecord {
 pub struct PseState {
     state:    GlobalState,
     config:   Config,
-    adapter:  PassthroughAdapter,
+    adapter:  TextPhaseAdapter,
     crystals: Vec<SemanticCrystal>,
     records:  Vec<CrystalRecordData>,
 }
@@ -288,7 +326,7 @@ impl PseState {
         }
 
         let name = source_name.unwrap_or("pse-python");
-        let adapter = PassthroughAdapter::new(name);
+        let adapter = TextPhaseAdapter::new(name);
 
         Ok(PseState { state, config, adapter, crystals, records })
     }
