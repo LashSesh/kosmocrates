@@ -1,8 +1,8 @@
 //! PHASEMATRIX-HIVEMIND-03 / 03.1 — Morphodynamic Resonance Cell Substrate
 //! with Dual-Fabric Field-Tensor Stitch Layer.
 //!
-//! See `specs/PHASEMATRIX_HIVEMIND_03.pdf` for the v0.3 normative
-//! specification, `specs/phasematrix_hivemind_dual_fabric_stitch_spec_v0_3_1.pdf`
+//! See `specs/phasematrix_hivemind_morphodynamic_cell_spec_v0_3.pdf` for the
+//! v0.3 normative specification, `specs/phasematrix_hivemind_dual_fabric_stitch_spec_v0_3_1.pdf`
 //! for the v0.3.1 additive patch, and `specs/ADAMANT_v1.0.0.pdf` for the
 //! constitutional architectural contract this crate aligns to.
 //!
