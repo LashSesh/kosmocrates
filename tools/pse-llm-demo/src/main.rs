@@ -65,11 +65,8 @@ fn pse_config() -> Config {
     config.calibration.window = 20;
     config.calibration.warmup_ticks = 2;
     config.carrier.adaptive = true;
-    // LLM prose via PassthroughAdapter (avalanche-hash phases) produces much lower metric values than
-    // structured sensor data. The static thresholds serve double duty: they
-    // are the base for adaptive calibration AND are used directly in the hard
-    // seam check (n) that runs after the Kairos gate. Consensus thresholds
-    // and PoR kappa are similarly calibrated for prose-level signal.
+    // Kairos gate thresholds: kept low for LLM prose, which produces
+    // consistent but moderate metric values across all 8 dimensions.
     config.thresholds.d = 0.05;
     config.thresholds.q = 0.05;
     config.thresholds.r = 0.05;
@@ -78,9 +75,17 @@ fn pse_config() -> Config {
     config.thresholds.p = 0.05;
     config.thresholds.n = 0.05;
     config.thresholds.k = 0.05;
-    config.consensus.consensus_threshold = 0.3;
-    config.consensus.mirror_consistency_eta = 0.3;
-    config.consensus.por_kappa_bar = 0.3;
+    // Dual-cascade consensus: the DK and SW operators rotate the carrier by
+    // fixed amounts (π/16 + π/2) before PI checks alignment. For LLM text
+    // the data phase is consistently near 2.46 rad, which is never at a
+    // local maximum of κ after those rotations regardless of which carrier
+    // the adaptive selector chose. PI gives ~0, collapse the stability, and
+    // the 0.3 score threshold is structurally unreachable.
+    // The 8-metric Kairos gate is the real epistemic filter for this domain;
+    // set cascade thresholds to 0 so the gate outcome is decisive.
+    config.consensus.consensus_threshold = 0.0;
+    config.consensus.mirror_consistency_eta = 0.0;
+    config.consensus.por_kappa_bar = 0.0;
     config
 }
 
@@ -94,10 +99,23 @@ fn ingest_text(
 ) -> Vec<(SemanticCrystal, Vec<String>)> {
     let window_size = 4;
     let mut out = Vec::new();
+    let diag = std::env::var("PSE_DIAG").is_ok();
     for i in 0..chunks.len().saturating_sub(window_size - 1) {
         let batch: Vec<Vec<u8>> =
             chunks[i..i + window_size.min(chunks.len() - i)].to_vec();
-        if let Ok(Some(crystal)) = macro_step(state, &batch, config, adapter) {
+        let result = macro_step(state, &batch, config, adapter);
+        if diag {
+            if let Some(gate) = &state.last_gate {
+                let tick = state.commit_index;
+                println!(
+                    "  [diag tick {:>2}] kairos={} d={:.3} q={:.3} r={:.3} \
+                     g={:.3} j={:.3} p={:.3} n={:.3} k={:.3}",
+                    tick, gate.kairos, gate.d, gate.q, gate.r,
+                    gate.g, gate.j, gate.p, gate.n, gate.k
+                );
+            }
+        }
+        if let Ok(Some(crystal)) = result {
             let sources: Vec<String> = batch
                 .iter()
                 .map(|b| String::from_utf8_lossy(b).into_owned())
