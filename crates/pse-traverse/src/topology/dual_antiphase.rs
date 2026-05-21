@@ -7,7 +7,7 @@
 //! Formula (4):
 //!   D_i = I − 2 v_i v_i^T / (||v_i||² + ε)
 //!   v_i = x_i − x̄_U_i
-//!   x_i⁻ = clip[0,1]^5(x̄_U_i + D_i(x_i − x̄_U_i))
+//!   x_i⁻ = clip`[0,1]`^5(x̄_U_i + D_i(x_i − x̄_U_i))
 //!
 //! Intermediate arithmetic uses f64 to avoid rational overflow in nested
 //! multiplications; the result is quantized back to Fixed (scale=9) before

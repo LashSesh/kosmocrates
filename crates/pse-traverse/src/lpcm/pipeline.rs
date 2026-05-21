@@ -67,8 +67,7 @@ pub fn run_lpcm(
 
         let candidates = generate_candidate_directions(&rd, &patch, fragment);
         let raw_factors = compute_raw_factors(&rd, &patch, &candidates);
-        let support =
-            compute_normalized_support(fragment.fragment_id.clone(), raw_factors)?;
+        let support = compute_normalized_support(fragment.fragment_id.clone(), raw_factors)?;
         let bit = evaluate_local_condensation(
             &fragment.fragment_id,
             &support,
@@ -118,10 +117,10 @@ fn generate_candidate_directions(
     let max = rd.policies.support_policy.max_candidates_per_patch as usize;
 
     for (i, edge) in patch.edges.iter().take(max.saturating_sub(1)).enumerate() {
-        let sig_hash = lpcm_content_address(&(&edge.edge_id, "candidate", i))
-            .unwrap_or(Hash256::zero());
-        let candidate_id = lpcm_content_address(&(&fragment.fragment_id, &sig_hash))
-            .unwrap_or(Hash256::zero());
+        let sig_hash =
+            lpcm_content_address(&(&edge.edge_id, "candidate", i)).unwrap_or(Hash256::zero());
+        let candidate_id =
+            lpcm_content_address(&(&fragment.fragment_id, &sig_hash)).unwrap_or(Hash256::zero());
         candidates.push(CandidateDirection {
             candidate_id,
             fragment_id: fragment.fragment_id.clone(),

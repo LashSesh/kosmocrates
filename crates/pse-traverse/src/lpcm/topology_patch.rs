@@ -112,9 +112,8 @@ pub fn build_local_topology_patch(
     // Build edges: consecutive vertex pairs.
     let mut edges: Vec<TopologyEdge> = Vec::new();
     for i in 0..vertices.len().saturating_sub(1) {
-        let edge_id =
-            lpcm_content_address(&(&vertices[i].vertex_id, &vertices[i + 1].vertex_id))
-                .unwrap_or(Hash256::zero());
+        let edge_id = lpcm_content_address(&(&vertices[i].vertex_id, &vertices[i + 1].vertex_id))
+            .unwrap_or(Hash256::zero());
         edges.push(TopologyEdge {
             edge_id,
             a: vertices[i].vertex_id.clone(),
@@ -132,8 +131,7 @@ pub fn build_local_topology_patch(
             vertices[i + 2].vertex_id.clone(),
         ];
         verts.sort();
-        let orient =
-            lpcm_content_address(&(&verts, "simplex")).unwrap_or(Hash256::zero());
+        let orient = lpcm_content_address(&(&verts, "simplex")).unwrap_or(Hash256::zero());
         let simplex_id = lpcm_content_address(&(&verts, &orient)).unwrap_or(Hash256::zero());
         simplices.push(TopologySimplex {
             simplex_id,
@@ -152,8 +150,7 @@ pub fn build_local_topology_patch(
         is_triangulable,
     };
 
-    let topology_passed = !vertices.is_empty()
-        || !rd.policies.topology_policy.require_triangulable;
+    let topology_passed = !vertices.is_empty() || !rd.policies.topology_policy.require_triangulable;
     let topology_guard = LpcmTopologyGuardResult {
         passed: topology_passed,
         diagnostics: if topology_passed {

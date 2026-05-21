@@ -1,3 +1,4 @@
+#![allow(clippy::vec_init_then_push)]
 //! Run planner + `TrialExecutor` trait + a deterministic synthetic
 //! executor (§10.5, §16).
 //!
@@ -233,6 +234,7 @@ impl TrialExecutor for SyntheticTrialExecutor {
         };
 
         // Build metric observations.
+        #[allow(clippy::vec_init_then_push)]
         let mut metrics = Vec::new();
         metrics.push(MetricObservation::ok("task_success", task_success));
         metrics.push(MetricObservation::ok("f1", f1));
@@ -502,10 +504,7 @@ impl TrialExecutor for SyntheticTrialExecutor {
                     "lpcm_false_percolation_rate",
                     false_percolation,
                 ));
-                metrics.push(MetricObservation::ok(
-                    "lpcm_replay_identity",
-                    lpcm_replay,
-                ));
+                metrics.push(MetricObservation::ok("lpcm_replay_identity", lpcm_replay));
                 metrics.push(MetricObservation::ok(
                     "lpcm_coarse_grain_activation_rate",
                     coarse_grain,

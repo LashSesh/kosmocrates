@@ -106,7 +106,7 @@ mod tests {
         let stab = compute_stabilizer(&e, &perms, &matrices);
         // A single edge in 7 nodes: stabilizer fixes {1,2} as a set + permutes 3..7
         // That's 2 * 5! = 240
-        assert_eq!(stab.order * 1, stab.order); // Just check it's > 0
+        let _ = stab.order; // Just check it's > 0
         assert!(stab.order > 0);
     }
 }

@@ -67,7 +67,7 @@ fn cpu_model() -> Option<String> {
         let content = std::fs::read_to_string("/proc/cpuinfo").ok()?;
         for line in content.lines() {
             if line.starts_with("model name") {
-                return line.splitn(2, ':').nth(1).map(|s| s.trim().to_string());
+                return line.split_once(':').map(|(_, v)| v.trim().to_string());
             }
         }
     }

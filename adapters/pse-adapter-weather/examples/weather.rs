@@ -39,7 +39,7 @@ fn main() {
 
     let adapter = WeatherAdapter::new("berlin");
 
-    let total_batches = (readings.len() + 9) / 10;
+    let total_batches = readings.len().div_ceil(10);
     let mut crystal_count = 0;
     let mut all_crystals = Vec::new();
 

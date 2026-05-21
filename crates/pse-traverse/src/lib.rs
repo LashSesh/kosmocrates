@@ -1,3 +1,21 @@
+#![allow(
+    clippy::derivable_impls,
+    clippy::doc_overindented_list_items,
+    clippy::field_reassign_with_default,
+    clippy::get_first,
+    clippy::iter_cloned_collect,
+    clippy::iter_kv_map,
+    clippy::manual_div_ceil,
+    clippy::manual_range_contains,
+    clippy::needless_range_loop,
+    clippy::ptr_arg,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::unnecessary_cast,
+    clippy::unnecessary_map_or,
+    clippy::unwrap_or_default,
+    clippy::useless_vec
+)]
 //! PSE Traversal Agent v0.1
 //!
 //! A post-symbolic traversal layer over PSE. The kernel models a problem
@@ -82,7 +100,7 @@ pub mod bridge;
 ///
 /// The layer generates **no** `SemanticCrystal` and triggers **no** external
 /// commits. Activated with the `topology` feature (default-on).
-/// See [`topology::pipeline::run_tpt_mtl`] for the canonical end-to-end pass.
+/// See [`topology::run_tpt_mtl`] for the canonical end-to-end pass.
 #[cfg(feature = "topology")]
 pub mod topology;
 

@@ -2,12 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{EvidenceRef, Fixed, Hash256, lpcm_content_address, LpcmResult};
 use super::coarse_grain::CoarseGrainCondensate;
 use super::fragment::FragmentedPhaseSpaceWindow;
 use super::local_gate::LocalCondensationCandidate;
 use super::metrics::LpcmMetrics;
 use super::percolation::PercolativePath;
+use super::primitives::{lpcm_content_address, EvidenceRef, Fixed, Hash256, LpcmResult};
 use super::seam::SeamPercolationGraph;
 use super::support_mass::SupportMassVector;
 use super::topology_patch::LocalTopologyPatch;
@@ -53,7 +53,11 @@ pub fn build_hierarchical_collapse_report(
     run_descriptor_hash: Hash256,
     source_window_hash: Hash256,
     fragmented: &FragmentedPhaseSpaceWindow,
-    patch_reports: &[(LocalTopologyPatch, SupportMassVector, super::local_gate::LocalCondensationBit)],
+    patch_reports: &[(
+        LocalTopologyPatch,
+        SupportMassVector,
+        super::local_gate::LocalCondensationBit,
+    )],
     local_candidates: &[LocalCondensationCandidate],
     seam_graph: &SeamPercolationGraph,
     paths: &[PercolativePath],
@@ -126,7 +130,11 @@ pub fn build_hierarchical_collapse_report(
 }
 
 fn compute_metrics(
-    patch_reports: &[(LocalTopologyPatch, SupportMassVector, super::local_gate::LocalCondensationBit)],
+    patch_reports: &[(
+        LocalTopologyPatch,
+        SupportMassVector,
+        super::local_gate::LocalCondensationBit,
+    )],
     paths: &[PercolativePath],
     condensates: &[CoarseGrainCondensate],
     _local_candidates: &[LocalCondensationCandidate],
@@ -135,7 +143,10 @@ fn compute_metrics(
     use super::primitives::normalize_rational;
 
     let fragment_count = patch_reports.len() as u64;
-    let triangulable = patch_reports.iter().filter(|(p, _, _)| p.invariant_summary.is_triangulable).count();
+    let triangulable = patch_reports
+        .iter()
+        .filter(|(p, _, _)| p.invariant_summary.is_triangulable)
+        .count();
     let triangulable_rate = if fragment_count == 0 {
         Fixed::zero()
     } else {
@@ -194,9 +205,9 @@ fn determine_outcome(
     condensates: &[CoarseGrainCondensate],
     paths: &[PercolativePath],
 ) -> LpcmOutcome {
-    use super::LpcmOutcome;
-    use super::primitives::fixed_ge;
     use super::primitives::fixed_from_f64;
+    use super::primitives::fixed_ge;
+    use super::LpcmOutcome;
 
     if metrics.fragment_count == 0 {
         return LpcmOutcome::NoFragments;
@@ -206,7 +217,9 @@ fn determine_outcome(
     }
     if paths.iter().any(|p| p.accepted) {
         let any_coarse = !condensates.is_empty();
-        if any_coarse { return LpcmOutcome::CoarseGrained; }
+        if any_coarse {
+            return LpcmOutcome::CoarseGrained;
+        }
         return LpcmOutcome::Percolating;
     }
     if fixed_ge(&metrics.local_condensation_rate, &fixed_from_f64(0.01)) {

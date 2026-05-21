@@ -1030,6 +1030,7 @@ fn content_id(s: &str) -> String {
     hex::bytes_to_hex(&h.finalize())
 }
 
+#[cfg(feature = "sqlite")]
 mod hex {
     /// Convert bytes to hex string.
     pub fn bytes_to_hex(b: &[u8]) -> String {

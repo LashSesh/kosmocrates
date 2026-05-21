@@ -1,7 +1,7 @@
 //! LPCM adapters: input canonicalization and fragment sorting.
 
 use super::evidence::LpcmInputWindow;
-use super::fragment::{FragmentedPhaseSpaceWindow, FragmentRef};
+use super::fragment::{FragmentRef, FragmentedPhaseSpaceWindow};
 use super::primitives::{LpcmError, LpcmResult};
 
 /// Canonicalize the raw input window. Returns an owned canonical copy.

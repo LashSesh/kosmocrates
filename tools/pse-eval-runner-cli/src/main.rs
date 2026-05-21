@@ -5,9 +5,11 @@
 //! deterministischer Stub.
 //!
 //! Usage:
-//!   pse_eval_runner run   [--preset <name>] [--model <model>]
-//!   pse_eval_runner score --bundle <bundle.json>
-//!   pse_eval_runner show  --bundle <bundle.json>
+//! ```text
+//!   pse_eval_runner run   [--preset NAME] [--model MODEL]
+//!   pse_eval_runner score --bundle bundle.json
+//!   pse_eval_runner show  --bundle bundle.json
+//! ```
 //!
 //! Presets: agent-cognition (default), post-symbolic-ablation, lpcm-fragment-collapse
 
@@ -16,8 +18,7 @@ use std::process::ExitCode;
 
 use pse_eval_matrix::{
     append_to_ledger, init_ledger, plan_runs, render_markdown_summary, run_trial,
-    score_capability_profile, score_ledger, EvaluationSummaryReport, Fixed, Preset,
-    TrialReport,
+    score_capability_profile, score_ledger, EvaluationSummaryReport, Fixed, Preset, TrialReport,
 };
 use pse_eval_runner::CerebrasTrialExecutor;
 
@@ -87,15 +88,25 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
             .workloads
             .iter()
             .find(|w| w.workload_id == entry.descriptor.workload_id)
-            .ok_or_else(|| {
-                format!("Workload {} nicht gefunden", entry.descriptor.workload_id)
-            })?;
+            .ok_or_else(|| format!("Workload {} nicht gefunden", entry.descriptor.workload_id))?;
 
-        eprint!("  [{:>2}/{}] {}  x  {} … ", i + 1, plan.entries.len(), variant.variant_id, workload.workload_id);
+        eprint!(
+            "  [{:>2}/{}] {}  x  {} … ",
+            i + 1,
+            plan.entries.len(),
+            variant.variant_id,
+            workload.workload_id
+        );
 
-        let (report, run_entry) =
-            run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
-                .map_err(|e| format!("run_trial: {e:?}"))?;
+        let (report, run_entry) = run_trial(
+            &spec,
+            variant,
+            workload,
+            &entry.descriptor,
+            &executor,
+            &spec.metrics,
+        )
+        .map_err(|e| format!("run_trial: {e:?}"))?;
 
         let fcr = report
             .metrics
@@ -177,7 +188,10 @@ fn cmd_show(args: &[String]) -> Result<(), String> {
     println!("Preset:  {}", bundle.preset);
     println!("Trials:  {}", bundle.reports.len());
     println!();
-    println!("{:<20} {:<12} {:<12} {:<12}", "Variante", "task_success", "false_commit", "struct_cov");
+    println!(
+        "{:<20} {:<12} {:<12} {:<12}",
+        "Variante", "task_success", "false_commit", "struct_cov"
+    );
     println!("{}", "-".repeat(58));
 
     for report in &bundle.reports {

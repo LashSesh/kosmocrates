@@ -45,8 +45,7 @@ impl LlmClient {
     pub fn from_env() -> Self {
         let base_url = std::env::var("PSE_LLM_BASE_URL")
             .unwrap_or_else(|_| "https://api.cerebras.ai/v1".to_string());
-        let model = std::env::var("PSE_LLM_MODEL")
-            .unwrap_or_else(|_| "llama3.1-8b".to_string());
+        let model = std::env::var("PSE_LLM_MODEL").unwrap_or_else(|_| "llama3.1-8b".to_string());
         let api_key = std::env::var("PSE_LLM_API_KEY").unwrap_or_default();
 
         Self {
@@ -91,9 +90,7 @@ impl LlmClient {
             return Err(format!("API returned {status}: {body}"));
         }
 
-        let parsed: ChatResponse = resp
-            .json()
-            .map_err(|e| format!("JSON parse error: {e}"))?;
+        let parsed: ChatResponse = resp.json().map_err(|e| format!("JSON parse error: {e}"))?;
 
         parsed
             .choices

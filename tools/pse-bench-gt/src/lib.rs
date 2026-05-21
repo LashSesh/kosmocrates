@@ -1,3 +1,8 @@
+#![allow(
+    clippy::derivable_impls,
+    clippy::field_reassign_with_default,
+    clippy::type_complexity
+)]
 //! Ground-truth precision/recall benchmark suite for the Post-Symbolic Engine.
 //!
 //! This crate provides the *measurement apparatus* for Research Strand A.

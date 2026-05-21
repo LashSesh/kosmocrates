@@ -363,8 +363,14 @@ mod tests {
         let base = BaseState::zero(2).unwrap();
         let stats = dummy_stats();
         let signal = dummy_signal();
-        let proof =
-            TransitionProof::compute(1, &[base.clone()], &[base.clone()], &signal, &stats).unwrap();
+        let proof = TransitionProof::compute(
+            1,
+            std::slice::from_ref(&base),
+            std::slice::from_ref(&base),
+            &signal,
+            &stats,
+        )
+        .unwrap();
         let report = evaluate_dynamic_gate(Some(&proof), &config).unwrap();
         // With zero path_delta, zero alignment vs 0.0 min, should fire
         assert!(report.passed);

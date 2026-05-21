@@ -19,8 +19,8 @@ pub struct CrystalStore {
 
 impl CrystalStore {
     pub fn from_env() -> Self {
-        let path = std::env::var("PSE_LLM_MEMORY")
-            .unwrap_or_else(|_| "pse-llm-memory.json".to_string());
+        let path =
+            std::env::var("PSE_LLM_MEMORY").unwrap_or_else(|_| "pse-llm-memory.json".to_string());
         Self { path }
     }
 
@@ -32,9 +32,8 @@ impl CrystalStore {
     }
 
     pub fn save(&self, mem: &MemoryFile) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(mem)
-            .map_err(|e| format!("serialisation error: {e}"))?;
-        std::fs::write(&self.path, json)
-            .map_err(|e| format!("write error: {e}"))
+        let json =
+            serde_json::to_string_pretty(mem).map_err(|e| format!("serialisation error: {e}"))?;
+        std::fs::write(&self.path, json).map_err(|e| format!("write error: {e}"))
     }
 }

@@ -146,6 +146,7 @@ fn quantile(sorted: &[f64], q: f64) -> f64 {
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn snap(d: f64, q: f64, r: f64, g: f64, j: f64, p: f64, n: f64, k: f64) -> GateSnapshot {
         GateSnapshot {
             d,

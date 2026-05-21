@@ -30,8 +30,8 @@
 
 use pse_eval_matrix::{
     primitives::{content_address, EvalError, Fixed, Hash256},
-    reports::{DiagnosticRecord, GateObservation, GateObservationSet, TrialOutputs, TrialReport},
     replay::ReplayObservation,
+    reports::{DiagnosticRecord, GateObservation, GateObservationSet, TrialOutputs, TrialReport},
     runner::{RunDescriptor, TrialExecutor},
     spec::EvaluationSpec,
     variants::SystemVariantSpec,
@@ -40,9 +40,7 @@ use pse_eval_matrix::{
 use pse_traverse::{
     cognition::{
         pipeline::{run_cognition, CognitionInput, CognitiveComponents},
-        CognitionOutcome,
-        CognitiveState5D,
-        Fixed as TraverseFixed,
+        CognitionOutcome, CognitiveState5D, Fixed as TraverseFixed,
     },
     dynamic_state::Hash256 as TraverseHash,
 };
@@ -275,14 +273,18 @@ fn call_cerebras(api_key: &str, model: &str, system: &str, user: &str) -> Result
 ///   - Vollständige Sätze mit allen required_structural
 ///   - Schlussfolgerungs-Marker ("therefore", "recommend")
 ///   - Keine Unsicherheits-Marker
-///   → hohe support_strength, hohe ρ, hohe ω, niedrige τ → Bundle
+///     → hohe support_strength, hohe ρ, hohe ω, niedrige τ → Bundle
 ///
 /// "Schwache" Phasen (ungerade Kombinationen):
 ///   - Kurzer Text mit Unsicherheits-Markern ("might", "could")
 ///   - Nur halbe required_structural vorhanden
-///   → niedrige support_strength, niedrige ρ, hohe τ → Hold
+///     → niedrige support_strength, niedrige ρ, hohe τ → Hold
 fn stub_response(task: &ReasoningTask, phase: &ReasoningPhase, phase_idx: usize) -> String {
-    let task_idx = REASONING_TASKS.iter().position(|t| t.id == task.id).unwrap_or(0);
+    let task_idx = REASONING_TASKS
+        .iter()
+        .position(|t| t.id == task.id)
+        .unwrap_or(0);
+    #[allow(clippy::manual_is_multiple_of)]
     let strong = (task_idx + phase_idx) % 3 != 0;
 
     if strong {
@@ -341,17 +343,34 @@ fn text_to_cognition_input(
     let rho = f(coherent.min(8), 8);
 
     // ω — Schlussfolgerungs-Marker
-    let conclude = ["therefore", "thus", "recommend", "conclude", "result", "hence", "thus"];
+    let conclude = [
+        "therefore",
+        "thus",
+        "recommend",
+        "conclude",
+        "result",
+        "hence",
+        "thus",
+    ];
     let omega_n = conclude.iter().filter(|&&w| lower.contains(w)).count() as i128;
     let omega = f(5 + omega_n.min(5), 10);
 
     // χ — Verzweigungskomplexität
-    let branch = ["however", "alternatively", "but", "unless", "either", "whereas"];
+    let branch = [
+        "however",
+        "alternatively",
+        "but",
+        "unless",
+        "either",
+        "whereas",
+    ];
     let chi_n = branch.iter().filter(|&&w| lower.contains(w)).count() as i128;
     let chi = f(chi_n.min(5), 10);
 
     // τ — ausgedrückte Unsicherheit
-    let uncertain = ["might", "could", "perhaps", "maybe", "possibly", "unclear", "not sure"];
+    let uncertain = [
+        "might", "could", "perhaps", "maybe", "possibly", "unclear", "not sure",
+    ];
     let tau_n = uncertain.iter().filter(|&&w| lower.contains(w)).count() as i128;
     let tau = f(tau_n.min(5), 10);
 
@@ -360,13 +379,23 @@ fn text_to_cognition_input(
     let support_strength = f(matched, required.len().max(1) as i128);
 
     let mem = CognitiveState5D::from_components(
-        psi.clone(), rho.clone(), omega.clone(), chi.clone(), tau.clone(),
+        psi.clone(),
+        rho.clone(),
+        omega.clone(),
+        chi.clone(),
+        tau.clone(),
     )
     .expect("valid 5d from text");
 
     CognitionInput {
         null_center_id: hash_from_seed(seed),
-        cognitive_components: CognitiveComponents { psi, rho, omega, chi, tau },
+        cognitive_components: CognitiveComponents {
+            psi,
+            rho,
+            omega,
+            chi,
+            tau,
+        },
         source_traversal_report_hash: None,
         source_projection_report_hash: None,
         spiral_memory_candidates: vec![mem],
@@ -393,8 +422,7 @@ pub struct CerebrasTrialExecutor {
 
 impl Default for CerebrasTrialExecutor {
     fn default() -> Self {
-        let model = std::env::var("CEREBRAS_MODEL")
-            .unwrap_or_else(|_| "llama3.1-8b".into());
+        let model = std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "llama3.1-8b".into());
         CerebrasTrialExecutor { model }
     }
 }
@@ -414,11 +442,11 @@ impl TrialExecutor for CerebrasTrialExecutor {
         // Jede Workload-Familie testet ein spezifisches Reasoning-Muster —
         // die Zuordnung ist semantisch, nicht zufällig.
         let task_idx = match workload.workload_id.as_str() {
-            "w.code_agent_patch"  => 0, // system_analysis: Systemkomponenten debuggen
-            "w.traversal_puzzle"  => 1, // trade_off_decision: Pfad-/Optionswahl
-            "w.doc_synthesis"     => 2, // argument_analysis: Argumentstruktur auswerten
-            "w.memory_reuse"      => 3, // constraint_satisfaction: Scheduling/Optimierung
-            _                     => descriptor.seed as usize % REASONING_TASKS.len(),
+            "w.code_agent_patch" => 0, // system_analysis: Systemkomponenten debuggen
+            "w.traversal_puzzle" => 1, // trade_off_decision: Pfad-/Optionswahl
+            "w.doc_synthesis" => 2,    // argument_analysis: Argumentstruktur auswerten
+            "w.memory_reuse" => 3,     // constraint_satisfaction: Scheduling/Optimierung
+            _ => descriptor.seed as usize % REASONING_TASKS.len(),
         };
         let task = &REASONING_TASKS[task_idx];
 
@@ -441,13 +469,14 @@ impl TrialExecutor for CerebrasTrialExecutor {
             let response = if api_key.is_empty() {
                 stub_response(task, phase, phase_idx)
             } else {
-                call_cerebras(&api_key, &self.model, &system_msg, phase.prompt_suffix)
-                    .map_err(|e| EvalError::InvalidSpec {
+                call_cerebras(&api_key, &self.model, &system_msg, phase.prompt_suffix).map_err(
+                    |e| EvalError::InvalidSpec {
                         reason: format!(
                             "Cerebras error in task={} phase={}: {e}",
                             task.id, phase.name
                         ),
-                    })?
+                    },
+                )?
             };
 
             // — Scoring ————————————————————————————————————————————
@@ -565,8 +594,10 @@ impl TrialExecutor for CerebrasTrialExecutor {
             .filter(|o| matches!(o, CognitionOutcome::CandidateBundle { .. }))
             .count() as u64;
         let hold_count = cog_outcomes.len() as u64 - bundle_count;
-        let expected_holds =
-            cog_scenarios.iter().filter(|s| !s.expected_bundle()).count() as u64;
+        let expected_holds = cog_scenarios
+            .iter()
+            .filter(|s| !s.expected_bundle())
+            .count() as u64;
         let correct_holds = cog_scenarios
             .iter()
             .zip(cog_outcomes.iter())
@@ -655,7 +686,10 @@ mod tests {
                 variant.variant_id
             );
             assert!(
-                report.metrics.iter().any(|m| m.metric_id == "structural_coverage"),
+                report
+                    .metrics
+                    .iter()
+                    .any(|m| m.metric_id == "structural_coverage"),
                 "structural_coverage metric must be present"
             );
         }
@@ -679,9 +713,15 @@ mod tests {
                 .iter()
                 .find(|w| w.workload_id == entry.descriptor.workload_id)
                 .unwrap();
-            let (r, _) =
-                run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
-                    .unwrap();
+            let (r, _) = run_trial(
+                &spec,
+                variant,
+                workload,
+                &entry.descriptor,
+                &executor,
+                &spec.metrics,
+            )
+            .unwrap();
             reports.push(r);
         }
         let get = |vid: &str, mid: &str| -> Fixed {
@@ -733,8 +773,7 @@ mod tests {
     fn b6_cross_session_memory_improves_coverage() {
         let api_key = std::env::var("CEREBRAS_API_KEY").unwrap_or_default();
         assert!(!api_key.is_empty(), "CEREBRAS_API_KEY required");
-        let model = std::env::var("CEREBRAS_MODEL")
-            .unwrap_or_else(|_| "llama3.1-8b".to_string());
+        let model = std::env::var("CEREBRAS_MODEL").unwrap_or_else(|_| "llama3.1-8b".to_string());
 
         let task_1 = &REASONING_TASKS[0]; // system_analysis  — session 1
         let task_2 = &REASONING_TASKS[1]; // trade_off_decision — session 2
@@ -756,8 +795,7 @@ mod tests {
             .filter(|&&e| lower_1.contains(e))
             .copied()
             .collect();
-        let s1_coverage =
-            stable_elements.len() as f64 / phase_1.required_structural.len() as f64;
+        let s1_coverage = stable_elements.len() as f64 / phase_1.required_structural.len() as f64;
 
         eprintln!(
             "[session 1] task={} stable_elements={}/{} ({:.0}%): {:?}",
@@ -783,8 +821,7 @@ mod tests {
             .iter()
             .filter(|&&e| lower_bl.contains(e))
             .count();
-        let baseline_coverage =
-            baseline_matched as f64 / phase_2.required_structural.len() as f64;
+        let baseline_coverage = baseline_matched as f64 / phase_2.required_structural.len() as f64;
 
         // ── Session 2 augmented: inject crystal context ───────────────────────
         // Build a PSE-style context hint from the structurally stable elements
@@ -803,17 +840,15 @@ mod tests {
         };
 
         let sys_2_aug = format!("{}{}", sys_2, crystal_ctx);
-        let aug_resp =
-            call_cerebras(&api_key, &model, &sys_2_aug, phase_2.prompt_suffix)
-                .expect("session 2 augmented LLM call failed");
+        let aug_resp = call_cerebras(&api_key, &model, &sys_2_aug, phase_2.prompt_suffix)
+            .expect("session 2 augmented LLM call failed");
         let lower_aug = aug_resp.to_lowercase();
         let aug_matched = phase_2
             .required_structural
             .iter()
             .filter(|&&e| lower_aug.contains(e))
             .count();
-        let augmented_coverage =
-            aug_matched as f64 / phase_2.required_structural.len() as f64;
+        let augmented_coverage = aug_matched as f64 / phase_2.required_structural.len() as f64;
 
         let delta = augmented_coverage - baseline_coverage;
 

@@ -1,7 +1,7 @@
 //! Fragmented phase-space window and fragment reference types.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use super::primitives::{EvidenceRef, Hash256};
 

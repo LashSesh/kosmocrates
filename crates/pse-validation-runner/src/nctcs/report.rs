@@ -32,6 +32,7 @@ pub struct NctcsClosureBundle {
 }
 
 impl NctcsClosureBundle {
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         rd: NctcsRunDescriptor,
         null_center: NullCenterRef,

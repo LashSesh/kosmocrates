@@ -79,7 +79,8 @@ fn archive_previously_appended_crystals_are_unchanged() {
     archive.append(c1);
 
     assert_eq!(
-        archive.crystals()[0].crystal_id, id0,
+        archive.crystals()[0].crystal_id,
+        id0,
         "first crystal must be unchanged after second append"
     );
     assert_eq!(archive.len(), 2);
@@ -99,8 +100,16 @@ fn evidence_chain_links_are_valid() {
 
     assert_eq!(chain.len(), 3);
     assert_eq!(chain[0].prev, None, "first entry must have no predecessor");
-    assert_eq!(chain[1].prev, Some(chain[0].digest), "chain[1].prev must link to chain[0]");
-    assert_eq!(chain[2].prev, Some(chain[1].digest), "chain[2].prev must link to chain[1]");
+    assert_eq!(
+        chain[1].prev,
+        Some(chain[0].digest),
+        "chain[1].prev must link to chain[0]"
+    );
+    assert_eq!(
+        chain[2].prev,
+        Some(chain[1].digest),
+        "chain[2].prev must link to chain[1]"
+    );
 }
 
 /// An evidence chain's digests match the SHA-256 of their content.
@@ -162,7 +171,7 @@ fn por_trace_monotonicity_is_enforced() {
     // Reverse: lock < search → violation
     crystal.commit_proof.por_trace = PoRTrace {
         search_enter: 10.0,
-        lock_enter: Some(5.0),  // 5 < 10 → PoR monotonicity violated
+        lock_enter: Some(5.0), // 5 < 10 → PoR monotonicity violated
         verify_enter: Some(15.0),
         commit_enter: Some(20.0),
     };
@@ -181,7 +190,10 @@ fn por_trace_monotonicity_is_enforced() {
 #[test]
 fn operator_drift_is_detected() {
     let mut crystal = build_valid_crystal(7);
-    crystal.commit_proof.operator_stack.push(("lpcm".to_string(), "1.0.0".to_string()));
+    crystal
+        .commit_proof
+        .operator_stack
+        .push(("lpcm".to_string(), "1.0.0".to_string()));
 
     let mut pinned = BTreeMap::new();
     pinned.insert("lpcm".to_string(), "2.0.0".to_string()); // different version
@@ -198,7 +210,10 @@ fn operator_drift_is_detected() {
 #[test]
 fn matching_operator_version_passes() {
     let mut crystal = build_valid_crystal(9);
-    crystal.commit_proof.operator_stack.push(("lpcm".to_string(), "1.0.0".to_string()));
+    crystal
+        .commit_proof
+        .operator_stack
+        .push(("lpcm".to_string(), "1.0.0".to_string()));
 
     let mut pinned = BTreeMap::new();
     pinned.insert("lpcm".to_string(), "1.0.0".to_string());

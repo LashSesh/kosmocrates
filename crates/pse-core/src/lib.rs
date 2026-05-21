@@ -1167,7 +1167,7 @@ mod tests {
         let adapter = PassthroughAdapter::new("j-replay");
         for i in 0..3 {
             let p = serde_json::to_vec(&format!("p-{}", i)).unwrap();
-            let _ = macro_step(&mut s1, &[p.clone()], &cfg, &adapter);
+            let _ = macro_step(&mut s1, std::slice::from_ref(&p), &cfg, &adapter);
             let _ = macro_step(&mut s2, &[p], &cfg, &adapter);
         }
         assert_eq!(s1.active_carrier, s2.active_carrier);

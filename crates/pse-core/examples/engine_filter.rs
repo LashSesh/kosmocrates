@@ -49,7 +49,10 @@ fn main() {
                 Some(g) => format!(
                     "{:<7}  {:.3}  {:.3}  {:.3}  {:.3}",
                     if g.kairos { "YES" } else { "no" },
-                    g.d, g.q, g.r, g.g
+                    g.d,
+                    g.q,
+                    g.r,
+                    g.g
                 ),
                 None => "—".into(),
             };

@@ -124,9 +124,16 @@ fn cognition_state_id_is_deterministic_given_same_topology() {
         .bundle
         .bundle_id;
 
-    let r1 = run_cognition(&cognition_input_with_traversal(bundle_hash.clone()), &cognition_rd())
-        .unwrap();
-    let r2 = run_cognition(&cognition_input_with_traversal(bundle_hash), &cognition_rd()).unwrap();
+    let r1 = run_cognition(
+        &cognition_input_with_traversal(bundle_hash.clone()),
+        &cognition_rd(),
+    )
+    .unwrap();
+    let r2 = run_cognition(
+        &cognition_input_with_traversal(bundle_hash),
+        &cognition_rd(),
+    )
+    .unwrap();
 
     assert_eq!(
         r1.canonical_state.state_id, r2.canonical_state.state_id,
@@ -150,12 +157,13 @@ fn different_topology_yields_different_cognition_state_id() {
         .bundle
         .bundle_id;
 
-    assert_ne!(hash_a, hash_b, "different inputs must produce different bundles");
+    assert_ne!(
+        hash_a, hash_b,
+        "different inputs must produce different bundles"
+    );
 
-    let r_a =
-        run_cognition(&cognition_input_with_traversal(hash_a), &cognition_rd()).unwrap();
-    let r_b =
-        run_cognition(&cognition_input_with_traversal(hash_b), &cognition_rd()).unwrap();
+    let r_a = run_cognition(&cognition_input_with_traversal(hash_a), &cognition_rd()).unwrap();
+    let r_b = run_cognition(&cognition_input_with_traversal(hash_b), &cognition_rd()).unwrap();
 
     assert_ne!(
         r_a.canonical_state.state_id, r_b.canonical_state.state_id,

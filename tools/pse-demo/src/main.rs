@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! `pse-demo` — 30-second runnable showcase of the Post-Symbolic Engine.
 //!
 //! Drives a synthetic structured stream (a damped oscillator with a

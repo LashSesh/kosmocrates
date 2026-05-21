@@ -2,11 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use crate::dynamic_state::{CanonicalNumber, Hash256};
 pub use crate::cognition::primitives::{
-    fixed_add, fixed_ge, fixed_le, fixed_sub, max_fixed, min_fixed, normalize_rational,
-    EvidenceRef,
+    fixed_add, fixed_ge, fixed_le, fixed_sub, max_fixed, min_fixed, normalize_rational, EvidenceRef,
 };
+pub use crate::dynamic_state::{CanonicalNumber, Hash256};
 
 /// Fixed-point canonical scalar (alias for CanonicalNumber).
 pub type Fixed = CanonicalNumber;
@@ -46,17 +45,27 @@ impl std::fmt::Display for LpcmError {
             LpcmError::InvalidDescriptor { reason } => write!(f, "invalid descriptor: {reason}"),
             LpcmError::InvalidWindow { reason } => write!(f, "invalid window: {reason}"),
             LpcmError::PartitionFailed { reason } => write!(f, "partition failed: {reason}"),
-            LpcmError::TopologyGuardFailed { reason } => write!(f, "topology guard failed: {reason}"),
-            LpcmError::NoCandidateDirections { reason } => write!(f, "no candidate directions: {reason}"),
-            LpcmError::ZeroAdmissibleSupport { reason } => write!(f, "zero admissible support: {reason}"),
+            LpcmError::TopologyGuardFailed { reason } => {
+                write!(f, "topology guard failed: {reason}")
+            }
+            LpcmError::NoCandidateDirections { reason } => {
+                write!(f, "no candidate directions: {reason}")
+            }
+            LpcmError::ZeroAdmissibleSupport { reason } => {
+                write!(f, "zero admissible support: {reason}")
+            }
             LpcmError::NoMajority { reason } => write!(f, "no majority: {reason}"),
             LpcmError::TieNoCondense { reason } => write!(f, "tie no condense: {reason}"),
             LpcmError::SeamBreak { reason } => write!(f, "seam break: {reason}"),
             LpcmError::FalsePercolation { reason } => write!(f, "false percolation: {reason}"),
-            LpcmError::CoarseGrainConflict { reason } => write!(f, "coarse grain conflict: {reason}"),
+            LpcmError::CoarseGrainConflict { reason } => {
+                write!(f, "coarse grain conflict: {reason}")
+            }
             LpcmError::ReplayMismatch { reason } => write!(f, "replay mismatch: {reason}"),
             LpcmError::Canonicalization { reason } => write!(f, "canonicalization: {reason}"),
-            LpcmError::DeterminismViolation { reason } => write!(f, "determinism violation: {reason}"),
+            LpcmError::DeterminismViolation { reason } => {
+                write!(f, "determinism violation: {reason}")
+            }
         }
     }
 }
@@ -67,8 +76,9 @@ pub type LpcmResult<T> = Result<T, LpcmError>;
 
 /// Compute a SHA-256 content address for any serializable value (via JCS).
 pub fn lpcm_content_address<T: Serialize>(value: &T) -> LpcmResult<Hash256> {
-    let bytes = serde_jcs::to_vec(value)
-        .map_err(|e| LpcmError::Canonicalization { reason: e.to_string() })?;
+    let bytes = serde_jcs::to_vec(value).map_err(|e| LpcmError::Canonicalization {
+        reason: e.to_string(),
+    })?;
     let digest: [u8; 32] = {
         use sha2::{Digest, Sha256};
         let mut h = Sha256::new();
@@ -106,7 +116,7 @@ fn as_rational(f: &Fixed) -> (i128, i128) {
     }
 }
 
-/// Convert a float in [0,1] to Fixed (scale=9).
+/// Convert a float in `[0,1]` to Fixed (scale=9).
 pub fn fixed_from_f64(v: f64) -> Fixed {
     Fixed::quantize_default(v).unwrap_or(Fixed::zero())
 }

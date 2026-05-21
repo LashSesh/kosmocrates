@@ -3,11 +3,14 @@
 //! Seam score: Γ(KU, KV) = α_b·B + α_e·C + α_t·T + α_r·R + α_p·P
 //! where B=boundary, C=carrier, T=topology, R=replay, P=provenance.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-use super::primitives::{fixed_add, fixed_from_f64, fixed_ge, fixed_mul, Fixed, Hash256, lpcm_content_address, LpcmResult};
 use super::local_gate::LocalCondensationCandidate;
+use super::primitives::{
+    fixed_add, fixed_from_f64, fixed_ge, fixed_mul, lpcm_content_address, Fixed, Hash256,
+    LpcmResult,
+};
 use super::run_descriptor::{LpcmRunDescriptor, SupportPolicy};
 
 /// A seam edge between two local condensation candidates.
@@ -127,11 +130,8 @@ fn compute_seam_edge(
     let replay_compatible = true;
     let accepted = fixed_ge(&seam_score, seam_min);
 
-    let edge_id = lpcm_content_address(&(
-        &a.local_candidate_id,
-        &b.local_candidate_id,
-        &seam_score,
-    ))?;
+    let edge_id =
+        lpcm_content_address(&(&a.local_candidate_id, &b.local_candidate_id, &seam_score))?;
 
     Ok(SeamEdge {
         edge_id,
@@ -142,7 +142,11 @@ fn compute_seam_edge(
         carrier_score,
         replay_compatible,
         accepted,
-        failure: if accepted { None } else { Some(super::LpcmFailureKind::SeamBreak) },
+        failure: if accepted {
+            None
+        } else {
+            Some(super::LpcmFailureKind::SeamBreak)
+        },
     })
 }
 
@@ -167,10 +171,8 @@ fn compute_connected_components(
     nodes: &[Hash256],
     edges: &[SeamEdge],
 ) -> Vec<PercolationComponent> {
-    let mut parent: BTreeMap<Hash256, Hash256> = nodes
-        .iter()
-        .map(|n| (n.clone(), n.clone()))
-        .collect();
+    let mut parent: BTreeMap<Hash256, Hash256> =
+        nodes.iter().map(|n| (n.clone(), n.clone())).collect();
 
     let accepted_edges: Vec<&SeamEdge> = edges.iter().filter(|e| e.accepted).collect();
 
@@ -195,7 +197,11 @@ fn compute_connected_components(
             members.sort();
             let is_percolating = members.len() > 1;
             let component_id = lpcm_content_address(&members).unwrap_or(Hash256::zero());
-            PercolationComponent { component_id, nodes: members, is_percolating }
+            PercolationComponent {
+                component_id,
+                nodes: members,
+                is_percolating,
+            }
         })
         .collect();
 

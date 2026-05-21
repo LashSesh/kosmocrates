@@ -3,11 +3,13 @@
 //! Default policy: MajorityMonotone — increasing support at lower scale
 //! must not reduce aggregate support unless an explicit negative gate fires.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-use super::primitives::{fixed_add, fixed_div, fixed_ge, Fixed, Hash256, lpcm_content_address, LpcmResult};
 use super::percolation::PercolativePath;
+use super::primitives::{
+    fixed_add, fixed_div, fixed_ge, lpcm_content_address, Fixed, Hash256, LpcmResult,
+};
 use super::run_descriptor::{CoarseGrainPolicy, LpcmRunDescriptor};
 
 /// A coarse-grained condensate aggregating one or more percolative paths.
@@ -69,7 +71,9 @@ fn coarse_grain_majority_monotone(
     for path in paths {
         let per_node = fixed_div(&path.path_strength, &total_strength);
         for node_id in &path.node_sequence {
-            let entry = aggregate_support.entry(node_id.clone()).or_insert(Fixed::zero());
+            let entry = aggregate_support
+                .entry(node_id.clone())
+                .or_insert(Fixed::zero());
             *entry = fixed_add(entry, &per_node);
         }
     }

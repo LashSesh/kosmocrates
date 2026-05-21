@@ -28,16 +28,14 @@ fn input_with_support(support: f64, phase: u64) -> CognitionInput {
         },
         source_traversal_report_hash: None,
         source_projection_report_hash: None,
-        spiral_memory_candidates: vec![
-            pse_traverse::cognition::CognitiveState5D::from_components(
-                Fixed::quantize(0.7, 9).unwrap(),
-                Fixed::quantize(0.7, 9).unwrap(),
-                Fixed::quantize(0.6, 9).unwrap(),
-                zero,
-                Fixed::quantize(0.2, 9).unwrap(),
-            )
-            .unwrap(),
-        ],
+        spiral_memory_candidates: vec![pse_traverse::cognition::CognitiveState5D::from_components(
+            Fixed::quantize(0.7, 9).unwrap(),
+            Fixed::quantize(0.7, 9).unwrap(),
+            Fixed::quantize(0.6, 9).unwrap(),
+            zero,
+            Fixed::quantize(0.2, 9).unwrap(),
+        )
+        .unwrap()],
         constraint_count: 1,
         support_strength: Fixed::quantize(support, 9).unwrap(),
         logical_step: phase,
@@ -60,24 +58,29 @@ fn main() {
     println!("Threshold: support_strength >= 0.60 → COMMIT\n");
 
     let cases: &[(&str, f64, u64)] = &[
-        ("Starkes Reasoning  (support=1.00, phase=plan)",     1.00, 1),
-        ("Mittleres Reasoning (support=0.67, phase=plan)",    0.67, 1),
-        ("Schwaches Reasoning (support=0.33, phase=plan)",    0.33, 1),
-        ("Kein Reasoning      (support=0.00, phase=plan)",    0.00, 1),
+        ("Starkes Reasoning  (support=1.00, phase=plan)", 1.00, 1),
+        ("Mittleres Reasoning (support=0.67, phase=plan)", 0.67, 1),
+        ("Schwaches Reasoning (support=0.33, phase=plan)", 0.33, 1),
+        ("Kein Reasoning      (support=0.00, phase=plan)", 0.00, 1),
         ("Starkes Reasoning  (support=1.00, phase=evaluate)", 1.00, 3),
-        ("Schwaches Reasoning (support=0.33, phase=evaluate)",0.33, 3),
+        (
+            "Schwaches Reasoning (support=0.33, phase=evaluate)",
+            0.33,
+            3,
+        ),
     ];
 
     for (label, support, phase) in cases {
         let input = input_with_support(*support, *phase);
         let result = filter.evaluate(&input).expect("filter must not error");
 
-        let decision = if result.committed { "COMMIT ✓" } else { "HOLD   ✗" };
+        let decision = if result.committed {
+            "COMMIT ✓"
+        } else {
+            "HOLD   ✗"
+        };
         let panorama = fixed_to_f64(&result.panorama_coverage);
-        let gate_info = result
-            .failed_gate
-            .as_deref()
-            .unwrap_or("—");
+        let gate_info = result.failed_gate.as_deref().unwrap_or("—");
 
         println!(
             "{decision}  panorama={:.3}  failed_gate={gate_info:<15}  {label}",

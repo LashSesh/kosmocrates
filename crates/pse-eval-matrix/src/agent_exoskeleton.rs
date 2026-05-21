@@ -2307,6 +2307,7 @@ fn mk_item(id: &str, t: WorkItemType, text: &str, tags: &[&str], rec: u8) -> Wor
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn mk_trace_case(
     trace_id: &str,
     title: &str,
@@ -4129,7 +4130,7 @@ fn run_agent_exoskeleton_benchmark_impl(
         .filter(|t| t.variant_kind == TraceVariantKind::Expanded)
         .map(|t| t.trace_id.clone())
         .collect();
-    all_traces.extend(extra_traces.into_iter());
+    all_traces.extend(extra_traces);
     let original_count = all_traces
         .iter()
         .filter(|t| t.variant_kind == TraceVariantKind::Original)
@@ -6814,10 +6815,7 @@ fn run_agent_exoskeleton_benchmark_impl(
                             TraceFeatureDesignProfile::ReportArtifactDemotion => artifactish,
                             TraceFeatureDesignProfile::CausalRoleDisambiguation => !has_causal_role,
                             TraceFeatureDesignProfile::CombinedConservativeFeatureDesign => {
-                                noncausalish
-                                    || (keywordish && noncausalish)
-                                    || artifactish
-                                    || !has_causal_role
+                                noncausalish || artifactish || !has_causal_role
                             }
                             TraceFeatureDesignProfile::CausalActivationDiagnostic => {
                                 has_causal_role

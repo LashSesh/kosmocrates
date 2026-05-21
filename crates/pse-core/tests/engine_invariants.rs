@@ -57,7 +57,10 @@ fn gate_snapshot_always_populated_after_first_step() {
     let mut state = GlobalState::new(&config);
     let adapter = PassthroughAdapter::new("gate-pop");
 
-    assert!(state.last_gate.is_none(), "gate must be None before first step");
+    assert!(
+        state.last_gate.is_none(),
+        "gate must be None before first step"
+    );
 
     let payload = obs(1, 32);
     let _ = macro_step(&mut state, &[payload], &config, &adapter);
@@ -152,8 +155,20 @@ fn identical_observation_sequences_yield_identical_crystal_ids() {
     let mut state_b = GlobalState::new(&config);
 
     for (step, payload) in observations.iter().enumerate() {
-        let ca = macro_step(&mut state_a, &[payload.clone()], &config, &adapter).unwrap();
-        let cb = macro_step(&mut state_b, &[payload.clone()], &config, &adapter).unwrap();
+        let ca = macro_step(
+            &mut state_a,
+            std::slice::from_ref(payload),
+            &config,
+            &adapter,
+        )
+        .unwrap();
+        let cb = macro_step(
+            &mut state_b,
+            std::slice::from_ref(payload),
+            &config,
+            &adapter,
+        )
+        .unwrap();
 
         match (&ca, &cb) {
             (Some(a), Some(b)) => assert_eq!(
@@ -161,7 +176,11 @@ fn identical_observation_sequences_yield_identical_crystal_ids() {
                 "crystal_id must match at step {step}"
             ),
             (None, None) => {}
-            _ => panic!("crystal emission diverged at step {step}: a={:?} b={:?}", ca.is_some(), cb.is_some()),
+            _ => panic!(
+                "crystal emission diverged at step {step}: a={:?} b={:?}",
+                ca.is_some(),
+                cb.is_some()
+            ),
         }
     }
 }
@@ -178,15 +197,24 @@ fn gate_snapshots_are_deterministic() {
     let mut s2 = GlobalState::new(&config);
 
     for payload in &observations {
-        let _ = macro_step(&mut s1, &[payload.clone()], &config, &adapter);
-        let _ = macro_step(&mut s2, &[payload.clone()], &config, &adapter);
+        let _ = macro_step(&mut s1, std::slice::from_ref(payload), &config, &adapter);
+        let _ = macro_step(&mut s2, std::slice::from_ref(payload), &config, &adapter);
     }
 
     let g1 = s1.last_gate.as_ref().unwrap();
     let g2 = s2.last_gate.as_ref().unwrap();
 
     assert_eq!(g1.kairos, g2.kairos, "kairos must be deterministic");
-    assert!((g1.d - g2.d).abs() < 1e-12, "d metric must be deterministic");
-    assert!((g1.q - g2.q).abs() < 1e-12, "q metric must be deterministic");
-    assert!((g1.r - g2.r).abs() < 1e-12, "r metric must be deterministic");
+    assert!(
+        (g1.d - g2.d).abs() < 1e-12,
+        "d metric must be deterministic"
+    );
+    assert!(
+        (g1.q - g2.q).abs() < 1e-12,
+        "q metric must be deterministic"
+    );
+    assert!(
+        (g1.r - g2.r).abs() < 1e-12,
+        "r metric must be deterministic"
+    );
 }

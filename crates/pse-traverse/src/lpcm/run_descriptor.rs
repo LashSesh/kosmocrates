@@ -1,9 +1,9 @@
 //! Run descriptor, threshold, and policy types for the LPCM layer.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-use super::primitives::{EvidenceRef, Fixed, Hash256, StableId, fixed_from_f64};
+use super::primitives::{fixed_from_f64, EvidenceRef, Fixed, Hash256, StableId};
 
 /// Canonical run descriptor — recorded in every HierarchicalCollapseReport.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

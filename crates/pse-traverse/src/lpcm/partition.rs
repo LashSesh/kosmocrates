@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use super::evidence::LpcmInputWindow;
-use super::fragment::{FragmentedPhaseSpaceWindow, FragmentRef};
-use super::primitives::{EvidenceRef, Hash256, LpcmError, LpcmResult, lpcm_content_address};
+use super::fragment::{FragmentRef, FragmentedPhaseSpaceWindow};
+use super::primitives::{lpcm_content_address, EvidenceRef, Hash256, LpcmError, LpcmResult};
 use super::run_descriptor::{LpcmRunDescriptor, PartitionPolicy};
 
 /// Validate the run descriptor. Returns error if required fields are missing or wrong.
@@ -151,26 +151,44 @@ fn partition_carrier_window(
         });
         ordinal += 1;
         start += s;
-        if start >= total { break; }
+        if start >= total {
+            break;
+        }
     }
 
     if fragments.is_empty() {
         let boundary_hash = lpcm_content_address(&(0u64, &rd.source_window_hash))?;
         let fragment_id = lpcm_content_address(&(&boundary_hash, &Vec::<EvidenceRef>::new()))?;
-        fragments.push(FragmentRef { fragment_id, ordinal: 0, evidence_refs: vec![], boundary_hash, carrier_hash: input.carrier_hash.clone() });
+        fragments.push(FragmentRef {
+            fragment_id,
+            ordinal: 0,
+            evidence_refs: vec![],
+            boundary_hash,
+            carrier_hash: input.carrier_hash.clone(),
+        });
     }
 
     let mut adjacency: BTreeMap<Hash256, Vec<Hash256>> = BTreeMap::new();
     for i in 0..fragments.len() {
         let mut adj = Vec::new();
-        if i > 0 { adj.push(fragments[i-1].fragment_id.clone()); }
-        if i+1 < fragments.len() { adj.push(fragments[i+1].fragment_id.clone()); }
+        if i > 0 {
+            adj.push(fragments[i - 1].fragment_id.clone());
+        }
+        if i + 1 < fragments.len() {
+            adj.push(fragments[i + 1].fragment_id.clone());
+        }
         adjacency.insert(fragments[i].fragment_id.clone(), adj);
     }
 
     let partition_report_ref = lpcm_content_address(&(&fragments, "carrier-window"))?;
     let window_id = lpcm_content_address(&(&fragments, &adjacency))?;
-    Ok(FragmentedPhaseSpaceWindow { window_id, source_window_hash: input.window_hash.clone(), fragments, adjacency, partition_report_ref })
+    Ok(FragmentedPhaseSpaceWindow {
+        window_id,
+        source_window_hash: input.window_hash.clone(),
+        fragments,
+        adjacency,
+        partition_report_ref,
+    })
 }
 
 fn partition_topology_adaptive(

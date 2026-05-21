@@ -30,6 +30,7 @@ struct CurvePoint {
 #[wasm_bindgen]
 impl PseWasm {
     /// Create a new PSE engine instance.
+    #[allow(clippy::new_without_default)]
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         console_error_panic_hook::set_once();
@@ -109,6 +110,7 @@ impl PseWasm {
             let _ = macro_step(&mut self.state, &batch, &self.config, &self.adapter);
 
             // Record accumulation curve data every 10 ticks
+            #[allow(clippy::manual_is_multiple_of)]
             if (t + 1) % 10 == 0 {
                 self.curve_data.push(CurvePoint {
                     tick: t + 1,

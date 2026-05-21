@@ -34,7 +34,7 @@ use crate::topology::carrier::CarrierContext;
 use crate::topology::gates::TptMtlOutcomeKind;
 use crate::topology::phase_window::{SamplePoint, TptMtlInput};
 use crate::topology::pipeline::{run_tpt_mtl, TptMtlPipelineResult};
-use crate::topology::primitives::{tpt_content_address, TptEvidenceRef, TopologyError};
+use crate::topology::primitives::{tpt_content_address, TopologyError, TptEvidenceRef};
 use crate::topology::run_descriptor::TptMtlRunDescriptor;
 
 // ── Error surface ─────────────────────────────────────────────────────────
@@ -60,19 +60,25 @@ impl std::fmt::Display for StackError {
 
 impl From<CognitionError> for StackError {
     fn from(e: CognitionError) -> Self {
-        StackError::Cognition { reason: e.to_string() }
+        StackError::Cognition {
+            reason: e.to_string(),
+        }
     }
 }
 
 impl From<HorizonError> for StackError {
     fn from(e: HorizonError) -> Self {
-        StackError::Horizon { reason: e.to_string() }
+        StackError::Horizon {
+            reason: e.to_string(),
+        }
     }
 }
 
 impl From<TopologyError> for StackError {
     fn from(e: TopologyError) -> Self {
-        StackError::Topology { reason: e.to_string() }
+        StackError::Topology {
+            reason: e.to_string(),
+        }
     }
 }
 
@@ -112,15 +118,20 @@ pub struct MonolithGate {
 }
 
 impl MonolithGate {
-    fn build(
-        g_cognition: bool,
-        g_horizon: bool,
-        g_topology: bool,
-    ) -> Result<Self, StackError> {
+    fn build(g_cognition: bool, g_horizon: bool, g_topology: bool) -> Result<Self, StackError> {
         let passed = g_cognition && g_horizon && g_topology;
-        let id = content_address(&(g_cognition, g_horizon, g_topology, passed))
-            .map_err(|e| StackError::Handoff { reason: e.to_string() })?;
-        Ok(MonolithGate { gate_id: Hash256(id), g_cognition, g_horizon, g_topology, passed })
+        let id = content_address(&(g_cognition, g_horizon, g_topology, passed)).map_err(|e| {
+            StackError::Handoff {
+                reason: e.to_string(),
+            }
+        })?;
+        Ok(MonolithGate {
+            gate_id: Hash256(id),
+            g_cognition,
+            g_horizon,
+            g_topology,
+            passed,
+        })
     }
 }
 
@@ -178,9 +189,13 @@ fn cog_horizon_to_tpt_input(
     trajectory_window: &[SamplePoint],
 ) -> Result<TptMtlInput, StackError> {
     // state_digest: deterministic hash of both upstream layers' canonical ids.
-    let state_digest_bytes =
-        content_address(&(&cog.canonical_state.state_id, &horizon.certificate.certificate_id))
-            .map_err(|e| StackError::Handoff { reason: e.to_string() })?;
+    let state_digest_bytes = content_address(&(
+        &cog.canonical_state.state_id,
+        &horizon.certificate.certificate_id,
+    ))
+    .map_err(|e| StackError::Handoff {
+        reason: e.to_string(),
+    })?;
     let state_digest = Hash256(state_digest_bytes);
 
     let s = &cog.state5;
@@ -193,8 +208,11 @@ fn cog_horizon_to_tpt_input(
 
     // ε = 0.05 in each principal axis — small enough not to distort geometry,
     // large enough to produce distinct vertices after content-addressing.
-    let eps = crate::dynamic_state::CanonicalNumber::quantize(0.05, 9)
-        .map_err(|e| StackError::Handoff { reason: e.to_string() })?;
+    let eps = crate::dynamic_state::CanonicalNumber::quantize(0.05, 9).map_err(|e| {
+        StackError::Handoff {
+            reason: e.to_string(),
+        }
+    })?;
 
     let coords_base = [
         s.psi_semantic_phase.clone(),
@@ -233,14 +251,17 @@ fn cog_horizon_to_tpt_input(
     };
 
     // boundary_ref: content-address of the horizon certificate chain.
-    let boundary_ref =
-        tpt_content_address(&horizon.certificate.certificate_id)
-            .map_err(|e| StackError::Topology { reason: e.to_string() })?;
+    let boundary_ref = tpt_content_address(&horizon.certificate.certificate_id).map_err(|e| {
+        StackError::Topology {
+            reason: e.to_string(),
+        }
+    })?;
 
     // trace_ref: content-address of both replay hashes.
-    let trace_ref =
-        tpt_content_address(&(&cog.replay_hash, &horizon.certificate.certificate_id))
-            .map_err(|e| StackError::Topology { reason: e.to_string() })?;
+    let trace_ref = tpt_content_address(&(&cog.replay_hash, &horizon.certificate.certificate_id))
+        .map_err(|e| StackError::Topology {
+        reason: e.to_string(),
+    })?;
 
     Ok(TptMtlInput {
         state_digest,
@@ -261,9 +282,7 @@ fn cog_horizon_to_tpt_input(
 /// Horizon and Topology still execute so all three gate verdicts are
 /// available in the result. The `MonolithGate.passed` conjunction summarises
 /// the aggregate verdict.
-pub fn run_traverse_stack(
-    input: &FullTraversalInput,
-) -> Result<FullTraversalResult, StackError> {
+pub fn run_traverse_stack(input: &FullTraversalInput) -> Result<FullTraversalResult, StackError> {
     // ── Stage 1: Cognition ────────────────────────────────────────────────
     let cog = run_cognition(&input.cog_input, &input.cog_rd)?;
     let g_cognition = cog.bundle.is_some();
@@ -287,7 +306,9 @@ pub fn run_traverse_stack(
         &horizon.certificate.certificate_id,
         &topo.candidate.candidate_id,
     ))
-    .map_err(|e| StackError::Handoff { reason: e.to_string() })?;
+    .map_err(|e| StackError::Handoff {
+        reason: e.to_string(),
+    })?;
     let replay_hash = Hash256(replay_bytes);
 
     // ── Step sample — caller appends this to trajectory_window ────────────
@@ -372,10 +393,8 @@ pub fn commit_stack_result(
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::cognition::run_descriptor::{
-        CognitionPolicies, CognitionThresholds,
-    };
     use crate::cognition::pipeline::CognitiveComponents;
+    use crate::cognition::run_descriptor::{CognitionPolicies, CognitionThresholds};
     use crate::horizon::run_descriptor::HorizonRunDescriptorV3;
     use crate::topology::run_descriptor::TptMtlRunDescriptor;
 

@@ -43,8 +43,8 @@ pub use llm_executor::CerebrasTrialExecutor;
 
 use pse_eval_matrix::{
     primitives::{content_address, EvalError, Hash256},
-    reports::{DiagnosticRecord, GateObservation, GateObservationSet, TrialOutputs, TrialReport},
     replay::ReplayObservation,
+    reports::{DiagnosticRecord, GateObservation, GateObservationSet, TrialOutputs, TrialReport},
     runner::{RunDescriptor, TrialExecutor},
     spec::EvaluationSpec,
     variants::{LayerMask, SystemVariantSpec},
@@ -83,9 +83,13 @@ impl TrialExecutor for PseTrialExecutor {
 
         for scenario in &scenarios {
             let rd = rd_for_scenario(scenario.name, layer_count, descriptor.seed);
-            let result = run_cognition(&scenario.input, &rd).map_err(|e| EvalError::InvalidSpec {
-                reason: format!("run_cognition failed in scenario '{}': {e:?}", scenario.name),
-            })?;
+            let result =
+                run_cognition(&scenario.input, &rd).map_err(|e| EvalError::InvalidSpec {
+                    reason: format!(
+                        "run_cognition failed in scenario '{}': {e:?}",
+                        scenario.name
+                    ),
+                })?;
 
             // Record per-scenario gate observations.
             gates.push(GateObservation {
@@ -114,16 +118,11 @@ impl TrialExecutor for PseTrialExecutor {
             .filter(|o| matches!(o, CognitionOutcome::CandidateBundle { .. }))
             .count() as u64;
         let hold_count = outcomes.len() as u64 - bundle_count;
-        let expected_holds: u64 = scenarios
-            .iter()
-            .filter(|s| !s.expected_bundle())
-            .count() as u64;
+        let expected_holds: u64 = scenarios.iter().filter(|s| !s.expected_bundle()).count() as u64;
         let correct_holds = scenarios
             .iter()
             .zip(outcomes.iter())
-            .filter(|(s, o)| {
-                !s.expected_bundle() && matches!(*o, CognitionOutcome::Hold { .. })
-            })
+            .filter(|(s, o)| !s.expected_bundle() && matches!(*o, CognitionOutcome::Hold { .. }))
             .count() as u64;
         let false_positive_count = expected_holds.saturating_sub(correct_holds);
         let false_negative_count = (scenarios.len() as u64)
@@ -142,18 +141,16 @@ impl TrialExecutor for PseTrialExecutor {
             .map(Hash256);
 
         let outputs = TrialOutputs {
-            outcome_hash: Some(
-                content_address(&(&descriptor.run_id, layer_count))
-                    .map_err(|e| EvalError::InvalidSpec { reason: e.to_string() })?,
-            ),
+            outcome_hash: Some(content_address(&(&descriptor.run_id, layer_count)).map_err(
+                |e| EvalError::InvalidSpec {
+                    reason: e.to_string(),
+                },
+            )?),
             candidate_bundle_hash: bundle_hash,
             finalized_emission_hash: variant
                 .layer_mask
                 .has(LayerMask::HORIZON)
-                .then(|| {
-                    content_address(&("eval.runner.emission", &descriptor.run_id))
-                        .unwrap()
-                }),
+                .then(|| content_address(&("eval.runner.emission", &descriptor.run_id)).unwrap()),
             detected_count: scenarios.len() as u64,
             true_positive_count: bundle_count.saturating_sub(false_positive_count),
             false_positive_count,
@@ -184,13 +181,13 @@ impl TrialExecutor for PseTrialExecutor {
 
         // Failures: B0 baseline with false commits is flagged.
         let failures = if layer_count == 0 && false_positive_count > 0 {
-            vec![
-                pse_eval_matrix::FailureRecord::new(
-                    pse_eval_matrix::FailureKind::FalseCrystal,
-                    "B0 baseline committed on hold-expected scenario",
-                )
-                .map_err(|e| EvalError::InvalidSpec { reason: format!("{e:?}") })?,
-            ]
+            vec![pse_eval_matrix::FailureRecord::new(
+                pse_eval_matrix::FailureKind::FalseCrystal,
+                "B0 baseline committed on hold-expected scenario",
+            )
+            .map_err(|e| EvalError::InvalidSpec {
+                reason: format!("{e:?}"),
+            })?]
         } else {
             vec![]
         };
@@ -234,9 +231,15 @@ mod tests {
                 .iter()
                 .find(|w| w.workload_id == entry.descriptor.workload_id)
                 .unwrap();
-            let (report, _) =
-                run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
-                    .unwrap();
+            let (report, _) = run_trial(
+                &spec,
+                variant,
+                workload,
+                &entry.descriptor,
+                &executor,
+                &spec.metrics,
+            )
+            .unwrap();
             assert!(
                 report.replay.passed,
                 "replay must pass for variant {}",
@@ -272,9 +275,15 @@ mod tests {
                 .iter()
                 .find(|w| w.workload_id == entry.descriptor.workload_id)
                 .unwrap();
-            let (report, _) =
-                run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
-                    .unwrap();
+            let (report, _) = run_trial(
+                &spec,
+                variant,
+                workload,
+                &entry.descriptor,
+                &executor,
+                &spec.metrics,
+            )
+            .unwrap();
             reports.push(report);
         }
 
@@ -304,12 +313,27 @@ mod tests {
             .iter()
             .find(|w| w.workload_id == entry.descriptor.workload_id)
             .unwrap();
-        let (r1, _) =
-            run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
-                .unwrap();
-        let (r2, _) =
-            run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
-                .unwrap();
-        assert_eq!(r1.trial_id, r2.trial_id, "trial_id must replay byte-identically");
+        let (r1, _) = run_trial(
+            &spec,
+            variant,
+            workload,
+            &entry.descriptor,
+            &executor,
+            &spec.metrics,
+        )
+        .unwrap();
+        let (r2, _) = run_trial(
+            &spec,
+            variant,
+            workload,
+            &entry.descriptor,
+            &executor,
+            &spec.metrics,
+        )
+        .unwrap();
+        assert_eq!(
+            r1.trial_id, r2.trial_id,
+            "trial_id must replay byte-identically"
+        );
     }
 }

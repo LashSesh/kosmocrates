@@ -35,6 +35,8 @@ pub mod topology_patch;
 #[cfg(test)]
 mod tests;
 
+pub use candidate::CandidateDirection;
+pub use coarse_grain::CoarseGrainCondensate;
 pub use evidence::LpcmInputWindow;
 pub use fragment::FragmentedPhaseSpaceWindow;
 pub use local_gate::{LocalCondensationBit, LocalCondensationCandidate, LocalCondensationStatus};
@@ -48,11 +50,11 @@ pub use run_descriptor::{LpcmPolicies, LpcmRunDescriptor, LpcmThresholds};
 pub use seam::SeamPercolationGraph;
 pub use support_mass::SupportMassVector;
 pub use topology_patch::LocalTopologyPatch;
-pub use candidate::CandidateDirection;
-pub use coarse_grain::CoarseGrainCondensate;
 
 /// Failure kinds for the LPCM layer (§8).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum LpcmFailureKind {
     NoProvenance,
     NonTriangulablePatch,
@@ -70,7 +72,9 @@ pub enum LpcmFailureKind {
 }
 
 /// Pipeline outcome classification (§8).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum LpcmOutcome {
     NoFragments,
     DiagnosticHold,

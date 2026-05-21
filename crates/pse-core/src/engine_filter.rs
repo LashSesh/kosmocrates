@@ -152,6 +152,10 @@ mod tests {
             }
             f.commits()
         }
-        assert_eq!(run_n(30), run_n(30), "engine must be byte-identical across runs");
+        assert_eq!(
+            run_n(30),
+            run_n(30),
+            "engine must be byte-identical across runs"
+        );
     }
 }

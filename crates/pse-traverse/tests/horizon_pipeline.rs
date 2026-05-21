@@ -1,3 +1,4 @@
+#![allow(clippy::doc_overindented_list_items)]
 //! Integration tests for PSE-TRAVERSE-HORIZON-03.
 //!
 //! Covers:

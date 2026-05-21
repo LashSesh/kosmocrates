@@ -43,6 +43,7 @@ pub struct CapabilityProfile {
 /// Aggregate every variant's metric observations into per-variant
 /// summaries + per-workload summaries, restricted to **valid**
 /// observations (§7.2 rule 5: replay-mismatched runs are excluded).
+#[allow(clippy::type_complexity)]
 pub fn score_ledger(
     ledger: &EvaluationRunLedger,
     reports: &[TrialReport],

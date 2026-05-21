@@ -1137,8 +1137,8 @@ mod tests {
             distance: 0.1,
         });
         mesh.edges.push(MeshEdge {
-            v1: v1,
-            v2: v2,
+            v1,
+            v2,
             weight: 0.1,
             distance: 0.9,
         });
