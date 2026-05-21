@@ -1609,6 +1609,7 @@ dependencies = [
  "pse-graph",
  "pse-manifest",
  "pse-memory",
+ "pse-metatron",
  "pse-navigator",
  "pse-pmhd",
  "pse-registry",
