@@ -57,15 +57,34 @@ impl LlmClient {
     }
 
     pub fn complete(&self, prompt: &str) -> Result<String, String> {
+        self.complete_with_context(prompt, "")
+    }
+
+    /// Same as `complete` but prepends `pse_context` to the system prompt.
+    /// Pass an empty string for the baseline (no-context) condition.
+    pub fn complete_with_context(
+        &self,
+        prompt: &str,
+        pse_context: &str,
+    ) -> Result<String, String> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+
+        let system_base = "You are a precise, analytical assistant. \
+                           Answer in 4-8 dense, information-rich paragraphs.";
+        let system_owned;
+        let system = if pse_context.is_empty() {
+            system_base
+        } else {
+            system_owned = format!("{system_base}\n\n{pse_context}");
+            &system_owned
+        };
 
         let body = ChatRequest {
             model: &self.model,
             messages: vec![
                 Message {
                     role: "system",
-                    content: "You are a precise, analytical assistant. \
-                              Answer in 4-8 dense, information-rich paragraphs.",
+                    content: system,
                 },
                 Message {
                     role: "user",

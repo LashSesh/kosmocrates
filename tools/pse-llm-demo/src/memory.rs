@@ -3,14 +3,31 @@
 use pse_types::SemanticCrystal;
 use serde::{Deserialize, Serialize};
 
+/// A crystal together with the source sentences that produced it.
+/// Stored alongside the raw crystal so the context renderer can reconstruct
+/// human-readable context for LLM injection.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CrystalRecord {
+    pub crystal: SemanticCrystal,
+    /// The sentence-level chunks from the sliding window that fired the gate.
+    pub source_chunks: Vec<String>,
+    /// 1-indexed session number in which this crystal was formed.
+    pub session: usize,
+    /// The question that was asked in this session.
+    pub question: String,
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct MemoryFile {
-    /// Crystals from all prior sessions.
+    /// Crystals from all prior sessions (used for PSE warm-start).
     pub crystals: Vec<SemanticCrystal>,
-    /// Raw LLM responses from prior sessions, kept for deterministic replay.
-    /// Replay in session 2 guarantees topology-identical observations →
-    /// guaranteed memory hits, proving cross-session recognition.
+    /// Raw LLM responses from prior sessions — replayed in session 2+ to
+    /// guarantee topology-identical observations → deterministic memory hits.
     pub prior_responses: Vec<String>,
+    /// Crystals with source provenance — used by the context renderer.
+    /// Absent in files written before this field was added (serde default = empty).
+    #[serde(default)]
+    pub crystal_records: Vec<CrystalRecord>,
 }
 
 pub struct CrystalStore {
