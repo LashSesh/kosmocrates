@@ -909,6 +909,7 @@ dependencies = [
  "pse-graph",
  "pse-types",
  "pyo3",
+ "serde",
  "serde_json",
 ]
 
