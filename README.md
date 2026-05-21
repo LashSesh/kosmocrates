@@ -1,19 +1,98 @@
-# PSE — Post-Symbolic Exoskeleton
+# PSE — Post-Symbolic Engine
 
-PSE is a **post-symbolic cognitive substrate** — a multi-layer formal architecture that
-sits between purely symbolic (GOFAI) and purely sub-symbolic (connectionist) computation,
-reducing to neither.
+**PSE is a universal, model-agnostic cognitive substrate for LLMs.**
 
-The base layer emits **content-addressed, falsifiable, deterministic crystal artifacts**
-from structured observation streams. Above it, a stack of formal traversal layers provides
-geometric and topological constraints that govern how probabilistic reasoning navigates a
-problem space. The complete architecture is constitutionally governed by the
-**ADAMANT protocol** (`ADAMANT_v1.0.0.pdf`), which enforces Artifact Supremacy,
-fail-closed gate semantics, deterministic replay identity, and Dissolution-Grundsatz
-across every layer.
+It gives any language model — GPT, Claude, Gemini, Llama, or whatever comes next —
+what it structurally cannot have on its own: **persistent, verifiable, topology-aware
+memory that accumulates across sessions, users, and model versions.**
+
+LLMs are stateless. Every API call is a fresh context window. PSE is the layer that
+turns a stateless oracle into a system with history, structure, and proof.
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Your Application                  │
+├──────────────────────────┬──────────────────────────┤
+│        LLM Layer         │       PSE Layer           │
+│  (Claude / GPT / Llama)  │  (persistent, auditable)  │
+│                          │                           │
+│  generates text          │  ingests LLM output as    │
+│  reasons over context  ──┼──▶ observation stream     │
+│  answers questions       │  crystallizes stable      │
+│                        ◀─┼── patterns into memory    │
+│  next call gets relevant │  PatternMemory lookup:    │
+│  crystals as context     │  topology + canonical ID  │
+└──────────────────────────┴──────────────────────────┘
+```
+
+PSE is **model-agnostic**: it sees byte streams. Swap the LLM without touching PSE.
+PSE is **cryptographically auditable**: every pattern it crystallizes carries a
+SHA-256 content address, an evidence chain, and a replay-identical execution proof.
+PSE is **fail-closed**: it emits nothing when the pattern is not stable enough.
 
 For *what post-symbolic computation means as a category*, see
 **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
+
+---
+
+## LLM Integration
+
+### Minimal example (Rust)
+
+```rust
+use pse_core::{macro_step, GlobalState};
+use pse_graph::PassthroughAdapter;
+use pse_memory::{MemoryConfig, PatternMemory};
+use pse_types::Config;
+
+let config = Config::preset_streaming();
+let mut state = GlobalState::new(&config);
+let mut memory = PatternMemory::new(MemoryConfig::default());
+let adapter = PassthroughAdapter::new("llm-session");
+
+// ── Ingest LLM output ──────────────────────────────────────────────
+let llm_response: Vec<u8> = call_your_llm(prompt).as_bytes().to_vec();
+
+if let Ok(Some(crystal)) = macro_step(&mut state, &[llm_response], &config, &adapter) {
+    // A stable pattern crystallized. Store it.
+    memory.insert_crystal(&crystal);
+    println!("Crystallized: {}", hex::encode(crystal.crystal_id));
+}
+
+// ── Next session: recall before calling the LLM ───────────────────
+let probe: Vec<u8> = new_prompt.as_bytes().to_vec();
+if let Ok(Some(probe_crystal)) = macro_step(&mut state, &[probe], &config, &adapter) {
+    if let Some(prior_id) = memory.lookup_crystal(&probe_crystal) {
+        // Topologically similar pattern found in prior sessions.
+        // Inject into the LLM's context window.
+        let context = archive.get(prior_id);
+        let response = call_your_llm_with_context(prompt, context);
+    }
+}
+```
+
+### What PSE gives the LLM
+
+| Without PSE | With PSE |
+|---|---|
+| Stateless — each call starts fresh | Persistent structured memory across sessions |
+| No proof of what was processed | Cryptographic audit trail per interaction |
+| Model-tied memory formats | Model-agnostic topology-based crystals |
+| Context window is the only memory | Infinite archive, relevant recall via PatternMemory |
+| Hallucination has no check | Fail-closed gate — no crystal if pattern is not stable |
+| Version upgrade loses history | Crystals survive model upgrades (content-addressed) |
+
+### Key properties for LLM integration
+
+- **Model-agnostic**: PSE ingests byte streams. The LLM can be anything.
+- **Cross-session**: `PatternMemory` persists canonical-class crystal IDs across runs via `load_from_crystals`.
+- **Topology-aware recall**: Two responses that encode the same *structure* — even with different wording — map to the same canonical graph class via the Metatron Periodic Table and are recalled as one pattern.
+- **Auditable**: Every crystallized interaction has a SHA-256 ID, evidence chain, and `CommitProof`. You can prove what the LLM processed and when.
+- **Deterministic replay**: Given the same inputs, PSE re-emits bit-identical crystals (`RunDescriptor` + `ReplayPack`). Independent verifiers can confirm the analysis.
+
+---
+
+## Architecture
 
 ---
 
@@ -109,7 +188,7 @@ Throughput reference, single-thread, release build, Xeon @ 2.10 GHz
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** | Gate eval + embedding, no crystal formation |
 | `B15` `macro_step` end-to-end | **43–110 µs / tick** | Full tick including constraint extraction |
 | `B05` determinism check | **PASS** | Bit-identical replay over 1 000 ticks |
-| Workspace test suite | **1138 / 1138** passing | |
+| Workspace test suite | **1275 / 1275** passing | |
 
 These numbers characterise pipeline latency on a small synthetic workload.
 Crystal formation rate depends on domain and calibration; run `pse-demo` to see
@@ -567,7 +646,7 @@ cargo run --release -p pse-bench-gt --bin bench_gt -- \
 
 ## Workspace layout
 
-28 crates, 10 domain adapters, 11 tool binaries:
+30 crates, 10 domain adapters, 11 tool binaries:
 
 ```
 crates/
@@ -670,19 +749,23 @@ tools/
 
 ## Specifications
 
-| Document | Covers |
-|---|---|
-| `ADAMANT_v1.0.0.pdf` | Constitutional architectural contract (all layers) |
-| `pse_traversal_agent_spec_v0_1_REUPLOAD.pdf` | Traversal Agent v0.1 |
-| `pse_traverse_signature_spec.pdf` | PSE-TRAVERSE-SIGNATURE-01 |
-| `pse_traverse_dynamics_spec_v0_1.pdf` | PSE-TRAVERSE-DYNAMICS-01 |
-| `pse_traverse_horizon_spec_v0_3.pdf` | PSE-TRAVERSE-HORIZON-03 |
-| `pse_traverse_cognition_spec_v0_1.pdf` | PSE-TRAVERSE-COGNITION-01 |
-| `PHASEMATRIX_HIVEMIND_03.pdf` | PHASEMATRIX-HIVEMIND-03 / 03.1 |
-| `pse_nctcs_conformance_spec_v0_1.pdf` | PSE-NCTCS-CONFORMANCE-01 |
-| `PSE-METATRON-MONOLITH-01.pdf` | PSE-METATRON-MONOLITH-01 |
-| `PSE_EVAL_MATRIX_01.pdf` | PSE-EVAL-MATRIX-01 |
-| `topologisches_traversierungsframework_v3.pdf` | Underlying topological framework |
+Normative specification documents live in [`specs/`](specs/):
+
+| Document | Spec ID | Covers |
+|---|---|---|
+| [`specs/ADAMANT_v1.0.0.pdf`](specs/ADAMANT_v1.0.0.pdf) | ADAMANT-v1.0.0 | Constitutional architectural contract (all layers) |
+| [`specs/topologisches_traversierungsframework_v3.pdf`](specs/topologisches_traversierungsframework_v3.pdf) | PSE-TOPO-03 | Underlying topological framework |
+| [`specs/pse_traversal_agent_spec_v0_1.pdf`](specs/pse_traversal_agent_spec_v0_1.pdf) | PSE-TRAVERSE-v0.1 | Traversal Agent |
+| [`specs/pse_traverse_signature_spec.pdf`](specs/pse_traverse_signature_spec.pdf) | PSE-TRAVERSE-SIGNATURE-01 | Signature layer |
+| [`specs/pse_traverse_dynamics_spec_v0_1.pdf`](specs/pse_traverse_dynamics_spec_v0_1.pdf) | PSE-TRAVERSE-DYNAMICS-01 | Dynamics layer |
+| [`specs/pse_traverse_horizon_spec_v0_3.pdf`](specs/pse_traverse_horizon_spec_v0_3.pdf) | PSE-TRAVERSE-HORIZON-03 | Horizon layer |
+| [`specs/pse_traverse_cognition_spec_v0_1.pdf`](specs/pse_traverse_cognition_spec_v0_1.pdf) | PSE-TRAVERSE-COGNITION-01 | Cognition layer |
+| [`specs/PHASEMATRIX_HIVEMIND_03.pdf`](specs/PHASEMATRIX_HIVEMIND_03.pdf) | PHASEMATRIX-HIVEMIND-03 | Phase-matrix layer |
+| [`specs/phasematrix_hivemind_dual_fabric_stitch_spec_v0_3_1.pdf`](specs/phasematrix_hivemind_dual_fabric_stitch_spec_v0_3_1.pdf) | PHASEMATRIX-HIVEMIND-03.1 | Dual-fabric stitch layer |
+| [`specs/pse_nctcs_conformance_spec_v0_1.pdf`](specs/pse_nctcs_conformance_spec_v0_1.pdf) | PSE-NCTCS-CONFORMANCE-01 | NCTCS closure layer |
+| [`specs/PSE-METATRON-MONOLITH-01.pdf`](specs/PSE-METATRON-MONOLITH-01.pdf) | PSE-METATRON-MONOLITH-01 | Holistic eigenmode layer |
+| [`specs/PSE_EVAL_MATRIX_01.pdf`](specs/PSE_EVAL_MATRIX_01.pdf) | PSE-EVAL-MATRIX-01 | Evaluation matrix |
+| [`specs/PSE_LPCM_IMPLEMENTATION_01.pdf`](specs/PSE_LPCM_IMPLEMENTATION_01.pdf) | PSE-LPCM-01 | LPCM implementation |
 
 ---
 
@@ -710,7 +793,7 @@ tools/
 | Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
 | Format | `cargo fmt --all -- --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
-| Tests | `cargo test --workspace --locked` | 1138 / 1138 passing |
+| Tests | `cargo test --workspace --locked` | 1275 / 1275 passing |
 | Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
 | Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
 | CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |

@@ -28,4 +28,5 @@ pse-replay = { path = "../pse-replay" }
 pse-manifest = { path = "../pse-manifest" }
 pse-pmhd = { path = "../pse-pmhd" }
 pse-memory = { path = "../pse-memory" }
+pse-metatron = { path = "../pse-metatron" }
 serde_json = { workspace = true }
