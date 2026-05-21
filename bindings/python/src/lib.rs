@@ -65,9 +65,9 @@ fn default_config() -> Config {
     cfg.thresholds.p = 0.05;
     cfg.thresholds.n = 0.05;
     cfg.thresholds.k = 0.05;
-    cfg.consensus.consensus_threshold = 0.3;
-    cfg.consensus.mirror_consistency_eta = 0.3;
-    cfg.consensus.por_kappa_bar = 0.3;
+    cfg.consensus.consensus_threshold = 0.0;
+    cfg.consensus.mirror_consistency_eta = 0.0;
+    cfg.consensus.por_kappa_bar = 0.0;
     cfg
 }
 

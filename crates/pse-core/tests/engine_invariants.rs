@@ -218,3 +218,100 @@ fn gate_snapshots_are_deterministic() {
         "r metric must be deterministic"
     );
 }
+
+// ── LLM text domain: consensus_threshold=0 smoke test ────────────────────────
+
+/// Verify that a realistic LLM-text workload produces at least one crystal
+/// when the cascade consensus thresholds are set to 0.
+///
+/// Root cause of the original 0-crystal bug:
+///   DK (+π/16) and SW (+π/2) rotate the carrier before PI checks alignment.
+///   LLM text produces a consistent data phase (~2.46 rad) that is never at
+///   a local maximum of κ after those rotations → PI score ≈ 0 → stability
+///   collapses → primal/dual score < 0.3 → consensus rejection.
+///
+///   Fix: set consensus_threshold=0 so the 8-metric Kairos gate is decisive.
+#[test]
+fn llm_text_config_produces_crystals() {
+    use pse_graph::{ObservationAdapter, ObserveError};
+    use pse_types::{content_address_raw, MeasurementContext, Observation, ProvenanceEnvelope};
+    use std::f64::consts::TAU;
+
+    struct TextPhaseAdapter { id: String }
+    impl ObservationAdapter for TextPhaseAdapter {
+        fn source_id(&self) -> &str { &self.id }
+        fn canonicalize(&self, raw: &[u8], ctx: &MeasurementContext) -> Result<Observation, ObserveError> {
+            let phase = if raw.is_empty() { 0.0 } else {
+                (raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64 / 255.0) * TAU
+            };
+            let payload = raw.to_vec();
+            let digest = content_address_raw(&payload);
+            Ok(Observation {
+                timestamp: 0.0, source_id: self.id.clone(),
+                provenance: ProvenanceEnvelope { origin: self.id.clone(), chain: vec![], sig: None },
+                payload, context: ctx.clone(), digest,
+                schema_version: "1.0.0".to_string(), phase_hint: Some(phase),
+            })
+        }
+    }
+
+    let mut config = Config::default();
+    config.calibration.enabled = true;
+    config.calibration.target_pass_rate = 0.30;
+    config.calibration.window = 20;
+    config.calibration.warmup_ticks = 2;
+    config.carrier.adaptive = true;
+    config.thresholds.d = 0.05;
+    config.thresholds.q = 0.05;
+    config.thresholds.r = 0.05;
+    config.thresholds.g = 0.05;
+    config.thresholds.j = 0.05;
+    config.thresholds.p = 0.05;
+    config.thresholds.n = 0.05;
+    config.thresholds.k = 0.05;
+    config.consensus.consensus_threshold = 0.0;
+    config.consensus.mirror_consistency_eta = 0.0;
+    config.consensus.por_kappa_bar = 0.0;
+
+    let adapter = TextPhaseAdapter { id: "llm-test".to_string() };
+    let mut state = GlobalState::new(&config);
+
+    // Synthetic "LLM response" — 20 sentences, each a separate ASCII chunk.
+    let sentences: Vec<Vec<u8>> = vec![
+        b"Entropy is a fundamental concept in both thermodynamics and information theory.".to_vec(),
+        b"In thermodynamics it measures the disorder of a physical system.".to_vec(),
+        b"The second law states that entropy of an isolated system always increases.".to_vec(),
+        b"Information entropy measures the average surprise in a probability distribution.".to_vec(),
+        b"Both formulations share the log-probability structure and additivity over states.".to_vec(),
+        b"Shannon borrowed the term from Boltzmann precisely because of this structural isomorphism.".to_vec(),
+        b"The Gibbs entropy generalises the Boltzmann formula to continuous distributions.".to_vec(),
+        b"Mutual information is the KL-divergence between joint and marginal distributions.".to_vec(),
+        b"The channel capacity theorem links entropy to reliable communication rates.".to_vec(),
+        b"Maxwell demon thought experiment connects information erasure with thermodynamic cost.".to_vec(),
+        b"Landauer principle states that erasing one bit dissipates at least kT ln2 of heat.".to_vec(),
+        b"Irreversibility in thermodynamics corresponds to information loss about microstates.".to_vec(),
+        b"The arrow of time emerges from the asymmetry of the second law.".to_vec(),
+        b"Statistical mechanics derives macroscopic entropy from microscopic probability counts.".to_vec(),
+        b"Phase space volume is preserved by Hamiltonian dynamics via Liouville theorem.".to_vec(),
+        b"Entropy maximisation subject to energy constraints yields the Boltzmann distribution.".to_vec(),
+        b"Free energy minimisation drives spontaneous processes toward equilibrium.".to_vec(),
+        b"Negentropy or syntropy is a measure of order imported from the environment.".to_vec(),
+        b"Living systems maintain low entropy by exporting disorder to their surroundings.".to_vec(),
+        b"Both thermodynamic and information entropy obey subadditivity and concavity.".to_vec(),
+    ];
+
+    let window = 4usize;
+    let mut crystals_formed = 0usize;
+    for i in 0..sentences.len().saturating_sub(window - 1) {
+        let batch: Vec<Vec<u8>> = sentences[i..i + window].to_vec();
+        if let Ok(Some(_)) = macro_step(&mut state, &batch, &config, &adapter) {
+            crystals_formed += 1;
+        }
+    }
+    assert!(
+        crystals_formed >= 1,
+        "expected ≥1 crystal with consensus_threshold=0; got 0. \
+         Last gate: {:?}",
+        state.last_gate
+    );
+}
