@@ -1,10 +1,48 @@
 //! PSE operations used by the HTTP handlers.
 //! Mirrors the logic in tools/pse-llm-demo and bindings/python.
 
+use std::f64::consts::TAU;
+
 use pse_core::{load_memory_from_crystals, macro_step, GlobalState};
-use pse_graph::PassthroughAdapter;
-use pse_types::{Config, SemanticCrystal};
+use pse_graph::{ObservationAdapter, ObserveError};
+use pse_types::{
+    content_address_raw, Config, MeasurementContext, Observation, ProvenanceEnvelope,
+    SemanticCrystal,
+};
 use serde::{Deserialize, Serialize};
+
+struct TextPhaseAdapter {
+    source_id: String,
+}
+
+impl TextPhaseAdapter {
+    fn new(source: impl Into<String>) -> Self {
+        Self { source_id: source.into() }
+    }
+}
+
+impl ObservationAdapter for TextPhaseAdapter {
+    fn source_id(&self) -> &str { &self.source_id }
+
+    fn canonicalize(&self, raw: &[u8], context: &MeasurementContext) -> Result<Observation, ObserveError> {
+        let phase = if raw.is_empty() { 0.0 } else {
+            let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
+            (avg / 255.0) * TAU
+        };
+        let payload = raw.to_vec();
+        let digest = content_address_raw(&payload);
+        Ok(Observation {
+            timestamp: 0.0,
+            source_id: self.source_id.clone(),
+            provenance: ProvenanceEnvelope { origin: self.source_id.clone(), chain: Vec::new(), sig: None },
+            payload,
+            context: context.clone(),
+            digest,
+            schema_version: "1.0.0".to_string(),
+            phase_hint: Some(phase),
+        })
+    }
+}
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -134,7 +172,7 @@ pub fn ingest(
     };
     load_memory_from_crystals(&mut state, &all_crystals);
 
-    let adapter = PassthroughAdapter::new(source_name);
+    let adapter = TextPhaseAdapter::new(source_name);
     let chunks  = chunk_text(text);
 
     const WINDOW: usize = 4;
