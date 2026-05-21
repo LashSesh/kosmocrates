@@ -50,7 +50,6 @@
 pub mod ablation;
 /// Deterministic diagnostic benchmark for agent exoskeleton relevance fields.
 pub mod agent_exoskeleton;
-pub mod lpcm_metrics;
 pub mod calibration;
 pub mod cell_substrate_metrics;
 pub mod cognition_metrics;
@@ -59,6 +58,7 @@ pub mod export;
 pub mod failure_taxonomy;
 pub mod ground_truth;
 pub mod ledger;
+pub mod lpcm_metrics;
 pub mod metrics;
 pub mod nctcs_metrics;
 pub mod presets;
@@ -94,7 +94,6 @@ pub use cell_substrate_metrics::{
     b9_metric_specs, cell_substrate_metric_specs, dual_fabric_stitch_metric_specs,
     CellSubstrateMetricKind,
 };
-pub use lpcm_metrics::{lpcm_metric_specs, LpcmMetricKind};
 pub use cognition_metrics::{cognition_metric_specs, CognitionMetricKind};
 pub use datasets::{DatasetManifest, DatasetSplit, DatasetSplitKind};
 pub use export::{render_json_summary, render_markdown_summary};
@@ -105,14 +104,15 @@ pub use ground_truth::{
 pub use ledger::{
     append_to_ledger, init_ledger, EvaluationRunEntry, EvaluationRunLedger, RunStatus,
 };
+pub use lpcm_metrics::{lpcm_metric_specs, LpcmMetricKind};
 pub use metrics::{
     AggregationPolicy, InvalidationRule, MetricDirection, MetricFamily, MetricObservation,
     MetricSpec,
 };
 pub use presets::{
     preset_agent_cognition, preset_dual_fabric_stitch, preset_lpcm_fragment_collapse,
-    preset_phase_matrix_substrate, preset_post_symbolic_ablation,
-    preset_streaming_event_detection, Preset,
+    preset_phase_matrix_substrate, preset_post_symbolic_ablation, preset_streaming_event_detection,
+    Preset,
 };
 pub use primitives::{
     fixed_abs_diff, fixed_ge, fixed_le, fixed_sub, EvalError, EvidenceRef, Fixed,

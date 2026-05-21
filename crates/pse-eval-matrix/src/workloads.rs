@@ -290,7 +290,6 @@ mod tests {
         let w = WorkloadSpec::stream_event("w.s", Hash256::zero(), None);
         assert!(w
             .success_criteria
-            .iter()
-            .any(|c| *c == SuccessCriterion::ReplayByteIdentical));
+            .contains(&SuccessCriterion::ReplayByteIdentical));
     }
 }

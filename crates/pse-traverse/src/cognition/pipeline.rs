@@ -144,7 +144,8 @@ pub fn run_cognition(
     let scheduler = build_scheduler_minimal(&input.carrier_ids, input.logical_step)?;
 
     // §16.1 step 9 — panorama.
-    let panorama = build_panorama_with_quality(&null_center_id, input.logical_step, &input.support_strength)?;
+    let panorama =
+        build_panorama_with_quality(&null_center_id, input.logical_step, &input.support_strength)?;
     let g_panorama = fixed_ge(
         &panorama.coverage_score,
         &rd.thresholds.min_panorama_coverage,
@@ -253,8 +254,7 @@ pub fn run_cognition(
         )
     } else {
         let failed_gate = first_failed_gate(&handoff_gate);
-        let failure_policy =
-            select_failure_policy(failed_gate, &rd.policies.failure_policy_order);
+        let failure_policy = select_failure_policy(failed_gate, &rd.policies.failure_policy_order);
         let diagnostics = vec![CognitionDiagnostic::new(
             failed_gate,
             format!("handoff gate failed: {failed_gate:?}"),
@@ -342,12 +342,12 @@ fn policies_for_gate(gate: CognitionGateKind) -> &'static [CognitionFailurePolic
     use CognitionGateKind::*;
     match gate {
         Percolation => &[RefineConstraints, SplitHypercube, CalibrateOperators, Hold],
-        Resonance   => &[QuerySpiralMemory, ExpandPanorama, RefineConstraints, Hold],
-        Panorama    => &[ExpandPanorama, AdmitWormhole, QuerySpiralMemory, Hold],
-        SelfModel   => &[CalibrateOperators, MigrateCarrier, Hold],
-        Trigger     => &[WaitForPhaseWindow, RefineConstraints, Hold],
-        Replay      => &[RequireHumanReview, Hold],
-        Composite   => &[RefineConstraints, Hold],
+        Resonance => &[QuerySpiralMemory, ExpandPanorama, RefineConstraints, Hold],
+        Panorama => &[ExpandPanorama, AdmitWormhole, QuerySpiralMemory, Hold],
+        SelfModel => &[CalibrateOperators, MigrateCarrier, Hold],
+        Trigger => &[WaitForPhaseWindow, RefineConstraints, Hold],
+        Replay => &[RequireHumanReview, Hold],
+        Composite => &[RefineConstraints, Hold],
     }
 }
 

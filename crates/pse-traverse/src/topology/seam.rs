@@ -19,7 +19,7 @@ use super::run_descriptor::TptMtlRunDescriptor;
 /// SeamComponent binding the primary and dual phases (TPT-MTL §8.3).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SeamComponent {
-    /// The seam vector m_i ∈ [0,1]^5 (sigmoid output, bounded).
+    /// The seam vector m_i ∈ `[0,1]`^5 (sigmoid output, bounded).
     pub vector: [Fixed; 5],
     pub proof_ref: Hash256,
     pub carrier_coherence: Fixed,

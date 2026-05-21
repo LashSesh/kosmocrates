@@ -11,7 +11,7 @@
 //!   ──LiftMicro──▶ {µi} ──Reinterpret──▶ (Claims, H, H̄, G) ──Gate──▶ Bundle
 //! ```
 //!
-//! Use [`pipeline::run_tpt_mtl`] for the canonical end-to-end pass.
+//! Use `run_tpt_mtl` for the canonical end-to-end pass.
 //!
 //! ## Invariants
 //!

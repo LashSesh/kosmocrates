@@ -930,7 +930,7 @@ mod tests {
         let mut eng2 = DrillEngine::new(cfg_zero);
         let res2 = eng2.drill(&spec);
         assert!(
-            res2.monoliths.len() > 0,
+            !res2.monoliths.is_empty(),
             "AT-P3: all thresholds=0.0 → at least 1 monolith"
         );
     }

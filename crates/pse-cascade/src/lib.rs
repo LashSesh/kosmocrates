@@ -1293,7 +1293,7 @@ mod tests {
         let m_carrier_only = mandorla(&a, &b, 0.5, 0.5);
         // Aligned data: phase_lock factor = 1, so κ_real should
         // equal κ_carrier_only modulo amp_match.
-        let amp_match = (-1.0 * (h.r - a.r).powi(2)).exp();
+        let amp_match = (-(h.r - a.r).powi(2)).exp();
         let expected = m_carrier_only.kappa * amp_match;
         assert!(
             (m_real.kappa - expected).abs() < 1e-9,

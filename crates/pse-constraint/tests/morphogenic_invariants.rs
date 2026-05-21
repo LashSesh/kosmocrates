@@ -37,8 +37,26 @@ fn make_close_embeddings_graph() -> PersistentGraph {
     let mut g = PersistentGraph::new();
     g.upsert_vertex(0, 0.0);
     g.upsert_vertex(1, 0.0);
-    g.embedding.insert(0, FiveDState { p: 0.5, rho: 0.5, omega: 0.5, chi: 0.5, eta: 0.5 });
-    g.embedding.insert(1, FiveDState { p: 0.5001, rho: 0.5001, omega: 0.5001, chi: 0.5001, eta: 0.5001 });
+    g.embedding.insert(
+        0,
+        FiveDState {
+            p: 0.5,
+            rho: 0.5,
+            omega: 0.5,
+            chi: 0.5,
+            eta: 0.5,
+        },
+    );
+    g.embedding.insert(
+        1,
+        FiveDState {
+            p: 0.5001,
+            rho: 0.5001,
+            omega: 0.5001,
+            chi: 0.5001,
+            eta: 0.5001,
+        },
+    );
     g
 }
 
@@ -50,13 +68,12 @@ fn node_split_deactivates_parent_not_deletes() {
     let mut g = make_high_pressure_graph(3);
     let mut morph = MorphState::new();
     let config = AdaptationConfig {
-        split_threshold: 0.0,   // fire on any positive pressure
-        merge_distance: 0.0,    // no merges
+        split_threshold: 0.0, // fire on any positive pressure
+        merge_distance: 0.0,  // no merges
         ..AdaptationConfig::default()
     };
 
-    let vertex_ids_before: std::collections::BTreeSet<u64> =
-        g.id_map.keys().copied().collect();
+    let vertex_ids_before: std::collections::BTreeSet<u64> = g.id_map.keys().copied().collect();
 
     morphogenic_update(&mut g, &mut morph, &[], &config);
 
@@ -68,9 +85,10 @@ fn node_split_deactivates_parent_not_deletes() {
         );
     }
     // At least one split should have happened given zero threshold
-    let has_splits = morph.mutation_log.iter().any(|m| {
-        matches!(m, pse_constraint::MorphMutation::NodeSplit { .. })
-    });
+    let has_splits = morph
+        .mutation_log
+        .iter()
+        .any(|m| matches!(m, pse_constraint::MorphMutation::NodeSplit { .. }));
     assert!(has_splits, "at least one NodeSplit must have fired");
 }
 
@@ -80,13 +98,12 @@ fn node_merge_deactivates_not_deletes() {
     let mut g = make_close_embeddings_graph();
     let mut morph = MorphState::new();
     let config = AdaptationConfig {
-        merge_distance: 10.0,  // very large → merges everything
-        split_threshold: 1e9,  // no splits
+        merge_distance: 10.0, // very large → merges everything
+        split_threshold: 1e9, // no splits
         ..AdaptationConfig::default()
     };
 
-    let vertex_ids_before: std::collections::BTreeSet<u64> =
-        g.id_map.keys().copied().collect();
+    let vertex_ids_before: std::collections::BTreeSet<u64> = g.id_map.keys().copied().collect();
 
     morphogenic_update(&mut g, &mut morph, &[], &config);
 
@@ -117,7 +134,7 @@ fn subgraph_prune_deactivates_not_deletes() {
 
     // Step 2: run again — dormant vertices from step 1 trigger SubgraphPrune
     let prune_config = AdaptationConfig {
-        split_threshold: 1e9,   // no new splits
+        split_threshold: 1e9, // no new splits
         merge_distance: 0.0,
         ..AdaptationConfig::default()
     };

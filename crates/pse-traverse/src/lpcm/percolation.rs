@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::primitives::{fixed_add, fixed_ge, Fixed, Hash256, lpcm_content_address, LpcmResult};
+use super::primitives::{fixed_add, fixed_ge, lpcm_content_address, Fixed, Hash256, LpcmResult};
 use super::run_descriptor::LpcmRunDescriptor;
 use super::seam::SeamPercolationGraph;
 
@@ -104,7 +104,13 @@ fn bfs_paths(
         s.insert(start.clone());
         s
     };
-    queue.push_back((start.clone(), initial_visited, vec![start.clone()], vec![], Fixed::zero()));
+    queue.push_back((
+        start.clone(),
+        initial_visited,
+        vec![start.clone()],
+        vec![],
+        Fixed::zero(),
+    ));
 
     while let Some((current, visited, node_seq, edge_seq, cum_score)) = queue.pop_front() {
         let empty = vec![];
@@ -149,7 +155,13 @@ fn bfs_paths(
                 });
             }
 
-            queue.push_back((neighbor.clone(), new_visited, new_nodes, new_edges, new_score));
+            queue.push_back((
+                neighbor.clone(),
+                new_visited,
+                new_nodes,
+                new_edges,
+                new_score,
+            ));
         }
     }
 

@@ -15,18 +15,22 @@
 //!   Cerebras, OpenAI, Groq, Together AI, Fireworks, Ollama, LM Studio, etc.
 //!
 //! Configuration (environment variables):
-//!   PSE_LLM_BASE_URL   API base (default: https://api.cerebras.ai/v1)
-//!   PSE_LLM_API_KEY    API key (required)
-//!   PSE_LLM_MODEL      Model name (default: llama3.1-8b)
-//!   PSE_LLM_MEMORY     Path to memory file (default: pse-llm-memory.json)
+//!   `PSE_LLM_BASE_URL`  API base (default: `https://api.cerebras.ai/v1`)
+//!   `PSE_LLM_API_KEY`   API key (required)
+//!   `PSE_LLM_MODEL`     Model name (default: `llama3.1-8b`)
+//!   `PSE_LLM_MEMORY`    Path to memory file (default: `pse-llm-memory.json`)
 //!
 //! Quickstart (Cerebras):
-//!   PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
-//!   PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo   # session 2
+//! ```text
+//!   PSE_LLM_API_KEY=YOUR_KEY cargo run --release -p pse-llm-demo
+//!   PSE_LLM_API_KEY=YOUR_KEY cargo run --release -p pse-llm-demo   # session 2
+//! ```
 //!
 //! OpenAI:
+//! ```text
 //!   PSE_LLM_BASE_URL=https://api.openai.com/v1 PSE_LLM_MODEL=gpt-4o-mini \
 //!   PSE_LLM_API_KEY=sk-... cargo run --release -p pse-llm-demo
+//! ```
 //!
 //! Ollama (local, no key needed):
 //!   PSE_LLM_BASE_URL=http://localhost:11434/v1 PSE_LLM_API_KEY=ollama \
@@ -75,10 +79,7 @@ fn ingest_text(
     let window_size = 4;
     let mut crystals = Vec::new();
     for i in 0..chunks.len().saturating_sub(window_size - 1) {
-        let batch: Vec<Vec<u8>> = chunks[i..i + window_size.min(chunks.len() - i)]
-            .iter()
-            .cloned()
-            .collect();
+        let batch: Vec<Vec<u8>> = chunks[i..i + window_size.min(chunks.len() - i)].to_vec();
         if let Ok(Some(c)) = macro_step(state, &batch, config, adapter) {
             crystals.push(c);
         }
@@ -103,7 +104,11 @@ fn main() {
     println!(
         "  Session {}: {} ({} crystal{} in memory)",
         session,
-        if session == 1 { "COLD START" } else { "WARM START" },
+        if session == 1 {
+            "COLD START"
+        } else {
+            "WARM START"
+        },
         mem.crystals.len(),
         if mem.crystals.len() == 1 { "" } else { "s" },
     );
@@ -132,7 +137,11 @@ fn main() {
         println!(
             "  Re-processing {} prior LLM response{} through PSE…",
             mem.prior_responses.len(),
-            if mem.prior_responses.len() == 1 { "" } else { "s" },
+            if mem.prior_responses.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
         );
 
         let t_replay = Instant::now();
@@ -148,8 +157,11 @@ fn main() {
 
         if replay_hits > 0 {
             println!();
-            println!("  ✓ PSE recognised topology from session {} in session {}.",
-                     session - 1, session);
+            println!(
+                "  ✓ PSE recognised topology from session {} in session {}.",
+                session - 1,
+                session
+            );
             println!("    Identical text → identical observation graph →");
             println!("    canonical-class match in PatternMemory.");
         }
@@ -158,7 +170,10 @@ fn main() {
 
     // ── Call LLM for this session ─────────────────────────────────────────────
     let question = QUESTIONS[(session - 1) % QUESTIONS.len()];
-    println!("────── LLM Query (Session {}) ──────────────────────────────────", session);
+    println!(
+        "────── LLM Query (Session {}) ──────────────────────────────────",
+        session
+    );
     println!();
     println!("  Q: \"{}\"", question);
     println!();
@@ -210,10 +225,16 @@ fn main() {
     if !new_crystals.is_empty() {
         println!("  New crystals this session:");
         for c in &new_crystals {
-            let id: String = c.crystal_id.iter().take(8).map(|b| format!("{b:02x}")).collect();
+            let id: String = c
+                .crystal_id
+                .iter()
+                .take(8)
+                .map(|b| format!("{b:02x}"))
+                .collect();
             println!(
                 "    #{id}…  stability={:.3}  region={} vertices",
-                c.stability_score, c.region.len()
+                c.stability_score,
+                c.region.len()
             );
         }
         println!();
@@ -224,7 +245,10 @@ fn main() {
     }
 
     if new_hits > 0 {
-        println!("  New-response hits: {} (PSE found overlap with prior memory)", new_hits);
+        println!(
+            "  New-response hits: {} (PSE found overlap with prior memory)",
+            new_hits
+        );
         println!();
     }
 
@@ -257,7 +281,11 @@ fn main() {
         );
         println!(
             "  PSE substrate claim      : {}",
-            if replay_hits > 0 { "PROVEN ✓" } else { "needs more sessions — run again" }
+            if replay_hits > 0 {
+                "PROVEN ✓"
+            } else {
+                "needs more sessions — run again"
+            }
         );
     }
     println!();

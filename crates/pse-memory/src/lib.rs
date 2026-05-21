@@ -148,7 +148,7 @@ impl PatternMemory {
                 if !metatron.canonical_hash.is_empty() {
                     self.canonical_index
                         .entry(metatron.canonical_hash.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(crystal.crystal_id);
                 }
             }
@@ -261,7 +261,7 @@ impl PatternMemory {
             if !metatron.canonical_hash.is_empty() {
                 self.canonical_index
                     .entry(metatron.canonical_hash.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(crystal.crystal_id);
                 self.stats.canonical_index_size = self.canonical_index.len();
             }
@@ -382,6 +382,7 @@ impl PatternMemory {
 
     /// Extract a signature from pre-crystal data (metrics + topology).
     /// Used for lookup before the cascade runs.
+    #[allow(clippy::too_many_arguments)]
     pub fn extract_candidate_signature(
         spectral_gap: f64,
         cheeger_estimate: f64,
@@ -473,7 +474,7 @@ fn cosine_similarity(a: &[f64], b: &[f64], k: usize) -> f64 {
     }
 
     // Clamp to [0, 1] (cosine can be negative for opposing vectors)
-    (dot / denom).max(0.0).min(1.0)
+    (dot / denom).clamp(0.0, 1.0)
 }
 
 /// Compute SHA-256 content hash of a crystal.

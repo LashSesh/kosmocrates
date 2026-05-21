@@ -46,6 +46,7 @@ pub struct FinalValidationReport {
 }
 
 impl FinalValidationReport {
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         run_id: StableId,
         repo_snapshot_hash: Hash256,

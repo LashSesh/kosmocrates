@@ -21,9 +21,7 @@ use crate::dynamic_state::Hash256;
 use super::pipeline::{run_cognition, CognitionInput};
 use super::primitives::{CognitionError, Fixed};
 use super::report::CognitionOutcome;
-use super::run_descriptor::{
-    CognitionPolicies, CognitionRunDescriptor, CognitionThresholds,
-};
+use super::run_descriptor::{CognitionPolicies, CognitionRunDescriptor, CognitionThresholds};
 
 /// Filter kalibriert auf eine gegebene PSE-Schichttiefe.
 ///
@@ -133,7 +131,10 @@ mod tests {
         input.support_strength = Fixed::quantize(1.0, 9).unwrap();
         input.logical_step = 1;
         let result = CognitionFilter::standard().evaluate(&input).unwrap();
-        assert!(result.committed, "support=1.0 muss auf standard-Filter commiten");
+        assert!(
+            result.committed,
+            "support=1.0 muss auf standard-Filter commiten"
+        );
     }
 
     #[test]
@@ -144,7 +145,10 @@ mod tests {
         input.constraint_count = 1;
         input.logical_step = 1;
         let result = CognitionFilter::standard().evaluate(&input).unwrap();
-        assert!(!result.committed, "support=0.2 muss auf standard-Filter halten");
+        assert!(
+            !result.committed,
+            "support=0.2 muss auf standard-Filter halten"
+        );
         assert!(result.failed_gate.is_some());
     }
 

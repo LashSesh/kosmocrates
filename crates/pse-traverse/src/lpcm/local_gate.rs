@@ -69,12 +69,12 @@ pub fn evaluate_local_condensation(
     tie_policy: &TiePolicy,
     previous_active: bool,
 ) -> LocalCondensationBit {
-    use super::primitives::lpcm_content_address;
     use super::primitives::fixed_sub;
+    use super::primitives::lpcm_content_address;
 
     if !support.valid {
-        let bit_id = lpcm_content_address(&(fragment_id, "zero-support"))
-            .unwrap_or(Hash256::zero());
+        let bit_id =
+            lpcm_content_address(&(fragment_id, "zero-support")).unwrap_or(Hash256::zero());
         return LocalCondensationBit {
             bit_id,
             fragment_id: fragment_id.clone(),
@@ -120,8 +120,7 @@ pub fn evaluate_local_condensation(
     let tie = winners.len() > 1;
     if tie {
         if let TiePolicy::TieNoCondense = tie_policy {
-            let bit_id = lpcm_content_address(&(fragment_id, "tie"))
-                .unwrap_or(Hash256::zero());
+            let bit_id = lpcm_content_address(&(fragment_id, "tie")).unwrap_or(Hash256::zero());
             return LocalCondensationBit {
                 bit_id,
                 fragment_id: fragment_id.clone(),
@@ -167,8 +166,7 @@ pub fn evaluate_local_condensation(
         }
     };
 
-    let bit_id = lpcm_content_address(&(fragment_id, &z_max, passes))
-        .unwrap_or(Hash256::zero());
+    let bit_id = lpcm_content_address(&(fragment_id, &z_max, passes)).unwrap_or(Hash256::zero());
 
     LocalCondensationBit {
         bit_id,
@@ -179,7 +177,11 @@ pub fn evaluate_local_condensation(
         dominance_margin,
         active: passes,
         status,
-        failure: if passes { None } else { Some(super::LpcmFailureKind::NoMajority) },
+        failure: if passes {
+            None
+        } else {
+            Some(super::LpcmFailureKind::NoMajority)
+        },
     }
 }
 
@@ -200,12 +202,10 @@ pub fn build_local_candidate(
         .map(|d| d.candidate_id.clone())
         .unwrap_or(Hash256::zero());
 
-    let patch_id = lpcm_content_address(&(&bit.fragment_id, "patch"))
-        .unwrap_or(Hash256::zero());
-    let support_vector_id = lpcm_content_address(&(&bit.fragment_id, "sv"))
-        .unwrap_or(Hash256::zero());
-    let local_candidate_id =
-        lpcm_content_address(&(&bit.bit_id, &candidate_direction_id))?;
+    let patch_id = lpcm_content_address(&(&bit.fragment_id, "patch")).unwrap_or(Hash256::zero());
+    let support_vector_id =
+        lpcm_content_address(&(&bit.fragment_id, "sv")).unwrap_or(Hash256::zero());
+    let local_candidate_id = lpcm_content_address(&(&bit.bit_id, &candidate_direction_id))?;
 
     let evidence_refs = winning_dir
         .map(|d| d.evidence_refs.clone())

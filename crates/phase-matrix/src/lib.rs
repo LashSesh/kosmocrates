@@ -1,3 +1,4 @@
+#![allow(clippy::large_enum_variant, clippy::unnecessary_cast)]
 //! PHASEMATRIX-HIVEMIND-03 / 03.1 — Morphodynamic Resonance Cell Substrate
 //! with Dual-Fabric Field-Tensor Stitch Layer.
 //!

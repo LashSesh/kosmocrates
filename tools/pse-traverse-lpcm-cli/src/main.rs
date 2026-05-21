@@ -64,8 +64,7 @@ fn cmd_inspect(args: &[String]) -> Result<(), String> {
     let path = args.first().ok_or("usage: inspect <window.json>")?;
     let window = load_window(path)?;
     let rd = default_rd(&window);
-    let report = run_lpcm(rd, window.clone())
-        .map_err(|e| format!("lpcm error: {e}"))?;
+    let report = run_lpcm(rd, window.clone()).map_err(|e| format!("lpcm error: {e}"))?;
 
     let summary = serde_json::json!({
         "window_id": window.window_id,
@@ -86,7 +85,8 @@ fn cmd_inspect(args: &[String]) -> Result<(), String> {
 // ── partition ─────────────────────────────────────────────────────────────────
 
 fn cmd_partition(args: &[String]) -> Result<(), String> {
-    let (window_path, out_path) = parse_in_out(args, "partition <window.json> --out <fragments.json>")?;
+    let (window_path, out_path) =
+        parse_in_out(args, "partition <window.json> --out <fragments.json>")?;
     let window = load_window(&window_path)?;
     let rd = default_rd(&window);
 
@@ -106,7 +106,10 @@ fn cmd_partition(args: &[String]) -> Result<(), String> {
     });
 
     write_json(&out_path, &summary)?;
-    eprintln!("Partition written to {out_path}  ({} fragments)", fragmented.fragments.len());
+    eprintln!(
+        "Partition written to {out_path}  ({} fragments)",
+        fragmented.fragments.len()
+    );
     Ok(())
 }
 
@@ -119,15 +122,25 @@ fn cmd_collapse(args: &[String]) -> Result<(), String> {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--rd" => { i += 1; rd_path = Some(args.get(i).ok_or("--rd requires a path")?.clone()); }
-            "--out" => { i += 1; out_path = args.get(i).ok_or("--out requires a path")?.clone(); }
+            "--rd" => {
+                i += 1;
+                rd_path = Some(args.get(i).ok_or("--rd requires a path")?.clone());
+            }
+            "--out" => {
+                i += 1;
+                out_path = args.get(i).ok_or("--out requires a path")?.clone();
+            }
             p if !p.starts_with('-') && window_path.is_empty() => window_path = p.to_string(),
             other => return Err(format!("unexpected argument: {other}")),
         }
         i += 1;
     }
-    if window_path.is_empty() { return Err("usage: collapse <window.json> [--rd rd.json] --out report.json".into()); }
-    if out_path.is_empty() { return Err("--out is required".into()); }
+    if window_path.is_empty() {
+        return Err("usage: collapse <window.json> [--rd rd.json] --out report.json".into());
+    }
+    if out_path.is_empty() {
+        return Err("--out is required".into());
+    }
 
     let window = load_window(&window_path)?;
     let rd = if let Some(p) = rd_path {
@@ -138,8 +151,7 @@ fn cmd_collapse(args: &[String]) -> Result<(), String> {
         default_rd(&window)
     };
 
-    let report = run_lpcm(rd, window)
-        .map_err(|e| format!("lpcm error: {e}"))?;
+    let report = run_lpcm(rd, window).map_err(|e| format!("lpcm error: {e}"))?;
 
     write_json(&out_path, &report)?;
     eprintln!(
@@ -159,30 +171,42 @@ fn cmd_replay(args: &[String]) -> Result<(), String> {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--rd" => { i += 1; rd_path = args.get(i).ok_or("--rd requires a path")?.clone(); }
-            "--input" => { i += 1; input_path = args.get(i).ok_or("--input requires a path")?.clone(); }
-            "--report" => { i += 1; report_path = args.get(i).ok_or("--report requires a path")?.clone(); }
+            "--rd" => {
+                i += 1;
+                rd_path = args.get(i).ok_or("--rd requires a path")?.clone();
+            }
+            "--input" => {
+                i += 1;
+                input_path = args.get(i).ok_or("--input requires a path")?.clone();
+            }
+            "--report" => {
+                i += 1;
+                report_path = args.get(i).ok_or("--report requires a path")?.clone();
+            }
             other => return Err(format!("unexpected argument: {other}")),
         }
         i += 1;
     }
     if rd_path.is_empty() || input_path.is_empty() || report_path.is_empty() {
-        return Err("usage: replay --rd <rd.json> --input <window.json> --report <collapse_report.json>".into());
+        return Err(
+            "usage: replay --rd <rd.json> --input <window.json> --report <collapse_report.json>"
+                .into(),
+        );
     }
 
-    let rd: LpcmRunDescriptor = serde_json::from_str(
-        &fs::read_to_string(&rd_path).map_err(|e| format!("{rd_path}: {e}"))?)
-        .map_err(|e| format!("invalid rd: {e}"))?;
+    let rd: LpcmRunDescriptor =
+        serde_json::from_str(&fs::read_to_string(&rd_path).map_err(|e| format!("{rd_path}: {e}"))?)
+            .map_err(|e| format!("invalid rd: {e}"))?;
 
     let window = load_window(&input_path)?;
 
-    let expected: pse_traverse::lpcm::report::HierarchicalCollapseReport =
-        serde_json::from_str(
-            &fs::read_to_string(&report_path).map_err(|e| format!("{report_path}: {e}"))?)
-        .map_err(|e| format!("invalid report: {e}"))?;
+    let expected: pse_traverse::lpcm::report::HierarchicalCollapseReport = serde_json::from_str(
+        &fs::read_to_string(&report_path).map_err(|e| format!("{report_path}: {e}"))?,
+    )
+    .map_err(|e| format!("invalid report: {e}"))?;
 
-    let replay = verify_lpcm_replay(&rd, &window, &expected)
-        .map_err(|e| format!("replay error: {e}"))?;
+    let replay =
+        verify_lpcm_replay(&rd, &window, &expected).map_err(|e| format!("replay error: {e}"))?;
 
     println!("{}", serde_json::to_string_pretty(&replay).unwrap());
 
@@ -226,15 +250,15 @@ fn cmd_ablate(args: &[String]) -> Result<(), String> {
 
     // Run with LPCM.
     let rd_lpcm = default_rd(&window);
-    let report_lpcm = run_lpcm(rd_lpcm, window.clone())
-        .map_err(|e| format!("lpcm run failed: {e}"))?;
+    let report_lpcm =
+        run_lpcm(rd_lpcm, window.clone()).map_err(|e| format!("lpcm run failed: {e}"))?;
 
     // Baseline: run with topology-guard disabled (no candidates → DiagnosticHold).
     let mut rd_base = default_rd(&window);
     rd_base.policies.topology_policy.require_triangulable = false;
     rd_base.thresholds.theta_activate = pse_traverse::lpcm::primitives::fixed_from_f64(2.0); // unreachable → no condensations
-    let report_base = run_lpcm(rd_base, window.clone())
-        .map_err(|e| format!("baseline run failed: {e}"))?;
+    let report_base =
+        run_lpcm(rd_base, window.clone()).map_err(|e| format!("baseline run failed: {e}"))?;
 
     let ablation = serde_json::json!({
         "window": window.window_id,
@@ -267,7 +291,9 @@ fn load_window(path: &str) -> Result<LpcmInputWindow, String> {
         // Read from stdin.
         let mut buf = String::new();
         use std::io::Read;
-        std::io::stdin().read_to_string(&mut buf).map_err(|e| format!("stdin: {e}"))?;
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("stdin: {e}"))?;
         return serde_json::from_str(&buf).map_err(|e| format!("invalid window JSON: {e}"));
     }
     if !Path::new(path).exists() {
@@ -297,7 +323,10 @@ fn parse_in_out(args: &[String], usage: &str) -> Result<(String, String), String
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--out" => { i += 1; output = args.get(i).ok_or("--out requires a path")?.clone(); }
+            "--out" => {
+                i += 1;
+                output = args.get(i).ok_or("--out requires a path")?.clone();
+            }
             p if !p.starts_with('-') && input.is_empty() => input = p.to_string(),
             other => return Err(format!("unexpected argument: {other}")),
         }

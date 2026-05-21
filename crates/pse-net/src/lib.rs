@@ -1,3 +1,11 @@
+#![allow(
+    clippy::default_constructed_unit_structs,
+    clippy::field_reassign_with_default,
+    clippy::large_enum_variant,
+    clippy::len_zero,
+    clippy::too_many_arguments,
+    clippy::useless_vec
+)]
 //! # pse-net — Distributed Swarm Networking for PSE
 //!
 //! Provides TCP peer-to-peer crystal propagation for the Post-Symbolic Engine.

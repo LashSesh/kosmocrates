@@ -44,10 +44,10 @@
 //! end-to-end pass.
 
 pub mod attractor_map;
-pub mod filter;
 pub mod canonical_state;
 pub mod cognitive_state_5d;
 pub mod constraint_lattice;
+pub mod filter;
 pub mod fixpoint_calibration;
 pub mod handoff;
 pub mod hypercube_puzzle;
@@ -71,6 +71,7 @@ pub use constraint_lattice::{
     build_lattice_minimal, evaluate_perkolation, AdmissibleRegion, ConstraintLatticeCognition,
     Infogene, InfogenePolicy, Resonite,
 };
+pub use filter::{CognitionFilter, FilterResult};
 pub use fixpoint_calibration::{
     calibrate, evaluate_migration, evaluate_por_acceptance, CarrierMigrationPlan,
     FixpointCalibrationShell, PerformanceTriplet, ResonanceImpulse,
@@ -88,10 +89,9 @@ pub use operator_algebra::{
     OperatorFamily, OperatorType,
 };
 pub use phase_panorama::{
-    build_panorama_minimal, build_panorama_with_quality, AttractorCandidate, ChoiceGeometryReport, Horizon360, PhasePanorama,
-    PhasePath, PhasePathStatus, PhasePathSummary, RecognitionBoundary,
+    build_panorama_minimal, build_panorama_with_quality, AttractorCandidate, ChoiceGeometryReport,
+    Horizon360, PhasePanorama, PhasePath, PhasePathStatus, PhasePathSummary, RecognitionBoundary,
 };
-pub use filter::{CognitionFilter, FilterResult};
 pub use pipeline::{run_cognition, CognitionInput, CognitionRunResult, CognitiveComponents};
 pub use primitives::{
     fixed_abs_diff, fixed_add, fixed_ge, fixed_le, fixed_sub, max_fixed, min_fixed, CognitionError,

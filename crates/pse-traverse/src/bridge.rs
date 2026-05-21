@@ -190,21 +190,17 @@ mod tests {
     fn commit_plan_sequence_returns_none_on_empty_batches() {
         let mut committer =
             PseMacroStepCommitter::new(pse_types::Config::preset_planning(), passthrough());
-        let result = committer
-            .commit_plan_sequence(&[])
-            .expect("must not panic");
+        let result = committer.commit_plan_sequence(&[]).expect("must not panic");
         assert!(result.is_none());
     }
 
     #[test]
     fn commit_plan_sequence_runs_all_steps() {
-        let mut committer =
-            PseMacroStepCommitter::for_planning(passthrough());
+        let mut committer = PseMacroStepCommitter::for_planning(passthrough());
         // 5 synthetic step batches — one JSON payload each.
         let batches: Vec<Vec<Vec<u8>>> = (0..5)
             .map(|i| {
-                vec![serde_json::to_vec(&serde_json::json!({"step": i, "kind": "assign"}))
-                    .unwrap()]
+                vec![serde_json::to_vec(&serde_json::json!({"step": i, "kind": "assign"})).unwrap()]
             })
             .collect();
         // Returns either Some crystal or None — both are valid on this
@@ -219,7 +215,7 @@ mod tests {
     #[test]
     fn plan_to_step_batches_encoding() {
         use crate::plan::{
-            CollapsePlan, CollapseEffect, CollapseStep, CollapseStepKind, FailurePolicy,
+            CollapseEffect, CollapsePlan, CollapseStep, CollapseStepKind, FailurePolicy,
             OrderingPolicy,
         };
         let plan = CollapsePlan {

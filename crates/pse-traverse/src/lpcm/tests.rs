@@ -5,12 +5,11 @@ mod unit_tests {
     use std::collections::BTreeMap;
 
     use crate::lpcm::{
-        evidence::LpcmInputWindow,
         local_gate::evaluate_local_condensation,
-        primitives::{fixed_from_f64, lpcm_content_address, EvidenceRef, Fixed, Hash256},
+        primitives::{fixed_from_f64, lpcm_content_address, Fixed, Hash256},
         run_descriptor::{LpcmPolicies, LpcmRunDescriptor, LpcmThresholds, TiePolicy},
         support_mass::{compute_normalized_support, SupportFactorVector},
-        LpcmFailureKind, LpcmOutcome,
+        LpcmFailureKind,
     };
 
     fn make_rd() -> LpcmRunDescriptor {
@@ -299,7 +298,10 @@ mod negative_tests {
             Ok(report) => {
                 // The report is a HierarchicalCollapseReport, not a SemanticCrystal.
                 // We verify the type at compile time and the outcome at runtime.
-                assert!(!matches!(report.outcome, crate::lpcm::LpcmOutcome::InvalidInput));
+                assert!(!matches!(
+                    report.outcome,
+                    crate::lpcm::LpcmOutcome::InvalidInput
+                ));
             }
             Err(_) => {
                 // Also acceptable: fail closed.

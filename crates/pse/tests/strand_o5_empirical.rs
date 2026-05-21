@@ -184,7 +184,11 @@ fn h2_metatron_signatures_have_valid_fields() {
 #[test]
 fn h3_metatron_ladder_satisfies_vector_equilibrium() {
     let ladder = build_metatron_phase_ladder(0.0);
-    assert_eq!(ladder.len(), 13, "Metatron ladder must have exactly 13 carriers");
+    assert_eq!(
+        ladder.len(),
+        13,
+        "Metatron ladder must have exactly 13 carriers"
+    );
 
     let mut sx = 0.0_f64;
     let mut sy = 0.0_f64;

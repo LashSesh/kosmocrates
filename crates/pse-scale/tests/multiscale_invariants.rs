@@ -10,10 +10,12 @@
 
 use pse_graph::PersistentGraph;
 use pse_scale::{
-    build_universe, kuramoto_phase_cluster, multi_scale_tick, pse_engine_types, spectral_bisection_cluster,
-    HyperBounds, MultiScaleState, Scale, ScaleConfig, ScalePolicy,
+    build_universe, kuramoto_phase_cluster, multi_scale_tick, pse_engine_types,
+    spectral_bisection_cluster, HyperBounds, MultiScaleState, Scale, ScaleConfig, ScalePolicy,
 };
-use pse_topology::{compute_laplacian, init_kuramoto_state, kuramoto_step, spectral_decompose, TopologyConfig};
+use pse_topology::{
+    compute_laplacian, init_kuramoto_state, kuramoto_step, spectral_decompose, TopologyConfig,
+};
 use pse_types::{FiveDState, VertexId};
 use std::collections::BTreeMap;
 
@@ -21,13 +23,16 @@ fn make_chain(n: usize) -> PersistentGraph {
     let mut g = PersistentGraph::new();
     for i in 0..n as u64 {
         g.upsert_vertex(i, 0.0);
-        g.embedding.insert(i, FiveDState {
-            p: (i as f64 + 1.0) * 0.1,
-            rho: 0.5,
-            omega: 0.3,
-            chi: 0.2,
-            eta: 0.1,
-        });
+        g.embedding.insert(
+            i,
+            FiveDState {
+                p: (i as f64 + 1.0) * 0.1,
+                rho: 0.5,
+                omega: 0.3,
+                chi: 0.2,
+                eta: 0.1,
+            },
+        );
     }
     for i in 0..(n as u64 - 1) {
         g.upsert_edge(i, i + 1, 1.0);
@@ -49,7 +54,10 @@ fn run_kuramoto(g: &PersistentGraph, steps: usize) -> pse_topology::KuramotoStat
 /// When ScaleConfig.enabled = false, multi_scale_tick is a passthrough.
 #[test]
 fn multi_scale_tick_disabled_is_passthrough() {
-    let config = ScaleConfig { enabled: false, ..Default::default() };
+    let config = ScaleConfig {
+        enabled: false,
+        ..Default::default()
+    };
     let g = make_chain(4);
     let lap = compute_laplacian(&g);
     let spec = spectral_decompose(&lap, 4);
@@ -58,8 +66,14 @@ fn multi_scale_tick_disabled_is_passthrough() {
     let micro = pse_engine_types::MicroState::from_graph(&g);
 
     let result = multi_scale_tick(&micro, &mut state, &spec, &ks, &config, &[], 0);
-    assert!(result.meso_crystals.is_empty(), "disabled: no meso crystals");
-    assert!(result.macro_crystals.is_empty(), "disabled: no macro crystals");
+    assert!(
+        result.meso_crystals.is_empty(),
+        "disabled: no meso crystals"
+    );
+    assert!(
+        result.macro_crystals.is_empty(),
+        "disabled: no macro crystals"
+    );
 }
 
 // ── multi_scale_tick enabled — metrics ────────────────────────────────────────
@@ -77,7 +91,10 @@ fn multi_scale_tick_metrics_are_populated() {
 
     let result = multi_scale_tick(&micro, &mut state, &spec, &ks, &config, &[], 1);
 
-    assert!(result.metrics.m28_cluster_count > 0, "M28 cluster count must be > 0");
+    assert!(
+        result.metrics.m28_cluster_count > 0,
+        "M28 cluster count must be > 0"
+    );
     assert!(
         result.metrics.m30_scale_coherence >= 0.0 && result.metrics.m30_scale_coherence <= 1.0,
         "M30 scale coherence must be in [0,1]: {}",
@@ -106,8 +123,7 @@ fn multi_scale_tick_is_deterministic() {
     let r2 = multi_scale_tick(&micro, &mut s2, &spec, &ks, &config, &[], 0);
 
     assert_eq!(
-        r1.metrics.m28_cluster_count,
-        r2.metrics.m28_cluster_count,
+        r1.metrics.m28_cluster_count, r2.metrics.m28_cluster_count,
         "multi_scale_tick must be deterministic: cluster count must match"
     );
 }
@@ -120,13 +136,28 @@ fn build_universe_is_deterministic() {
     let vertices: Vec<VertexId> = (0..5).collect();
     let embeddings: BTreeMap<VertexId, FiveDState> = vertices
         .iter()
-        .map(|&v| (v, FiveDState { p: v as f64 * 0.1, rho: 0.5, omega: 0.3, chi: 0.2, eta: 0.1 }))
+        .map(|&v| {
+            (
+                v,
+                FiveDState {
+                    p: v as f64 * 0.1,
+                    rho: 0.5,
+                    omega: 0.3,
+                    chi: 0.2,
+                    eta: 0.1,
+                },
+            )
+        })
         .collect();
 
     let u1 = build_universe(&vertices, &embeddings, Scale::Meso, ScalePolicy::Balanced);
     let u2 = build_universe(&vertices, &embeddings, Scale::Meso, ScalePolicy::Balanced);
 
-    assert_eq!(u1.vertex_ids.len(), u2.vertex_ids.len(), "universe vertex count must be deterministic");
+    assert_eq!(
+        u1.vertex_ids.len(),
+        u2.vertex_ids.len(),
+        "universe vertex count must be deterministic"
+    );
 }
 
 /// build_universe contains all input vertices.
@@ -135,11 +166,26 @@ fn build_universe_contains_all_vertices() {
     let vertices: Vec<VertexId> = (0..6).collect();
     let embeddings: BTreeMap<VertexId, FiveDState> = vertices
         .iter()
-        .map(|&v| (v, FiveDState { p: v as f64 * 0.15, rho: 0.5, omega: 0.3, chi: 0.2, eta: 0.1 }))
+        .map(|&v| {
+            (
+                v,
+                FiveDState {
+                    p: v as f64 * 0.15,
+                    rho: 0.5,
+                    omega: 0.3,
+                    chi: 0.2,
+                    eta: 0.1,
+                },
+            )
+        })
         .collect();
 
     let u = build_universe(&vertices, &embeddings, Scale::Micro, ScalePolicy::Balanced);
-    assert_eq!(u.vertex_ids.len(), vertices.len(), "all input vertices must be in the universe");
+    assert_eq!(
+        u.vertex_ids.len(),
+        vertices.len(),
+        "all input vertices must be in the universe"
+    );
 }
 
 // ── spectral_bisection_cluster ────────────────────────────────────────────────
@@ -168,7 +214,10 @@ fn spectral_bisection_covers_all_vertices() {
         6
     );
     for &vid in &vertex_ids {
-        assert!(assignment.contains_key(&vid), "vertex {vid} must have a cluster assignment");
+        assert!(
+            assignment.contains_key(&vid),
+            "vertex {vid} must have a cluster assignment"
+        );
     }
 }
 
@@ -189,9 +238,16 @@ fn kuramoto_phase_cluster_covers_all_vertices() {
         config.meso.min_cluster_size,
     );
 
-    assert_eq!(assignment.len(), 5, "kuramoto_phase_cluster must assign all vertices");
+    assert_eq!(
+        assignment.len(),
+        5,
+        "kuramoto_phase_cluster must assign all vertices"
+    );
     for &vid in &vertex_ids {
-        assert!(assignment.contains_key(&vid), "vertex {vid} must have a cluster assignment");
+        assert!(
+            assignment.contains_key(&vid),
+            "vertex {vid} must have a cluster assignment"
+        );
     }
 }
 
@@ -201,11 +257,21 @@ fn kuramoto_phase_cluster_covers_all_vertices() {
 /// combined volume equals the parent volume.
 #[test]
 fn hyperbounds_subdivision_32_children_volume_conserved() {
-    let s = |v: f64| FiveDState { p: v, rho: v, omega: v, chi: v, eta: v };
+    let s = |v: f64| FiveDState {
+        p: v,
+        rho: v,
+        omega: v,
+        chi: v,
+        eta: v,
+    };
     let parent = HyperBounds::new(s(0.0), s(1.0));
     let children = parent.split_all();
 
-    assert_eq!(children.len(), 32, "split_all must produce exactly 32 children");
+    assert_eq!(
+        children.len(),
+        32,
+        "split_all must produce exactly 32 children"
+    );
 
     let total: f64 = children.iter().map(|c| c.volume()).sum();
     let parent_vol = parent.volume();

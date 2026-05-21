@@ -130,7 +130,10 @@ impl MetatronGateReport {
 
 fn fixed_ge(a: &Fixed, b: &Fixed) -> bool {
     use super::primitives::CanonicalNumber;
-    let (CanonicalNumber::FixedI64 { raw: ra, scale: sa }, CanonicalNumber::FixedI64 { raw: rb, scale: sb }) = (a, b);
+    let (
+        CanonicalNumber::FixedI64 { raw: ra, scale: sa },
+        CanonicalNumber::FixedI64 { raw: rb, scale: sb },
+    ) = (a, b);
     let scale = sa.max(sb);
     ra * 10i64.pow(scale - sa) >= rb * 10i64.pow(scale - sb)
 }

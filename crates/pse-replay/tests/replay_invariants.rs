@@ -41,15 +41,27 @@ fn minimal_crystal(seed: u8) -> pse_types::SemanticCrystal {
         ConstraintProgram::default(),
         CommitProof {
             gate_values: GateSnapshot {
-                d: 1.0, q: 1.0, r: 1.0, g: 1.0, j: 1.0,
-                p: 1.0, n: 1.0, k: 1.0, kairos: true,
+                d: 1.0,
+                q: 1.0,
+                r: 1.0,
+                g: 1.0,
+                j: 1.0,
+                p: 1.0,
+                n: 1.0,
+                k: 1.0,
+                kairos: true,
             },
             consensus_result: ConsensusResult {
-                primal_score: 0.9, dual_score: 0.9, mci: 0.95, threshold: 0.6,
+                primal_score: 0.9,
+                dual_score: 0.9,
+                mci: 0.95,
+                threshold: 0.6,
             },
             por_trace: PoRTrace {
-                search_enter: 1.0, lock_enter: Some(2.0),
-                verify_enter: Some(3.0), commit_enter: Some(4.0),
+                search_enter: 1.0,
+                lock_enter: Some(2.0),
+                verify_enter: Some(3.0),
+                commit_enter: Some(4.0),
             },
             ..Default::default()
         },
@@ -97,7 +109,10 @@ fn empty_replay_pack_round_trips() {
 fn identical_sequences_are_deterministic() {
     let seq: Vec<_> = (0..4u8).map(minimal_crystal).collect();
     let result = compare_crystal_sequences(&seq, &seq);
-    assert!(result.deterministic, "identical sequences must be deterministic");
+    assert!(
+        result.deterministic,
+        "identical sequences must be deterministic"
+    );
     assert_eq!(result.crystal_count, 4);
     assert!(result.digest_matches.iter().all(|&m| m));
 }

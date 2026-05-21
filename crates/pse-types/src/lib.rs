@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 //! Canonical data model for PSE (Post-Symbolic Engine).
 //!
 //! Defines the shared types, temporal primitives, 5D state representations,
@@ -587,7 +588,7 @@ pub struct Config {
     /// Adaptive Kairos threshold calibration.
     ///
     /// When `enabled`, `GlobalState::new` auto-wires an
-    /// [`AdaptiveCalibrator`](pse_core::adaptive::AdaptiveCalibrator) that
+    /// `AdaptiveCalibrator` (see `pse_core::adaptive`) that
     /// derives per-metric thresholds from rolling history instead of using
     /// the static `thresholds` above. This makes the engine work
     /// out-of-the-box on any workload without per-domain threshold tuning.
@@ -991,7 +992,7 @@ mod tests {
     #[test]
     fn null_center_is_unit_struct() {
         let nc = NullCenter;
-        let nc2 = NullCenter::default();
+        let nc2 = NullCenter;
         assert_eq!(nc, nc2);
         assert_eq!(std::mem::size_of::<NullCenter>(), 0);
     }

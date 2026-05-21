@@ -1,7 +1,7 @@
 //! LPCM evidence and input window types.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use super::primitives::{EvidenceRef, Hash256, StableId};
 

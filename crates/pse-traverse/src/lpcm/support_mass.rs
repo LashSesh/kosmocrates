@@ -4,8 +4,8 @@
 //! Normalized:  wᵢ = w̃ᵢ / DU where DU = Σw̃ᵢ
 //! Gate:        ZU = max(wᵢ) >= theta_activate and no tie.
 
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use super::primitives::{fixed_add, fixed_div, fixed_mul, Fixed, Hash256, LpcmResult};
 

@@ -89,10 +89,8 @@ pub fn build_eval_summary(
     for (name, &exit) in preset_exits {
         let completed = exit == 0;
         let replay_passed = preset_replay_ok.get(name).copied().unwrap_or(false);
-        if !completed || !replay_passed {
-            if MANDATORY_PRESETS.contains(&name.as_str()) {
-                all_required_passed = false;
-            }
+        if (!completed || !replay_passed) && MANDATORY_PRESETS.contains(&name.as_str()) {
+            all_required_passed = false;
         }
         preset_results.push(PresetResult {
             preset_name: name.clone(),

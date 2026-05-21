@@ -1,3 +1,12 @@
+#![allow(
+    clippy::needless_range_loop,
+    clippy::type_complexity,
+    clippy::manual_range_contains,
+    clippy::large_enum_variant,
+    clippy::manual_rem_euclid,
+    clippy::unnecessary_cast,
+    clippy::new_without_default
+)]
 //! Metatron Scan as a PSE workspace library.
 //!
 //! Vendored from the standalone `metatron-scan` crate (Sebastian Klemm,

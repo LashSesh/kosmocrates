@@ -65,7 +65,11 @@ fn all_engine_crystals_pass_evidence_verify() {
         assert!(
             result.is_ok(),
             "crystal {i} (id={}) failed verify_crystal: {:?}",
-            crystal.crystal_id.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+            crystal
+                .crystal_id
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
             result
         );
     }

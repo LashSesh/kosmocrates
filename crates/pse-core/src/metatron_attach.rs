@@ -160,7 +160,9 @@ mod tests {
         ];
         let adj = induced_adjacency(&g, &region);
         // K₃: every off-diagonal entry is 1.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..3 {
+            #[allow(clippy::needless_range_loop)]
             for j in 0..3 {
                 if i == j {
                     assert_eq!(adj[i][j], 0.0);

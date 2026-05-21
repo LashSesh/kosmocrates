@@ -1,6 +1,7 @@
 //! Unit, integration and negative tests for PSE-NCTCS-CONFORMANCE-01.
 
 use super::primitives::Hash256;
+#[allow(unused_imports)]
 use super::*;
 use pse_traverse::dynamic_state::CanonicalNumber;
 
@@ -185,7 +186,7 @@ fn coherence_is_not_truth() {
     use super::candidate_audit::CandidateFormationAudit;
     use super::conformance::{classify_conformance, NctcsConformanceClass};
     use super::materialization_audit::MaterializationAudit;
-    use super::null_center::{NullCenterRef, NullProjectionAudit, ToroidalPhaseFlowAudit};
+    use super::null_center::{NullCenterRef, NullProjectionAudit};
     use super::phase_visibility::PhaseVisibilityAudit;
     use super::primitives::NctcsThresholds;
     use super::trace_replay_contract::TraceReplayContractReport;
@@ -350,7 +351,7 @@ fn no_macro_state_without_null_center_c0() {
     use super::conformance::classify_conformance;
     use super::conformance::NctcsConformanceClass;
     use super::materialization_audit::MaterializationAudit;
-    use super::null_center::{NullCenterRef, NullProjectionAudit};
+    use super::null_center::NullProjectionAudit;
     use super::phase_visibility::PhaseVisibilityAudit;
     use super::primitives::NctcsThresholds;
     use super::trace_replay_contract::TraceReplayContractReport;

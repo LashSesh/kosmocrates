@@ -264,9 +264,15 @@ fn lpcm_b10_outperforms_b7_on_local_condensation_rate() {
             .iter()
             .find(|w| w.workload_id == entry.descriptor.workload_id)
             .unwrap();
-        let (report, run_entry) =
-            run_trial(&spec, variant, workload, &entry.descriptor, &executor, &spec.metrics)
-                .unwrap();
+        let (report, run_entry) = run_trial(
+            &spec,
+            variant,
+            workload,
+            &entry.descriptor,
+            &executor,
+            &spec.metrics,
+        )
+        .unwrap();
         ledger = pse_eval_matrix::append_to_ledger(ledger, run_entry).unwrap();
         reports.push(report);
     }

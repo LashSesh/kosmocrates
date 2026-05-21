@@ -10,8 +10,7 @@ use std::collections::BTreeMap;
 use pse_traverse::{
     cognition::{
         pipeline::{CognitionInput, CognitiveComponents},
-        CognitionPolicies, CognitionRunDescriptor,
-        CognitionThresholds, CognitiveState5D, Fixed,
+        CognitionPolicies, CognitionRunDescriptor, CognitionThresholds, CognitiveState5D, Fixed,
     },
     dynamic_state::Hash256,
 };
@@ -60,7 +59,6 @@ impl CognitionScenario {
         self.expected == ExpectedOutcome::Bundle
     }
 }
-
 
 // ── Scenario builders ─────────────────────────────────────────────────────
 
@@ -338,11 +336,7 @@ pub fn build_scenario_suite(base_seed: u64) -> Vec<CognitionScenario> {
 /// Build a `CognitionRunDescriptor` appropriate for a given variant's
 /// LayerMask bit depth.  The descriptor is intentionally NOT seeded from
 /// wall-clock time — `seed` comes from the eval-matrix `RunDescriptor`.
-pub fn rd_for_scenario(
-    scenario_name: &str,
-    layer_count: u32,
-    seed: u64,
-) -> CognitionRunDescriptor {
+pub fn rd_for_scenario(scenario_name: &str, layer_count: u32, seed: u64) -> CognitionRunDescriptor {
     let thresholds = if layer_count == 0 {
         CognitionThresholds::permissive()
     } else {
@@ -424,7 +418,10 @@ mod tests {
         let s = scenario_exploratory_bundle(SEED);
         let rd = rd_for_scenario(s.name, 6, SEED);
         let r = run_cognition(&s.input, &rd).unwrap();
-        assert!(is_bundle(&r.outcome), "exploratory_bundle must bundle under B6");
+        assert!(
+            is_bundle(&r.outcome),
+            "exploratory_bundle must bundle under B6"
+        );
     }
 
     #[test]
@@ -432,7 +429,10 @@ mod tests {
         let s = scenario_panorama_collapse(SEED);
         let rd = rd_for_scenario(s.name, 6, SEED);
         let r = run_cognition(&s.input, &rd).unwrap();
-        assert!(!is_bundle(&r.outcome), "panorama_collapse must hold under B6 (coverage < 0.1)");
+        assert!(
+            !is_bundle(&r.outcome),
+            "panorama_collapse must hold under B6 (coverage < 0.1)"
+        );
     }
 
     #[test]
@@ -448,7 +448,10 @@ mod tests {
         let s = scenario_unstable_self_model(SEED);
         let rd = rd_for_scenario(s.name, 6, SEED);
         let r = run_cognition(&s.input, &rd).unwrap();
-        assert!(!is_bundle(&r.outcome), "unstable_self_model must hold under B6");
+        assert!(
+            !is_bundle(&r.outcome),
+            "unstable_self_model must hold under B6"
+        );
     }
 
     #[test]
@@ -456,7 +459,10 @@ mod tests {
         let s = scenario_wormhole_boundary(SEED);
         let rd = rd_for_scenario(s.name, 6, SEED);
         let r = run_cognition(&s.input, &rd).unwrap();
-        assert!(is_bundle(&r.outcome), "wormhole_boundary must bundle under B6 (coverage == 0.1 passes)");
+        assert!(
+            is_bundle(&r.outcome),
+            "wormhole_boundary must bundle under B6 (coverage == 0.1 passes)"
+        );
     }
 
     #[test]
@@ -474,7 +480,10 @@ mod tests {
         let s = scenario_deadlock(SEED);
         let rd = rd_for_scenario(s.name, 0, SEED);
         let r = run_cognition(&s.input, &rd).unwrap();
-        assert!(is_bundle(&r.outcome), "deadlock must bundle under B0 (permissive — false positive)");
+        assert!(
+            is_bundle(&r.outcome),
+            "deadlock must bundle under B0 (permissive — false positive)"
+        );
     }
 
     #[test]
@@ -482,7 +491,10 @@ mod tests {
         let s = scenario_panorama_collapse(SEED);
         let rd = rd_for_scenario(s.name, 0, SEED);
         let r = run_cognition(&s.input, &rd).unwrap();
-        assert!(is_bundle(&r.outcome), "panorama_collapse must bundle under B0 (no coverage threshold)");
+        assert!(
+            is_bundle(&r.outcome),
+            "panorama_collapse must bundle under B0 (no coverage threshold)"
+        );
     }
 
     #[test]
@@ -490,7 +502,10 @@ mod tests {
         let s = scenario_unstable_self_model(SEED);
         let rd = rd_for_scenario(s.name, 0, SEED);
         let r = run_cognition(&s.input, &rd).unwrap();
-        assert!(is_bundle(&r.outcome), "unstable_self_model must bundle under B0 (no coherence threshold)");
+        assert!(
+            is_bundle(&r.outcome),
+            "unstable_self_model must bundle under B0 (no coherence threshold)"
+        );
     }
 
     // ── Suite: expected field is always correct ───────────────────────────

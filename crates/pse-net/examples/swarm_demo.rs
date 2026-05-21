@@ -55,15 +55,14 @@ fn main() {
 
     // Create 3 nodes with different seeds
     let mut configs: Vec<SwarmConfig> = (0..3)
-        .map(|i| {
-            let mut c = SwarmConfig::default();
-            c.node_seed = (i + 1) as u64;
-            c.listen_addr = "127.0.0.1:0".to_string();
-            c
+        .map(|i| SwarmConfig {
+            node_seed: (i + 1) as u64,
+            listen_addr: "127.0.0.1:0".to_string(),
+            ..SwarmConfig::default()
         })
         .collect();
 
-    let mut nodes: Vec<SwarmNode> = configs.drain(..).map(|c| SwarmNode::new(c)).collect();
+    let mut nodes: Vec<SwarmNode> = configs.drain(..).map(SwarmNode::new).collect();
 
     // Start all nodes
     for (i, node) in nodes.iter_mut().enumerate() {

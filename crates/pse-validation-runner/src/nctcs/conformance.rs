@@ -125,6 +125,7 @@ impl NctcsConformanceReport {
 }
 
 /// Classify the conformance class from audit results.
+#[allow(clippy::too_many_arguments)]
 pub fn classify_conformance(
     null_center: &NullCenterRef,
     projection: &NullProjectionAudit,

@@ -59,7 +59,7 @@ fn h1_carrier_ladder_comparison() {
         let mut state = GlobalState::new(&cfg);
         let mut k = Vec::with_capacity(payloads.len());
         for p in &payloads {
-            let _ = pse_core::macro_step(&mut state, &[p.clone()], &cfg, &adapter);
+            let _ = pse_core::macro_step(&mut state, std::slice::from_ref(p), &cfg, &adapter);
             k.push(state.phase_ladder[state.active_carrier].mandorla.kappa);
         }
         k
@@ -141,7 +141,7 @@ fn h2_canonical_vs_cosine_recognition() {
     println!();
 
     let mut mem = PatternMemory::new(MemoryConfig::default());
-    let class_hashes = vec!["class_alpha", "class_beta", "class_gamma"];
+    let class_hashes = ["class_alpha", "class_beta", "class_gamma"];
     for (class_idx, hash) in class_hashes.iter().enumerate() {
         for instance in 0..4 {
             let id_byte = (class_idx * 16 + instance) as u8;

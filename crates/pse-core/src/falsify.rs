@@ -162,7 +162,7 @@ fn run_and_measure_max_kappa(
     let mut state = GlobalState::new(&inner);
     let mut max_kappa = 0.0_f64;
     for p in payloads {
-        let _ = macro_step(&mut state, &[p.clone()], &inner, adapter);
+        let _ = macro_step(&mut state, std::slice::from_ref(p), &inner, adapter);
         if let Some(active) = state.phase_ladder.get(state.active_carrier) {
             if active.mandorla.kappa > max_kappa {
                 max_kappa = active.mandorla.kappa;
@@ -239,6 +239,7 @@ fn block_bootstrap(
         let hi = lo + block_size;
         blocks.push(observations[lo..hi].to_vec());
     }
+    #[allow(clippy::manual_is_multiple_of)]
     if n % block_size != 0 {
         let lo = n_full * block_size;
         blocks.push(observations[lo..].to_vec());

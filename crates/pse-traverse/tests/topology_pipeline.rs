@@ -1,3 +1,9 @@
+#![allow(
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    clippy::doc_overindented_list_items
+)]
 //! Integration tests for the TPT-MTL-04 topology pipeline.
 //!
 //! Tests correspond to §16 of the spec:

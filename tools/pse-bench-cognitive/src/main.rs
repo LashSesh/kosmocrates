@@ -13,12 +13,12 @@
 
 use std::collections::BTreeMap;
 
+use pse_traverse::cognition::pipeline::CognitiveComponents;
 use pse_traverse::cognition::{
     pipeline::{run_cognition, CognitionInput},
     CognitionFailurePolicy, CognitionOutcome, CognitionPolicies, CognitionRunDescriptor,
     CognitionThresholds, CognitiveState5D, Fixed,
 };
-use pse_traverse::cognition::pipeline::CognitiveComponents;
 use pse_traverse::dynamic_state::Hash256;
 use pse_traverse::horizon::run_descriptor::HorizonRunDescriptorV3;
 use pse_traverse::orchestration::{run_traverse_stack, FullTraversalInput};
@@ -171,7 +171,7 @@ fn run_phase_transition() -> ScenarioResult {
         // Ramp: exploratory → convergent
         let progress = step as f64 / n_steps as f64;
         let constraint_count = (2.0 + progress * 8.0) as u32; // 2 → 10
-        let support = 0.1 + progress * 0.8;                    // 0.1 → 0.9
+        let support = 0.1 + progress * 0.8; // 0.1 → 0.9
 
         // 5D state: psi stable (same domain), rho rises with coherence,
         // omega approaches 1.0 at convergence, chi decreases, tau decreases.
@@ -210,7 +210,13 @@ fn run_phase_transition() -> ScenarioResult {
                 (false, "Hold".into(), Some(gate), Some(policy))
             }
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate,
+            hold_policy,
+        });
     }
 
     score_scenario(
@@ -221,7 +227,8 @@ fn run_phase_transition() -> ScenarioResult {
         GroundTruth {
             expected_bundle_steps: (transition_step..=n_steps).collect(),
             expected_hold_steps: (1..transition_step).collect(),
-            notes: "Percolation gate opens when constraint_count >= 6 and support_strength >= 0.6".into(),
+            notes: "Percolation gate opens when constraint_count >= 6 and support_strength >= 0.6"
+                .into(),
         },
         step_results,
     )
@@ -239,7 +246,7 @@ fn run_deadlock() -> ScenarioResult {
     let n_steps = 8;
     let mut t = CognitionThresholds::permissive();
     t.min_entropy_reduction = f(0.1); // entropy_reduction = support_strength = 0.0 → fails
-    t.min_constraint_mass = f(0.3);   // mass = 12 * 0.0 = 0.0 → fails
+    t.min_constraint_mass = f(0.3); // mass = 12 * 0.0 = 0.0 → fails
     let rd = rd_with_thresholds("deadlock", t);
 
     let mut step_results = Vec::new();
@@ -273,7 +280,13 @@ fn run_deadlock() -> ScenarioResult {
                 (false, "Hold".into(), Some(gate), Some(policy))
             }
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate,
+            hold_policy,
+        });
     }
 
     score_scenario(
@@ -315,16 +328,20 @@ fn run_memory_recall() -> ScenarioResult {
     for step in 1..=n_steps {
         // Start far from target, converge toward it
         let dist = 1.0 - (step as f64 / n_steps as f64) * 0.95;
-        let psi   = 0.6 + dist * 0.3;
-        let rho   = 0.8 - dist * 0.6;
+        let psi = 0.6 + dist * 0.3;
+        let rho = 0.8 - dist * 0.6;
         let omega = 0.7 - dist * 0.5;
-        let chi   = 0.2 + dist * 0.6;
-        let tau   = 0.3 + dist * 0.5;
+        let chi = 0.2 + dist * 0.6;
+        let tau = 0.3 + dist * 0.5;
 
         let input = CognitionInput {
             null_center_id: hash_from_seed(3),
             cognitive_components: pse_traverse::cognition::pipeline::CognitiveComponents {
-                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+                psi: f(psi),
+                rho: f(rho),
+                omega: f(omega),
+                chi: f(chi),
+                tau: f(tau),
             },
             source_traversal_report_hash: None,
             source_projection_report_hash: None,
@@ -346,7 +363,13 @@ fn run_memory_recall() -> ScenarioResult {
                 (false, "Hold".into(), Some(gate), Some(policy))
             }
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate,
+            hold_policy,
+        });
     }
 
     score_scenario(
@@ -357,7 +380,9 @@ fn run_memory_recall() -> ScenarioResult {
         GroundTruth {
             expected_bundle_steps: (transition_step..=n_steps).collect(),
             expected_hold_steps: (1..transition_step).collect(),
-            notes: "min_resonance=0.25; resonance distance drops below threshold at step 9 (d≈0.20)".into(),
+            notes:
+                "min_resonance=0.25; resonance distance drops below threshold at step 9 (d≈0.20)"
+                    .into(),
         },
         step_results,
     )
@@ -410,7 +435,13 @@ fn run_wormhole_admission() -> ScenarioResult {
                 (false, "Hold".into(), Some(gate), Some(policy))
             }
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate,
+            hold_policy,
+        });
     }
 
     // All steps should Hold with gate=Panorama and policy=AdmitWormhole.
@@ -427,7 +458,8 @@ fn run_wormhole_admission() -> ScenarioResult {
     let n_hold = step_results.iter().filter(|s| !s.passed).count();
     ScenarioResult {
         scenario: "wormhole_admission".into(),
-        description: "Panorama failure with AdmitWormhole-first policy order → AdmitWormhole selected".into(),
+        description:
+            "Panorama failure with AdmitWormhole-first policy order → AdmitWormhole selected".into(),
         steps: n_steps,
         ground_truth: GroundTruth {
             expected_bundle_steps: vec![],
@@ -474,15 +506,23 @@ fn score_scenario(
     for s in &steps {
         let expected_bundle = s.step >= transition_step;
         match (s.passed, expected_bundle) {
-            (true,  true)  => tp += 1,
-            (true,  false) => fp += 1,
+            (true, true) => tp += 1,
+            (true, false) => fp += 1,
             (false, false) => tn += 1,
-            (false, true)  => fn_ += 1,
+            (false, true) => fn_ += 1,
         }
     }
 
-    let precision = if tp + fp > 0 { tp as f64 / (tp + fp) as f64 } else { 0.0 };
-    let recall    = if tp + fn_ > 0 { tp as f64 / (tp + fn_) as f64 } else { 0.0 };
+    let precision = if tp + fp > 0 {
+        tp as f64 / (tp + fp) as f64
+    } else {
+        0.0
+    };
+    let recall = if tp + fn_ > 0 {
+        tp as f64 / (tp + fn_) as f64
+    } else {
+        0.0
+    };
     let f1 = if precision + recall > 0.0 {
         2.0 * precision * recall / (precision + recall)
     } else {
@@ -505,8 +545,13 @@ fn score_scenario(
         ground_truth: gt,
         step_results: steps,
         verdict: ScenarioVerdict {
-            tp, fp, tn, fn_,
-            precision, recall, f1,
+            tp,
+            fp,
+            tn,
+            fn_,
+            precision,
+            recall,
+            f1,
             notes: format!("transition_step={transition_step}, n_steps={n_steps}"),
         },
         passed,
@@ -540,16 +585,20 @@ fn run_singularity_detection() -> ScenarioResult {
     for step in 1..=n_steps {
         let progress = step as f64 / n_steps as f64;
         // Ramp from coherent-stable (rho high, tau low) to entropic (tau high, rho low)
-        let rho   = 0.7 - progress * 0.6; // 0.63 → 0.07
+        let rho = 0.7 - progress * 0.6; // 0.63 → 0.07
         let omega = 0.8 - progress * 0.6; // 0.72 → 0.14
-        let tau   = 0.1 + progress * 0.8; // 0.18 → 0.9
-        let chi   = 0.1 + progress * 0.4; // 0.14 → 0.5
-        let psi   = 0.5;
+        let tau = 0.1 + progress * 0.8; // 0.18 → 0.9
+        let chi = 0.1 + progress * 0.4; // 0.14 → 0.5
+        let psi = 0.5;
 
         let input = CognitionInput {
             null_center_id: hash_from_seed(5),
             cognitive_components: pse_traverse::cognition::pipeline::CognitiveComponents {
-                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+                psi: f(psi),
+                rho: f(rho),
+                omega: f(omega),
+                chi: f(chi),
+                tau: f(tau),
             },
             source_traversal_report_hash: None,
             source_projection_report_hash: None,
@@ -562,14 +611,22 @@ fn run_singularity_detection() -> ScenarioResult {
 
         let result = run_cognition(&input, &rd).expect("cognition run");
         let (passed, outcome_str, hold_gate, hold_policy) = match &result.outcome {
-            CognitionOutcome::CandidateBundle { .. } => (true, "CandidateBundle".into(), None, None),
+            CognitionOutcome::CandidateBundle { .. } => {
+                (true, "CandidateBundle".into(), None, None)
+            }
             CognitionOutcome::Hold { hold } => {
                 let gate = format!("{:?}", hold.failed_gate);
                 let policy = format!("{:?}", hold.failure_policy);
                 (false, "Hold".into(), Some(gate), Some(policy))
             }
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate,
+            hold_policy,
+        });
     }
 
     score_scenario(
@@ -580,7 +637,8 @@ fn run_singularity_detection() -> ScenarioResult {
         GroundTruth {
             expected_bundle_steps: (transition_step..=n_steps).collect(),
             expected_hold_steps: (1..transition_step).collect(),
-            notes: "min_trigger_score=0.5; entropy=|tau| crosses threshold at step 5 (tau≈0.5)".into(),
+            notes: "min_trigger_score=0.5; entropy=|tau| crosses threshold at step 5 (tau≈0.5)"
+                .into(),
         },
         step_results,
     )
@@ -609,16 +667,20 @@ fn run_self_model_stability() -> ScenarioResult {
     let mut step_results = Vec::new();
     for step in 1..=n_steps {
         let progress = step as f64 / n_steps as f64;
-        let rho   = 0.2 + progress * 0.6; // 0.26 → 0.86
+        let rho = 0.2 + progress * 0.6; // 0.26 → 0.86
         let omega = 0.3 + progress * 0.6; // 0.36 → 0.96
-        let tau   = 0.8 - progress * 0.65; // 0.735 → 0.085
-        let chi   = 0.1;
-        let psi   = 0.5;
+        let tau = 0.8 - progress * 0.65; // 0.735 → 0.085
+        let chi = 0.1;
+        let psi = 0.5;
 
         let input = CognitionInput {
             null_center_id: hash_from_seed(6),
             cognitive_components: pse_traverse::cognition::pipeline::CognitiveComponents {
-                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+                psi: f(psi),
+                rho: f(rho),
+                omega: f(omega),
+                chi: f(chi),
+                tau: f(tau),
             },
             source_traversal_report_hash: None,
             source_projection_report_hash: None,
@@ -631,14 +693,22 @@ fn run_self_model_stability() -> ScenarioResult {
 
         let result = run_cognition(&input, &rd).expect("cognition run");
         let (passed, outcome_str, hold_gate, hold_policy) = match &result.outcome {
-            CognitionOutcome::CandidateBundle { .. } => (true, "CandidateBundle".into(), None, None),
+            CognitionOutcome::CandidateBundle { .. } => {
+                (true, "CandidateBundle".into(), None, None)
+            }
             CognitionOutcome::Hold { hold } => {
                 let gate = format!("{:?}", hold.failed_gate);
                 let policy = format!("{:?}", hold.failure_policy);
                 (false, "Hold".into(), Some(gate), Some(policy))
             }
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate, hold_policy });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate,
+            hold_policy,
+        });
     }
 
     score_scenario(
@@ -649,7 +719,9 @@ fn run_self_model_stability() -> ScenarioResult {
         GroundTruth {
             expected_bundle_steps: (transition_step..=n_steps).collect(),
             expected_hold_steps: (1..transition_step).collect(),
-            notes: "min_coherence=0.5, max_drift=0.4; transition at step 7 where rho≈0.62, tau≈0.345".into(),
+            notes:
+                "min_coherence=0.5, max_drift=0.4; transition at step 7 where rho≈0.62, tau≈0.345"
+                    .into(),
         },
         step_results,
     )
@@ -679,7 +751,11 @@ fn run_full_stack() -> ScenarioResult {
         let cog_input = CognitionInput {
             null_center_id: Hash256::zero(),
             cognitive_components: CognitiveComponents {
-                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+                psi: f(psi),
+                rho: f(rho),
+                omega: f(omega),
+                chi: f(chi),
+                tau: f(tau),
             },
             source_traversal_report_hash: None,
             source_projection_report_hash: None,
@@ -715,13 +791,29 @@ fn run_full_stack() -> ScenarioResult {
         let passed = result.gate.passed;
         let n_pts = trajectory_window.len(); // after push = history size for next step
         let outcome_str = if passed {
-            format!("Emit(n_hist={},cog={},hor={},topo={})",
-                n_pts - 1, result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
+            format!(
+                "Emit(n_hist={},cog={},hor={},topo={})",
+                n_pts - 1,
+                result.gate.g_cognition,
+                result.gate.g_horizon,
+                result.gate.g_topology
+            )
         } else {
-            format!("Hold(n_hist={},cog={},hor={},topo={})",
-                n_pts - 1, result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
+            format!(
+                "Hold(n_hist={},cog={},hor={},topo={})",
+                n_pts - 1,
+                result.gate.g_cognition,
+                result.gate.g_horizon,
+                result.gate.g_topology
+            )
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate: None, hold_policy: None });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate: None,
+            hold_policy: None,
+        });
     }
 
     score_scenario(
@@ -782,7 +874,11 @@ fn run_full_stack_calibrated() -> ScenarioResult {
         let cog_input = CognitionInput {
             null_center_id: Hash256::zero(),
             cognitive_components: CognitiveComponents {
-                psi: f(psi), rho: f(rho), omega: f(omega), chi: f(chi), tau: f(tau),
+                psi: f(psi),
+                rho: f(rho),
+                omega: f(omega),
+                chi: f(chi),
+                tau: f(tau),
             },
             source_traversal_report_hash: None,
             source_projection_report_hash: None,
@@ -816,13 +912,23 @@ fn run_full_stack_calibrated() -> ScenarioResult {
 
         let passed = result.gate.passed;
         let outcome_str = if passed {
-            format!("Emit(cog={},hor={},topo={})",
-                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
+            format!(
+                "Emit(cog={},hor={},topo={})",
+                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology
+            )
         } else {
-            format!("Hold(cog={},hor={},topo={})",
-                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology)
+            format!(
+                "Hold(cog={},hor={},topo={})",
+                result.gate.g_cognition, result.gate.g_horizon, result.gate.g_topology
+            )
         };
-        step_results.push(StepResult { step, passed, outcome: outcome_str, hold_gate: None, hold_policy: None });
+        step_results.push(StepResult {
+            step,
+            passed,
+            outcome: outcome_str,
+            hold_gate: None,
+            hold_policy: None,
+        });
     }
 
     score_scenario(

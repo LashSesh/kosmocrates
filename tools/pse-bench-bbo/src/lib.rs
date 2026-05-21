@@ -1,3 +1,4 @@
+#![allow(clippy::doc_overindented_list_items)]
 //! Black-box optimization benchmark for the TRITON navigator (Strand G).
 //!
 //! This crate compares TRITON — PSE's golden-angle spiral with

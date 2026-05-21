@@ -154,9 +154,8 @@ fn run_scenario(config: &Config, n_entities: usize, n_ticks: usize) -> Vec<Seman
             batch.push(serde_json::to_vec(&payload).unwrap());
         }
 
-        match macro_step(&mut state, &batch, config, &adapter) {
-            Ok(Some(crystal)) => crystals.push(crystal),
-            _ => {}
+        if let Ok(Some(crystal)) = macro_step(&mut state, &batch, config, &adapter) {
+            crystals.push(crystal)
         }
     }
     crystals
@@ -1250,6 +1249,7 @@ fn bench_b23_singularity_scan() -> BenchResult {
 // ─── Phase 6: Distributed Swarm ─────────────────────────────────────────────
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::field_reassign_with_default)]
 fn bench_b24_swarm_propagate() -> BenchResult {
     use pse_net::{SwarmConfig, SwarmNode};
 

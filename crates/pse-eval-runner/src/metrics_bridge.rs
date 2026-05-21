@@ -45,10 +45,7 @@ pub fn false_commit_rate(scenarios: &[CognitionScenario], outcomes: &[CognitionO
     if hold_scenarios.is_empty() {
         return Fixed::Rational { num: 0, den: 1 };
     }
-    let fp = hold_scenarios
-        .iter()
-        .filter(|(_, o)| is_bundle(o))
-        .count();
+    let fp = hold_scenarios.iter().filter(|(_, o)| is_bundle(o)).count();
     Fixed::Rational {
         num: fp as i128,
         den: hold_scenarios.len() as i128,
@@ -68,10 +65,7 @@ pub fn hold_correctness(scenarios: &[CognitionScenario], outcomes: &[CognitionOu
     if hold_scenarios.is_empty() {
         return Fixed::Rational { num: 1, den: 1 };
     }
-    let tn = hold_scenarios
-        .iter()
-        .filter(|(_, o)| !is_bundle(o))
-        .count();
+    let tn = hold_scenarios.iter().filter(|(_, o)| !is_bundle(o)).count();
     Fixed::Rational {
         num: tn as i128,
         den: hold_scenarios.len() as i128,
@@ -87,9 +81,6 @@ pub fn observations_from_outcomes(
         MetricObservation::ok("task_success", task_success(scenarios, outcomes)),
         MetricObservation::ok("false_commit_rate", false_commit_rate(scenarios, outcomes)),
         MetricObservation::ok("hold_correctness", hold_correctness(scenarios, outcomes)),
-        MetricObservation::ok(
-            "replay_identity",
-            Fixed::Rational { num: 1, den: 1 },
-        ),
+        MetricObservation::ok("replay_identity", Fixed::Rational { num: 1, den: 1 }),
     ]
 }

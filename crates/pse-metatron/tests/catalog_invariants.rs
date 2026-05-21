@@ -9,7 +9,7 @@
 //! - find_in_catalog locates entries by canonical hash
 
 use pse_metatron::{
-    build_catalog, oeis_a000055, oeis_a000088, oeis_a001349, find_in_catalog, scan, InputGraph,
+    build_catalog, find_in_catalog, oeis_a000055, oeis_a000088, oeis_a001349, scan, InputGraph,
 };
 
 // ── OEIS Conformance ─────────────────────────────────────────────────────────
@@ -67,8 +67,7 @@ fn tree_counts_match_oeis_a000055_for_n1_to_5() {
 #[test]
 fn scan_is_deterministic() {
     // Triangle (K3)
-    let g = InputGraph::from_edges(3, &[(1, 2), (2, 3), (1, 3)])
-        .expect("K3 graph must be valid");
+    let g = InputGraph::from_edges(3, &[(1, 2), (2, 3), (1, 3)]).expect("K3 graph must be valid");
 
     let r1 = scan(g.clone()).expect("scan must succeed");
     let r2 = scan(g).expect("scan must succeed");
@@ -86,18 +85,14 @@ fn scan_is_deterministic() {
 /// Scan report spectrum (eigenvalues) is stable across repeated runs.
 #[test]
 fn scan_spectrum_is_stable() {
-    let g = InputGraph::from_edges(4, &[(1, 2), (2, 3), (3, 4)])
-        .expect("path-4 must be valid");
+    let g = InputGraph::from_edges(4, &[(1, 2), (2, 3), (3, 4)]).expect("path-4 must be valid");
 
     let r1 = scan(g.clone()).expect("scan 1 must succeed");
     let r2 = scan(g).expect("scan 2 must succeed");
 
     assert_eq!(r1.eigenvalues.len(), r2.eigenvalues.len());
     for (a, b) in r1.eigenvalues.iter().zip(r2.eigenvalues.iter()) {
-        assert!(
-            (a - b).abs() < 1e-10,
-            "eigenvalue diverged: {a} vs {b}"
-        );
+        assert!((a - b).abs() < 1e-10, "eigenvalue diverged: {a} vs {b}");
     }
 }
 
@@ -106,10 +101,8 @@ fn scan_spectrum_is_stable() {
 /// Path-3 (P3) and cycle-3 (K3/C3) are non-isomorphic → different hashes.
 #[test]
 fn non_isomorphic_graphs_have_distinct_canonical_hashes() {
-    let path3 = InputGraph::from_edges(3, &[(1, 2), (2, 3)])
-        .expect("P3 must be valid");
-    let cycle3 = InputGraph::from_edges(3, &[(1, 2), (2, 3), (1, 3)])
-        .expect("K3 must be valid");
+    let path3 = InputGraph::from_edges(3, &[(1, 2), (2, 3)]).expect("P3 must be valid");
+    let cycle3 = InputGraph::from_edges(3, &[(1, 2), (2, 3), (1, 3)]).expect("K3 must be valid");
 
     let r_path = scan(path3).expect("scan P3");
     let r_cycle = scan(cycle3).expect("scan K3");
@@ -124,8 +117,8 @@ fn non_isomorphic_graphs_have_distinct_canonical_hashes() {
 #[test]
 fn isomorphic_relabelings_have_same_canonical_hash() {
     // Two labelings of a 4-path: 1-2-3-4 and 4-3-2-1
-    let p4_fwd = InputGraph::from_edges(4, &[(1, 2), (2, 3), (3, 4)])
-        .expect("P4 forward must be valid");
+    let p4_fwd =
+        InputGraph::from_edges(4, &[(1, 2), (2, 3), (3, 4)]).expect("P4 forward must be valid");
     let p4_rev = InputGraph::from_edges(4, &[(1, 4), (4, 3), (3, 2)])
         .expect("P4 reverse must be valid — undirected so same graph");
 
@@ -145,8 +138,7 @@ fn isomorphic_relabelings_have_same_canonical_hash() {
 fn find_in_catalog_locates_triangle() {
     let table = build_catalog(3).expect("catalog build must not fail");
 
-    let triangle = InputGraph::from_edges(3, &[(1, 2), (2, 3), (1, 3)])
-        .expect("K3 must be valid");
+    let triangle = InputGraph::from_edges(3, &[(1, 2), (2, 3), (1, 3)]).expect("K3 must be valid");
     let found = find_in_catalog(&triangle, &table);
     assert!(
         found.is_some(),
@@ -194,10 +186,6 @@ fn catalog_ids_are_unique() {
     let table = build_catalog(4).expect("catalog build must not fail");
     let mut seen = BTreeSet::new();
     for entry in &table.entries {
-        assert!(
-            seen.insert(&entry.id),
-            "duplicate catalog id: {}",
-            entry.id
-        );
+        assert!(seen.insert(&entry.id), "duplicate catalog id: {}", entry.id);
     }
 }

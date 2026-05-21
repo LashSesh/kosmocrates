@@ -18,9 +18,9 @@
 use std::collections::BTreeMap;
 
 use crate::cell_substrate_metrics::{b9_metric_specs, cell_substrate_metric_specs};
-use crate::lpcm_metrics::lpcm_metric_specs;
 use crate::datasets::DatasetManifest;
 use crate::ground_truth::GroundTruthProfile;
+use crate::lpcm_metrics::lpcm_metric_specs;
 use crate::metrics::MetricSpec;
 use crate::primitives::EvalError;
 use crate::spec::{
