@@ -30,6 +30,27 @@ PSE is **cryptographically auditable**: every pattern it crystallizes carries a
 SHA-256 content address, an evidence chain, and a replay-identical execution proof.
 PSE is **fail-closed**: it emits nothing when the pattern is not stable enough.
 
+### The problem PSE solves
+
+LLMs are impressive — but they are plausibility engines. They produce what is likely
+to be correct in context. Not what is verifiably true. This is not a design flaw; it
+is the structural nature of the technology.
+
+PSE does not make LLMs smarter. It makes them *accountable*. The eight-metric Kairos
+gate acts as an epistemic filter: a pattern is only crystallized when it satisfies
+eight independent structural conditions simultaneously. Most patterns fail. That is the
+point. What passes is certified — not by confidence, but by topology.
+
+The difference:
+- Without PSE: *"This looks right."*
+- With PSE: *"This pattern passed eight independent structural gates, carries a
+  SHA-256 content address, can be replayed bit-identically, and has a falsification
+  p-value attached. Here is the proof."*
+
+This is what the original vision of artificial intelligence always implied — not
+statistical plausibility, but verifiable structure. PSE is the infrastructure layer
+that closes that gap.
+
 For *what post-symbolic computation means as a category*, see
 **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 
@@ -81,6 +102,7 @@ if let Ok(Some(probe_crystal)) = macro_step(&mut state, &[probe], &config, &adap
 | Context window is the only memory | Infinite archive, relevant recall via PatternMemory |
 | Hallucination has no check | Fail-closed gate — no crystal if pattern is not stable |
 | Version upgrade loses history | Crystals survive model upgrades (content-addressed) |
+| "This looks right" | "This passed 8 structural gates, here is the proof" |
 
 ### Key properties for LLM integration
 
@@ -89,10 +111,7 @@ if let Ok(Some(probe_crystal)) = macro_step(&mut state, &[probe], &config, &adap
 - **Topology-aware recall**: Two responses that encode the same *structure* — even with different wording — map to the same canonical graph class via the Metatron Periodic Table and are recalled as one pattern.
 - **Auditable**: Every crystallized interaction has a SHA-256 ID, evidence chain, and `CommitProof`. You can prove what the LLM processed and when.
 - **Deterministic replay**: Given the same inputs, PSE re-emits bit-identical crystals (`RunDescriptor` + `ReplayPack`). Independent verifiers can confirm the analysis.
-
----
-
-## Architecture
+- **Validated with real LLM output**: The B6 full cognitive stack has been tested against live Cerebras API responses. The cognitive layers demonstrably reduce the false-commit rate compared to the B0 baseline — on real AI-generated text, not just synthetic data.
 
 ---
 
@@ -177,7 +196,10 @@ domains is the open frontier.
 | **Domain validation layer** (PSE-VALIDATION-RUNNER-DOMAIN-01) | **Shipped** |
 | **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
 | **ADAMANT protocol** (constitutional governance contract) | **v1.0.0** |
-| Productive-task validation (`productive_agent_validated`) | **Open frontier** |
+| **Replay invariance** (`ReplayIdentity = 1`, Invariant I4) | **Verified** — bit-identical output across independent runs |
+| **Safety improvement** (`ΔU_safety ≥ 0`) | **Verified** — B6 false-commit rate < B0 on real LLM output (Cerebras) |
+| **Agent relevance ranking** (PSE-EVAL-MATRIX-01 § exoskeleton) | **Verified** — see table below |
+| Productive-task validation (`ΔU_task > 0`, end-to-end LLM agent) | **Open frontier** — see below |
 
 Throughput reference, single-thread, release build, Xeon @ 2.10 GHz
 (batch=8 obs, window=8, graph ≤ 50 vertices, 4 carriers):
@@ -198,6 +220,38 @@ The engine produces **0 crystals on default static thresholds** — by design.
 Use `Config::preset_streaming()` or set `config.calibration.enabled = true` for
 adaptive threshold calibration that fires on the top-N% of ticks. See
 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) for calibration guidance.
+
+### Agent relevance ranking benchmark (PSE-EVAL-MATRIX-01)
+
+PSE's relevance field was evaluated against a keyword-search baseline on 11
+software-engineering scenarios (Rust compiler errors, flaky network tests,
+missing artifacts, stale log vs. current diff, renamed modules, etc.),
+split into calibration, holdout, and stress sets:
+
+| Metric | Keyword baseline | PSE field | Delta |
+|---|---|---|---|
+| Hit@3 (causal file in top-3 items) | 63.6% | **100%** | +36.4 pp |
+| False focus rate (irrelevant items surfaced) | 45.5% | **0.0%** | −45.5 pp |
+| MRR (mean reciprocal rank of first causal item) | 0.486 | **0.682** | +0.196 |
+| Scenarios with PSE improvement | — | **9 / 11** | — |
+| Holdout scenarios with PSE improvement | — | **5 / 6** | — |
+| Replay identity across runs | — | **100%** | — |
+
+The PSE field uses causal-role tagging, recency weighting, distractor penalties,
+and phase-order consistency — principles derived from the cognitive stack rather
+than a learned model. `cargo test -p pse-eval-matrix --lib` reproduces these
+numbers deterministically.
+
+### What remains open: productive-task validation
+
+The ranking benchmark proves PSE surfaces the right context. What has not yet
+been measured end-to-end: does an LLM agent that *receives* PSE's top-ranked
+context perform better on the downstream task than one that does not?
+
+That experiment — Session 1 crystallises patterns → Session 2 LLM gets crystal
+context → measure task output quality — is the `productive_agent_validated`
+open frontier. The infrastructure is in place (`pse-llm-demo`, `pse-eval-runner`
+with `--features llm-agent`). **Contributions and experimental results welcome.**
 
 ---
 
@@ -805,6 +859,32 @@ Normative specification documents live in [`specs/`](specs/):
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development loop and the determinism /
 replay rules every contribution must respect, and [`CHANGELOG.md`](CHANGELOG.md) for the
 release log.
+
+---
+
+## Contributing
+
+PSE is open infrastructure. The design is intentionally general — the cognitive stack
+applies to any domain where verifiable, replayable pattern detection matters.
+
+**Highest-leverage contributions:**
+
+- **Productive-task validation** — run the cross-session memory experiment
+  (`pse-eval-runner --features llm-agent`) and report whether LLM agents with PSE
+  crystal context outperform agents without on your domain. This is the
+  `productive_agent_validated` open frontier.
+- **Domain adapters** — implement `ObservationAdapter` for a new data source
+  (two methods). Medical, legal, scientific, infrastructure — all domains where
+  verifiable structure matters.
+- **Falsification evidence** — run `pse-bench-gt` on your ground-truth dataset
+  and share the precision/recall results. Every domain benchmark strengthens the
+  empirical foundation.
+- **Specifications** — the ADAMANT protocol is v1.0.0. Proposals for extensions or
+  new layers go through the same spec-first process: draft → implementation →
+  test coverage → doc.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the development loop and the
+determinism / replay rules every contribution must respect.
 
 ---
 
