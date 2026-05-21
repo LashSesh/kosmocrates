@@ -62,13 +62,26 @@ const QUESTIONS: &[&str] = &[
 fn pse_config() -> Config {
     let mut config = Config::default();
     config.calibration.enabled = true;
-    // The gate is an 8-fold AND: set a high per-metric pass rate so the joint
-    // probability stays meaningful even with moderate metric correlation.
-    // window/warmup are tuned for short LLM sessions (~16-20 ticks each).
-    config.calibration.target_pass_rate = 0.50;
+    config.calibration.target_pass_rate = 0.30;
     config.calibration.window = 20;
     config.calibration.warmup_ticks = 2;
     config.carrier.adaptive = true;
+    // LLM prose via PassthroughAdapter produces much lower metric values than
+    // structured sensor data. The static thresholds serve double duty: they
+    // are the base for adaptive calibration AND are used directly in the hard
+    // seam check (n) that runs after the Kairos gate. Consensus thresholds
+    // and PoR kappa are similarly calibrated for prose-level signal.
+    config.thresholds.d = 0.05;
+    config.thresholds.q = 0.05;
+    config.thresholds.r = 0.05;
+    config.thresholds.g = 0.05;
+    config.thresholds.j = 0.05;
+    config.thresholds.p = 0.05;
+    config.thresholds.n = 0.05;
+    config.thresholds.k = 0.05;
+    config.consensus.consensus_threshold = 0.3;
+    config.consensus.mirror_consistency_eta = 0.3;
+    config.consensus.por_kappa_bar = 0.3;
     config
 }
 

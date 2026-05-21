@@ -11,10 +11,21 @@ use serde::{Deserialize, Serialize};
 pub fn default_config() -> Config {
     let mut cfg = Config::default();
     cfg.calibration.enabled = true;
-    cfg.calibration.target_pass_rate = 0.50;
+    cfg.calibration.target_pass_rate = 0.30;
     cfg.calibration.window = 20;
     cfg.calibration.warmup_ticks = 2;
     cfg.carrier.adaptive = true;
+    cfg.thresholds.d = 0.05;
+    cfg.thresholds.q = 0.05;
+    cfg.thresholds.r = 0.05;
+    cfg.thresholds.g = 0.05;
+    cfg.thresholds.j = 0.05;
+    cfg.thresholds.p = 0.05;
+    cfg.thresholds.n = 0.05;
+    cfg.thresholds.k = 0.05;
+    cfg.consensus.consensus_threshold = 0.3;
+    cfg.consensus.mirror_consistency_eta = 0.3;
+    cfg.consensus.por_kappa_bar = 0.3;
     cfg
 }
 
