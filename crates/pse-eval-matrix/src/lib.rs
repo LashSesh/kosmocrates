@@ -1,8 +1,8 @@
 //! PSE-EVAL-MATRIX-01 — Empirical Benchmark Matrix for Post-Symbolic
 //! Cognition Systems.
 //!
-//! See `PSE_EVAL_MATRIX_01.pdf` in the repo root for the normative
-//! specification this crate realises.
+//! See `specs/PSE_EVAL_MATRIX_01.pdf` for the normative specification
+//! this crate realises.
 //!
 //! The eval matrix is **not** a benchmark harness. It is the formal
 //! description of:

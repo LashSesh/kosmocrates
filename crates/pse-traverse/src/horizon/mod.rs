@@ -1,7 +1,7 @@
 //! Null-Centered Horizon Geometry — `pse-traverse-horizon` v0.3.
 //!
-//! See `pse_traverse_horizon_spec_v0_3.pdf` in the repo root for the
-//! normative specification this module realises.
+//! See `specs/pse_traverse_horizon_spec_v0_3.pdf` for the normative
+//! specification this module realises.
 //!
 //! The horizon layer answers a single question:
 //!

@@ -1,7 +1,7 @@
 //! Panoptic Phase Cognition Kernel — `pse-traverse-cognition` v0.1.
 //!
-//! See `pse_traverse_cognition_spec_v0_1.pdf` in the repo root for the
-//! normative specification this module realises.
+//! See `specs/pse_traverse_cognition_spec_v0_1.pdf` for the normative
+//! specification this module realises.
 //!
 //! The cognition kernel turns problem, traversal, dynamics, reactive
 //! and projection state into a *canonical map* of the reachable

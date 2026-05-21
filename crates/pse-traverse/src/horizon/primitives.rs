@@ -1,6 +1,6 @@
 //! Primitive types for the null-centered horizon geometry.
 //!
-//! Per `pse_traverse_horizon_spec_v0_3.pdf`:
+//! Per `specs/pse_traverse_horizon_spec_v0_3.pdf`:
 //!
 //! * `Fixed` — every gate-relevant scalar; reuses [`CanonicalNumber`] from
 //!   the dynamics layer so the entire workspace shares one float-free
