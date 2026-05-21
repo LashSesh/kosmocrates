@@ -1,0 +1,20 @@
+[package]
+name = "pse-llm-demo"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PSE as a cognitive substrate for LLMs — cross-session memory demo"
+
+[[bin]]
+name = "pse-llm-demo"
+path = "src/main.rs"
+
+[dependencies]
+pse-core    = { path = "../../crates/pse-core" }
+pse-types   = { path = "../../crates/pse-types" }
+pse-graph   = { path = "../../crates/pse-graph" }
+pse-memory  = { path = "../../crates/pse-memory" }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+reqwest     = { workspace = true }
