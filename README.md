@@ -258,6 +258,19 @@ place for further validation on additional domains.
 
 ## Quick start
 
+### Python (recommended for LLM integration)
+
+```bash
+pip install maturin
+cd bindings/python && maturin develop --release
+python examples/minimal.py
+PSE_LLM_API_KEY=<key> python examples/llm_session.py   # run twice: see memory
+```
+
+Full API and examples: [`bindings/python/README.md`](bindings/python/README.md)
+
+### Rust
+
 ```bash
 # Build the workspace
 cargo build --release

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pse-core"
+description = "PSE — Post-Symbolic Engine: thermodynamic cognitive substrate for LLMs"
+version = "0.1.0"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["pse", "llm", "memory", "thermodynamics", "topology", "cognitive-substrate"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "pse_core"
