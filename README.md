@@ -4,7 +4,7 @@
 
 It gives any language model — GPT, Claude, Gemini, Llama, or whatever comes next —
 what it structurally cannot have on its own: **persistent, verifiable, topology-aware
-memory that accumulates across sessions, users, and model versions.**
+memory that accumulates across sessions and model versions.**
 
 LLMs are stateless. Every API call is a fresh context window. PSE is the layer that
 turns a stateless oracle into a system with history, structure, and proof.
@@ -755,15 +755,17 @@ Normative specification documents live in [`specs/`](specs/):
 |---|---|---|
 | [`specs/ADAMANT_v1.0.0.pdf`](specs/ADAMANT_v1.0.0.pdf) | ADAMANT-v1.0.0 | Constitutional architectural contract (all layers) |
 | [`specs/topologisches_traversierungsframework_v3.pdf`](specs/topologisches_traversierungsframework_v3.pdf) | PSE-TOPO-03 | Underlying topological framework |
-| [`specs/pse_traversal_agent_spec_v0_1.pdf`](specs/pse_traversal_agent_spec_v0_1.pdf) | PSE-TRAVERSE-v0.1 | Traversal Agent |
+| [`specs/pse_traversal_agent_spec_v0_1_REUPLOAD.pdf`](specs/pse_traversal_agent_spec_v0_1_REUPLOAD.pdf) | PSE-TRAVERSE-v0.1 | Traversal Agent |
 | [`specs/pse_traverse_signature_spec.pdf`](specs/pse_traverse_signature_spec.pdf) | PSE-TRAVERSE-SIGNATURE-01 | Signature layer |
 | [`specs/pse_traverse_dynamics_spec_v0_1.pdf`](specs/pse_traverse_dynamics_spec_v0_1.pdf) | PSE-TRAVERSE-DYNAMICS-01 | Dynamics layer |
 | [`specs/pse_traverse_horizon_spec_v0_3.pdf`](specs/pse_traverse_horizon_spec_v0_3.pdf) | PSE-TRAVERSE-HORIZON-03 | Horizon layer |
 | [`specs/pse_traverse_cognition_spec_v0_1.pdf`](specs/pse_traverse_cognition_spec_v0_1.pdf) | PSE-TRAVERSE-COGNITION-01 | Cognition layer |
-| [`specs/PHASEMATRIX_HIVEMIND_03.pdf`](specs/PHASEMATRIX_HIVEMIND_03.pdf) | PHASEMATRIX-HIVEMIND-03 | Phase-matrix layer |
+| [`specs/PSE_TRAVERSE_COGNITION_01.pdf`](specs/PSE_TRAVERSE_COGNITION_01.pdf) | PSE-TRAVERSE-COGNITION-01 | Cognition layer (canonical reupload) |
+| [`specs/MTL.pdf`](specs/MTL.pdf) | PSE-TRAVERSE-TPT-MTL-04 | Möbius-Tripolar Lift — Topological Panoptical Triangulation pipeline |
+| [`specs/phasematrix_hivemind_morphodynamic_cell_spec_v0_3.pdf`](specs/phasematrix_hivemind_morphodynamic_cell_spec_v0_3.pdf) | PHASEMATRIX-HIVEMIND-03 | Phase-matrix morphodynamic cell layer |
 | [`specs/phasematrix_hivemind_dual_fabric_stitch_spec_v0_3_1.pdf`](specs/phasematrix_hivemind_dual_fabric_stitch_spec_v0_3_1.pdf) | PHASEMATRIX-HIVEMIND-03.1 | Dual-fabric stitch layer |
 | [`specs/pse_nctcs_conformance_spec_v0_1.pdf`](specs/pse_nctcs_conformance_spec_v0_1.pdf) | PSE-NCTCS-CONFORMANCE-01 | NCTCS closure layer |
-| [`specs/PSE-METATRON-MONOLITH-01.pdf`](specs/PSE-METATRON-MONOLITH-01.pdf) | PSE-METATRON-MONOLITH-01 | Holistic eigenmode layer |
+| [`specs/pse_metatron_monolith_operator_spec_v0_1.pdf`](specs/pse_metatron_monolith_operator_spec_v0_1.pdf) | PSE-METATRON-MONOLITH-01 | Holistic eigenmode / Metatron operator layer |
 | [`specs/PSE_EVAL_MATRIX_01.pdf`](specs/PSE_EVAL_MATRIX_01.pdf) | PSE-EVAL-MATRIX-01 | Evaluation matrix |
 | [`specs/PSE_LPCM_IMPLEMENTATION_01.pdf`](specs/PSE_LPCM_IMPLEMENTATION_01.pdf) | PSE-LPCM-01 | LPCM implementation |
 

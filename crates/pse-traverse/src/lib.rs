@@ -17,7 +17,7 @@
 //! address is computed.
 //!
 //! See `docs/POST_SYMBOLIC.md` for the paradigm definition this layer
-//! operates within. See `specs/pse_traversal_agent_spec_v0_1.pdf` for the
+//! operates within. See `specs/pse_traversal_agent_spec_v0_1_REUPLOAD.pdf` for the
 //! spec this implementation realises.
 
 pub mod blueprint_search;
