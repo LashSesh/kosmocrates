@@ -1,0 +1,21 @@
+[package]
+name         = "pse-server"
+version.workspace   = true
+edition.workspace   = true
+authors.workspace   = true
+license.workspace   = true
+description  = "PSE REST API server — exposes the Post-Symbolic Engine over HTTP/JSON"
+
+[[bin]]
+name = "pse-server"
+path = "src/main.rs"
+
+[dependencies]
+pse-core  = { path = "../../crates/pse-core" }
+pse-types = { path = "../../crates/pse-types" }
+pse-graph = { path = "../../crates/pse-graph" }
+axum        = { workspace = true }
+tower-http  = { workspace = true }
+tokio       = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
