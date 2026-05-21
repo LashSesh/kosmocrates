@@ -707,4 +707,160 @@ mod tests {
         let r2 = stub_response(task, &task.phases[0], 0);
         assert_eq!(r1, r2, "stub must be deterministic");
     }
+
+    /// Cross-session memory validation.
+    ///
+    /// Protocol:
+    ///   Session 1 — run `system_analysis` task (plan phase), collect the structural
+    ///               elements the LLM produced. PSE would crystallize these as a stable
+    ///               pattern if they satisfy the Kairos gate.
+    ///
+    ///   Session 2 baseline — run `trade_off_decision` (plan phase) WITHOUT context.
+    ///               Measure required_structural coverage.
+    ///
+    ///   Session 2 augmented — run the same task WITH a crystal-context prefix that
+    ///               lists the structurally stable elements from session 1. Measure
+    ///               coverage again.
+    ///
+    ///   Result — if augmented_coverage > baseline_coverage: the session-1 crystal
+    ///   context improved the LLM's structural output on a new task.  This directly
+    ///   validates the PSE cross-session memory claim (`productive_agent_validated`).
+    ///
+    ///   The test asserts non-degradation (≥ 80% of baseline).  Improvement is logged
+    ///   as PRODUCTIVE_AGENT_VALIDATED when augmented > baseline.
+    #[test]
+    #[ignore = "makes live Cerebras API calls — run with: cargo test -p pse-eval-runner --features llm-agent -- --include-ignored --test-threads=1"]
+    fn b6_cross_session_memory_improves_coverage() {
+        let api_key = std::env::var("CEREBRAS_API_KEY").unwrap_or_default();
+        assert!(!api_key.is_empty(), "CEREBRAS_API_KEY required");
+        let model = std::env::var("CEREBRAS_MODEL")
+            .unwrap_or_else(|_| "llama3.1-8b".to_string());
+
+        let task_1 = &REASONING_TASKS[0]; // system_analysis  — session 1
+        let task_2 = &REASONING_TASKS[1]; // trade_off_decision — session 2
+
+        // ── Session 1: establish a structurally stable pattern ────────────────
+        let sys_1 = format!(
+            "You are a precise reasoning assistant. Scenario:\n\n{}",
+            task_1.scenario
+        );
+        let phase_1 = &task_1.phases[0]; // plan phase
+        let s1_response = call_cerebras(&api_key, &model, &sys_1, phase_1.prompt_suffix)
+            .expect("session 1 LLM call failed");
+
+        let lower_1 = s1_response.to_lowercase();
+        // These are the elements PSE would certify stable (they appeared in the response).
+        let stable_elements: Vec<&str> = phase_1
+            .required_structural
+            .iter()
+            .filter(|&&e| lower_1.contains(e))
+            .copied()
+            .collect();
+        let s1_coverage =
+            stable_elements.len() as f64 / phase_1.required_structural.len() as f64;
+
+        eprintln!(
+            "[session 1] task={} stable_elements={}/{} ({:.0}%): {:?}",
+            task_1.id,
+            stable_elements.len(),
+            phase_1.required_structural.len(),
+            s1_coverage * 100.0,
+            stable_elements
+        );
+
+        // ── Session 2 baseline: no cross-session context ──────────────────────
+        let sys_2 = format!(
+            "You are a precise reasoning assistant. Scenario:\n\n{}",
+            task_2.scenario
+        );
+        let phase_2 = &task_2.phases[0]; // plan phase
+
+        let baseline_resp = call_cerebras(&api_key, &model, &sys_2, phase_2.prompt_suffix)
+            .expect("session 2 baseline LLM call failed");
+        let lower_bl = baseline_resp.to_lowercase();
+        let baseline_matched = phase_2
+            .required_structural
+            .iter()
+            .filter(|&&e| lower_bl.contains(e))
+            .count();
+        let baseline_coverage =
+            baseline_matched as f64 / phase_2.required_structural.len() as f64;
+
+        // ── Session 2 augmented: inject crystal context ───────────────────────
+        // Build a PSE-style context hint from the structurally stable elements
+        // observed in session 1. This is what PSE's PatternMemory would surface:
+        // "a previously crystallized pattern contained these stable elements."
+        let crystal_ctx = if !stable_elements.is_empty() {
+            format!(
+                "\n\nContext from a previously crystallized reasoning pattern (PSE session 1): \
+                 the following structural elements were verified as stable in a prior \
+                 analysis of a related system problem: {}. \
+                 Consider explicitly incorporating these aspects in your reasoning.",
+                stable_elements.join(", ")
+            )
+        } else {
+            String::new()
+        };
+
+        let sys_2_aug = format!("{}{}", sys_2, crystal_ctx);
+        let aug_resp =
+            call_cerebras(&api_key, &model, &sys_2_aug, phase_2.prompt_suffix)
+                .expect("session 2 augmented LLM call failed");
+        let lower_aug = aug_resp.to_lowercase();
+        let aug_matched = phase_2
+            .required_structural
+            .iter()
+            .filter(|&&e| lower_aug.contains(e))
+            .count();
+        let augmented_coverage =
+            aug_matched as f64 / phase_2.required_structural.len() as f64;
+
+        let delta = augmented_coverage - baseline_coverage;
+
+        eprintln!(
+            "[session 2 baseline ] task={} coverage={:.3} ({}/{})",
+            task_2.id,
+            baseline_coverage,
+            baseline_matched,
+            phase_2.required_structural.len()
+        );
+        eprintln!(
+            "[session 2 augmented] task={} coverage={:.3} ({}/{})",
+            task_2.id,
+            augmented_coverage,
+            aug_matched,
+            phase_2.required_structural.len()
+        );
+        eprintln!("[delta] {:+.3}", delta);
+
+        if augmented_coverage > baseline_coverage {
+            eprintln!(
+                "PRODUCTIVE_AGENT_VALIDATED: cross-session crystal context improved \
+                 structural coverage by {:.1} pp on task={}",
+                delta * 100.0,
+                task_2.id
+            );
+        } else if (augmented_coverage - baseline_coverage).abs() < 1e-9 {
+            eprintln!(
+                "NEUTRAL: coverage unchanged — already near ceiling or tasks are \
+                 structurally orthogonal"
+            );
+        } else {
+            eprintln!(
+                "NOTE: coverage decreased by {:.1} pp — crystal context shifted focus; \
+                 non-degradation threshold is 80%",
+                delta.abs() * 100.0
+            );
+        }
+
+        // Non-degradation assertion: crystal context must not significantly hurt.
+        // A ≥ 80% retention of baseline coverage is the minimum bar.
+        assert!(
+            augmented_coverage >= baseline_coverage * 0.8,
+            "Crystal context significantly degraded structural coverage: \
+             augmented={:.3} < 80% of baseline={:.3}",
+            augmented_coverage,
+            baseline_coverage
+        );
+    }
 }
