@@ -57,6 +57,7 @@ members = [
     "tools/pse-bench-cognitive",
     "tools/pse-eval-runner-cli",
     "tools/pse-llm-demo",
+    "tools/pse-server",
 ]
 
 [workspace.package]

@@ -2152,6 +2152,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "pse-core",
+ "pse-graph",
+ "pse-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+]
+
+[[package]]
 name = "pse-store"
 version = "0.1.0"
 dependencies = [
