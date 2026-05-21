@@ -2013,6 +2013,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-llm-demo"
+version = "0.1.0"
+dependencies = [
+ "pse-core",
+ "pse-graph",
+ "pse-memory",
+ "pse-types",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-manifest"
 version = "0.1.0"
 dependencies = [
