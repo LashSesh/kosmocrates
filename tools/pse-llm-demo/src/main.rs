@@ -62,9 +62,12 @@ const QUESTIONS: &[&str] = &[
 fn pse_config() -> Config {
     let mut config = Config::default();
     config.calibration.enabled = true;
-    config.calibration.target_pass_rate = 0.20;
-    config.calibration.window = 80;
-    config.calibration.warmup_ticks = 10;
+    // The gate is an 8-fold AND: set a high per-metric pass rate so the joint
+    // probability stays meaningful even with moderate metric correlation.
+    // window/warmup are tuned for short LLM sessions (~16-20 ticks each).
+    config.calibration.target_pass_rate = 0.50;
+    config.calibration.window = 20;
+    config.calibration.warmup_ticks = 2;
     config.carrier.adaptive = true;
     config
 }

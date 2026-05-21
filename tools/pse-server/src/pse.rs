@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 pub fn default_config() -> Config {
     let mut cfg = Config::default();
     cfg.calibration.enabled = true;
-    cfg.calibration.target_pass_rate = 0.20;
-    cfg.calibration.window = 80;
-    cfg.calibration.warmup_ticks = 10;
+    cfg.calibration.target_pass_rate = 0.50;
+    cfg.calibration.window = 20;
+    cfg.calibration.warmup_ticks = 2;
     cfg.carrier.adaptive = true;
     cfg
 }
