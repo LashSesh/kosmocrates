@@ -382,15 +382,16 @@ fn text_to_cognition_input(
 /// Erfordert `CEREBRAS_API_KEY` zur Laufzeit; ohne Key läuft ein
 /// deterministischer Stub (für CI).
 pub struct CerebrasTrialExecutor {
-    /// Cerebras-Modell (Standard: llama-3.3-70b).
+    /// Cerebras model to use.
+    /// Override via `CEREBRAS_MODEL` env var; default: `llama3.1-8b`.
     pub model: String,
 }
 
 impl Default for CerebrasTrialExecutor {
     fn default() -> Self {
-        CerebrasTrialExecutor {
-            model: "llama-3.3-70b".into(),
-        }
+        let model = std::env::var("CEREBRAS_MODEL")
+            .unwrap_or_else(|_| "llama3.1-8b".into());
+        CerebrasTrialExecutor { model }
     }
 }
 
