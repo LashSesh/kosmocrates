@@ -230,7 +230,7 @@ fn call_cerebras(api_key: &str, model: &str, system: &str, user: &str) -> Result
         "temperature": 0
     });
 
-    let retry_delays = [5u64, 10, 20];
+    let retry_delays = [5u64, 15, 30, 60, 90];
     let mut attempt = 0usize;
     loop {
         let resp = client
@@ -243,9 +243,13 @@ fn call_cerebras(api_key: &str, model: &str, system: &str, user: &str) -> Result
 
         let val: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
 
-        if val["type"] == "too_many_requests_error"
+        let is_rate_limit = val["type"] == "too_many_requests_error"
             || val["error"]["type"] == "too_many_requests_error"
-        {
+            || val["code"] == "request_quota_exceeded"
+            || val["code"] == "queue_exceeded"
+            || val["error"]["code"] == "request_quota_exceeded"
+            || val["error"]["code"] == "queue_exceeded";
+        if is_rate_limit {
             if attempt < retry_delays.len() {
                 let wait = retry_delays[attempt];
                 eprintln!(" [rate-limit, warte {wait}s …]");
