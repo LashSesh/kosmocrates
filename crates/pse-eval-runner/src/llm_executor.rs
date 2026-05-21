@@ -620,6 +620,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "makes live Cerebras API calls — run with: cargo test -p pse-eval-runner --features llm-agent -- --include-ignored"]
     fn cerebras_executor_stub_runs_all_variants() {
         let spec = Preset::AgentCognition.build().unwrap();
         let plan = plan_runs(&spec).unwrap();
@@ -657,6 +658,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "makes live Cerebras API calls — run with: cargo test -p pse-eval-runner --features llm-agent -- --include-ignored"]
     fn b6_false_commit_rate_not_worse_than_b0() {
         let spec = Preset::AgentCognition.build().unwrap();
         let plan = plan_runs(&spec).unwrap();
