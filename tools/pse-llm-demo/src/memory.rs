@@ -43,7 +43,17 @@ impl CrystalStore {
 
     pub fn load(&self) -> MemoryFile {
         match std::fs::read_to_string(&self.path) {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+            Ok(s) => match serde_json::from_str(&s) {
+                Ok(mem) => mem,
+                Err(e) => {
+                    eprintln!(
+                        "[PSE] Warning: memory file {:?} could not be parsed ({e}) — \
+                         starting cold.  Back up and delete the file to suppress this warning.",
+                        self.path
+                    );
+                    MemoryFile::default()
+                }
+            },
             Err(_) => MemoryFile::default(),
         }
     }

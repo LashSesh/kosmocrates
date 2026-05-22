@@ -540,7 +540,32 @@ fn render_crystal_context(records_json: &str, top_k: usize) -> PyResult<String> 
     Ok(out)
 }
 
-/// Count how many keywords (case-insensitive) appear in text.
+fn keyword_at_boundary(text: &str, keyword: &str) -> bool {
+    let mut start = 0;
+    while start < text.len() {
+        match text[start..].find(keyword) {
+            None => return false,
+            Some(rel) => {
+                let pos = start + rel;
+                let pre_ok = pos == 0
+                    || !text[..pos].chars().next_back().map_or(false, |c| c.is_alphabetic());
+                let end = pos + keyword.len();
+                let post_ok = end >= text.len()
+                    || !text[end..].chars().next().map_or(false, |c| c.is_alphabetic());
+                if pre_ok && post_ok {
+                    return true;
+                }
+                start = pos + 1;
+            }
+        }
+    }
+    false
+}
+
+/// Count how many keywords (case-insensitive) appear in text at word boundaries.
+///
+/// Uses word-boundary matching: "actr" does not match inside "reactor",
+/// "production" does not match inside "reproduction".
 ///
 /// Returns ``(hits, total)`` — divide for a coverage percentage.
 ///
@@ -551,7 +576,7 @@ fn render_crystal_context(records_json: &str, top_k: usize) -> PyResult<String> 
 #[pyfunction]
 fn score_coverage(text: &str, keywords: Vec<String>) -> (usize, usize) {
     let lower = text.to_lowercase();
-    let hits = keywords.iter().filter(|k| lower.contains(k.as_str())).count();
+    let hits = keywords.iter().filter(|k| keyword_at_boundary(&lower, k)).count();
     (hits, keywords.len())
 }
 

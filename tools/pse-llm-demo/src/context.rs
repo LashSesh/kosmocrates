@@ -156,6 +156,7 @@ pub fn print_ab_report(
     println!();
     println!("  Baseline  [{baseline_ms:>5}ms]: {b_hits:>2}/{total} keywords  ({b_pct:.0}%)");
     println!("  Augmented [{augmented_ms:>5}ms]: {a_hits:>2}/{total} keywords  ({a_pct:.0}%)");
+    println!("  (timing reflects wall-clock network latency — not a meaningful performance metric)");
     println!();
 
     if b_pct > 65.0 {

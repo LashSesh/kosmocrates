@@ -53,6 +53,8 @@ def load_embeddings(path: str, limit: int | None) -> tuple[list[str], "np.ndarra
     words: list[str] = []
     vecs: list[list[float]] = []
 
+    bad_byte_lines = 0
+
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         first = fh.readline()
         parts = first.strip().split()
@@ -67,12 +69,18 @@ def load_embeddings(path: str, limit: int | None) -> tuple[list[str], "np.ndarra
         if not is_header:
             # GloVe — first line is a data line.
             if len(parts) >= 3:
-                words.append(parts[0])
-                vecs.append([float(v) for v in parts[1:]])
+                if "�" in first:
+                    bad_byte_lines += 1
+                else:
+                    words.append(parts[0])
+                    vecs.append([float(v) for v in parts[1:]])
 
         for line in fh:
             if limit is not None and len(words) >= limit:
                 break
+            if "�" in line:
+                bad_byte_lines += 1
+                continue
             parts = line.rstrip().split(" ")
             if len(parts) < 3:
                 continue
@@ -81,6 +89,12 @@ def load_embeddings(path: str, limit: int | None) -> tuple[list[str], "np.ndarra
                 vecs.append([float(v) for v in parts[1:]])
             except ValueError:
                 continue
+
+    if bad_byte_lines > 0:
+        print(
+            f"  Warning: {bad_byte_lines} line(s) skipped due to non-UTF-8 bytes.",
+            file=sys.stderr,
+        )
 
     if not vecs:
         raise ValueError(f"No vectors loaded from {path!r}")
