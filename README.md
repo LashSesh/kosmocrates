@@ -293,9 +293,9 @@ Full API and examples: [`bindings/python/README.md`](bindings/python/README.md)
 
 ```bash
 # Requires: PSE_LLM_API_KEY (Cerebras, OpenAI, Groq, Ollama, …)
-# Optional: PSE_LLM_BASE_URL, PSE_LLM_MODEL
+# Optional: PSE_LLM_BASE_URL, PSE_LLM_MODEL, PSE_LLM_MEMORY
 
-# Session 1 — cold start: LLM response → crystal → saved to disk
+# Session 1 — cold start: LLM response → crystals → saved to disk
 PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 
 # Session 2 — warm start: cross-session memory proof (replay hits printed)
@@ -304,9 +304,36 @@ PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 # Session 3 — A/B test: baseline vs PSE-augmented response (coverage diff)
 PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 
-# Diagnostic mode: phase distribution of chunks + per-tick gate values + vertex count
+# Diagnostic mode: phase distribution + per-tick gate values + vertex count
 PSE_DIAG=1 PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
+
+# Custom domain (bring your own questions + keywords)
+PSE_LLM_QUESTIONS_FILE=my_domain.json \
+PSE_LLM_KEYWORDS="term1,term2,term3" \
+PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 ```
+
+**Choosing a domain for a meaningful A/B result:**
+The default questions target **cognitive architectures** (ACT-R, SOAR, Global
+Workspace Theory).  This domain was chosen because 7-8B parameter LLMs have
+shallow coverage of specific mechanisms — base-level activation, subsymbolic
+computation, chunking from impasses — so PSE context from prior sessions
+produces a measurable coverage lift.  On well-known domains (thermodynamics,
+sorting algorithms) the LLM's prior is strong and the A/B delta is near zero.
+
+To test on your own domain, create a JSON file:
+```json
+{
+  "questions": [
+    "Question 1 about your domain…",
+    "Question 2 — goes deeper into specific mechanisms…",
+    "Question 3 — asks about cross-concept relationships…"
+  ]
+}
+```
+Set `PSE_LLM_KEYWORDS` to a comma-separated list of distinctive vocabulary your
+domain uses.  Three sessions of accumulation are the minimum; the A/B gap grows
+with crystal density.
 
 **How the graph is built:** Each sentence chunk gets a content-addressed vertex
 (`source_id = "{base}-{fnv1a(chunk):016x}"`).  Before windowing, chunks are

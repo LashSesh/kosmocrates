@@ -45,19 +45,48 @@ use std::time::Instant;
 use pse_core::{load_memory_from_crystals, macro_step, GlobalState};
 use pse_types::{Config, SemanticCrystal};
 
-use context::{print_ab_report, render_crystal_context};
+use context::{domain_keywords, print_ab_report, render_crystal_context};
 use llm::LlmClient;
 use memory::{CrystalRecord, CrystalStore};
 
-// Rotating question list — session N uses question index (N-1) % len.
-const QUESTIONS: &[&str] = &[
-    "Explain the concept of entropy in thermodynamics and information theory. \
-     What structural properties do both interpretations share?",
-    "How does irreversibility in thermodynamics connect to the arrow of time? \
-     What constraints does entropy impose on physical processes?",
-    "What is the relationship between information compression and the second \
-     law of thermodynamics? How does Maxwell's demon relate to entropy?",
+// Default rotating question list — cognitive architectures.
+// This domain is niche enough that small LLMs have low baseline coverage,
+// making the PSE A/B difference measurable.
+//
+// Override with PSE_LLM_QUESTIONS_FILE pointing to a JSON file:
+//   { "questions": ["Q1", "Q2", "Q3"] }
+// Pair with PSE_LLM_KEYWORDS (comma-separated) to match your domain.
+const DEFAULT_QUESTIONS: &[&str] = &[
+    "Explain how ACT-R models declarative memory retrieval. What roles do \
+     base-level activation and spreading activation play, and how does \
+     subsymbolic computation influence production selection?",
+    "How does SOAR's chunking mechanism learn from impasses? Compare it to \
+     ACT-R's production compilation and explain what each approach implies \
+     for the scalability of cognitive architectures.",
+    "Describe the Global Workspace Theory of consciousness and how it is \
+     operationalised in cognitive architectures like IDA and LIDA. What \
+     distinguishes a global-workspace architecture from a production-system \
+     architecture like SOAR or ACT-R?",
 ];
+
+/// Load questions from PSE_LLM_QUESTIONS_FILE if set, else use defaults.
+fn load_questions() -> Vec<String> {
+    if let Ok(path) = std::env::var("PSE_LLM_QUESTIONS_FILE") {
+        match std::fs::read_to_string(&path) {
+            Ok(json) => {
+                #[derive(serde::Deserialize)]
+                struct QFile { questions: Vec<String> }
+                match serde_json::from_str::<QFile>(&json) {
+                    Ok(qf) if !qf.questions.is_empty() => return qf.questions,
+                    Ok(_)  => eprintln!("  Warning: PSE_LLM_QUESTIONS_FILE has no questions"),
+                    Err(e) => eprintln!("  Warning: PSE_LLM_QUESTIONS_FILE parse error: {e}"),
+                }
+            }
+            Err(e) => eprintln!("  Warning: cannot read PSE_LLM_QUESTIONS_FILE {path}: {e}"),
+        }
+    }
+    DEFAULT_QUESTIONS.iter().map(|s| s.to_string()).collect()
+}
 
 fn pse_config() -> Config {
     let mut config = Config::default();
@@ -231,7 +260,9 @@ fn main() {
     }
 
     // ── LLM query ────────────────────────────────────────────────────────────
-    let question = QUESTIONS[(session - 1) % QUESTIONS.len()];
+    let questions = load_questions();
+    let keywords  = domain_keywords();
+    let question  = questions[(session - 1) % questions.len()].as_str();
     println!(
         "────── LLM Query (Session {}) ──────────────────────────────────",
         session
@@ -281,7 +312,7 @@ fn main() {
         let augmented_ms = t1.elapsed().as_millis();
 
         println!();
-        print_ab_report(&baseline, &augmented, baseline_ms, augmented_ms);
+        print_ab_report(&baseline, &augmented, baseline_ms, augmented_ms, &keywords);
 
         // Ingest the augmented response — it carries the richer reasoning.
         println!("────── PSE Ingestion (augmented response) ──────────────────────");
