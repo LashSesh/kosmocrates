@@ -27,8 +27,21 @@ turns a stateless oracle into a system with history, structure, and proof.
 
 PSE is **model-agnostic**: it sees byte streams. Swap the LLM without touching PSE.
 PSE is **cryptographically auditable**: every pattern it crystallizes carries a
-SHA-256 content address, an evidence chain, and a replay-identical execution proof.
+SHA-256 content address and a replay-identical execution proof.
 PSE is **fail-closed**: it emits nothing when the pattern is not stable enough.
+
+> **What PSE is and is not**
+>
+> PSE is a **topological pattern memory**.  It crystallizes structurally stable
+> observation sequences into content-addressed records and recognises them
+> deterministically when the same sequence is replayed.
+>
+> PSE is **not a semantic retrieval system**.  It does not embed meaning, does
+> not compute similarity between phrases, and does not recognise paraphrases of
+> prior content.  Cross-session recall happens when the *same* observation
+> sequence is re-encountered — not when *similar* content is encountered.
+> If you need fuzzy semantic search, pair PSE with a vector database; they
+> address different problems.
 
 ### The problem PSE solves
 
@@ -85,14 +98,16 @@ if let Ok(Some(crystal)) = macro_step(&mut state, &[llm_response], &config, &ada
     println!("Crystallized: {}", hex::encode(crystal.crystal_id));
 }
 
-// ── Next session: recall before calling the LLM ───────────────────
-let probe: Vec<u8> = new_prompt.as_bytes().to_vec();
-if let Ok(Some(probe_crystal)) = macro_step(&mut state, &[probe], &config, &adapter) {
-    if let Some(prior_id) = memory.lookup_crystal(&probe_crystal) {
-        // Topologically similar pattern found in prior sessions.
-        // Inject into the LLM's context window.
-        let context = archive.get(prior_id);
-        let response = call_your_llm_with_context(prompt, context);
+// ── Next session: replay prior text to warm PatternMemory ────────────
+// Replaying the *same* prior response text produces bit-identical crystal IDs.
+// PatternMemory then reports a hit — proving the topology is stable across sessions.
+// (PSE does not do fuzzy/semantic matching; recall requires the same byte sequence.)
+let prior_response: Vec<u8> = load_prior_response_from_disk();
+if let Ok(Some(replay_crystal)) = macro_step(&mut state, &[prior_response], &config, &adapter) {
+    if let Some(_prior_id) = memory.lookup_crystal(&replay_crystal) {
+        // Hit confirmed: topology is stable. Now inject prior crystals as context.
+        let context = render_crystal_context(&crystal_records, 5);
+        let response = call_your_llm_with_context(new_prompt, context);
     }
 }
 ```
@@ -104,7 +119,7 @@ if let Ok(Some(probe_crystal)) = macro_step(&mut state, &[probe], &config, &adap
 | Stateless — each call starts fresh | Persistent structured memory across sessions |
 | No proof of what was processed | Cryptographic audit trail per interaction |
 | Model-tied memory formats | Model-agnostic topology-based crystals |
-| Context window is the only memory | Infinite archive, relevant recall via PatternMemory |
+| Context window is the only memory | Persistent archive; deterministic recall via PatternMemory (content-addressed, not semantic) |
 | Hallucination has no check | Fail-closed gate — no crystal if pattern is not stable |
 | Version upgrade loses history | Crystals survive model upgrades (content-addressed) |
 | "This looks right" | "This passed 8 structural gates, here is the proof" |
@@ -113,7 +128,7 @@ if let Ok(Some(probe_crystal)) = macro_step(&mut state, &[probe], &config, &adap
 
 - **Model-agnostic**: PSE ingests byte streams. The LLM can be anything.
 - **Cross-session**: `PatternMemory` persists canonical-class crystal IDs across runs via `load_from_crystals`.
-- **Topology-aware recall**: Two responses that encode the same *structure* — even with different wording — map to the same canonical graph class via the Metatron Periodic Table and are recalled as one pattern.
+- **Deterministic recall**: The same observation sequence always produces the same crystal ID (content-addressed via SHA-256).  `PatternMemory` detects exact replays across sessions — bit-identical input → guaranteed hit.  Semantic generalisation (recognising *similar* but not identical content) is outside PSE's scope in the current release.
 - **Auditable**: Every crystallized interaction has a SHA-256 ID, evidence chain, and `CommitProof`. You can prove what the LLM processed and when.
 - **Deterministic replay**: Given the same inputs, PSE re-emits bit-identical crystals (`RunDescriptor` + `ReplayPack`). Independent verifiers can confirm the analysis.
 - **Validated with real LLM output**: The B6 full cognitive stack has been tested against live Cerebras API responses. The cognitive layers demonstrably reduce the false-commit rate compared to the B0 baseline — on real AI-generated text, not just synthetic data.
@@ -204,7 +219,7 @@ domains is documented in §Productive-task validation below.
 | **Replay invariance** (`ReplayIdentity = 1`, Invariant I4) | **Verified** — bit-identical output across independent runs |
 | **Safety improvement** (`ΔU_safety ≥ 0`) | **Verified** — B6 false-commit rate < B0 on real LLM output (Cerebras) |
 | **Agent relevance ranking** (PSE-EVAL-MATRIX-01 § exoskeleton) | **Verified** — see table below |
-| Productive-task validation (cross-session memory, end-to-end LLM) | **Verified** — memory proof live; A/B gain scales with crystal density (see below) |
+| Productive-task validation (cross-session memory, end-to-end LLM) | **Verified** — replay memory proof live; A/B domain-keyword gain observed in demo runs; single-run results are not statistically conclusive (see below) |
 
 Throughput reference, single-thread, release build, Xeon @ 2.10 GHz
 (batch=8 obs, window=8, graph ≤ 50 vertices, 4 carriers):
