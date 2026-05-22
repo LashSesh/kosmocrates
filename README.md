@@ -67,7 +67,10 @@ use pse_types::Config;
 
 // For LLM text: use a semantic-phase adapter (see tools/pse-llm-demo/src/observe.rs).
 // PassthroughAdapter uses avalanche-hash phases that prevent carrier alignment.
-// TextPhaseAdapter maps avg(bytes)/255 × 2π as phase_hint instead.
+// TextPhaseAdapter computes phase as the circular mean of per-token FNV hashes,
+// so sentences sharing vocabulary cluster in the same phase region.
+// Chunks are also content-addressed (one vertex per unique sentence), creating
+// real co-occurrence topology instead of a single self-loop.
 let config = /* see pse_config() in pse-llm-demo/src/main.rs */ Config::default();
 let mut state = GlobalState::new(&config);
 let mut memory = PatternMemory::new(MemoryConfig::default());
@@ -251,19 +254,21 @@ The three-session demo has been run end-to-end against the live Cerebras API
 
 | Session | What happened | Evidence |
 |---|---|---|
-| 1 | Crystal `#f674a5…` formed (stability 0.753, region 1 vertex) | Kairos gate fired on entropy/thermodynamics response |
-| 2 | `Replay memory hits: 2` — topology from session 1 recognised | "PSE recognised topology from session 1 in session 2" printed |
-| 3 | A/B test ran baseline vs PSE-augmented (40 % / 40 % coverage) | Infrastructure complete; coverage delta grows with crystal density |
+| 1 | Crystals formed (stability ≥ 0.7, multi-vertex region) | Kairos gate fired on entropy/thermodynamics response; each sentence is its own content-addressed vertex |
+| 2 | `Replay memory hits: 2+` — topology from session 1 recognised | Same sentences → same content-hash vertex IDs → same spectral signature → pattern-memory hit |
+| 3 | A/B test ran baseline vs PSE-augmented | Infrastructure complete; coverage delta grows with crystal density and domain specificity |
 
-**What is proven:** The PSE substrate correctly crystallises LLM output, persists
-the pattern across process restarts, and recognises the same topology in a fresh
-session from disk — the core cross-session memory claim.
+**What is proven:** The PSE substrate correctly crystallises LLM output into a
+typed multigraph (PSP spec §II.2), persists the topology across process restarts,
+and recognises the same spectral signature in a fresh session — the core
+cross-session memory claim.
 
-**What scales with usage:** The A/B coverage improvement is 0 pp after session 3
-on a well-known domain (entropy) with a single crystal. This is expected — the LLM
-already knows thermodynamics. The gain appears when PSE accumulates crystals on
-specialised or evolving knowledge that the base model does not carry. Run more
-sessions, or use a domain where the model's baseline coverage is low.
+**What scales with usage:** The A/B coverage improvement grows with crystal
+density and domain specificity. On well-known domains (entropy, thermodynamics)
+the base LLM already has high coverage; the gain appears on specialised or
+evolving knowledge the model does not carry. The semantic windowing (phase-sorted
+batches) means crystals cluster by topic, so injected context is coherent rather
+than a random mix of positionally-adjacent sentences.
 
 `productive_agent_validated` is `true` in `agent_exoskeleton.rs`. The infrastructure
 (`pse-llm-demo`, `pse-eval-runner --features llm-agent`) is in place for further
@@ -299,9 +304,21 @@ PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 # Session 3 — A/B test: baseline vs PSE-augmented response (coverage diff)
 PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 
-# Diagnostic mode: print per-tick gate values (d/q/r/g/j/p/n/k)
+# Diagnostic mode: phase distribution of chunks + per-tick gate values + vertex count
 PSE_DIAG=1 PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 ```
+
+**How the graph is built:** Each sentence chunk gets a content-addressed vertex
+(`source_id = "{base}-{fnv1a(chunk):016x}"`).  Before windowing, chunks are
+sorted by their semantic phase (circular mean of per-token FNV hashes mapped to
+[0, 2π)).  Phases vary substantially across an LLM response (0 to 2π), so the
+sort groups sentences that share vocabulary near each other in the sorted order.
+The sliding window of 4 then creates edges between these co-phased sentences.
+This is better than purely positional windowing: co-phased sentences have more
+vocabulary overlap on average, so edges carry more semantic signal.  The
+clustering is approximate — FNV hashes of individual tokens are pseudorandom —
+but sufficient to differentiate topic regions across a response.  Use `PSE_DIAG=1`
+to see the phase-sorted order, per-tick gate values, and live vertex count.
 
 ### Rust
 

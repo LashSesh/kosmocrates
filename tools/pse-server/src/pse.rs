@@ -204,7 +204,16 @@ pub fn ingest(
     load_memory_from_crystals(&mut state, &all_crystals);
 
     let adapter = TextPhaseAdapter::new(source_name);
-    let chunks  = chunk_text(text);
+
+    // Phase-sort chunks before windowing so each window contains same-topic
+    // sentences (same vocabulary cluster → similar phase).  Edges in the PSE
+    // graph then connect semantically related content rather than positionally
+    // adjacent sentences.
+    let mut phase_indexed: Vec<(f64, Vec<u8>)> = chunk_text(text).into_iter()
+        .map(|c| (semantic_phase(&c), c))
+        .collect();
+    phase_indexed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let chunks: Vec<Vec<u8>> = phase_indexed.into_iter().map(|(_, c)| c).collect();
 
     const WINDOW: usize = 4;
     let n = chunks.len();
