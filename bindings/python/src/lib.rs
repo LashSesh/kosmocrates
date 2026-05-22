@@ -15,6 +15,38 @@ use ::pse_types::{
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
+fn fnv1a_u64(data: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in data {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn semantic_phase(raw: &[u8]) -> f64 {
+    let text = std::str::from_utf8(raw).unwrap_or("");
+    let mut sum_sin = 0.0_f64;
+    let mut sum_cos = 0.0_f64;
+    let mut count = 0usize;
+    for word in text.split(|c: char| !c.is_alphabetic()) {
+        if word.len() < 3 { continue; }
+        let lower = word.to_lowercase();
+        let hash = fnv1a_u64(lower.as_bytes());
+        let phi = (hash as f64 / u64::MAX as f64) * TAU;
+        sum_sin += phi.sin();
+        sum_cos += phi.cos();
+        count += 1;
+    }
+    if count == 0 {
+        if raw.is_empty() { return 0.0; }
+        let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
+        (avg / 255.0) * TAU
+    } else {
+        sum_sin.atan2(sum_cos).rem_euclid(TAU)
+    }
+}
+
 struct TextPhaseAdapter {
     source_id: String,
 }
@@ -29,15 +61,14 @@ impl ObservationAdapter for TextPhaseAdapter {
     fn source_id(&self) -> &str { &self.source_id }
 
     fn canonicalize(&self, raw: &[u8], context: &MeasurementContext) -> Result<Observation, ObserveError> {
-        let phase = if raw.is_empty() { 0.0 } else {
-            let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
-            (avg / 255.0) * TAU
-        };
+        let phase = semantic_phase(raw);
         let payload = raw.to_vec();
         let digest = content_address_raw(&payload);
+        let chunk_vid = fnv1a_u64(raw);
+        let chunk_source = format!("{}-{:016x}", self.source_id, chunk_vid);
         Ok(Observation {
             timestamp: 0.0,
-            source_id: self.source_id.clone(),
+            source_id: chunk_source,
             provenance: ProvenanceEnvelope { origin: self.source_id.clone(), chain: Vec::new(), sig: None },
             payload,
             context: context.clone(),
