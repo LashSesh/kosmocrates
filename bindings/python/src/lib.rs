@@ -143,6 +143,18 @@ fn chunk_text(text: &str) -> Vec<Vec<u8>> {
 
 // ── Windowed ingestion ────────────────────────────────────────────────────────
 
+/// Sort chunks by semantic phase before windowing so each window contains
+/// same-vocabulary sentences rather than positionally adjacent ones.
+/// Mirrors the identical logic in pse-llm-demo/src/main.rs and pse-server/src/pse.rs.
+fn phase_sort(chunks: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    let mut indexed: Vec<(f64, Vec<u8>)> = chunks
+        .into_iter()
+        .map(|c| (semantic_phase(&c), c))
+        .collect();
+    indexed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.into_iter().map(|(_, c)| c).collect()
+}
+
 fn ingest_chunks(
     state: &mut GlobalState,
     config: &Config,
@@ -388,7 +400,7 @@ impl PseState {
     ///
     /// Use for sessions 1–2 (replay, no provenance needed).
     fn process_text(&mut self, text: &str) -> PyResult<Vec<PseCrystal>> {
-        let chunks = chunk_text(text);
+        let chunks = phase_sort(chunk_text(text));
         let new = ingest_chunks(&mut self.state, &self.config, &self.adapter, &chunks);
         let out = new
             .into_iter()
@@ -415,7 +427,7 @@ impl PseState {
         session: usize,
         question: &str,
     ) -> PyResult<Vec<PseCrystalRecord>> {
-        let chunks = chunk_text(text);
+        let chunks = phase_sort(chunk_text(text));
         let pairs = ingest_chunks_tracked(&mut self.state, &self.config, &self.adapter, &chunks);
         let out = pairs
             .into_iter()
