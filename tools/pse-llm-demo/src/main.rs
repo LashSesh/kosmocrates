@@ -35,6 +35,7 @@
 //! ```
 
 mod context;
+mod il_bridge;
 mod llm;
 mod memory;
 mod observe;
@@ -200,6 +201,7 @@ fn ingest_text(
 fn main() {
     let client = LlmClient::from_env();
     let store = CrystalStore::from_env();
+    let mut il = il_bridge::ILBridge::from_env();
 
     println!();
     println!("PSE × LLM — Cognitive Substrate Demo");
@@ -286,7 +288,24 @@ fn main() {
     // ── Session 3+: A/B test — baseline vs PSE-augmented ─────────────────────
     if session >= 3 && !mem.crystal_records.is_empty() {
         let top_k = 5.min(mem.crystal_records.len());
-        let pse_context = render_crystal_context(&mem.crystal_records, top_k);
+        let mut pse_context = render_crystal_context(&mem.crystal_records, top_k);
+
+        // IL fuzzy recall: supplement deterministic PSE context with
+        // semantically similar records ranked by cosine distance.
+        let il_hits = il.query_similar(question, 3, &mem.crystal_records);
+        if !il_hits.is_empty() {
+            let il_records: Vec<CrystalRecord> =
+                il_hits.iter().map(|(r, _)| (*r).clone()).collect();
+            let il_ctx = render_crystal_context(&il_records, il_records.len());
+            if !il_ctx.is_empty() {
+                pse_context.push_str("\n[IL Fuzzy Recall — cosine-similar patterns]\n");
+                pse_context.push_str(&il_ctx);
+                println!(
+                    "  [IL fuzzy recall: {} record(s) matched by cosine similarity]",
+                    il_hits.len()
+                );
+            }
+        }
 
         println!(
             "  [PSE context ready: {} record(s), top-{} injected]",
@@ -343,6 +362,7 @@ fn main() {
         println!();
 
         for (crystal, sources) in &new_pairs {
+            il.commit(crystal, sources, session, question);
             mem.crystal_records.push(CrystalRecord {
                 crystal: crystal.clone(),
                 source_chunks: sources.clone(),
@@ -472,6 +492,7 @@ fn main() {
     }
 
     for (crystal, sources) in &new_pairs {
+        il.commit(crystal, sources, session, question);
         mem.crystal_records.push(CrystalRecord {
             crystal: crystal.clone(),
             source_chunks: sources.clone(),

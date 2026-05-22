@@ -35,6 +35,7 @@ members = [
     "adapters/pse-adapter-syslog",
     "adapters/pse-adapter-vitals",
     "adapters/pse-adapter-tabular",
+    "adapters/pse-adapter-il",
     "adapters/pse-adapter-modelmon",
     "crates/pse-traverse",
     "crates/pse-eval-matrix",

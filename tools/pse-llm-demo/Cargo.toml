@@ -18,3 +18,4 @@ pse-memory  = { path = "../../crates/pse-memory" }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 reqwest     = { workspace = true }
+pse-adapter-il = { path = "../../adapters/pse-adapter-il" }
