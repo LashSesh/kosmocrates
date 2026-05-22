@@ -16,12 +16,12 @@
 //!
 //! ## Semantic phase (Option B)
 //!
-//! The phase hint is derived from the circular mean of per-token FNV
-//! hashes (words ≥ 3 chars, lowercased).  Sentences about the same
-//! semantic domain share vocabulary and therefore cluster in a similar
-//! phase region, giving the carrier a stable signal to lock onto.
-//! Plain byte-average phase gave ≈ 2.46 rad for all English text;
-//! token-hash phase varies meaningfully across topics.
+//! The phase hint is the circular mean of per-token FNV hashes (words ≥ 3 chars,
+//! lowercased) mapped to [0, 2π).  This gives substantial phase variation across
+//! an LLM response — unlike byte-average phase which was ≈ 2.46 rad for all
+//! English text — so the adaptive carrier can differentiate between batches.
+//! Sentences sharing much of the same vocabulary tend toward similar phases,
+//! though the clustering is approximate (individual token hashes are pseudorandom).
 
 use std::f64::consts::TAU;
 
@@ -58,11 +58,17 @@ fn semantic_phase(raw: &[u8]) -> f64 {
         count += 1;
     }
     if count == 0 {
+        if raw.is_empty() { return 0.0; }
         let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
         (avg / 255.0) * TAU
     } else {
         sum_sin.atan2(sum_cos).rem_euclid(TAU)
     }
+}
+
+/// Public: phase value for a raw chunk (used for semantic windowing / diagnostics).
+pub fn chunk_phase(raw: &[u8]) -> f64 {
+    semantic_phase(raw)
 }
 
 // ── TextPhaseAdapter ──────────────────────────────────────────────────────────

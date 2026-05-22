@@ -39,6 +39,7 @@ mod llm;
 mod memory;
 mod observe;
 
+use std::f64::consts::TAU;
 use std::time::Instant;
 
 use pse_core::{load_memory_from_crystals, macro_step, GlobalState};
@@ -89,29 +90,59 @@ fn pse_config() -> Config {
     config
 }
 
-/// Run PSE over a sequence of text chunks.
-/// Returns `(crystal, source_chunks_as_text)` for every gate-firing tick.
+/// Run PSE over a sequence of text chunks using semantic windowing.
+///
+/// Chunks are sorted by their token-hash circular-mean phase before the sliding
+/// window is applied.  This means each window contains sentences that share
+/// vocabulary — i.e. the same semantic cluster — rather than merely sentences
+/// that appeared next to each other in the original text.  The PSE graph then
+/// creates edges between same-topic sentences, giving the Kairos gate a
+/// topologically coherent signal to measure instead of arbitrary positional
+/// adjacency.
+///
+/// Replay is preserved: same chunks → same phases → same sort order → same
+/// windows → same crystal IDs.
 fn ingest_text(
     state: &mut GlobalState,
     config: &Config,
     adapter: &observe::TextPhaseAdapter,
     chunks: &[Vec<u8>],
 ) -> Vec<(SemanticCrystal, Vec<String>)> {
+    let diag = std::env::var("PSE_DIAG").is_ok();
+
+    // Phase-sort: group same-topic sentences into the same windows.
+    let mut indexed: Vec<(f64, Vec<u8>)> = chunks.iter()
+        .map(|c| (observe::chunk_phase(c), c.clone()))
+        .collect();
+    indexed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    if diag {
+        println!("  Phase distribution of chunks (sorted):");
+        for (phi, chunk) in &indexed {
+            let preview: String = String::from_utf8_lossy(chunk).chars().take(55).collect();
+            let bar_len = (phi / TAU * 20.0).round() as usize;
+            println!("    φ={:.3} {} {}", phi, "▓".repeat(bar_len), preview);
+        }
+        println!();
+    }
+
+    let sorted: Vec<Vec<u8>> = indexed.into_iter().map(|(_, c)| c).collect();
+
     let window_size = 4;
     let mut out = Vec::new();
-    let diag = std::env::var("PSE_DIAG").is_ok();
-    for i in 0..chunks.len().saturating_sub(window_size - 1) {
-        let batch: Vec<Vec<u8>> =
-            chunks[i..i + window_size.min(chunks.len() - i)].to_vec();
+
+    for i in 0..sorted.len().saturating_sub(window_size - 1) {
+        let batch: Vec<Vec<u8>> = sorted[i..i + window_size].to_vec();
         let result = macro_step(state, &batch, config, adapter);
         if diag {
             if let Some(gate) = &state.last_gate {
                 let tick = state.commit_index;
                 println!(
                     "  [diag tick {:>2}] kairos={} d={:.3} q={:.3} r={:.3} \
-                     g={:.3} j={:.3} p={:.3} n={:.3} k={:.3}",
+                     g={:.3} j={:.3} p={:.3} n={:.3} k={:.3} verts={}",
                     tick, gate.kairos, gate.d, gate.q, gate.r,
-                    gate.g, gate.j, gate.p, gate.n, gate.k
+                    gate.g, gate.j, gate.p, gate.n, gate.k,
+                    state.graph.active_vertices().len(),
                 );
             }
         }
