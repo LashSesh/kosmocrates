@@ -311,6 +311,10 @@ PSE_DIAG=1 PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 PSE_LLM_QUESTIONS_FILE=my_domain.json \
 PSE_LLM_KEYWORDS="term1,term2,term3" \
 PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
+
+# Highest-quality semantic phases — use a local embedding file (see below)
+PSE_LLM_EMBEDDING_FILE=word_phases.tsv \
+PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
 ```
 
 **Choosing a domain for a meaningful A/B result:**
@@ -335,17 +339,45 @@ Set `PSE_LLM_KEYWORDS` to a comma-separated list of distinctive vocabulary your
 domain uses.  Three sessions of accumulation are the minimum; the A/B gap grows
 with crystal density.
 
-**How the graph is built:** Each sentence chunk gets a content-addressed vertex
-(`source_id = "{base}-{fnv1a(chunk):016x}"`).  Before windowing, chunks are
-sorted by their semantic phase (circular mean of per-token FNV hashes mapped to
-[0, 2π)).  Phases vary substantially across an LLM response (0 to 2π), so the
-sort groups sentences that share vocabulary near each other in the sorted order.
-The sliding window of 4 then creates edges between these co-phased sentences.
-This is better than purely positional windowing: co-phased sentences have more
-vocabulary overlap on average, so edges carry more semantic signal.  The
-clustering is approximate — FNV hashes of individual tokens are pseudorandom —
-but sufficient to differentiate topic regions across a response.  Use `PSE_DIAG=1`
-to see the phase-sorted order, per-tick gate values, and live vertex count.
+**Semantic phase — how PSE decides which sentences share a topic:**
+
+The phase hint on each observation determines the carrier frequency the PSE
+engine assigns to it.  Two sentences with similar phases land in the same
+window of the sliding-window batching, which creates graph edges between
+them and allows the Kairos gate to measure their co-occurrence.
+
+PSE uses the best available phase signal, in order:
+
+| Tier | When active | Method |
+|------|-------------|--------|
+| 1 — embedding | `PSE_LLM_EMBEDDING_FILE` is set | `atan2(Σ y_i, Σ x_i)` over per-word 2D projections of GloVe / FastText vectors.  Genuine semantic geometry: similar-meaning words cluster in the same angular region. |
+| 2 — char 4-gram | no file set (default) | Circular mean of FNV-1a hashes of overlapping character 4-grams, mapped to [0, 2π).  Captures morphological families ("therm\*", "activ\*") — empirically 0.55× signal ratio vs 0.35× for whole-word hashing. |
+| 3 — byte average | chunk shorter than 4 chars | `(mean(bytes) / 255) × 2π`.  Last resort for very short fragments. |
+
+**Generating an embedding file (Tier 1):**
+
+```bash
+# 1. Download GloVe 6B 50-dimensional vectors (170 MB zip)
+#    https://nlp.stanford.edu/projects/glove/
+unzip glove.6B.zip
+
+# 2. Generate the PSE word-phase file (requires numpy)
+python3 tools/pse-llm-demo/scripts/gen_word_phases.py \
+    glove.6B.50d.txt word_phases.tsv
+
+# 3. Run the demo with embedding phases
+PSE_LLM_EMBEDDING_FILE=word_phases.tsv \
+PSE_LLM_API_KEY=<key> cargo run --release -p pse-llm-demo
+```
+
+The script also works with FastText `.vec` files.  Use `--limit 50000` for a
+compact vocabulary (≈ 3 MB file, loads in < 0.5 s) or omit the flag for the
+full vocabulary.  The file format is a plain TSV (`word\tx\ty\n`) so it is
+human-readable and portable across platforms.
+
+Use `PSE_DIAG=1` to see the phase-sorted chunk order, per-tick Kairos gate
+values, and live vertex count.  The startup banner shows which phase tier is
+active: `Phase : embedding (Tier 1)` or `Phase : char-4gram (Tier 2)`.
 
 ### Rust
 

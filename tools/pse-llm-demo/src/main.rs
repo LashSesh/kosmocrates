@@ -196,6 +196,7 @@ fn main() {
     println!("  Model   : {}", client.model);
     println!("  Endpoint: {}", client.base_url);
     println!("  Memory  : {}", store.path);
+    println!("  Phase   : {}", observe::phase_tier_name());
     println!();
 
     let mut mem = store.load();
