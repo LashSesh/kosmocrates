@@ -3,17 +3,70 @@
 //! Each chunk becomes one `Vec<u8>` observation — a sentence or short
 //! paragraph unit. A sliding window over these chunks forms each tick's
 //! batch, so the PSE graph evolves with the semantic flow of the response.
+//!
+//! ## Multi-vertex topology (Option B)
+//!
+//! Each chunk is assigned a content-addressed source ID derived from
+//! FNV-1a hash of its bytes.  This means:
+//!   - Every *unique* chunk becomes its own vertex in the PSE graph.
+//!   - A window of 4 chunks creates 4 distinct vertices with 6 pairwise
+//!     edges — a real co-occurrence topology, not a single self-loop.
+//!   - Identical chunks in later sessions map to the *same* vertex,
+//!     so cross-session replay still hits pattern memory.
+//!
+//! ## Semantic phase (Option B)
+//!
+//! The phase hint is derived from the circular mean of per-token FNV
+//! hashes (words ≥ 3 chars, lowercased).  Sentences about the same
+//! semantic domain share vocabulary and therefore cluster in a similar
+//! phase region, giving the carrier a stable signal to lock onto.
+//! Plain byte-average phase gave ≈ 2.46 rad for all English text;
+//! token-hash phase varies meaningfully across topics.
 
 use std::f64::consts::TAU;
 
 use pse_graph::{ObservationAdapter, ObserveError};
 use pse_types::{content_address_raw, MeasurementContext, Observation, ProvenanceEnvelope};
 
-/// Observation adapter that injects a semantic phase derived from the average
-/// character value of each chunk.  Unlike `PassthroughAdapter` (which leaves
-/// `phase_hint = None`, causing the engine to fall back to an avalanche-hash
-/// phase that the carrier can never align with), this adapter gives the engine
-/// a smooth, content-correlated phase signal so the Mandorla κ can converge.
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn fnv1a_u64(data: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in data {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Circular mean of per-token FNV hashes mapped to [0, 2π).
+/// Falls back to byte-average phase when the chunk contains no words ≥ 3 chars.
+fn semantic_phase(raw: &[u8]) -> f64 {
+    let text = std::str::from_utf8(raw).unwrap_or("");
+    let mut sum_sin = 0.0_f64;
+    let mut sum_cos = 0.0_f64;
+    let mut count = 0usize;
+    for word in text.split(|c: char| !c.is_alphabetic()) {
+        if word.len() < 3 {
+            continue;
+        }
+        let lower = word.to_lowercase();
+        let hash = fnv1a_u64(lower.as_bytes());
+        let phi = (hash as f64 / u64::MAX as f64) * TAU;
+        sum_sin += phi.sin();
+        sum_cos += phi.cos();
+        count += 1;
+    }
+    if count == 0 {
+        let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
+        (avg / 255.0) * TAU
+    } else {
+        sum_sin.atan2(sum_cos).rem_euclid(TAU)
+    }
+}
+
+// ── TextPhaseAdapter ──────────────────────────────────────────────────────────
+
 pub struct TextPhaseAdapter {
     source_id: String,
 }
@@ -34,21 +87,19 @@ impl ObservationAdapter for TextPhaseAdapter {
         raw: &[u8],
         context: &MeasurementContext,
     ) -> Result<Observation, ObserveError> {
-        // Semantic phase: average byte value mapped to [0, 2π].
-        // Sentences on the same topic share similar character distributions
-        // (similar vocabulary → similar byte ranges), giving the carrier
-        // a stable phase signal to lock onto across a sliding window.
-        let phase = if raw.is_empty() {
-            0.0
-        } else {
-            let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
-            (avg / 255.0) * TAU
-        };
+        let phase = semantic_phase(raw);
         let payload = raw.to_vec();
         let digest = content_address_raw(&payload);
+
+        // Content-addressed vertex: each unique chunk becomes its own graph node.
+        // Two identical chunks (even across sessions) map to the same vertex,
+        // enabling genuine cross-session pattern recognition in PatternMemory.
+        let chunk_vid = fnv1a_u64(raw);
+        let chunk_source = format!("{}-{:016x}", self.source_id, chunk_vid);
+
         Ok(Observation {
             timestamp: 0.0,
-            source_id: self.source_id.clone(),
+            source_id: chunk_source,
             provenance: ProvenanceEnvelope {
                 origin: self.source_id.clone(),
                 chain: Vec::new(),
@@ -63,24 +114,23 @@ impl ObservationAdapter for TextPhaseAdapter {
     }
 }
 
+// ── Chunker ───────────────────────────────────────────────────────────────────
+
 /// Split a text response into sentence/paragraph chunks for PSE ingestion.
 /// Returns each chunk as raw UTF-8 bytes.
 pub fn chunk_response(text: &str) -> Vec<Vec<u8>> {
     let mut chunks: Vec<Vec<u8>> = Vec::new();
 
-    // First split by newlines (paragraph boundaries)
     for paragraph in text.split('\n') {
         let para = paragraph.trim();
         if para.is_empty() {
             continue;
         }
 
-        // Then split by sentence-ending punctuation
         let mut start = 0;
         let chars: Vec<char> = para.chars().collect();
         for (i, &ch) in chars.iter().enumerate() {
             if matches!(ch, '.' | '!' | '?') {
-                // Grab everything up to and including the punctuation
                 let end = i + 1;
                 let sentence: String = chars[start..end].iter().collect();
                 let sentence = sentence.trim().to_string();
@@ -91,7 +141,6 @@ pub fn chunk_response(text: &str) -> Vec<Vec<u8>> {
             }
         }
 
-        // Remaining text after last sentence terminator
         let tail: String = chars[start..].iter().collect();
         let tail = tail.trim().to_string();
         if tail.len() >= 8 {
@@ -99,7 +148,6 @@ pub fn chunk_response(text: &str) -> Vec<Vec<u8>> {
         }
     }
 
-    // Fall back: if we got very few chunks, treat each word-group as a chunk
     if chunks.len() < 4 {
         chunks = text
             .split_whitespace()

@@ -221,33 +221,52 @@ fn gate_snapshots_are_deterministic() {
 
 // ── LLM text domain: consensus_threshold=0 smoke test ────────────────────────
 
-/// Verify that a realistic LLM-text workload produces at least one crystal
-/// when the cascade consensus thresholds are set to 0.
+/// Verify that a realistic LLM-text workload (Option B: multi-vertex + semantic phase)
+/// produces at least one crystal when the cascade consensus thresholds are set to 0.
 ///
-/// Root cause of the original 0-crystal bug:
+/// Option B changes:
+///   - Each chunk gets a content-addressed source_id (FNV-1a of bytes) so
+///     a window of 4 chunks creates 4 distinct graph vertices with real topology.
+///   - Phase is computed as the circular mean of per-token FNV hashes (semantic phase),
+///     giving more variation across batches than the flat byte-average.
+///
+/// Prior bug:
 ///   DK (+π/16) and SW (+π/2) rotate the carrier before PI checks alignment.
-///   LLM text produces a consistent data phase (~2.46 rad) that is never at
-///   a local maximum of κ after those rotations → PI score ≈ 0 → stability
-///   collapses → primal/dual score < 0.3 → consensus rejection.
-///
-///   Fix: set consensus_threshold=0 so the 8-metric Kairos gate is decisive.
+///   Fix: consensus_threshold=0 makes the 8-metric Kairos gate decisive.
 #[test]
 fn llm_text_config_produces_crystals() {
     use pse_graph::{ObservationAdapter, ObserveError};
     use pse_types::{content_address_raw, MeasurementContext, Observation, ProvenanceEnvelope};
     use std::f64::consts::TAU;
 
+    fn fnv1a_u64(data: &[u8]) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for &b in data { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); }
+        h
+    }
+
+    fn semantic_phase(raw: &[u8]) -> f64 {
+        let text = std::str::from_utf8(raw).unwrap_or("");
+        let mut ss = 0.0_f64; let mut sc = 0.0_f64; let mut n = 0usize;
+        for w in text.split(|c: char| !c.is_alphabetic()) {
+            if w.len() < 3 { continue; }
+            let phi = (fnv1a_u64(w.to_lowercase().as_bytes()) as f64 / u64::MAX as f64) * TAU;
+            ss += phi.sin(); sc += phi.cos(); n += 1;
+        }
+        if n == 0 { return (raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len().max(1) as f64 / 255.0) * TAU; }
+        ss.atan2(sc).rem_euclid(TAU)
+    }
+
     struct TextPhaseAdapter { id: String }
     impl ObservationAdapter for TextPhaseAdapter {
         fn source_id(&self) -> &str { &self.id }
         fn canonicalize(&self, raw: &[u8], ctx: &MeasurementContext) -> Result<Observation, ObserveError> {
-            let phase = if raw.is_empty() { 0.0 } else {
-                (raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64 / 255.0) * TAU
-            };
+            let phase = semantic_phase(raw);
             let payload = raw.to_vec();
             let digest = content_address_raw(&payload);
+            let chunk_source = format!("{}-{:016x}", self.id, fnv1a_u64(raw));
             Ok(Observation {
-                timestamp: 0.0, source_id: self.id.clone(),
+                timestamp: 0.0, source_id: chunk_source,
                 provenance: ProvenanceEnvelope { origin: self.id.clone(), chain: vec![], sig: None },
                 payload, context: ctx.clone(), digest,
                 schema_version: "1.0.0".to_string(), phase_hint: Some(phase),
