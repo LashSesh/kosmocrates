@@ -105,8 +105,10 @@ impl WordEmbeddings {
             }
             let mut parts = line.splitn(3, '\t');
             let word = match parts.next() { Some(w) => w, None => continue };
-            let x: f32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
-            let y: f32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            let x_str = match parts.next() { Some(s) => s, None => continue };
+            let y_str = match parts.next() { Some(s) => s, None => continue };
+            let x: f32 = match x_str.parse() { Ok(v) => v, Err(_) => continue };
+            let y: f32 = match y_str.parse() { Ok(v) => v, Err(_) => continue };
             map.insert(word.to_string(), (x, y));
         }
         if map.is_empty() {

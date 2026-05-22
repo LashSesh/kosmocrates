@@ -24,27 +24,28 @@ fn fnv1a_u64(data: &[u8]) -> u64 {
     h
 }
 
+// Character 4-gram circular mean phase — matches Tier 2 in pse-llm-demo and pse-server.
+// Keeps phase values consistent across Rust and Python implementations.
 fn semantic_phase(raw: &[u8]) -> f64 {
-    let text = std::str::from_utf8(raw).unwrap_or("");
+    let text = std::str::from_utf8(raw).unwrap_or("").to_lowercase();
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() < 4 {
+        if raw.is_empty() { return 0.0; }
+        let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
+        return (avg / 255.0) * TAU;
+    }
     let mut sum_sin = 0.0_f64;
     let mut sum_cos = 0.0_f64;
     let mut count = 0usize;
-    for word in text.split(|c: char| !c.is_alphabetic()) {
-        if word.len() < 3 { continue; }
-        let lower = word.to_lowercase();
-        let hash = fnv1a_u64(lower.as_bytes());
+    for w in chars.windows(4) {
+        let s: String = w.iter().collect();
+        let hash = fnv1a_u64(s.as_bytes());
         let phi = (hash as f64 / u64::MAX as f64) * TAU;
         sum_sin += phi.sin();
         sum_cos += phi.cos();
         count += 1;
     }
-    if count == 0 {
-        if raw.is_empty() { return 0.0; }
-        let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
-        (avg / 255.0) * TAU
-    } else {
-        sum_sin.atan2(sum_cos).rem_euclid(TAU)
-    }
+    if count == 0 { 0.0 } else { sum_sin.atan2(sum_cos).rem_euclid(TAU) }
 }
 
 struct TextPhaseAdapter {
