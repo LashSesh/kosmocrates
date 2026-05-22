@@ -21,9 +21,9 @@ fn fnv1a_u64(data: &[u8]) -> u64 {
 }
 
 // Character 4-gram circular mean phase — mirrors Tier 2 in tools/pse-llm-demo/src/observe.rs.
-// Captures morphological families better than whole-word FNV (signal ratio 0.55x vs 0.35x).
-// Tier 1 (embedding file) is not available in the server; set PSE_LLM_EMBEDDING_FILE on the
-// demo CLI for the highest quality phase signal.
+// Captures morphological families better than whole-word FNV by sharing substrings across
+// word forms.  Tier 1 (embedding file) is not available in the server; use the demo CLI with
+// PSE_LLM_EMBEDDING_FILE for the highest quality phase signal.
 fn semantic_phase(raw: &[u8]) -> f64 {
     let text = std::str::from_utf8(raw).unwrap_or("").to_lowercase();
     let chars: Vec<char> = text.chars().collect();

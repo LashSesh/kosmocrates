@@ -351,7 +351,7 @@ PSE uses the best available phase signal, in order:
 | Tier | When active | Method |
 |------|-------------|--------|
 | 1 — embedding | `PSE_LLM_EMBEDDING_FILE` is set | `atan2(Σ y_i, Σ x_i)` over per-word 2D projections of GloVe / FastText vectors.  Genuine semantic geometry: similar-meaning words cluster in the same angular region. |
-| 2 — char 4-gram | no file set (default) | Circular mean of FNV-1a hashes of overlapping character 4-grams, mapped to [0, 2π).  Captures morphological families ("therm\*", "activ\*") — empirically 0.55× signal ratio vs 0.35× for whole-word hashing. |
+| 2 — char 4-gram | no file set (default) | Circular mean of FNV-1a hashes of overlapping character 4-grams, mapped to [0, 2π).  Captures morphological families ("therm\*", "activ\*") by sharing substrings across word forms, giving better topic clustering than whole-word hashing.  No external files required. |
 | 3 — byte average | chunk shorter than 4 chars | `(mean(bytes) / 255) × 2π`.  Last resort for very short fragments. |
 
 **Generating an embedding file (Tier 1):**

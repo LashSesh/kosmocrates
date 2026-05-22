@@ -30,9 +30,7 @@
 //!   FNV-1a hashes of overlapping character 4-grams, mapped to [0, 2π)
 //!   and averaged as unit vectors (circular mean).  Captures morphological
 //!   families ("therm*", "entr*", "activ*") better than whole-word hashes
-//!   because short substrings are shared across word forms.  Empirically
-//!   gives a 0.55× signal ratio (cross-cluster / within-cluster spread)
-//!   vs 0.35× for whole-word FNV.
+//!   because short substrings are shared across word forms.
 //!
 //! **Tier 3 — byte-average fallback** (< 4 characters)
 //!   Only reached for very short fragments.
@@ -192,6 +190,24 @@ pub fn chunk_phase(raw: &[u8]) -> f64 {
 /// Return the name of the active phase tier (for startup diagnostics).
 pub fn phase_tier_name() -> &'static str {
     if get_embeddings().is_some() { "embedding (Tier 1)" } else { "char-4gram (Tier 2)" }
+}
+
+/// Count how many chunks have ≥1 word covered by the embedding vocabulary.
+/// Returns `None` when no embedding file is loaded (Tier 2/3 active).
+pub fn embedding_stats(chunks: &[Vec<u8>]) -> Option<(usize, usize)> {
+    let emb = get_embeddings()?;
+    let hits = chunks
+        .iter()
+        .filter(|raw| {
+            std::str::from_utf8(raw)
+                .unwrap_or("")
+                .to_lowercase()
+                .split(|c: char| !c.is_alphabetic())
+                .filter(|w| w.len() >= 2)
+                .any(|w| emb.lookup(w).is_some())
+        })
+        .count();
+    Some((hits, chunks.len()))
 }
 
 // ── TextPhaseAdapter ──────────────────────────────────────────────────────────

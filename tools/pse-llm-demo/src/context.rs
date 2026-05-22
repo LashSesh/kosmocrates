@@ -98,11 +98,39 @@ pub fn render_crystal_context(records: &[CrystalRecord], top_k: usize) -> String
     out
 }
 
-/// Count how many domain keywords appear (case-insensitive) in the response.
+/// True if `keyword` appears in `text` at a word boundary on both sides.
+/// A boundary is: start/end of string, or a non-alphabetic character.
+/// This prevents "actr" matching "reactor", "production" matching "reproduction", etc.
+fn keyword_at_boundary(text: &str, keyword: &str) -> bool {
+    let mut start = 0;
+    while start < text.len() {
+        match text[start..].find(keyword) {
+            None => return false,
+            Some(rel) => {
+                let pos = start + rel;
+                let pre_ok = pos == 0
+                    || !text[..pos].chars().next_back().map_or(false, |c| c.is_alphabetic());
+                let end = pos + keyword.len();
+                let post_ok = end >= text.len()
+                    || !text[end..].chars().next().map_or(false, |c| c.is_alphabetic());
+                if pre_ok && post_ok {
+                    return true;
+                }
+                start = pos + 1;
+            }
+        }
+    }
+    false
+}
+
+/// Count how many domain keywords appear at word boundaries (case-insensitive).
 /// Returns `(hits, total)`.
 pub fn score_coverage(response: &str, keywords: &[String]) -> (usize, usize) {
     let lower = response.to_lowercase();
-    let hits = keywords.iter().filter(|k| lower.contains(k.as_str())).count();
+    let hits = keywords
+        .iter()
+        .filter(|k| keyword_at_boundary(&lower, k))
+        .count();
     (hits, keywords.len())
 }
 
@@ -139,16 +167,18 @@ pub fn print_ab_report(
 
     if delta > 0 {
         println!(
-            "  ✓ PSE augmentation: +{delta} keywords  (+{delta_pct:.0}pp) — DEMONSTRATED"
+            "  ✓ PSE augmentation: +{delta} keyword(s)  (+{delta_pct:.0}pp) on this run."
         );
+        println!("    Coverage gap grows with crystal density — more sessions → stronger signal.");
     } else if delta == 0 {
         println!("  ~ PSE augmentation: no coverage difference on this session.");
         println!("    Crystal density grows over sessions — run more to accumulate.");
     } else {
         println!(
-            "  · PSE augmentation: {delta} keywords  ({delta_pct:.0}pp) — \
-             baseline was stronger this session."
+            "  · PSE augmentation: {delta} keyword(s)  ({delta_pct:.0}pp) — \
+             baseline was stronger this run."
         );
+        println!("    A single session is not conclusive; crystal density grows over time.");
     }
     println!();
 
@@ -157,4 +187,51 @@ pub fn print_ab_report(
     println!("  Baseline  preview : \"{}…\"", b_preview.replace('\n', " "));
     println!("  Augmented preview : \"{}…\"", a_preview.replace('\n', " "));
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boundary_match_exact_word() {
+        assert!(keyword_at_boundary("uses actr in simulation", "actr"));
+        assert!(keyword_at_boundary("actr models declarative", "actr"));
+        assert!(keyword_at_boundary("study of actr", "actr"));
+    }
+
+    #[test]
+    fn boundary_no_match_substring() {
+        // "actr" inside "reactor" — must not match
+        assert!(!keyword_at_boundary("the reactor is hot", "actr"));
+        // "production" inside "reproduction"
+        assert!(!keyword_at_boundary("involves reproduction", "production"));
+        // "ida" inside "candida"
+        assert!(!keyword_at_boundary("candida albicans", "ida"));
+        // "activation" inside "deactivation"
+        assert!(!keyword_at_boundary("deactivation pathway", "activation"));
+    }
+
+    #[test]
+    fn boundary_match_phrase() {
+        assert!(keyword_at_boundary("uses global workspace theory", "global workspace"));
+        assert!(keyword_at_boundary("conflict resolution in soar", "conflict resolution"));
+    }
+
+    #[test]
+    fn boundary_match_hyphenated() {
+        assert!(keyword_at_boundary("base-level activation", "base-level"));
+        // "base-level" must not match "base-levelup" (hypothetical)
+        assert!(!keyword_at_boundary("base-levelup", "base-level"));
+    }
+
+    #[test]
+    fn score_coverage_counts_correctly() {
+        let keywords: Vec<String> = vec!["actr".into(), "soar".into(), "chunking".into()];
+        // reactor should not count for actr; soar should match
+        let text = "soar uses chunking from impasses unlike reactor systems";
+        let (hits, total) = score_coverage(text, &keywords);
+        assert_eq!(total, 3);
+        assert_eq!(hits, 2); // soar + chunking, NOT actr (reactor doesn't count)
+    }
 }

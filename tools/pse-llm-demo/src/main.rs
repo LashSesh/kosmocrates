@@ -145,6 +145,17 @@ fn ingest_text(
         .collect();
     indexed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
+    // Show embedding coverage whenever Tier 1 is active (not gated on PSE_DIAG).
+    if let Some((emb_hits, emb_total)) = observe::embedding_stats(chunks) {
+        let pct = emb_hits * 100 / emb_total.max(1);
+        println!("  Embedding coverage: {emb_hits}/{emb_total} chunks ({pct}%) have ≥1 known word");
+        if pct < 50 {
+            println!(
+                "    ⚠ Low coverage ({pct}%) — consider a domain-specific embedding file."
+            );
+        }
+    }
+
     if diag {
         println!("  Phase distribution of chunks (sorted):");
         for (phi, chunk) in &indexed {
