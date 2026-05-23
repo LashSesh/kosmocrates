@@ -1,0 +1,23 @@
+[package]
+name = "mef-spiral"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+ndarray = { workspace = true }
+sha2 = "0.10"
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = "1.0"
+rustfft = "6.2"
+num-complex = "0.4"
+nalgebra = "0.33"
+
+[dev-dependencies]
+proptest = "1.0"
+tempfile = "3.8"

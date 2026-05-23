@@ -2,14 +2,29 @@
 name = "pse-adapter-il"
 version.workspace = true
 edition.workspace = true
-description = "PSE → Infinity Ledger bridge: converts SemanticCrystals to IL-compatible TIC blocks and 8D HNSW vectors"
+description = "PSE × Infinity Ledger bridge: converts SemanticCrystals into IL TIC blocks, 8D HNSW vectors, and file-based ledger. Optionally drives MEFCore::process() directly."
 license.workspace = true
 
 [dependencies]
-pse-types = { path = "../../crates/pse-types" }
-serde = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
+pse-types      = { path = "../../crates/pse-types" }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+sha2           = { workspace = true }
+
+# Infinity Ledger crates — vendored from infinityledger-r-main.zip.
+# They remain in their own workspace (vendors/infinityledger/Cargo.toml)
+# so their deps (sha2 = "0.10", thiserror = "1", nalgebra = "0.33") are
+# resolved independently from PSE's workspace versions.
+mef-core       = { path = "../../vendors/infinityledger/mef-core",       optional = true }
+mef-ingestion  = { path = "../../vendors/infinityledger/mef-ingestion",   optional = true }
+mef-solvecoagula = { path = "../../vendors/infinityledger/mef-solvecoagula", optional = true }
+mef-tic        = { path = "../../vendors/infinityledger/mef-tic",         optional = true }
+mef-ledger     = { path = "../../vendors/infinityledger/mef-ledger",      optional = true }
+mef-spiral     = { path = "../../vendors/infinityledger/mef-spiral",      optional = true }
+
+[features]
+# Enable direct MEFCore pipeline (requires IL workspace to compile)
+il-pipeline = ["mef-core", "mef-ingestion", "mef-solvecoagula", "mef-tic", "mef-ledger", "mef-spiral"]
 
 [dev-dependencies]
 tempfile = "3"

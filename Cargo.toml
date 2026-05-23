@@ -99,6 +99,10 @@ console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 rayon = "1.10"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
+anyhow   = "1"
+ndarray  = "0.15"
+rand     = "0.8"
+rand_distr = "0.4"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Release profile: tuned for the single-binary, single-thread-fast
