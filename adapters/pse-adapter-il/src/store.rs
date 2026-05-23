@@ -17,13 +17,11 @@
 //! PSE-side approximation.
 
 use crate::adapter::{CrystalAdapter, ILPayload};
+use crate::hdag::{crystal_to_tensor, HDAG};
 use pse_types::SemanticCrystal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-
-#[cfg(feature = "hdag")]
-use mef_hdag::HDAG;
 
 #[cfg(feature = "il-pipeline")]
 use mef_core::MEFCore;
@@ -46,7 +44,7 @@ struct IndexEntry {
     vector8: Vec<f64>,
     /// Spiral phase derived from the fixpoint; used as HDAG node phase.
     phase: f64,
-    /// HDAG node ID for this entry (populated when `hdag` feature is active).
+    /// HDAG node ID for this entry (always populated).
     #[serde(default)]
     hdag_node_id: Option<String>,
 }
@@ -65,8 +63,6 @@ pub struct ILStore {
     adapter: CrystalAdapter,
     genesis_hash: String,
     base_path: PathBuf,
-
-    #[cfg(feature = "hdag")]
     hdag: Option<HDAG>,
 
     #[cfg(feature = "il-pipeline")]
@@ -112,7 +108,6 @@ impl ILStore {
             ILIndex::default()
         };
 
-        #[cfg(feature = "hdag")]
         let hdag = {
             let hdag_path = base.join("hdag");
             match HDAG::new(&hdag_path) {
@@ -148,7 +143,6 @@ impl ILStore {
             adapter: CrystalAdapter::new(seed),
             genesis_hash: "0".repeat(64),
             base_path: base,
-            #[cfg(feature = "hdag")]
             hdag,
             #[cfg(feature = "il-pipeline")]
             mef_core,
@@ -165,7 +159,7 @@ impl ILStore {
         question: &str,
     ) -> Result<String, String> {
         let payload = self.build_payload(crystal, source_chunks, session, question)?;
-        self.commit_payload(payload)
+        self.commit_payload(crystal, payload)
     }
 
     /// Build an ILPayload, using MEFCore when `il-pipeline` is active.
@@ -193,7 +187,7 @@ impl ILStore {
             .convert_with_provenance(crystal, source_chunks, session, question)
     }
 
-    fn commit_payload(&mut self, payload: ILPayload) -> Result<String, String> {
+    fn commit_payload(&mut self, crystal: &SemanticCrystal, payload: ILPayload) -> Result<String, String> {
         // Idempotent: skip if already committed
         if let Some(existing) = self
             .index
@@ -239,8 +233,8 @@ impl ILStore {
         )
         .map_err(|e| format!("write block file: {e}"))?;
 
-        // ── HDAG: register node + edge to previous ───────────────────────────
-        let hdag_node_id = self.register_hdag_node(&payload, block_index);
+        // ── HDAG: register 5D resonance tensor node + phase-gradient edge ────
+        let hdag_node_id = self.register_hdag_node(crystal, &payload);
 
         self.index.entries.push(IndexEntry {
             block_index,
@@ -257,41 +251,48 @@ impl ILStore {
         Ok(block_hash)
     }
 
-    /// Register the crystal as an HDAG node; draw an edge from the previous node.
-    /// Returns the node-ID on success, None on any error or when hdag is disabled.
-    #[allow(unused_variables)]
+    /// Register the crystal as an HDAG node; attempt to draw a phase-gradient
+    /// edge from the previous node.  Acyclicity and coherence are enforced by
+    /// the HDAG itself — no explicit checks here.
     fn register_hdag_node(
         &mut self,
+        crystal: &SemanticCrystal,
         payload: &ILPayload,
-        _block_index: i64,
     ) -> Option<String> {
-        #[cfg(feature = "hdag")]
-        {
-            if let Some(ref mut hdag) = self.hdag {
-                let node_id = format!("N-{}", &payload.crystal_id_hex[..16]);
-                let ts = simple_timestamp();
+        let hdag = self.hdag.as_mut()?;
 
-                match hdag.create_node(
-                    &payload.tic_id,
-                    payload.phase,
-                    Some(ts),
-                    Some(node_id.clone()),
-                ) {
-                    Ok(_) => {
-                        // Edge from previous node (sequential commit causal link)
-                        if let Some(prev) = self.index.entries.last() {
-                            if let Some(ref prev_nid) = prev.hdag_node_id {
-                                let phi = cosine(&payload.vector8, &prev.vector8);
-                                let _ = hdag.create_edge(prev_nid, &node_id, phi, "sequential_commit");
-                            }
-                        }
-                        return Some(node_id);
+        let node_id = format!("N-{}", &payload.crystal_id_hex[..16]);
+        let tensor = crystal_to_tensor(crystal);
+        let kairos = crystal.stability_score > 0.5
+            && crystal.topology_signature.kuramoto_coherence > 0.2;
+        let ts = simple_timestamp();
+
+        if let Err(e) = hdag.add_node(
+            &node_id,
+            &payload.crystal_id_hex,
+            tensor,
+            kairos,
+            &ts,
+        ) {
+            eprintln!("[IL] HDAG add_node error: {e}");
+            return None;
+        }
+
+        // Attempt phase-gradient edge from previous node.
+        // HDAG enforces the coherence condition; None means gate was closed.
+        if let Some(prev) = self.index.entries.last() {
+            if let Some(ref prev_nid) = prev.hdag_node_id {
+                match hdag.add_edge(prev_nid, &node_id) {
+                    Ok(Some(edge)) => {
+                        let _ = edge; // gradient available for future analytics
                     }
-                    Err(e) => eprintln!("[IL] HDAG node error: {e}"),
+                    Ok(None) => {} // coherence gate closed — acyclicity enforced
+                    Err(e) => eprintln!("[IL] HDAG add_edge error: {e}"),
                 }
             }
         }
-        None
+
+        Some(node_id)
     }
 
     /// Cosine-similarity nearest-neighbour search over committed 8D vectors.
@@ -314,19 +315,37 @@ impl ILStore {
             .collect()
     }
 
-    /// Topological order of committed crystals from the HDAG (when enabled).
-    /// Returns commit order as fallback when HDAG is not active.
-    pub fn topological_order(&mut self) -> Vec<String> {
-        #[cfg(feature = "hdag")]
-        if let Some(ref mut hdag) = self.hdag {
-            return hdag.get_topological_order();
+    /// Topological order of committed crystals from the HDAG.
+    /// Returns insertion order as fallback when HDAG is unavailable.
+    pub fn topological_order(&self) -> Vec<String> {
+        if let Some(ref hdag) = self.hdag {
+            return hdag.topological_order();
         }
-        // Fallback: insertion order
         self.index
             .entries
             .iter()
             .filter_map(|e| e.hdag_node_id.clone())
             .collect()
+    }
+
+    /// Verify path invariance between two HDAG nodes.
+    pub fn verify_path_invariance(
+        &self,
+        from_crystal_id_hex: &str,
+        to_crystal_id_hex: &str,
+    ) -> Option<crate::hdag::PathInvarianceResult> {
+        let hdag = self.hdag.as_ref()?;
+        let from_nid = format!("N-{}", &from_crystal_id_hex[..16.min(from_crystal_id_hex.len())]);
+        let to_nid   = format!("N-{}", &to_crystal_id_hex[..16.min(to_crystal_id_hex.len())]);
+        Some(hdag.verify_path_invariance(&from_nid, &to_nid))
+    }
+
+    /// Mean coherence potential ψ = morphic − entropic across all HDAG nodes.
+    pub fn mean_coherence_potential(&self) -> f64 {
+        self.hdag
+            .as_ref()
+            .map(|h| h.mean_coherence_potential())
+            .unwrap_or(0.0)
     }
 
     /// Number of committed blocks.
@@ -529,7 +548,6 @@ mod tests {
         let _ = adapter2; // suppress warning
     }
 
-    #[cfg(feature = "hdag")]
     #[test]
     fn hdag_nodes_created_on_commit() {
         let dir = tempfile::tempdir().unwrap();
@@ -537,9 +555,18 @@ mod tests {
         store.commit(&dummy_crystal(0.8), &[], 1, "q1").unwrap();
         store.commit(&dummy_crystal(0.6), &[], 2, "q2").unwrap();
 
-        // Both entries should have HDAG node IDs
-        // (We verify indirectly via topological_order)
+        // Both index entries should have HDAG node IDs
+        assert!(store.index.entries.iter().all(|e| e.hdag_node_id.is_some()));
         let order = store.topological_order();
         assert!(order.len() >= 2);
+    }
+
+    #[test]
+    fn mean_coherence_potential_is_finite() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+        store.commit(&dummy_crystal(0.8), &[], 1, "q").unwrap();
+        let psi = store.mean_coherence_potential();
+        assert!(psi.is_finite());
     }
 }
