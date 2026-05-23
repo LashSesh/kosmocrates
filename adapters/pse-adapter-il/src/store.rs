@@ -660,6 +660,54 @@ impl ILStore {
         &self.base_path
     }
 
+    /// Build a causal graph from all HDAG edges in this store.
+    ///
+    /// Every HDAG edge is translated to a typed [`crate::causal::CausalLink`]
+    /// with its `from`/`to` expressed as 16-char crystal ID prefixes (matching
+    /// [`crate::context::CrystalSummary::crystal_id`]).
+    ///
+    /// Returns an empty graph when no HDAG is active or no edges exist yet.
+    pub fn build_causal_graph(&self) -> crate::causal::CausalGraph {
+        match &self.hdag {
+            Some(hdag) => crate::causal::CausalGraph::from_edges(hdag.edges()),
+            None => crate::causal::CausalGraph::default(),
+        }
+    }
+
+    /// Human-readable causal explanation for a crystal.
+    ///
+    /// Reports direct causes (incoming causal links), total ancestor count,
+    /// and whether the crystal is a causal root.  `crystal_id_prefix` should
+    /// be the first 16 hex characters of the target crystal's ID.
+    pub fn causal_explanation(&self, crystal_id_prefix: &str) -> String {
+        let graph = self.build_causal_graph();
+        let direct = graph.direct_causes(crystal_id_prefix);
+        if direct.is_empty() {
+            let desc_count = graph.descendants(crystal_id_prefix).len();
+            return format!(
+                "Crystal {} is a causal root — no prior crystals caused it.\
+                 {} descendant(s) trace back to this crystal.",
+                crystal_id_prefix, desc_count
+            );
+        }
+        let ancs = graph.ancestors(crystal_id_prefix);
+        let mut lines = vec![format!(
+            "Crystal {} has {} direct cause(s):",
+            crystal_id_prefix,
+            direct.len()
+        )];
+        for link in &direct {
+            lines.push(format!(
+                "  ← {} via {} (strength={:.3})",
+                link.from,
+                link.cause.label(),
+                link.strength
+            ));
+        }
+        lines.push(format!("  Total ancestors in causal chain: {}", ancs.len()));
+        lines.join("\n")
+    }
+
     /// Build context summaries for all committed crystals, scored by Pfauenthron++.
     ///
     /// Applies the tripolar formula D = ψ·ρ·ω (semantic × structural × temporal)
@@ -1066,6 +1114,85 @@ mod tests {
         assert!(
             cert.conformance_class >= crate::qtic::QticClass::Q1,
             "certificate must reach at least Q1"
+        );
+    }
+
+    #[test]
+    fn causal_graph_has_sequential_link_after_two_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c1 = dummy_crystal(0.80);
+        c1.topology_signature.kuramoto_coherence = 0.70;
+        c1.crystal_id[0] = 0xC1;
+
+        let mut c2 = dummy_crystal(0.85);
+        c2.topology_signature.kuramoto_coherence = 0.75;
+        c2.crystal_id[0] = 0xC2;
+
+        store.commit(&c1, &[], 1, "first").unwrap();
+        store.commit(&c2, &[], 2, "second").unwrap();
+
+        let graph = store.build_causal_graph();
+        assert!(!graph.links.is_empty(), "causal graph must have at least one link");
+        let has_seq = graph
+            .links
+            .iter()
+            .any(|l| l.cause == crate::causal::CausalCause::SequentialCommit);
+        assert!(has_seq, "must have at least one sequential_commit causal link");
+    }
+
+    #[test]
+    fn causal_explanation_root_crystal() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+        let mut c = dummy_crystal(0.80);
+        c.topology_signature.kuramoto_coherence = 0.70;
+        c.crystal_id[0] = 0xD0;
+        store.commit(&c, &[], 1, "solo crystal").unwrap();
+
+        // The one crystal is a causal root (no predecessors)
+        let hex: String = c.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let prefix = &hex[..16];
+        let explanation = store.causal_explanation(prefix);
+        assert!(
+            explanation.contains("causal root"),
+            "single crystal must be described as a causal root: {explanation}"
+        );
+    }
+
+    #[test]
+    fn causal_explanation_shows_direct_cause() {
+        use crate::feedback::{compute_il_stability, refine_crystal, ValidationFeedback};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut original = dummy_crystal(0.70);
+        original.topology_signature.kuramoto_coherence = 0.60;
+        original.crystal_id[0] = 0xE0;
+        store.commit(&original, &[], 1, "original").unwrap();
+
+        let il_stab = compute_il_stability(true, true, 0.8);
+        let fb = ValidationFeedback {
+            block_hash: "h".into(),
+            converged: true,
+            coherence_potential: 0.8,
+            gate_passed: true,
+            hdag_node_id: None,
+            il_stability: il_stab,
+            qtic_certificate: None,
+        };
+        let refined = refine_crystal(&original, &fb, 2);
+        store.commit(&refined, &[], 2, "refined version").unwrap();
+
+        let refined_hex: String = refined.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let prefix = &refined_hex[..16];
+        let explanation = store.causal_explanation(prefix);
+        // Must not be a root explanation — it has at least one cause (sequential or refinement)
+        assert!(
+            !explanation.contains("causal root"),
+            "refined crystal must show direct causes, not be a root: {explanation}"
         );
     }
 

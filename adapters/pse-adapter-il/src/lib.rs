@@ -26,6 +26,7 @@
 //! - `full`:        il-pipeline enabled
 
 pub mod adapter;
+pub mod causal;
 pub mod context;
 pub mod feedback;
 pub mod hdag;
@@ -33,6 +34,7 @@ pub mod qtic;
 pub mod store;
 
 pub use adapter::{text_to_vector8, CrystalAdapter, ILPayload};
+pub use causal::{CausalCause, CausalGraph, CausalLink};
 pub use context::{ContextBudget, CrystalSummary};
 pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};
