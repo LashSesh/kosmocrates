@@ -36,12 +36,15 @@ PSE is **fail-closed**: it emits nothing when the pattern is not stable enough.
 > observation sequences into content-addressed records and recognises them
 > deterministically when the same sequence is replayed.
 >
-> PSE is **not a semantic retrieval system**.  It does not embed meaning, does
-> not compute similarity between phrases, and does not recognise paraphrases of
-> prior content.  Cross-session recall happens when the *same* observation
-> sequence is re-encountered — not when *similar* content is encountered.
-> If you need fuzzy semantic search, pair PSE with a vector database; they
-> address different problems.
+> **PSE alone** is not a semantic retrieval system — cross-session recall happens
+> when the *same* observation sequence is re-encountered, not when *similar*
+> content is encountered.
+>
+> **PSE + Infinity Ledger** extends this with the **Pfauenthron++ unified
+> retrieval** (`D = ψ · ρ · ω`): a multiplicative tripolar score combining
+> semantic cosine similarity (ψ), PSE gate-certified structural stability (ρ),
+> and HDAG temporal coherence potential (ω).  This gives you provable topology
+> *and* semantic similarity — not either/or.
 
 ### The problem PSE solves
 
@@ -135,6 +138,196 @@ if let Ok(Some(replay_crystal)) = macro_step(&mut state, &[prior_response], &con
 
 ---
 
+## Infinity Ledger + HDAG Integration
+
+### What Infinity Ledger is
+
+Infinity Ledger (IL) is a private content-addressed ledger bundled with PSE as a zip
+distribution in `vendors/infinityledger/`. Cloning `lashsesh/pse` is all you need — the
+zip is the complete distribution. IL extends PSE's crystallization pipeline with three
+capabilities:
+
+1. **Persistent cross-session ledger** — every `SemanticCrystal` that passes the Kairos
+   gate is committed to an append-only block chain. Each block carries the crystal's 8D
+   semantic vector, topology signature, stability score, and Metatron canonical hash.
+
+2. **HDAG (Hierarchical Directed Acyclic Graph)** — a 5D resonance-tensor graph built
+   over the ledger. Nodes are `ResonanceTensor` embeddings of crystals; directed edges
+   encode causal and topological relationships between them.
+
+3. **Pfauenthron++ Unified Retrieval** — the primary retrieval path when IL is active.
+   Scores every candidate via the multiplicative tripolar formula `D = ψ · ρ · ω`.
+
+### HDAG — 5D Resonance Graph
+
+Each `SemanticCrystal` maps to a 5-dimensional resonance tensor:
+
+```
+T = [mean_propagation_time,  kuramoto_coherence,  cheeger_estimate,  spectral_gap,  1−stability_score]
+  = [temporal,               morphic,             relational,        topological,   entropic          ]
+```
+
+When Metatron data is present, `cheeger_estimate` and `spectral_gap` are replaced by
+graph-theoretic equivalents from the Metatron scan (`algebraic_connectivity/n`,
+`spectral_radius/n`).
+
+**Coherence potential** ψ = `kuramoto_coherence − (1 − stability_score)`. A crystal is
+in the S_coh class (eligible for edges) if ψ > −0.1 or its Kairos gate passed.
+
+**Acyclicity is emergent**: an edge i→j is only added when ψ(j) ≥ ψ(i). No timestamp
+checks are needed — acyclicity follows from ψ-monotonicity by construction.
+
+**Four edge causes:**
+
+| Cause | When added |
+|---|---|
+| `sequential_commit` | Crystal B was committed immediately after A in the same session |
+| `resonance_proximity` | ‖T_A − T_B‖ ≤ 0.35 and both crystals are in S_coh |
+| `refinement` | B lists A in its `parent_crystal_ids` (IL→PSE feedback-loop refinement) |
+| `metatron_isomorphic` | A and B share the same Metatron canonical hash (graph-isomorphic topology) |
+
+**Path invariance** (`∮Φ·dl = 0`): every two HDAG paths between the same nodes produce
+canonically equivalent condensations — enforced by `HDAG::verify_path_invariance()`.
+
+### ValidationFeedback + Crystal Refinement
+
+IL commit returns a `ValidationFeedback`:
+
+```rust
+pub struct ValidationFeedback {
+    pub block_hash: String,
+    pub converged: bool,
+    pub coherence_potential: f64,  // ψ = kuramoto − (1 − stability)
+    pub gate_passed: bool,
+    pub hdag_node_id: String,
+    pub il_stability: f64,         // IL quality signal ∈ [0, 1]
+}
+```
+
+If the IL stability signal diverges from the original crystal's stability by more than
+0.02, `refine_crystal()` produces a new crystal with blended stability `0.7·PSE + 0.3·IL`,
+a fresh SHA-256 content address, and the original listed in `parent_crystal_ids`. The
+refined crystal is also committed to IL, creating a `refinement` HDAG edge.
+
+### Pfauenthron++ Unified Retrieval — D = ψ · ρ · ω
+
+Defined in `specs/TheTimelessMonolith_bySebastianKlemm_v1.0.pdf`:
+
+| Axis | Symbol | Source | Meaning |
+|---|---|---|---|
+| Semantic | ψ | cosine(query_vec, crystal_vec8) | IL vector similarity |
+| Structural | ρ | `crystal.stability_score` | PSE gate-certified stability |
+| Temporal | ω | `(hdag_ψ + 1) / 2` | normalized HDAG coherence potential |
+
+The **Gabriel4D Funnel** requires all three axes to be non-trivial: a near-zero on any
+axis collapses D to near-zero. A low-stability crystal (ρ≈0), a semantically irrelevant
+one (ψ≈0), or a temporally incoherent one (ω≈0) cannot rank highly regardless of the
+other two scores.
+
+```
+[pse-llm-demo]  [Unified retrieval: 5 record(s), top D=0.847]
+                [Unified Retrieval — Pfauenthron++ D=ψ·ρ·ω]
+```
+
+### PSE Server — HTTP API
+
+`tools/pse-server` exposes PSE+IL over HTTP. Eight routes:
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/ingest` | Ingest observation bytes → crystals → optional IL commit |
+| `GET` | `/status` | Engine status + crystal count |
+| `GET` | `/crystals` | List all crystals in the registry |
+| `POST` | `/retrieve` | Vector-based retrieval (legacy, PSE only) |
+| `GET` | `/il/status` | IL ledger status + HDAG edge counts by cause |
+| `POST` | `/il/retrieve` | Pfauenthron++ tripolar retrieval (`D = ψ·ρ·ω`) |
+| `GET` | `/il/hdag/coherence` | Mean HDAG coherence potential across all nodes |
+| `GET` | `/il/hdag/order` | Topological order of HDAG nodes (Kahn's algorithm) |
+
+IL routes are only active when the server starts with a valid `PSE_IL_PATH` environment
+variable:
+
+```bash
+# Start with IL enabled
+PSE_IL_PATH=./il_data cargo run --release -p pse-server
+
+# Retrieve via Pfauenthron++
+curl -X POST http://localhost:8080/il/retrieve \
+     -H 'Content-Type: application/json' \
+     -d '{"query": "entropy and thermodynamics", "top_k": 5}'
+
+# Inspect HDAG
+curl http://localhost:8080/il/hdag/coherence
+curl http://localhost:8080/il/hdag/order
+```
+
+---
+
+## QTIC — Theoretical Foundation
+
+`specs/QTIC.pdf` (Sebastian Klemm, 11 May 2026) provides the formal theoretical
+framework underlying PSE+IL. QTIC = *Quasi-Zeitinformationskristall* (Quasi-Temporal
+Information Crystal).
+
+**Central formula** (QTIC §21):
+
+```
+QTIC = Fix(Tα) ∩ Int(ℋΣ⁻) ∩ Pass(GΓ) ∩ Pass(GΣ) ∩ Mirror(S,M) ∩ TraceReplay ∩ PathInvariant
+```
+
+**Main theorem** (QTIC §16, Satz 16.1): *A valid QTIC is a seam-stable, path-invariant
+and replayable information attractor between extrinsic revision time and intrinsic spiral
+phase.*
+
+### QTIC ↔ PSE+IL Mapping
+
+| QTIC Concept | PSE+IL Implementation |
+|---|---|
+| TIC — Fix(Tα) | `SemanticCrystal` (content-addressed, gate-validated fixed point) |
+| Extrinsic revision time t | IL ledger block index / commit sequence |
+| Intrinsic spiral phase θ | HDAG coherence potential ψ (kuramoto_coherence axis) |
+| Dual time T_dual = ℝ≥0 × S¹ | IL block index × HDAG ψ phase |
+| DualFabric F_H (ephemeral) | PSE graph observations (resonance fabric) |
+| DualFabric F_T (persistent) | IL ledger (persistent field tensor) |
+| Seam Γ / Gate G_Γ | PSE Kairos Gate (8-metric fail-closed AND) |
+| Mandorla-Zone M_t,θ = A(t)∩B(θ) | Crystal must satisfy extrinsic gate metrics AND intrinsic phase stability |
+| Mandorla-Brane Σ = ∂M | Gate membrane — only Gate-passing events cross from F_H to F_T |
+| Mirror-Consistency MCI | Topology coherence between PSE graph (σ_H) and IL block (σ_T) |
+| Proof-of-Resonance Θ(x) = αψ+βρ+γω | Pfauenthron++ D = ψ·ρ·ω |
+| MEF (Mandorla Eigenstate Field) | IL block chain (recursive M_k intersections) |
+| HDAG coupling layer (§13) | `pse-adapter-il` HDAG |
+| HDAG path neutrality invariant | `HDAG::verify_path_invariance()` |
+| Seam-only materialization | IL commits only when Kairos gate passes |
+| QTIC certificate (§19) | IL `ValidationFeedback` (block_hash, converged, gate_passed, coherence_potential) |
+| Path-Excision (§15) | `refine_crystal()` — reaches equivalent end-state without materializing every intermediate |
+| Kairos window (§15) | PSE Kairos gate firing = transition from F_H to F_T authorized |
+| Nullhomologous bridge | HDAG path neutrality: same condensation → same QTIC identity |
+
+### QTIC Conformance Classes (Q0–Q5)
+
+QTIC defines five cumulative conformance classes:
+
+| Class | Requirement | PSE+IL Crystal |
+|---|---|---|
+| Q0 — Formal candidate | μ ∈ P(M_t,θ) | Any crystal in the IL index |
+| Q1 — Mandorla capsule | M_t,θ = A(t) ∩ B(θ) | Crystal with `topology_signature` + ψ |
+| Q2 — Nullhomologous bridge | θ₁ ≡ θ₀ (mod 2π), δ(μ₀) = δ(μ₁) | Crystals linked by HDAG path neutrality |
+| Q3 — Gate-passed condensation | G_Γ(μ) = 1 | `kairos_gate_passed = true` in IL index entry |
+| Q4 — Auditable QTIC | TraceReady ∧ Replay ∧ MCI ≥ η | IL block hash (trace) + content-addressed id (replay) |
+| Q5 — Path-invariant QTIC | PathInv = 1 | `HDAG::verify_path_invariance()` passes |
+
+Only Q5 satisfies the full QTIC definition. Every `SemanticCrystal` committed to IL with
+a passing Kairos gate that also passes HDAG path invariance is a **Q5 QTIC**.
+
+### Why DualFabric Separation Matters
+
+The separation of F_H and F_T prevents strong resonance from automatically becoming
+persistent structure (QTIC §20.3). Resonance may generate hypotheses; only Gate, Mirror,
+Trace, and Replay authorize crystallization. This is why PSE's Kairos gate is fail-closed:
+the passage from ephemeral resonance to persistent crystal is never automatic.
+
+---
+
 ## Architecture
 
 PSE is organised into three tiers:
@@ -216,6 +409,13 @@ domains is documented in §Productive-task validation below.
 | **Domain validation layer** (PSE-VALIDATION-RUNNER-DOMAIN-01) | **Shipped** |
 | **Eval matrix** (PSE-EVAL-MATRIX-01) | **Shipped** |
 | **ADAMANT protocol** (constitutional governance contract) | **v1.0.0** |
+| **Infinity Ledger (IL) adapter** (`pse-adapter-il`) | **Shipped** |
+| **HDAG v1.0** (5D resonance tensors, 4 edge causes, path invariance) | **Shipped** |
+| **Pfauenthron++ Unified Retrieval** (`D = ψ · ρ · ω`) | **Shipped** |
+| **ValidationFeedback + `refine_crystal()`** (IL→PSE feedback loop) | **Shipped** |
+| **pse-server IL/HDAG routes** (4 new routes: `/il/*`) | **Shipped** |
+| **MetatronTopologySignature** in HDAG tensor (algebraic_connectivity, spectral_radius) | **Shipped** |
+| **QTIC theoretical foundation** (full QTIC↔PSE+IL mapping, Q0–Q5 conformance) | **Documented** |
 | **Replay invariance** (`ReplayIdentity = 1`, Invariant I4) | **Verified** — bit-identical output across independent runs |
 | **Safety improvement** (`ΔU_safety ≥ 0`) | **Verified** — B6 false-commit rate < B0 on real LLM output (Cerebras) |
 | **Agent relevance ranking** (PSE-EVAL-MATRIX-01 § exoskeleton) | **Verified** — see table below |
@@ -903,12 +1103,18 @@ adapters/
   pse-adapter-syslog      Syslog / security ops
   pse-adapter-tabular     CSV / tabular
   pse-adapter-modelmon    ML model monitoring
+  pse-adapter-il          Infinity Ledger integration: ILStore, HDAG (5D resonance
+                          tensors, 4 edge causes, path invariance), ValidationFeedback,
+                          refine_crystal(), Pfauenthron++ score_tripolar()
 
 tools/
   pse-bench-gt        Ground-truth precision/recall (PSE vs STL-z-score vs IsoForest)
   pse-bench-bbo       TRITON spiral vs Random vs Halton on BBO test functions
   pse-audit           Determinism / replay auditor
   pse-demo            30-second runnable showcase + gate diagnostics
+  pse-server          HTTP API server (8 routes): PSE ingest + retrieve + status +
+                      IL ledger status + Pfauenthron++ retrieve + HDAG coherence +
+                      HDAG topological order (binary: pse-server)
   pse-traverse-cli    Traversal Agent CLI: inspect / plan [--signature] /
                       run [--signature-gate] / replay / search /
                       dynamics (init | tick | run | replay | inspect)
@@ -965,6 +1171,9 @@ Normative specification documents live in [`specs/`](specs/):
 | [`specs/pse_metatron_monolith_operator_spec_v0_1.pdf`](specs/pse_metatron_monolith_operator_spec_v0_1.pdf) | PSE-METATRON-MONOLITH-01 | Holistic eigenmode / Metatron operator layer |
 | [`specs/PSE_EVAL_MATRIX_01.pdf`](specs/PSE_EVAL_MATRIX_01.pdf) | PSE-EVAL-MATRIX-01 | Evaluation matrix |
 | [`specs/PSE_LPCM_IMPLEMENTATION_01.pdf`](specs/PSE_LPCM_IMPLEMENTATION_01.pdf) | PSE-LPCM-01 | LPCM implementation |
+| [`specs/HDAG_bySebastianKlemm_v1.0.pdf`](specs/HDAG_bySebastianKlemm_v1.0.pdf) | HDAG-v1.0 | Hierarchical Directed Acyclic Graph spec (5D resonance tensors, edge algebra, path invariance) |
+| [`specs/TheTimelessMonolith_bySebastianKlemm_v1.0.pdf`](specs/TheTimelessMonolith_bySebastianKlemm_v1.0.pdf) | MONOLITH-v1.0 | Pfauenthron++ unified retrieval (D=ψ·ρ·ω), Gabriel4D Funnel, O.P.H.A.N. array |
+| [`specs/QTIC.pdf`](specs/QTIC.pdf) | QTIC-v1.0 | Quasi-Temporal Information Crystals — formal theoretical foundation for PSE+IL (dual time, DualFabric, conformance classes Q0–Q5) |
 
 ---
 
