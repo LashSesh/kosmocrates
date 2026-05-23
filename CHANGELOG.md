@@ -15,6 +15,93 @@ note explicitly says so.
 
 ### Added
 
+* **Infinity Ledger (IL) integration** — `adapters/pse-adapter-il` — full
+  PSE+IL fusion layer.
+
+  Bundles the private Infinity Ledger distribution as a zip in
+  `vendors/infinityledger/` (single-repo requirement: cloning `lashsesh/pse` is
+  sufficient). Exposes an `ILStore` that wraps the IL block-chain ledger and
+  wires it to PSE's `SemanticCrystal` pipeline.
+
+  Key components added:
+
+  - **`ILStore`** — append-only ledger of crystal blocks (8D vector, topology
+    signature, stability score, Metatron canonical hash). `commit_with_feedback()`
+    returns a `ValidationFeedback`; `commit()` wraps it for backward compatibility.
+
+  - **`ValidationFeedback`** — `{ block_hash, converged, coherence_potential,
+    gate_passed, hdag_node_id, il_stability }`. When `|il_stability −
+    original.stability| > 0.02`, `refine_crystal()` is automatically called.
+
+  - **`refine_crystal()`** — IL→PSE feedback loop. Produces a new crystal with
+    blended stability `0.7·PSE + 0.3·IL`, a fresh SHA-256 content address, and the
+    original in `parent_crystal_ids`. The refined crystal is also committed to IL,
+    creating a `refinement` HDAG edge.
+
+  - **`IndexEntry`** gains: `phase: f64`, `hdag_node_id: Option<String>`,
+    `stability_score: f64` (serde `default = 0.5`), `metatron_canonical_hash:
+    Option<String>` — all backward-compatible with existing ledger files.
+
+* **HDAG v1.0** (`adapters/pse-adapter-il/src/hdag.rs`) — Hierarchical Directed
+  Acyclic Graph over the IL ledger. Implements the spec in
+  `specs/HDAG_bySebastianKlemm_v1.0.pdf`.
+
+  - **5D resonance tensor** per crystal:
+    `[mean_propagation_time, kuramoto_coherence, cheeger_estimate, spectral_gap,
+    1−stability_score]` = `[temporal, morphic, relational, topological, entropic]`.
+    When Metatron data is present, `cheeger_estimate` and `spectral_gap` are
+    replaced by `algebraic_connectivity/n` and `spectral_radius/n`.
+
+  - **Coherence potential** ψ = `kuramoto_coherence − (1 − stability_score)`.
+    S_coh class: ψ > −0.1 or Kairos gate passed.
+
+  - **Emergent acyclicity** — edges only added when ψ(target) ≥ ψ(source); no
+    timestamp checks required.
+
+  - **Four edge causes**: `sequential_commit`, `resonance_proximity` (‖T_A−T_B‖ ≤
+    0.35, both in S_coh), `refinement` (parent_crystal_ids link), `metatron_isomorphic`
+    (shared Metatron canonical hash).
+
+  - **Path invariance** (`∮Φ·dl = 0`) — `verify_path_invariance()` using Kahn's
+    topological sort and canonical-condensation comparison.
+
+  - **Semantic predecessor search** — `find_semantic_predecessors()` for resonance
+    proximity edge wiring.
+
+  - **HDAG statistics**: `edge_count_by_cause()`, `mean_coherence_potential()`,
+    `topological_order()`.
+
+* **Pfauenthron++ Unified Retrieval** (`D = ψ · ρ · ω`) — implements the
+  tripolar scoring formula from `specs/TheTimelessMonolith_bySebastianKlemm_v1.0.pdf`.
+
+  - `ILStore::score_tripolar(&[f64]) -> Vec<ILMatch>` — multiplicative D = ψ·ρ·ω
+    where ψ = IL cosine similarity, ρ = `stability_score`, ω = normalized HDAG
+    coherence potential.
+
+  - `pse-llm-demo` uses `pfauenthron_score_all()` instead of the legacy
+    `query_similar()`. Logs: `[Unified retrieval: N record(s), top D=X.XXX]`.
+    Context label: `[Unified Retrieval — Pfauenthron++ D=ψ·ρ·ω]`.
+
+  - Gabriel4D Funnel: all three axes must be non-trivial — a near-zero on any
+    axis collapses the overall D score.
+
+* **pse-server IL/HDAG HTTP routes** (`tools/pse-server`) — four new routes on
+  top of the existing four PSE routes (total: eight routes):
+  `GET /il/status`, `POST /il/retrieve` (Pfauenthron++),
+  `GET /il/hdag/coherence`, `GET /il/hdag/order`.
+  IL routes activate only when `PSE_IL_PATH` is set at startup.
+  `IngestResponse` gains `il_commits: Vec<ILCommitInfo>` (skip_serializing_if empty).
+
+* **MetatronTopologySignature in HDAG tensor** — `crystal_to_tensor()` uses
+  Metatron scan data (`algebraic_connectivity/n`, `spectral_radius/n`) when
+  present, giving graph-theoretic precision over heuristic cheeger/spectral
+  estimates from the topology signature.
+
+* **QTIC theoretical foundation** documented — `specs/QTIC.pdf` fully mapped
+  onto PSE+IL. The full QTIC↔PSE+IL table and Q0–Q5 conformance class
+  mapping are documented in `README.md`. Every Q5-conformant crystal is a
+  seam-stable, path-invariant, replayable information attractor.
+
 * **PSE-VALIDATION-RUNNER-DOMAIN-01** — Domain validation layer for the PSE workspace.
 
   Adds a complete L3 domain validation pipeline that runs embedded

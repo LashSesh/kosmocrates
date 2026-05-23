@@ -19,6 +19,7 @@
 use crate::adapter::{CrystalAdapter, ILPayload};
 use crate::feedback::ValidationFeedback;
 use crate::hdag::{crystal_to_tensor, HDAG};
+use crate::qtic::{classify, QticInput, MCI_THRESHOLD};
 use pse_types::SemanticCrystal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -33,6 +34,8 @@ struct CommitResult {
     hdag_node_id: Option<String>,
     coherence_potential: f64,
     gate_passed: bool,
+    /// IL block commit index (extrinsic revision time t).
+    extrinsic_t: u64,
 }
 
 /// A search hit returned by `ILStore::search`.
@@ -63,6 +66,9 @@ struct IndexEntry {
     /// Two entries with the same non-empty hash are topologically isomorphic.
     #[serde(default)]
     metatron_canonical_hash: Option<String>,
+    /// QTIC conformance class (0–5) at commit time.
+    #[serde(default)]
+    qtic_class: Option<u8>,
 }
 
 fn default_stability() -> f64 {
@@ -185,8 +191,9 @@ impl ILStore {
     /// Like `commit`, but also returns IL validation data for the feedback loop.
     ///
     /// The `ValidationFeedback` contains convergence status, coherence potential,
-    /// and a normalized IL stability signal ready to be blended into a refined crystal
-    /// via `pse_adapter_il::feedback::refine_crystal`.
+    /// a normalized IL stability signal ready to be blended into a refined crystal
+    /// via `pse_adapter_il::feedback::refine_crystal`, and a full QTIC conformance
+    /// certificate (Q0–Q5) derived from the HDAG state after registration.
     pub fn commit_with_feedback(
         &mut self,
         crystal: &SemanticCrystal,
@@ -197,13 +204,49 @@ impl ILStore {
         let payload = self.build_payload(crystal, source_chunks, session, question)?;
         let result = self.commit_payload(crystal, payload)?;
 
-        let feedback = ValidationFeedback::from_crystal_heuristic(
-            result.block_hash,
+        let mut feedback = ValidationFeedback::from_crystal_heuristic(
+            result.block_hash.clone(),
             crystal,
             result.coherence_potential,
             result.gate_passed,
-            result.hdag_node_id,
+            result.hdag_node_id.clone(),
         );
+
+        // ── QTIC conformance classification ───────────────────────────
+        let path_inv = match &result.hdag_node_id {
+            Some(nid) => self
+                .hdag
+                .as_ref()
+                .map(|h| h.check_node_path_invariance(nid))
+                .unwrap_or(false),
+            None => false,
+        };
+
+        let cert = classify(&QticInput {
+            crystal,
+            block_hash: &result.block_hash,
+            hdag_node_id: result.hdag_node_id.as_deref().unwrap_or(""),
+            extrinsic_t: result.extrinsic_t,
+            gate_passed: result.gate_passed,
+            psi: result.coherence_potential,
+            il_stability: feedback.il_stability,
+            path_inv,
+            mci_threshold: MCI_THRESHOLD,
+        });
+
+        // Store the class back into the index entry
+        let qtic_u8 = cert.class_u8();
+        if let Some(entry) = self
+            .index
+            .entries
+            .iter_mut()
+            .find(|e| e.block_hash == result.block_hash)
+        {
+            entry.qtic_class = Some(qtic_u8);
+        }
+        let _ = self.save_index(); // best-effort; errors already logged in commit_payload
+
+        feedback.qtic_certificate = Some(cert);
         Ok(feedback)
     }
 
@@ -254,6 +297,7 @@ impl ILStore {
                 hdag_node_id: node_id,
                 coherence_potential: cp,
                 gate_passed: gate,
+                extrinsic_t: existing.block_index as u64,
             });
         }
 
@@ -331,6 +375,7 @@ impl ILStore {
                 .as_ref()
                 .filter(|m| !m.canonical_hash.is_empty())
                 .map(|m| m.canonical_hash.clone()),
+            qtic_class: None, // set after QTIC classification in commit_with_feedback
         });
         self.save_index()?;
 
@@ -339,6 +384,7 @@ impl ILStore {
             hdag_node_id,
             coherence_potential,
             gate_passed,
+            extrinsic_t: block_index as u64,
         })
     }
 
@@ -885,6 +931,7 @@ mod tests {
             gate_passed: true,
             hdag_node_id: None,
             il_stability,
+            qtic_certificate: None,
         };
         let c_refined = refine_crystal(&c_a, &feedback, 2);
         let orig_hex: String = c_a.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
@@ -897,5 +944,62 @@ mod tests {
         let hdag = store.hdag.as_ref().expect("HDAG must be active");
         let ref_edges = hdag.edge_count_by_cause("refinement");
         assert!(ref_edges >= 1, "expect at least 1 refinement edge A→refined, got {ref_edges}");
+    }
+
+    #[test]
+    fn commit_with_feedback_produces_qtic_certificate() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut crystal = dummy_crystal(0.80);
+        crystal.topology_signature.kuramoto_coherence = 0.75;
+        crystal.crystal_id[0] = 0xCA;
+
+        let fb = store
+            .commit_with_feedback(&crystal, &[], 1, "qtic-test")
+            .expect("commit_with_feedback must succeed");
+
+        let cert = fb.qtic_certificate.expect("QTIC certificate must be present");
+        assert!(!cert.crystal_id.is_empty());
+        assert!(!cert.canonical_id.is_empty(), "canonical_id = block_hash must be populated");
+        // ψ = 0.75 - (1 - 0.80) = 0.55 > -0.1 → Q2 satisfied
+        assert!(cert.psi > -0.1, "ψ should be positive for a stable crystal");
+        // Q3 requires gate_passed; first commit with stability=0.80 should pass heuristic
+        assert!(
+            cert.conformance_class >= crate::qtic::QticClass::Q1,
+            "certificate must reach at least Q1"
+        );
+    }
+
+    #[test]
+    fn qtic_certificate_stored_in_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut crystal = dummy_crystal(0.85);
+        crystal.topology_signature.kuramoto_coherence = 0.78;
+        crystal.crystal_id[0] = 0xCB;
+
+        let fb = store
+            .commit_with_feedback(&crystal, &[], 1, "qtic-index")
+            .expect("commit_with_feedback must succeed");
+
+        let cert = fb.qtic_certificate.as_ref().unwrap();
+        let expected_class = cert.class_u8();
+
+        // Reload to verify the class was persisted in the index
+        let store2 = ILStore::open(dir.path(), "TEST").unwrap();
+        let entry = store2
+            .index
+            .entries
+            .iter()
+            .find(|e| e.block_hash == fb.block_hash)
+            .expect("entry must be in reloaded index");
+
+        assert_eq!(
+            entry.qtic_class,
+            Some(expected_class),
+            "QTIC class must be persisted in the index"
+        );
     }
 }
