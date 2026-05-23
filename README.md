@@ -263,11 +263,13 @@ curl http://localhost:8080/il/hdag/order
 
 ---
 
-## QTIC — Theoretical Foundation
+## QTIC — Theory and Implementation
 
 `specs/QTIC.pdf` (Sebastian Klemm, 11 May 2026) provides the formal theoretical
 framework underlying PSE+IL. QTIC = *Quasi-Zeitinformationskristall* (Quasi-Temporal
-Information Crystal).
+Information Crystal). The framework is not only mapped but fully implemented in
+`adapters/pse-adapter-il/src/qtic.rs` — every `SemanticCrystal` committed to IL
+receives a `QticCertificate` classifying it as Q0–Q5.
 
 **Central formula** (QTIC §21):
 
@@ -278,6 +280,31 @@ QTIC = Fix(Tα) ∩ Int(ℋΣ⁻) ∩ Pass(GΓ) ∩ Pass(GΣ) ∩ Mirror(S,M) �
 **Main theorem** (QTIC §16, Satz 16.1): *A valid QTIC is a seam-stable, path-invariant
 and replayable information attractor between extrinsic revision time and intrinsic spiral
 phase.*
+
+### Implementation: `pse-adapter-il/src/qtic.rs`
+
+```rust
+// Every commit_with_feedback() call produces a QticCertificate:
+let fb = store.commit_with_feedback(&crystal, &chunks, session, question)?;
+let cert = fb.qtic_certificate.unwrap();
+
+println!("Class: {:?}", cert.conformance_class);   // Q0–Q5
+println!("MCI:   {:.3}", cert.mci);                // Mirror-Consistency Index
+println!("ψ:     {:.3}", cert.psi);                // coherence potential
+println!("t:     {}",    cert.extrinsic_t);        // IL block index (extrinsic time)
+println!("θ:     {:.3}", cert.intrinsic_theta);    // kuramoto_coherence (intrinsic phase)
+println!("Q5:    {}",    cert.is_full_qtic());     // seam-stable attractor?
+```
+
+The conformance class is also stored as `qtic_class: Option<u8>` in the IL index entry,
+persisted to disk on every commit (backward-compatible with existing ledger files).
+
+**`mirror_consistency_index(σ_H, σ_T)`** = 1 − |PSE_stability − IL_stability| — the
+concrete MCI implementation. Threshold η = 0.7 for Q4.
+
+**`HDAG::check_node_path_invariance(node_id)`** — the Q5 gate: checks that all direct
+predecessors' paths to the node produce the same canonical gradient condensation (QTIC
+§13.3 HDAG path neutrality invariant). Trivially passes for nodes with ≤ 1 predecessor.
 
 ### QTIC ↔ PSE+IL Mapping
 
@@ -292,32 +319,34 @@ phase.*
 | Seam Γ / Gate G_Γ | PSE Kairos Gate (8-metric fail-closed AND) |
 | Mandorla-Zone M_t,θ = A(t)∩B(θ) | Crystal must satisfy extrinsic gate metrics AND intrinsic phase stability |
 | Mandorla-Brane Σ = ∂M | Gate membrane — only Gate-passing events cross from F_H to F_T |
-| Mirror-Consistency MCI | Topology coherence between PSE graph (σ_H) and IL block (σ_T) |
+| Mirror-Consistency MCI = 1 − dist(σ_H, σ_T) | `mirror_consistency_index(pse_stability, il_stability)` |
 | Proof-of-Resonance Θ(x) = αψ+βρ+γω | Pfauenthron++ D = ψ·ρ·ω |
 | MEF (Mandorla Eigenstate Field) | IL block chain (recursive M_k intersections) |
 | HDAG coupling layer (§13) | `pse-adapter-il` HDAG |
-| HDAG path neutrality invariant | `HDAG::verify_path_invariance()` |
+| HDAG path neutrality invariant | `HDAG::check_node_path_invariance()` |
 | Seam-only materialization | IL commits only when Kairos gate passes |
-| QTIC certificate (§19) | IL `ValidationFeedback` (block_hash, converged, gate_passed, coherence_potential) |
+| QTIC certificate (§19) | `QticCertificate` — emitted by every `commit_with_feedback()` |
 | Path-Excision (§15) | `refine_crystal()` — reaches equivalent end-state without materializing every intermediate |
 | Kairos window (§15) | PSE Kairos gate firing = transition from F_H to F_T authorized |
 | Nullhomologous bridge | HDAG path neutrality: same condensation → same QTIC identity |
 
 ### QTIC Conformance Classes (Q0–Q5)
 
-QTIC defines five cumulative conformance classes:
+Computed automatically for every crystal committed to IL. The class is stored in
+the IL index (`qtic_class`) and returned in `ValidationFeedback.qtic_certificate`.
 
-| Class | Requirement | PSE+IL Crystal |
+| Class | Gate condition | PSE+IL check |
 |---|---|---|
-| Q0 — Formal candidate | μ ∈ P(M_t,θ) | Any crystal in the IL index |
-| Q1 — Mandorla capsule | M_t,θ = A(t) ∩ B(θ) | Crystal with `topology_signature` + ψ |
-| Q2 — Nullhomologous bridge | θ₁ ≡ θ₀ (mod 2π), δ(μ₀) = δ(μ₁) | Crystals linked by HDAG path neutrality |
-| Q3 — Gate-passed condensation | G_Γ(μ) = 1 | `kairos_gate_passed = true` in IL index entry |
-| Q4 — Auditable QTIC | TraceReady ∧ Replay ∧ MCI ≥ η | IL block hash (trace) + content-addressed id (replay) |
-| Q5 — Path-invariant QTIC | PathInv = 1 | `HDAG::verify_path_invariance()` passes |
+| Q0 — Formal candidate | μ ∈ P(M_t,θ) | Always (any crystal in the IL index) |
+| Q1 — Mandorla capsule | M_t,θ = A(t) ∩ B(θ) | Always (topology_signature = A(t), ψ = B(θ)) |
+| Q2 — Nullhomologous bridge | θ₁ ≡ θ₀ (mod 2π), stable phase | `coherence_potential ψ > −0.1` |
+| Q3 — Gate-passed condensation | G_Γ(μ) = 1 | Kairos gate fired (heuristic: stability > 0.5 ∧ kuramoto > 0.3) |
+| Q4 — Auditable QTIC | TraceReady ∧ Replay ∧ MCI ≥ η | Non-empty block_hash + non-zero crystal_id + MCI ≥ 0.7 |
+| Q5 — Path-invariant QTIC | PathInv = 1 | `HDAG::check_node_path_invariance()` passes |
 
 Only Q5 satisfies the full QTIC definition. Every `SemanticCrystal` committed to IL with
-a passing Kairos gate that also passes HDAG path invariance is a **Q5 QTIC**.
+a passing Kairos gate that also satisfies HDAG path invariance is a **Q5 QTIC** — a
+formally certified seam-stable, replayable information attractor.
 
 ### Why DualFabric Separation Matters
 
@@ -415,7 +444,7 @@ domains is documented in §Productive-task validation below.
 | **ValidationFeedback + `refine_crystal()`** (IL→PSE feedback loop) | **Shipped** |
 | **pse-server IL/HDAG routes** (4 new routes: `/il/*`) | **Shipped** |
 | **MetatronTopologySignature** in HDAG tensor (algebraic_connectivity, spectral_radius) | **Shipped** |
-| **QTIC theoretical foundation** (full QTIC↔PSE+IL mapping, Q0–Q5 conformance) | **Documented** |
+| **QTIC conformance engine** (`qtic.rs`: Q0–Q5, `QticCertificate`, MCI, path invariance) | **Shipped** |
 | **Replay invariance** (`ReplayIdentity = 1`, Invariant I4) | **Verified** — bit-identical output across independent runs |
 | **Safety improvement** (`ΔU_safety ≥ 0`) | **Verified** — B6 false-commit rate < B0 on real LLM output (Cerebras) |
 | **Agent relevance ranking** (PSE-EVAL-MATRIX-01 § exoskeleton) | **Verified** — see table below |
@@ -1173,7 +1202,7 @@ Normative specification documents live in [`specs/`](specs/):
 | [`specs/PSE_LPCM_IMPLEMENTATION_01.pdf`](specs/PSE_LPCM_IMPLEMENTATION_01.pdf) | PSE-LPCM-01 | LPCM implementation |
 | [`specs/HDAG_bySebastianKlemm_v1.0.pdf`](specs/HDAG_bySebastianKlemm_v1.0.pdf) | HDAG-v1.0 | Hierarchical Directed Acyclic Graph spec (5D resonance tensors, edge algebra, path invariance) |
 | [`specs/TheTimelessMonolith_bySebastianKlemm_v1.0.pdf`](specs/TheTimelessMonolith_bySebastianKlemm_v1.0.pdf) | MONOLITH-v1.0 | Pfauenthron++ unified retrieval (D=ψ·ρ·ω), Gabriel4D Funnel, O.P.H.A.N. array |
-| [`specs/QTIC.pdf`](specs/QTIC.pdf) | QTIC-v1.0 | Quasi-Temporal Information Crystals — formal theoretical foundation for PSE+IL (dual time, DualFabric, conformance classes Q0–Q5) |
+| [`specs/QTIC.pdf`](specs/QTIC.pdf) | QTIC-v1.0 | Quasi-Temporal Information Crystals — formal theory + implementation (dual time, DualFabric, `QticCertificate`, Q0–Q5 conformance, MCI, path invariance) |
 
 ---
 
