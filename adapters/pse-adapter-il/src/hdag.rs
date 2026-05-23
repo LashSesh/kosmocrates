@@ -500,6 +500,16 @@ impl HDAG {
         self.data.edges.iter().filter(|e| e.cause == cause).collect()
     }
 
+    /// All edges in the HDAG, regardless of cause.
+    pub fn edges(&self) -> &[HDAGEdge] {
+        &self.data.edges
+    }
+
+    /// All node IDs registered in the HDAG.
+    pub fn node_ids(&self) -> Vec<&str> {
+        self.data.nodes.keys().map(|s| s.as_str()).collect()
+    }
+
     pub fn node_count(&self) -> usize {
         self.data.nodes.len()
     }

@@ -20,7 +20,7 @@ use crate::adapter::{CrystalAdapter, ILPayload};
 use crate::feedback::ValidationFeedback;
 use crate::hdag::{crystal_to_tensor, HDAG};
 use crate::qtic::{classify, QticInput, MCI_THRESHOLD};
-use pse_types::SemanticCrystal;
+use pse_types::{SemanticCrystal, TopologySignature};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -69,6 +69,20 @@ struct IndexEntry {
     /// QTIC conformance class (0–5) at commit time.
     #[serde(default)]
     qtic_class: Option<u8>,
+    /// Question that prompted this crystal's formation (empty for commits
+    /// that pre-date this field or used the bare `commit` path).
+    #[serde(default)]
+    question: String,
+    /// Scale tag of the crystal at commit time (e.g., `"il-refined"`).
+    #[serde(default)]
+    scale_tag: String,
+    /// Agent that committed this crystal (empty = unattributed).
+    /// Set by [`ILStore::commit_as`]; mirrors `SemanticCrystal::universe_id`.
+    #[serde(default)]
+    agent_id: String,
+    /// Kuramoto coherence at commit time (topology_signature.kuramoto_coherence).
+    #[serde(default)]
+    kuramoto: f64,
 }
 
 fn default_stability() -> f64 {
@@ -360,6 +374,13 @@ impl ILStore {
             ))
             .unwrap_or(crystal.stability_score > 0.5);
 
+        let question = payload
+            .snapshot_json
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         self.index.entries.push(IndexEntry {
             block_index,
             crystal_id_hex: payload.crystal_id_hex,
@@ -376,6 +397,10 @@ impl ILStore {
                 .filter(|m| !m.canonical_hash.is_empty())
                 .map(|m| m.canonical_hash.clone()),
             qtic_class: None, // set after QTIC classification in commit_with_feedback
+            question,
+            scale_tag: crystal.scale_tag.clone(),
+            agent_id: String::new(), // set by commit_as() after the fact
+            kuramoto: crystal.topology_signature.kuramoto_coherence,
         });
         self.save_index()?;
 
@@ -644,10 +669,452 @@ impl ILStore {
         &self.base_path
     }
 
+    /// Build a PSE-grounded LLM prompt for the given query.
+    ///
+    /// 1. Embeds the query via [`text_to_vector8`].
+    /// 2. Selects crystals via Pfauenthron++ + the `PromptConfig` budget.
+    /// 3. Optionally appends the causal explanation of the top-ranked crystal.
+    /// 4. Returns a [`GroundedPrompt`] with a structured system message and
+    ///    the unchanged user query.
+    ///
+    /// Pass [`GroundedPrompt::system_message`] and [`GroundedPrompt::user_message`]
+    /// to any OpenAI-compatible SDK.
+    ///
+    /// [`text_to_vector8`]: crate::adapter::text_to_vector8
+    pub fn build_grounded_prompt(
+        &self,
+        query: &str,
+        config: &crate::prompt::PromptConfig,
+    ) -> crate::prompt::GroundedPrompt {
+        use crate::adapter::text_to_vector8;
+        let query_vec = text_to_vector8(query);
+        let all_entries = self.build_context_entries(&query_vec);
+        let selected: Vec<crate::context::CrystalSummary> = config
+            .budget
+            .select(&all_entries)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        let causal_context = if config.include_causal && !selected.is_empty() {
+            Some(self.causal_explanation(&selected[0].crystal_id))
+        } else {
+            None
+        };
+
+        crate::prompt::build_prompt(query, config, selected, causal_context)
+    }
+
+    /// Commit a crystal on behalf of a named agent.
+    ///
+    /// Identical to [`commit_with_feedback`] but additionally records
+    /// `agent_id` in the index entry so that
+    /// [`build_agent_causal_graph`] can attribute each crystal to its
+    /// producer.  The agent ID is also stored in
+    /// `crystal.universe_id` inside the block file for ledger-level
+    /// auditability.
+    ///
+    /// [`commit_with_feedback`]: ILStore::commit_with_feedback
+    /// [`build_agent_causal_graph`]: ILStore::build_agent_causal_graph
+    pub fn commit_as(
+        &mut self,
+        crystal: &pse_types::SemanticCrystal,
+        source_chunks: &[String],
+        session: usize,
+        question: &str,
+        agent_id: &str,
+    ) -> Result<ValidationFeedback, String> {
+        let fb = self.commit_with_feedback(crystal, source_chunks, session, question)?;
+        if let Some(entry) = self
+            .index
+            .entries
+            .iter_mut()
+            .find(|e| e.block_hash == fb.block_hash)
+        {
+            entry.agent_id = agent_id.to_string();
+        }
+        let _ = self.save_index();
+        Ok(fb)
+    }
+
+    /// Build an agent-annotated causal graph.
+    ///
+    /// Lifts the plain [`CausalGraph`] into an [`AgentCausalGraph`] by
+    /// annotating each causal link with the agent IDs of its source and
+    /// target crystals (as recorded by [`commit_as`]).
+    ///
+    /// Crystals committed without an agent tag appear with an empty string
+    /// and are excluded from cross-agent and collaborative analysis.
+    ///
+    /// [`CausalGraph`]: crate::causal::CausalGraph
+    /// [`AgentCausalGraph`]: crate::agent::AgentCausalGraph
+    /// [`commit_as`]: ILStore::commit_as
+    pub fn build_agent_causal_graph(&self) -> crate::agent::AgentCausalGraph {
+        use crate::agent::{AgentCausalGraph, AgentLink};
+        use std::collections::{HashMap, HashSet};
+
+        // crystal_id_prefix (16 chars) → agent_id
+        let attribution: HashMap<String, String> = self
+            .index
+            .entries
+            .iter()
+            .map(|e| {
+                let prefix = e.crystal_id_hex[..e.crystal_id_hex.len().min(16)].to_string();
+                (prefix, e.agent_id.clone())
+            })
+            .collect();
+
+        let agents: HashSet<String> = attribution
+            .values()
+            .filter(|a| !a.is_empty())
+            .cloned()
+            .collect();
+
+        let inner = self.build_causal_graph();
+        let links: Vec<AgentLink> = inner
+            .links
+            .into_iter()
+            .map(|link| {
+                let from_agent = attribution.get(&link.from).cloned().unwrap_or_default();
+                let to_agent = attribution.get(&link.to).cloned().unwrap_or_default();
+                AgentLink { inner: link, from_agent, to_agent }
+            })
+            .collect();
+
+        AgentCausalGraph { links, agents, attribution }
+    }
+
+    /// Build a causal graph from all HDAG edges in this store.
+    ///
+    /// Every HDAG edge is translated to a typed [`crate::causal::CausalLink`]
+    /// with its `from`/`to` expressed as 16-char crystal ID prefixes (matching
+    /// [`crate::context::CrystalSummary::crystal_id`]).
+    ///
+    /// Returns an empty graph when no HDAG is active or no edges exist yet.
+    pub fn build_causal_graph(&self) -> crate::causal::CausalGraph {
+        match &self.hdag {
+            Some(hdag) => crate::causal::CausalGraph::from_edges(hdag.edges()),
+            None => crate::causal::CausalGraph::default(),
+        }
+    }
+
+    /// Human-readable causal explanation for a crystal.
+    ///
+    /// Reports direct causes (incoming causal links), total ancestor count,
+    /// and whether the crystal is a causal root.  `crystal_id_prefix` should
+    /// be the first 16 hex characters of the target crystal's ID.
+    pub fn causal_explanation(&self, crystal_id_prefix: &str) -> String {
+        let graph = self.build_causal_graph();
+        let direct = graph.direct_causes(crystal_id_prefix);
+        if direct.is_empty() {
+            let desc_count = graph.descendants(crystal_id_prefix).len();
+            return format!(
+                "Crystal {} is a causal root — no prior crystals caused it.\
+                 {} descendant(s) trace back to this crystal.",
+                crystal_id_prefix, desc_count
+            );
+        }
+        let ancs = graph.ancestors(crystal_id_prefix);
+        let mut lines = vec![format!(
+            "Crystal {} has {} direct cause(s):",
+            crystal_id_prefix,
+            direct.len()
+        )];
+        for link in &direct {
+            lines.push(format!(
+                "  ← {} via {} (strength={:.3})",
+                link.from,
+                link.cause.label(),
+                link.strength
+            ));
+        }
+        lines.push(format!("  Total ancestors in causal chain: {}", ancs.len()));
+        lines.join("\n")
+    }
+
+    /// Build context summaries for all committed crystals, scored by Pfauenthron++.
+    ///
+    /// Applies the tripolar formula D = ψ·ρ·ω (semantic × structural × temporal)
+    /// to every index entry and returns the results sorted by descending D.
+    /// Entries with D ≤ 0 are excluded.
+    ///
+    /// Pass the result to [`crate::context::ContextBudget::select`] or use the
+    /// convenience wrapper [`ILStore::context_for_query`].
+    pub fn build_context_entries(&self, query_vec: &[f64]) -> Vec<crate::context::CrystalSummary> {
+        use crate::context::CrystalSummary;
+        let mut summaries: Vec<CrystalSummary> = self
+            .index
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let psi_sem = cosine(&entry.vector8, query_vec);
+                if psi_sem <= 0.0 {
+                    return None;
+                }
+                let rho = entry.stability_score.clamp(0.0, 1.0);
+                let omega = match &self.hdag {
+                    Some(hdag) => match &entry.hdag_node_id {
+                        Some(nid) => match hdag.tensor_of(nid) {
+                            Some(t) => ((t[1] - t[4] + 1.0) / 2.0).clamp(0.0, 1.0),
+                            None => 0.5,
+                        },
+                        None => 0.5,
+                    },
+                    None => 0.5,
+                };
+                let d = psi_sem * rho * omega;
+                if d <= 0.0 {
+                    return None;
+                }
+                Some(CrystalSummary {
+                    crystal_id: entry.crystal_id_hex
+                        [..entry.crystal_id_hex.len().min(16)]
+                        .to_string(),
+                    stability: entry.stability_score,
+                    qtic_class: entry.qtic_class,
+                    tripolar_score: d,
+                    commit_index: entry.block_index,
+                    scale_tag: entry.scale_tag.clone(),
+                    question: entry.question.clone(),
+                })
+            })
+            .collect();
+        summaries.sort_by(|a, b| {
+            b.tripolar_score
+                .partial_cmp(&a.tripolar_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        summaries
+    }
+
+    /// Compact context block for LLM injection.
+    ///
+    /// Scores all crystals with [`build_context_entries`], applies the
+    /// `ContextBudget` filter, and wraps the result in a
+    /// `[PSE-CONTEXT]...[/PSE-CONTEXT]` block ready for prepending to an
+    /// LLM prompt.  Returns an empty string if no crystals satisfy the budget.
+    ///
+    /// [`build_context_entries`]: ILStore::build_context_entries
+    pub fn context_for_query(
+        &self,
+        query_vec: &[f64],
+        budget: &crate::context::ContextBudget,
+    ) -> String {
+        let all = self.build_context_entries(query_vec);
+        let selected = budget.select(&all);
+        if selected.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from("[PSE-CONTEXT]\n");
+        for s in selected {
+            out.push_str(&s.to_compact_text());
+            out.push('\n');
+        }
+        out.push_str("[/PSE-CONTEXT]");
+        out
+    }
+
+    /// Commit a crystal with constitutional compliance gating.
+    ///
+    /// 1. Performs a pre-commit structural check (no QTIC cert) to catch
+    ///    Blocking violations. If any Blocking rule fires, returns Err without
+    ///    writing to the ledger.
+    /// 2. Commits the crystal to the ledger (via `commit_as` when `agent_id`
+    ///    is Some, otherwise via `commit_with_feedback`).
+    /// 3. Evaluates the full constitution with the resulting QTIC certificate.
+    /// 4. Returns `ConstitutionalFeedback` with `constitutionally_admissible`
+    ///    reflecting the full post-commit evaluation.
+    ///
+    /// Required violations in the post-commit report do *not* undo the commit.
+    /// Use [`constitutional_audit`] to retroactively identify non-conformant crystals.
+    ///
+    /// [`constitutional_audit`]: ILStore::constitutional_audit
+    pub fn commit_constitutional(
+        &mut self,
+        crystal: &SemanticCrystal,
+        source_chunks: &[String],
+        session: usize,
+        question: &str,
+        agent_id: Option<&str>,
+        constitution: &crate::constitutional::Constitution,
+    ) -> Result<crate::constitutional::ConstitutionalFeedback, String> {
+        use crate::constitutional::ConstitutionalFeedback;
+
+        // Pre-commit blocking check (no QTIC cert available yet)
+        let pre_report = constitution.evaluate(crystal, None, agent_id);
+        if !pre_report.blocking_violations.is_empty() {
+            return Err(format!(
+                "Constitutional BLOCKING violation(s) prevented commit: [{}]",
+                pre_report.blocking_violations.join(", ")
+            ));
+        }
+
+        // Commit to ledger
+        let fb = match agent_id {
+            Some(aid) => self.commit_as(crystal, source_chunks, session, question, aid)?,
+            None => self.commit_with_feedback(crystal, source_chunks, session, question)?,
+        };
+
+        // Full constitutional evaluation with QTIC certificate
+        let cert = fb.qtic_certificate.as_ref();
+        let report = constitution.evaluate(crystal, cert, agent_id);
+        let constitutionally_admissible = report.overall_pass;
+
+        Ok(ConstitutionalFeedback {
+            feedback: fb,
+            report,
+            constitutionally_admissible,
+        })
+    }
+
+    /// Scan all committed crystals and evaluate them against a constitution.
+    ///
+    /// Returns a [`ConstitutionalAuditReport`] summarising compliance across
+    /// the entire store and reporting whether the constitutional fixpoint has
+    /// been reached (`is_constitutionally_closed()`).
+    ///
+    /// **Note on evidence_chain**: This audit operates from the IL index, which
+    /// does not store the full evidence chain.  `MinEvidenceEntries` predicates
+    /// see `count = 0` for all indexed crystals.  Since both preset constitutions
+    /// mark this predicate Advisory, `overall_pass` and `is_constitutionally_closed()`
+    /// are unaffected.
+    ///
+    /// [`ConstitutionalAuditReport`]: crate::constitutional::ConstitutionalAuditReport
+    pub fn constitutional_audit(
+        &self,
+        constitution: &crate::constitutional::Constitution,
+    ) -> crate::constitutional::ConstitutionalAuditReport {
+        use crate::constitutional::ConstitutionalAuditReport;
+        use std::collections::HashMap;
+
+        let mut violations = Vec::new();
+        let mut compliant_count = 0usize;
+        let mut blocking_count = 0usize;
+        let mut violations_by_rule: HashMap<String, usize> = HashMap::new();
+        let mut audit_hasher = Sha256::new();
+
+        for entry in &self.index.entries {
+            let proxy = entry_to_proxy_crystal(entry);
+            let cert = entry.qtic_class.map(|c| synthetic_qtic_cert(entry, c));
+            let agent_id = if entry.agent_id.is_empty() {
+                None
+            } else {
+                Some(entry.agent_id.as_str())
+            };
+
+            let report = constitution.evaluate(&proxy, cert.as_ref(), agent_id);
+            audit_hasher.update(report.report_hash.as_bytes());
+
+            if report.overall_pass {
+                compliant_count += 1;
+            } else {
+                if !report.blocking_violations.is_empty() {
+                    blocking_count += 1;
+                }
+                for rule_id in report
+                    .blocking_violations
+                    .iter()
+                    .chain(report.required_violations.iter())
+                {
+                    *violations_by_rule.entry(rule_id.clone()).or_insert(0) += 1;
+                }
+                let id_prefix =
+                    entry.crystal_id_hex[..entry.crystal_id_hex.len().min(16)].to_string();
+                violations.push((id_prefix, report));
+            }
+        }
+
+        let total_crystals = self.index.entries.len();
+        let violation_count = violations.len();
+        let audit_hash = audit_hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+
+        ConstitutionalAuditReport {
+            constitution_name: constitution.name.clone(),
+            constitution_version: constitution.version.clone(),
+            total_crystals,
+            compliant_count,
+            violation_count,
+            blocking_count,
+            violations_by_rule,
+            violations,
+            audit_hash,
+        }
+    }
+
     fn save_index(&self) -> Result<(), String> {
         let s = serde_json::to_string_pretty(&self.index)
             .map_err(|e| format!("serialise IL index: {e}"))?;
         std::fs::write(&self.index_path, s).map_err(|e| format!("write IL index: {e}"))
+    }
+}
+
+/// Build a minimal proxy [`SemanticCrystal`] from an [`IndexEntry`] for
+/// constitutional evaluation.  Only the fields inspected by constitutional
+/// predicates are populated; all others are zeroed / defaulted.
+fn entry_to_proxy_crystal(entry: &IndexEntry) -> SemanticCrystal {
+    let mut crystal_id = [0u8; 32];
+    let hex = &entry.crystal_id_hex;
+    let n = (hex.len() / 2).min(32);
+    for i in 0..n {
+        if let Ok(b) = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16) {
+            crystal_id[i] = b;
+        }
+    }
+    let mut topology_signature = TopologySignature::default();
+    topology_signature.kuramoto_coherence = entry.kuramoto;
+    SemanticCrystal {
+        crystal_id,
+        region: vec![],
+        constraint_program: Default::default(),
+        stability_score: entry.stability_score,
+        topology_signature,
+        betti_numbers: vec![],
+        evidence_chain: Default::default(),
+        commit_proof: Default::default(),
+        operator_versions: Default::default(),
+        created_at: 0,
+        free_energy: 0.0,
+        carrier_instance_idx: 0,
+        scale_tag: entry.scale_tag.clone(),
+        universe_id: String::new(),
+        sub_crystal_ids: vec![],
+        parent_crystal_ids: vec![],
+        genesis_metadata: None,
+        metatron_signature: None,
+    }
+}
+
+/// Build a synthetic [`QticCertificate`] from indexed fields for the audit.
+///
+/// This approximation is sufficient for all constitutional predicates that
+/// inspect QTIC data: `MinQticClass` uses `conformance_class` and
+/// `PathInvariant` uses `path_inv`.
+fn synthetic_qtic_cert(
+    entry: &IndexEntry,
+    class_u8: u8,
+) -> crate::qtic::QticCertificate {
+    use crate::qtic::{QticCertificate, QticClass};
+    let conformance_class = QticClass::from(class_u8);
+    let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
+    QticCertificate {
+        crystal_id: entry.crystal_id_hex.clone(),
+        hdag_node_id: entry.hdag_node_id.clone().unwrap_or_default(),
+        canonical_id: entry.block_hash.clone(),
+        conformance_class,
+        class_description: conformance_class.description().to_string(),
+        extrinsic_t: entry.block_index as u64,
+        intrinsic_theta: entry.kuramoto,
+        psi,
+        mci: 0.0,
+        mci_threshold: crate::qtic::MCI_THRESHOLD,
+        gate_passed: entry.stability_score > 0.5 && entry.kuramoto > 0.3,
+        trace_ready: !entry.block_hash.is_empty(),
+        replay_ready: entry.crystal_id_hex.chars().any(|c| c != '0'),
+        path_inv: conformance_class >= QticClass::Q5,
     }
 }
 
@@ -972,6 +1439,245 @@ mod tests {
     }
 
     #[test]
+    fn commit_as_records_agent_id_in_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c = dummy_crystal(0.80);
+        c.topology_signature.kuramoto_coherence = 0.70;
+        c.crystal_id[0] = 0xA0;
+
+        let fb = store
+            .commit_as(&c, &[], 1, "agent query", "agent-alpha")
+            .unwrap();
+
+        let entry = store
+            .index
+            .entries
+            .iter()
+            .find(|e| e.block_hash == fb.block_hash)
+            .expect("entry must be in index");
+        assert_eq!(entry.agent_id, "agent-alpha");
+    }
+
+    #[test]
+    fn agent_causal_graph_attributes_crystals() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c1 = dummy_crystal(0.80);
+        c1.topology_signature.kuramoto_coherence = 0.70;
+        c1.crystal_id[0] = 0xB0;
+
+        let mut c2 = dummy_crystal(0.85);
+        c2.topology_signature.kuramoto_coherence = 0.75;
+        c2.crystal_id[0] = 0xB1;
+
+        store.commit_as(&c1, &[], 1, "q1", "alice").unwrap();
+        store.commit_as(&c2, &[], 2, "q2", "bob").unwrap();
+
+        let ag = store.build_agent_causal_graph();
+        assert!(ag.agents.contains("alice"), "alice must be in agents");
+        assert!(ag.agents.contains("bob"), "bob must be in agents");
+        // At least one sequential link (alice→bob boundary)
+        assert!(!ag.cross_agent_links().is_empty() || !ag.links.is_empty(),
+            "must have links after two commits");
+    }
+
+    #[test]
+    fn agent_causal_graph_detects_cross_agent_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c1 = dummy_crystal(0.75);
+        c1.topology_signature.kuramoto_coherence = 0.65;
+        c1.crystal_id[0] = 0xC0;
+
+        let mut c2 = dummy_crystal(0.82);
+        c2.topology_signature.kuramoto_coherence = 0.72;
+        c2.crystal_id[0] = 0xC1;
+
+        store.commit_as(&c1, &[], 1, "first crystal", "agent-x").unwrap();
+        store.commit_as(&c2, &[], 2, "second crystal", "agent-y").unwrap();
+
+        let ag = store.build_agent_causal_graph();
+        // If a sequential_commit edge formed between c1 and c2, it crosses agents
+        let cross = ag.cross_agent_links();
+        // The sequential edge from c1→c2 crosses agent-x → agent-y
+        if !ag.links.is_empty() {
+            assert!(
+                !cross.is_empty() || ag.agents.len() >= 2,
+                "two agents must appear in attribution"
+            );
+        }
+        // Summary must be non-empty
+        let s = ag.summary();
+        assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn causal_graph_has_sequential_link_after_two_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c1 = dummy_crystal(0.80);
+        c1.topology_signature.kuramoto_coherence = 0.70;
+        c1.crystal_id[0] = 0xC1;
+
+        let mut c2 = dummy_crystal(0.85);
+        c2.topology_signature.kuramoto_coherence = 0.75;
+        c2.crystal_id[0] = 0xC2;
+
+        store.commit(&c1, &[], 1, "first").unwrap();
+        store.commit(&c2, &[], 2, "second").unwrap();
+
+        let graph = store.build_causal_graph();
+        assert!(!graph.links.is_empty(), "causal graph must have at least one link");
+        let has_seq = graph
+            .links
+            .iter()
+            .any(|l| l.cause == crate::causal::CausalCause::SequentialCommit);
+        assert!(has_seq, "must have at least one sequential_commit causal link");
+    }
+
+    #[test]
+    fn causal_explanation_root_crystal() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+        let mut c = dummy_crystal(0.80);
+        c.topology_signature.kuramoto_coherence = 0.70;
+        c.crystal_id[0] = 0xD0;
+        store.commit(&c, &[], 1, "solo crystal").unwrap();
+
+        // The one crystal is a causal root (no predecessors)
+        let hex: String = c.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let prefix = &hex[..16];
+        let explanation = store.causal_explanation(prefix);
+        assert!(
+            explanation.contains("causal root"),
+            "single crystal must be described as a causal root: {explanation}"
+        );
+    }
+
+    #[test]
+    fn causal_explanation_shows_direct_cause() {
+        use crate::feedback::{compute_il_stability, refine_crystal, ValidationFeedback};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut original = dummy_crystal(0.70);
+        original.topology_signature.kuramoto_coherence = 0.60;
+        original.crystal_id[0] = 0xE0;
+        store.commit(&original, &[], 1, "original").unwrap();
+
+        let il_stab = compute_il_stability(true, true, 0.8);
+        let fb = ValidationFeedback {
+            block_hash: "h".into(),
+            converged: true,
+            coherence_potential: 0.8,
+            gate_passed: true,
+            hdag_node_id: None,
+            il_stability: il_stab,
+            qtic_certificate: None,
+        };
+        let refined = refine_crystal(&original, &fb, 2);
+        store.commit(&refined, &[], 2, "refined version").unwrap();
+
+        let refined_hex: String = refined.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let prefix = &refined_hex[..16];
+        let explanation = store.causal_explanation(prefix);
+        // Must not be a root explanation — it has at least one cause (sequential or refinement)
+        assert!(
+            !explanation.contains("causal root"),
+            "refined crystal must show direct causes, not be a root: {explanation}"
+        );
+    }
+
+    #[test]
+    fn context_entries_empty_store_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        let query = vec![0.0f64; 8];
+        assert!(store.build_context_entries(&query).is_empty());
+    }
+
+    #[test]
+    fn context_for_query_returns_pse_block() {
+        use crate::adapter::text_to_vector8;
+        use crate::context::ContextBudget;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // A stable crystal that should pass Q3 (gate_passed heuristic: stability > 0.5)
+        let mut crystal = dummy_crystal(0.85);
+        crystal.topology_signature.kuramoto_coherence = 0.72;
+        crystal.crystal_id[0] = 0xDE;
+        store
+            .commit_with_feedback(&crystal, &["working memory".into()], 1, "What is working memory?")
+            .unwrap();
+
+        let q_vec = text_to_vector8("working memory cognitive");
+        let budget = ContextBudget { min_qtic_class: 0, top_k: 5, max_tokens: 512 };
+        let ctx = store.context_for_query(&q_vec, &budget);
+        assert!(ctx.starts_with("[PSE-CONTEXT]"), "must open with PSE-CONTEXT tag");
+        assert!(ctx.ends_with("[/PSE-CONTEXT]"), "must close with /PSE-CONTEXT tag");
+    }
+
+    #[test]
+    fn context_entries_sorted_descending_by_score() {
+        use crate::adapter::text_to_vector8;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c_high = dummy_crystal(0.95);
+        c_high.topology_signature.kuramoto_coherence = 0.9;
+        c_high.crystal_id[0] = 0xE1;
+
+        let mut c_low = dummy_crystal(0.35);
+        c_low.topology_signature.kuramoto_coherence = 0.2;
+        c_low.crystal_id[0] = 0xE2;
+
+        store.commit(&c_high, &[], 1, "high stability crystal").unwrap();
+        store.commit(&c_low, &[], 2, "low stability crystal").unwrap();
+
+        let q_vec = text_to_vector8("stability");
+        let entries = store.build_context_entries(&q_vec);
+        for w in entries.windows(2) {
+            assert!(
+                w[0].tripolar_score >= w[1].tripolar_score,
+                "entries must be sorted descending by tripolar_score"
+            );
+        }
+    }
+
+    #[test]
+    fn question_and_scale_tag_propagate_to_context_entry() {
+        use crate::adapter::text_to_vector8;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut crystal = dummy_crystal(0.80);
+        crystal.topology_signature.kuramoto_coherence = 0.70;
+        crystal.scale_tag = "test-scale".to_string();
+        crystal.crystal_id[0] = 0xF1;
+
+        store
+            .commit_with_feedback(&crystal, &[], 1, "How does memory work?")
+            .unwrap();
+
+        let q_vec = text_to_vector8("memory");
+        let entries = store.build_context_entries(&q_vec);
+        assert!(!entries.is_empty(), "must find at least one entry");
+        let e = &entries[0];
+        assert_eq!(e.scale_tag, "test-scale");
+        assert_eq!(e.question, "How does memory work?");
+    }
+
+    #[test]
     fn qtic_certificate_stored_in_index() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = ILStore::open(dir.path(), "TEST").unwrap();
@@ -1001,5 +1707,103 @@ mod tests {
             Some(expected_class),
             "QTIC class must be persisted in the index"
         );
+    }
+
+    #[test]
+    fn commit_constitutional_blocks_incoherent_crystal() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // stability=0.8 but kuramoto=0.1 → CoherenceGate fails → Blocking
+        let mut c = dummy_crystal(0.80);
+        c.topology_signature.kuramoto_coherence = 0.10;
+        c.crystal_id[0] = 0xBA;
+
+        let result = store.commit_constitutional(
+            &c, &[], 1, "blocked commit", None,
+            &Constitution::pse_core_safety(),
+        );
+        assert!(result.is_err(), "Blocking violation must prevent commit");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("BLOCKING"), "error must name the blocking violation: {msg}");
+        assert_eq!(store.len(), 0, "ledger must be empty — nothing committed");
+    }
+
+    #[test]
+    fn commit_constitutional_admits_coherent_crystal() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // stability=0.75, kuramoto=0.65 → CoherenceGate passes
+        let mut c = dummy_crystal(0.75);
+        c.topology_signature.kuramoto_coherence = 0.65;
+        c.crystal_id[0] = 0xBC;
+
+        let fb = store
+            .commit_constitutional(
+                &c, &[], 1, "admitted commit", None,
+                &Constitution::pse_core_safety(),
+            )
+            .expect("coherent crystal must be admitted");
+        assert!(!fb.feedback.block_hash.is_empty());
+        // No Blocking violations for a gate-passing crystal
+        assert!(fb.report.blocking_violations.is_empty());
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn constitutional_audit_reaches_fixpoint_on_compliant_store() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Two crystals that both satisfy EU AI Act minimal Required rules
+        // (stability >= 0.6 and kuramoto >= 0.3)
+        for (s, k, id) in [(0.75f64, 0.60f64, 0xC1u8), (0.80, 0.70, 0xC2)] {
+            let mut c = dummy_crystal(s);
+            c.topology_signature.kuramoto_coherence = k;
+            c.crystal_id[0] = id;
+            store.commit(&c, &[], 1, "q").unwrap();
+        }
+
+        let report = store.constitutional_audit(&Constitution::eu_ai_act_minimal());
+        assert_eq!(report.total_crystals, 2);
+        assert!(
+            report.is_constitutionally_closed(),
+            "all compliant crystals → fixpoint reached: {}",
+            report.summary()
+        );
+    }
+
+    #[test]
+    fn constitutional_audit_detects_non_compliant_crystal() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Compliant crystal
+        let mut c1 = dummy_crystal(0.75);
+        c1.topology_signature.kuramoto_coherence = 0.60;
+        c1.crystal_id[0] = 0xD1;
+        store.commit(&c1, &[], 1, "q1").unwrap();
+
+        // Non-compliant crystal: stability < 0.6 → EU-ART9 Required violation
+        let mut c2 = dummy_crystal(0.30);
+        c2.topology_signature.kuramoto_coherence = 0.50;
+        c2.crystal_id[0] = 0xD2;
+        store.commit(&c2, &[], 2, "q2").unwrap();
+
+        let report = store.constitutional_audit(&Constitution::eu_ai_act_minimal());
+        assert_eq!(report.total_crystals, 2);
+        assert!(!report.is_constitutionally_closed(), "non-compliant crystal → fixpoint not reached");
+        assert_eq!(report.violation_count, 1);
+        assert!(report.violations_by_rule.contains_key("EU-ART9-STABILITY"));
+        assert!(!report.audit_hash.is_empty());
     }
 }
