@@ -660,6 +660,42 @@ impl ILStore {
         &self.base_path
     }
 
+    /// Build a PSE-grounded LLM prompt for the given query.
+    ///
+    /// 1. Embeds the query via [`text_to_vector8`].
+    /// 2. Selects crystals via Pfauenthron++ + the `PromptConfig` budget.
+    /// 3. Optionally appends the causal explanation of the top-ranked crystal.
+    /// 4. Returns a [`GroundedPrompt`] with a structured system message and
+    ///    the unchanged user query.
+    ///
+    /// Pass [`GroundedPrompt::system_message`] and [`GroundedPrompt::user_message`]
+    /// to any OpenAI-compatible SDK.
+    ///
+    /// [`text_to_vector8`]: crate::adapter::text_to_vector8
+    pub fn build_grounded_prompt(
+        &self,
+        query: &str,
+        config: &crate::prompt::PromptConfig,
+    ) -> crate::prompt::GroundedPrompt {
+        use crate::adapter::text_to_vector8;
+        let query_vec = text_to_vector8(query);
+        let all_entries = self.build_context_entries(&query_vec);
+        let selected: Vec<crate::context::CrystalSummary> = config
+            .budget
+            .select(&all_entries)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        let causal_context = if config.include_causal && !selected.is_empty() {
+            Some(self.causal_explanation(&selected[0].crystal_id))
+        } else {
+            None
+        };
+
+        crate::prompt::build_prompt(query, config, selected, causal_context)
+    }
+
     /// Build a causal graph from all HDAG edges in this store.
     ///
     /// Every HDAG edge is translated to a typed [`crate::causal::CausalLink`]

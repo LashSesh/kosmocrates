@@ -30,12 +30,14 @@ pub mod causal;
 pub mod context;
 pub mod feedback;
 pub mod hdag;
+pub mod prompt;
 pub mod qtic;
 pub mod store;
 
 pub use adapter::{text_to_vector8, CrystalAdapter, ILPayload};
 pub use causal::{CausalCause, CausalGraph, CausalLink};
 pub use context::{ContextBudget, CrystalSummary};
+pub use prompt::{GroundedPrompt, PromptConfig};
 pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};
 pub use qtic::{classify as classify_qtic, mirror_consistency_index, QticCertificate, QticClass,
