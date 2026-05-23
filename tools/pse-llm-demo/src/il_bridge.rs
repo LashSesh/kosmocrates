@@ -4,9 +4,12 @@
 //!   - Every new crystal is committed to the IL file-based ledger.
 //!   - The IL pipeline returns a `ValidationFeedback` which is used to
 //!     produce a *refined* crystal (stability blended 70% PSE + 30% IL).
-//!   - On Session 3+, the LLM question is embedded as an 8D vector and used
-//!     to retrieve fuzzy-similar crystals from the IL index.
-//!   - The fuzzy-retrieved records supplement the deterministic PSE recall.
+//!   - On Session 3+, the question is scored against all crystals using the
+//!     Pfauenthron++ tripolar formula D = ψ · ρ · ω (Timeless Monolith spec):
+//!       ψ — IL cosine similarity (semantic alignment)
+//!       ρ — PSE stability score (structural coherence)
+//!       ω — HDAG coherence potential normalised (temporal readiness)
+//!     Results are sorted by D and returned as the unified retrieval ranking.
 //!
 //! When `PSE_IL_STORE` is not set the bridge is a no-op and zero overhead.
 
@@ -122,6 +125,50 @@ impl ILBridge {
 
         hits.into_iter()
             .filter(|h| h.score >= 0.5)
+            .filter_map(|h| {
+                all_records
+                    .iter()
+                    .find(|r| {
+                        let id_hex: String = r
+                            .crystal
+                            .crystal_id
+                            .iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect();
+                        id_hex == h.crystal_id_hex
+                    })
+                    .map(|r| (r, h.score))
+            })
+            .collect()
+    }
+
+    /// Unified retrieval using the Pfauenthron++ tripolar score D = ψ · ρ · ω.
+    ///
+    /// All crystals in `all_records` are scored against `question` and
+    /// returned in descending order of D.  Entries with D = 0 are excluded.
+    ///
+    /// Returns an empty vec when IL is disabled or the store is empty.
+    pub fn pfauenthron_score_all<'a>(
+        &self,
+        question: &str,
+        top_k: usize,
+        all_records: &'a [CrystalRecord],
+    ) -> Vec<(&'a CrystalRecord, f64)> {
+        let store = match &self.store {
+            Some(s) => s,
+            None => return vec![],
+        };
+        if store.is_empty() {
+            return vec![];
+        }
+
+        let q_vec = text_to_vector8(question);
+        let mut hits: Vec<ILMatch> = store.score_tripolar(&q_vec);
+
+        // Cap results
+        hits.truncate(top_k);
+
+        hits.into_iter()
             .filter_map(|h| {
                 all_records
                     .iter()

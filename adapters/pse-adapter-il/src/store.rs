@@ -56,6 +56,17 @@ struct IndexEntry {
     /// HDAG node ID for this entry (always populated).
     #[serde(default)]
     hdag_node_id: Option<String>,
+    /// PSE stability score at commit time; ρ in the Pfauenthron++ retrieval formula.
+    #[serde(default = "default_stability")]
+    stability_score: f64,
+    /// Metatron S₇ canonical hash, if the crystal carried a MetatronTopologySignature.
+    /// Two entries with the same non-empty hash are topologically isomorphic.
+    #[serde(default)]
+    metatron_canonical_hash: Option<String>,
+}
+
+fn default_stability() -> f64 {
+    0.5
 }
 
 /// On-disk index file.
@@ -314,6 +325,12 @@ impl ILStore {
             vector8: payload.vector8,
             phase: payload.phase,
             hdag_node_id: hdag_node_id.clone(),
+            stability_score: crystal.stability_score,
+            metatron_canonical_hash: crystal
+                .metatron_signature
+                .as_ref()
+                .filter(|m| !m.canonical_hash.is_empty())
+                .map(|m| m.canonical_hash.clone()),
         });
         self.save_index()?;
 
@@ -386,6 +403,36 @@ impl ILStore {
             }
         }
 
+        // Metatron isomorphic edges: connect this crystal to all previous
+        // crystals that share the same S₇ canonical hash.  Two crystals
+        // with the same canonical_hash have isomorphic region subgraphs —
+        // a structural resonance that deserves an explicit HDAG connection.
+        // The coherence gate still applies; degenerate or anti-coherent
+        // pairs are excluded naturally.
+        if let Some(ref m_sig) = crystal.metatron_signature {
+            if !m_sig.canonical_hash.is_empty() {
+                let iso_nids: Vec<String> = self
+                    .index
+                    .entries
+                    .iter()
+                    .filter(|e| {
+                        e.metatron_canonical_hash
+                            .as_deref()
+                            .map(|h| h == m_sig.canonical_hash)
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|e| e.hdag_node_id.clone())
+                    .collect();
+                for iso_nid in iso_nids {
+                    match hdag.add_edge(&iso_nid, &node_id, "metatron_isomorphic") {
+                        Ok(Some(_)) => {}
+                        Ok(None) => {} // coherence gate closed — still consistent
+                        Err(e) => eprintln!("[IL] HDAG isomorphic edge error: {e}"),
+                    }
+                }
+            }
+        }
+
         Some(node_id)
     }
 
@@ -441,6 +488,60 @@ impl ILStore {
             .collect()
     }
 
+    /// Pfauenthron++ unified score over all committed crystals.
+    ///
+    /// Implements the Timeless Monolith tripolar formula D = ψ · ρ · ω:
+    ///   ψ — IL semantic alignment: cosine(query_vec, crystal.vector8)
+    ///   ρ — PSE structural coherence: crystal stability_score ∈ [0,1]
+    ///   ω — HDAG temporal readiness: normalised coherence potential ∈ [0,1]
+    ///
+    /// Multiplicative form acts as a Gabriel4D Funnel: a crystal must score
+    /// non-trivially on all three axes to reach the retrieval core.
+    /// Entries with D = 0 are excluded.  Results sorted by descending D.
+    pub fn score_tripolar(&self, query_vec: &[f64]) -> Vec<ILMatch> {
+        let mut scored: Vec<ILMatch> = self
+            .index
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                // ψ: semantic alignment (IL 8D cosine similarity)
+                let psi_sem = cosine(&entry.vector8, query_vec);
+                if psi_sem <= 0.0 {
+                    return None;
+                }
+
+                // ρ: structural coherence (PSE stability score)
+                let rho_pse = entry.stability_score.clamp(0.0, 1.0);
+
+                // ω: temporal readiness (HDAG coherence potential, normalised to [0,1])
+                let omega_hdag: f64 = match &self.hdag {
+                    Some(hdag) => match &entry.hdag_node_id {
+                        Some(nid) => match hdag.tensor_of(nid) {
+                            Some(t) => {
+                                let psi_hdag = t[1] - t[4]; // morphic − entropic
+                                ((psi_hdag + 1.0) / 2.0).clamp(0.0, 1.0)
+                            }
+                            None => 0.5,
+                        },
+                        None => 0.5,
+                    },
+                    None => 0.5, // HDAG disabled: neutral weight
+                };
+
+                // D = ψ · ρ · ω  (Pfauenthron++ score)
+                let score = psi_sem * rho_pse * omega_hdag;
+                if score > 0.0 {
+                    Some(ILMatch { crystal_id_hex: entry.crystal_id_hex.clone(), score })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored
+    }
+
     /// Topological order of committed crystals from the HDAG.
     /// Returns insertion order as fallback when HDAG is unavailable.
     pub fn topological_order(&self) -> Vec<String> {
@@ -472,6 +573,16 @@ impl ILStore {
             .as_ref()
             .map(|h| h.mean_coherence_potential())
             .unwrap_or(0.0)
+    }
+
+    /// Number of HDAG edges with the given cause label.
+    /// Common causes: "sequential_commit", "resonance_proximity", "refinement".
+    /// Returns 0 when HDAG is inactive.
+    pub fn hdag_edge_count_by_cause(&self, cause: &str) -> usize {
+        self.hdag
+            .as_ref()
+            .map(|h| h.edge_count_by_cause(cause))
+            .unwrap_or(0)
     }
 
     /// Number of committed blocks.

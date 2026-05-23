@@ -290,19 +290,22 @@ fn main() {
         let top_k = 5.min(mem.crystal_records.len());
         let mut pse_context = render_crystal_context(&mem.crystal_records, top_k);
 
-        // IL fuzzy recall: supplement deterministic PSE context with
-        // semantically similar records ranked by cosine distance.
-        let il_hits = il.query_similar(question, 3, &mem.crystal_records);
+        // Unified retrieval: Pfauenthron++ tripolar score D = ψ · ρ · ω
+        // (IL cosine × PSE stability × HDAG coherence readiness).
+        // When IL is inactive, falls back to the deterministic PSE top-k above.
+        let il_hits = il.pfauenthron_score_all(question, 3, &mem.crystal_records);
         if !il_hits.is_empty() {
             let il_records: Vec<CrystalRecord> =
                 il_hits.iter().map(|(r, _)| (*r).clone()).collect();
             let il_ctx = render_crystal_context(&il_records, il_records.len());
             if !il_ctx.is_empty() {
-                pse_context.push_str("\n[IL Fuzzy Recall — cosine-similar patterns]\n");
+                pse_context.push_str("\n[Unified Retrieval — Pfauenthron++ D=ψ·ρ·ω]\n");
                 pse_context.push_str(&il_ctx);
+                let top_score = il_hits.first().map(|(_, d)| *d).unwrap_or(0.0);
                 println!(
-                    "  [IL fuzzy recall: {} record(s) matched by cosine similarity]",
-                    il_hits.len()
+                    "  [Unified retrieval: {} record(s), top D={:.3}]",
+                    il_hits.len(),
+                    top_score
                 );
             }
         }

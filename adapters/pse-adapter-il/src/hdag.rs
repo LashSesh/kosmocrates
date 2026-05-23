@@ -36,13 +36,29 @@ use std::path::{Path, PathBuf};
 pub type ResonanceTensor = [f64; 5];
 
 /// Extract the 5D resonance tensor from a SemanticCrystal.
+///
+/// When the crystal carries a `MetatronTopologySignature`, the relational and
+/// topological dimensions are replaced by the Metatron crate's exact spectral
+/// values (`algebraic_connectivity` and `spectral_radius`), both normalised by
+/// the region vertex count n so they remain in [0, 1].  Without a signature
+/// the PSE topology estimates (`cheeger_estimate`, `spectral_gap`) are used.
 pub fn crystal_to_tensor(crystal: &SemanticCrystal) -> ResonanceTensor {
     let s = &crystal.topology_signature;
+    let (cheeger, spectral) = match &crystal.metatron_signature {
+        Some(m) if m.n > 0 => {
+            let n = m.n as f64;
+            (
+                (m.algebraic_connectivity / n).clamp(0.0, 1.0),
+                (m.spectral_radius       / n).clamp(0.0, 1.0),
+            )
+        }
+        _ => (s.cheeger_estimate, s.spectral_gap),
+    };
     [
         s.mean_propagation_time,
         s.kuramoto_coherence,
-        s.cheeger_estimate,
-        s.spectral_gap,
+        cheeger,
+        spectral,
         1.0 - crystal.stability_score.clamp(0.0, 1.0),
     ]
 }
@@ -372,6 +388,12 @@ impl HDAG {
     /// Whether a specific node satisfies the S_coh condition.
     pub fn is_in_s_coh_for(&self, node_id: &str) -> Option<bool> {
         self.data.nodes.get(node_id).map(|n| Self::is_in_s_coh(n))
+    }
+
+    /// Raw 5D resonance tensor for a node — used by the Pfauenthron++ scorer
+    /// to extract ρ (1 − entropic = stability) and ω (normalised ψ_HDAG).
+    pub fn tensor_of(&self, node_id: &str) -> Option<ResonanceTensor> {
+        self.data.nodes.get(node_id).map(|n| n.tensor)
     }
 
     /// Find valid semantic predecessors for `target_id` by scanning the
