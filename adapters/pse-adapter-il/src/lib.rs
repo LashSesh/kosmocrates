@@ -36,6 +36,7 @@ pub mod health;
 pub mod lifecycle;
 pub mod prompt;
 pub mod qtic;
+pub mod retrieval;
 pub mod store;
 
 pub use adapter::{text_to_vector8, CrystalAdapter, ILPayload};
@@ -56,4 +57,7 @@ pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};
 pub use qtic::{classify as classify_qtic, mirror_consistency_index, QticCertificate, QticClass,
                QticInput, MCI_THRESHOLD};
+pub use retrieval::{
+    CausalRetrievalConfig, CausalRetrievalResult, CausalRole, CausallyGroundedEntry,
+};
 pub use store::{ILMatch, ILStore};
