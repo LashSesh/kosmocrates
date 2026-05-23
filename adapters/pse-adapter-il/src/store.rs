@@ -69,6 +69,13 @@ struct IndexEntry {
     /// QTIC conformance class (0–5) at commit time.
     #[serde(default)]
     qtic_class: Option<u8>,
+    /// Question that prompted this crystal's formation (empty for commits
+    /// that pre-date this field or used the bare `commit` path).
+    #[serde(default)]
+    question: String,
+    /// Scale tag of the crystal at commit time (e.g., `"il-refined"`).
+    #[serde(default)]
+    scale_tag: String,
 }
 
 fn default_stability() -> f64 {
@@ -360,6 +367,13 @@ impl ILStore {
             ))
             .unwrap_or(crystal.stability_score > 0.5);
 
+        let question = payload
+            .snapshot_json
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         self.index.entries.push(IndexEntry {
             block_index,
             crystal_id_hex: payload.crystal_id_hex,
@@ -376,6 +390,8 @@ impl ILStore {
                 .filter(|m| !m.canonical_hash.is_empty())
                 .map(|m| m.canonical_hash.clone()),
             qtic_class: None, // set after QTIC classification in commit_with_feedback
+            question,
+            scale_tag: crystal.scale_tag.clone(),
         });
         self.save_index()?;
 
@@ -642,6 +658,88 @@ impl ILStore {
 
     pub fn base_path(&self) -> &Path {
         &self.base_path
+    }
+
+    /// Build context summaries for all committed crystals, scored by Pfauenthron++.
+    ///
+    /// Applies the tripolar formula D = ψ·ρ·ω (semantic × structural × temporal)
+    /// to every index entry and returns the results sorted by descending D.
+    /// Entries with D ≤ 0 are excluded.
+    ///
+    /// Pass the result to [`crate::context::ContextBudget::select`] or use the
+    /// convenience wrapper [`ILStore::context_for_query`].
+    pub fn build_context_entries(&self, query_vec: &[f64]) -> Vec<crate::context::CrystalSummary> {
+        use crate::context::CrystalSummary;
+        let mut summaries: Vec<CrystalSummary> = self
+            .index
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let psi_sem = cosine(&entry.vector8, query_vec);
+                if psi_sem <= 0.0 {
+                    return None;
+                }
+                let rho = entry.stability_score.clamp(0.0, 1.0);
+                let omega = match &self.hdag {
+                    Some(hdag) => match &entry.hdag_node_id {
+                        Some(nid) => match hdag.tensor_of(nid) {
+                            Some(t) => ((t[1] - t[4] + 1.0) / 2.0).clamp(0.0, 1.0),
+                            None => 0.5,
+                        },
+                        None => 0.5,
+                    },
+                    None => 0.5,
+                };
+                let d = psi_sem * rho * omega;
+                if d <= 0.0 {
+                    return None;
+                }
+                Some(CrystalSummary {
+                    crystal_id: entry.crystal_id_hex
+                        [..entry.crystal_id_hex.len().min(16)]
+                        .to_string(),
+                    stability: entry.stability_score,
+                    qtic_class: entry.qtic_class,
+                    tripolar_score: d,
+                    commit_index: entry.block_index,
+                    scale_tag: entry.scale_tag.clone(),
+                    question: entry.question.clone(),
+                })
+            })
+            .collect();
+        summaries.sort_by(|a, b| {
+            b.tripolar_score
+                .partial_cmp(&a.tripolar_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        summaries
+    }
+
+    /// Compact context block for LLM injection.
+    ///
+    /// Scores all crystals with [`build_context_entries`], applies the
+    /// `ContextBudget` filter, and wraps the result in a
+    /// `[PSE-CONTEXT]...[/PSE-CONTEXT]` block ready for prepending to an
+    /// LLM prompt.  Returns an empty string if no crystals satisfy the budget.
+    ///
+    /// [`build_context_entries`]: ILStore::build_context_entries
+    pub fn context_for_query(
+        &self,
+        query_vec: &[f64],
+        budget: &crate::context::ContextBudget,
+    ) -> String {
+        let all = self.build_context_entries(query_vec);
+        let selected = budget.select(&all);
+        if selected.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from("[PSE-CONTEXT]\n");
+        for s in selected {
+            out.push_str(&s.to_compact_text());
+            out.push('\n');
+        }
+        out.push_str("[/PSE-CONTEXT]");
+        out
     }
 
     fn save_index(&self) -> Result<(), String> {
@@ -969,6 +1067,89 @@ mod tests {
             cert.conformance_class >= crate::qtic::QticClass::Q1,
             "certificate must reach at least Q1"
         );
+    }
+
+    #[test]
+    fn context_entries_empty_store_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        let query = vec![0.0f64; 8];
+        assert!(store.build_context_entries(&query).is_empty());
+    }
+
+    #[test]
+    fn context_for_query_returns_pse_block() {
+        use crate::adapter::text_to_vector8;
+        use crate::context::ContextBudget;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // A stable crystal that should pass Q3 (gate_passed heuristic: stability > 0.5)
+        let mut crystal = dummy_crystal(0.85);
+        crystal.topology_signature.kuramoto_coherence = 0.72;
+        crystal.crystal_id[0] = 0xDE;
+        store
+            .commit_with_feedback(&crystal, &["working memory".into()], 1, "What is working memory?")
+            .unwrap();
+
+        let q_vec = text_to_vector8("working memory cognitive");
+        let budget = ContextBudget { min_qtic_class: 0, top_k: 5, max_tokens: 512 };
+        let ctx = store.context_for_query(&q_vec, &budget);
+        assert!(ctx.starts_with("[PSE-CONTEXT]"), "must open with PSE-CONTEXT tag");
+        assert!(ctx.ends_with("[/PSE-CONTEXT]"), "must close with /PSE-CONTEXT tag");
+    }
+
+    #[test]
+    fn context_entries_sorted_descending_by_score() {
+        use crate::adapter::text_to_vector8;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c_high = dummy_crystal(0.95);
+        c_high.topology_signature.kuramoto_coherence = 0.9;
+        c_high.crystal_id[0] = 0xE1;
+
+        let mut c_low = dummy_crystal(0.35);
+        c_low.topology_signature.kuramoto_coherence = 0.2;
+        c_low.crystal_id[0] = 0xE2;
+
+        store.commit(&c_high, &[], 1, "high stability crystal").unwrap();
+        store.commit(&c_low, &[], 2, "low stability crystal").unwrap();
+
+        let q_vec = text_to_vector8("stability");
+        let entries = store.build_context_entries(&q_vec);
+        for w in entries.windows(2) {
+            assert!(
+                w[0].tripolar_score >= w[1].tripolar_score,
+                "entries must be sorted descending by tripolar_score"
+            );
+        }
+    }
+
+    #[test]
+    fn question_and_scale_tag_propagate_to_context_entry() {
+        use crate::adapter::text_to_vector8;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut crystal = dummy_crystal(0.80);
+        crystal.topology_signature.kuramoto_coherence = 0.70;
+        crystal.scale_tag = "test-scale".to_string();
+        crystal.crystal_id[0] = 0xF1;
+
+        store
+            .commit_with_feedback(&crystal, &[], 1, "How does memory work?")
+            .unwrap();
+
+        let q_vec = text_to_vector8("memory");
+        let entries = store.build_context_entries(&q_vec);
+        assert!(!entries.is_empty(), "must find at least one entry");
+        let e = &entries[0];
+        assert_eq!(e.scale_tag, "test-scale");
+        assert_eq!(e.question, "How does memory work?");
     }
 
     #[test]
