@@ -374,6 +374,12 @@ impl HDAG {
         self.data.nodes.get(node_id).map(|n| Self::is_in_s_coh(n))
     }
 
+    /// Raw 5D resonance tensor for a node — used by the Pfauenthron++ scorer
+    /// to extract ρ (1 − entropic = stability) and ω (normalised ψ_HDAG).
+    pub fn tensor_of(&self, node_id: &str) -> Option<ResonanceTensor> {
+        self.data.nodes.get(node_id).map(|n| n.tensor)
+    }
+
     /// Find valid semantic predecessors for `target_id` by scanning the
     /// resonance field.
     ///
