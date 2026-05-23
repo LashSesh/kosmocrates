@@ -669,6 +669,171 @@ impl ILStore {
         &self.base_path
     }
 
+    /// Epistemic health metrics for a single crystal.
+    ///
+    /// Returns `None` when no crystal with the given ID prefix exists in the
+    /// index.  `crystal_id_prefix` should be the first 16 hex characters of
+    /// the target crystal's ID (as stored in [`CrystalSummary::crystal_id`]).
+    ///
+    /// [`CrystalSummary::crystal_id`]: crate::context::CrystalSummary::crystal_id
+    pub fn crystal_health(
+        &self,
+        crystal_id_prefix: &str,
+    ) -> Option<crate::health::CrystalHealthMetrics> {
+        use crate::health::{crystal_uncertainty, CrystalHealthMetrics};
+        let entry = self
+            .index
+            .entries
+            .iter()
+            .find(|e| e.crystal_id_hex.starts_with(crystal_id_prefix))?;
+        let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
+        let uncertainty = crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
+        Some(CrystalHealthMetrics {
+            crystal_id: entry.crystal_id_hex[..entry.crystal_id_hex.len().min(16)].to_string(),
+            qtic_class: entry.qtic_class,
+            stability: entry.stability_score,
+            coherence: entry.kuramoto,
+            psi,
+            uncertainty,
+            block_index: entry.block_index,
+            agent_id: entry.agent_id.clone(),
+        })
+    }
+
+    /// Store-wide epistemic memory health dashboard.
+    ///
+    /// Aggregates per-crystal metrics into a [`MemoryHealthReport`] that
+    /// reflects the current epistemic quality of the crystal store.
+    ///
+    /// Call [`MemoryHealthReport::is_healthy`] to check whether the store
+    /// meets the baseline health criteria (≥ 80 % Q4+, mean uncertainty ≤ 0.30).
+    ///
+    /// [`MemoryHealthReport`]: crate::health::MemoryHealthReport
+    pub fn memory_health(&self) -> crate::health::MemoryHealthReport {
+        use crate::health::{crystal_uncertainty, MemoryHealthReport};
+
+        let n = self.index.entries.len();
+        if n == 0 {
+            return MemoryHealthReport {
+                total_crystals: 0,
+                mean_qtic_class: None,
+                fraction_q4_plus: 0.0,
+                mean_stability: 0.0,
+                mean_coherence: 0.0,
+                mean_uncertainty: 0.0,
+                healthy_count: 0,
+                at_risk_count: 0,
+                attributed_fraction: 0.0,
+                oldest_block_index: None,
+                newest_block_index: None,
+            };
+        }
+
+        let mut sum_qtic = 0.0f64;
+        let mut qtic_count = 0usize;
+        let mut q4_plus_count = 0usize;
+        let mut sum_stability = 0.0f64;
+        let mut sum_coherence = 0.0f64;
+        let mut sum_uncertainty = 0.0f64;
+        let mut healthy_count = 0usize;
+        let mut at_risk_count = 0usize;
+        let mut attributed_count = 0usize;
+        let mut oldest: Option<i64> = None;
+        let mut newest: Option<i64> = None;
+
+        for entry in &self.index.entries {
+            let u = crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
+            let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
+
+            sum_stability += entry.stability_score;
+            sum_coherence += entry.kuramoto;
+            sum_uncertainty += u;
+
+            if let Some(q) = entry.qtic_class {
+                sum_qtic += q as f64;
+                qtic_count += 1;
+                if q >= 4 {
+                    q4_plus_count += 1;
+                }
+                let healthy = q >= 3 && entry.stability_score >= 0.6 && u <= 0.4;
+                if healthy {
+                    healthy_count += 1;
+                }
+            }
+
+            if u >= 0.5 {
+                at_risk_count += 1;
+            }
+            if !entry.agent_id.is_empty() {
+                attributed_count += 1;
+            }
+
+            let _ = psi; // available for future use
+
+            oldest = Some(oldest.map_or(entry.block_index, |o: i64| o.min(entry.block_index)));
+            newest = Some(newest.map_or(entry.block_index, |ne: i64| ne.max(entry.block_index)));
+        }
+
+        MemoryHealthReport {
+            total_crystals: n,
+            mean_qtic_class: if qtic_count > 0 {
+                Some(sum_qtic / qtic_count as f64)
+            } else {
+                None
+            },
+            fraction_q4_plus: q4_plus_count as f64 / n as f64,
+            mean_stability: sum_stability / n as f64,
+            mean_coherence: sum_coherence / n as f64,
+            mean_uncertainty: sum_uncertainty / n as f64,
+            healthy_count,
+            at_risk_count,
+            attributed_fraction: attributed_count as f64 / n as f64,
+            oldest_block_index: oldest,
+            newest_block_index: newest,
+        }
+    }
+
+    /// All crystals with epistemic uncertainty ≥ `threshold`, sorted by
+    /// descending uncertainty (most uncertain first).
+    ///
+    /// Use `threshold = 0.5` for the default "at risk" definition.
+    pub fn at_risk_crystals(
+        &self,
+        threshold: f64,
+    ) -> Vec<crate::health::CrystalHealthMetrics> {
+        use crate::health::{crystal_uncertainty, CrystalHealthMetrics};
+        let mut metrics: Vec<CrystalHealthMetrics> = self
+            .index
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let u = crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
+                if u < threshold {
+                    return None;
+                }
+                let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
+                Some(CrystalHealthMetrics {
+                    crystal_id: entry.crystal_id_hex
+                        [..entry.crystal_id_hex.len().min(16)]
+                        .to_string(),
+                    qtic_class: entry.qtic_class,
+                    stability: entry.stability_score,
+                    coherence: entry.kuramoto,
+                    psi,
+                    uncertainty: u,
+                    block_index: entry.block_index,
+                    agent_id: entry.agent_id.clone(),
+                })
+            })
+            .collect();
+        metrics.sort_by(|a, b| {
+            b.uncertainty
+                .partial_cmp(&a.uncertainty)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        metrics
+    }
+
     /// Build a PSE-grounded LLM prompt for the given query.
     ///
     /// 1. Embeds the query via [`text_to_vector8`].
@@ -1805,5 +1970,97 @@ mod tests {
         assert_eq!(report.violation_count, 1);
         assert!(report.violations_by_rule.contains_key("EU-ART9-STABILITY"));
         assert!(!report.audit_hash.is_empty());
+    }
+
+    #[test]
+    fn memory_health_empty_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        let h = store.memory_health();
+        assert_eq!(h.total_crystals, 0);
+        assert!(h.summary().contains("empty"));
+    }
+
+    #[test]
+    fn memory_health_reflects_committed_crystals() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c1 = dummy_crystal(0.85);
+        c1.topology_signature.kuramoto_coherence = 0.75;
+        c1.crystal_id[0] = 0xE1;
+
+        let mut c2 = dummy_crystal(0.70);
+        c2.topology_signature.kuramoto_coherence = 0.60;
+        c2.crystal_id[0] = 0xE2;
+
+        store.commit_with_feedback(&c1, &[], 1, "q1").unwrap();
+        store.commit_with_feedback(&c2, &[], 2, "q2").unwrap();
+
+        let h = store.memory_health();
+        assert_eq!(h.total_crystals, 2);
+        assert!(h.mean_stability > 0.0, "mean stability must be positive");
+        assert!(h.mean_coherence > 0.0, "mean coherence must be positive");
+        assert!((0.0..=1.0).contains(&h.mean_uncertainty));
+        assert!(h.oldest_block_index.is_some());
+        assert!(h.newest_block_index.is_some());
+        assert!(!h.summary().contains("empty"));
+    }
+
+    #[test]
+    fn at_risk_crystals_identifies_low_quality() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // High-quality crystal — should NOT be at risk
+        let mut c_good = dummy_crystal(0.90);
+        c_good.topology_signature.kuramoto_coherence = 0.80;
+        c_good.crystal_id[0] = 0xA0;
+        store.commit(&c_good, &[], 1, "good").unwrap();
+
+        // Low-quality crystal — qtic not yet classified (None), low stability
+        // uncertainty = crystal_uncertainty(None, ...) = 1.0 → at risk
+        let mut c_bad = dummy_crystal(0.10);
+        c_bad.topology_signature.kuramoto_coherence = 0.05;
+        c_bad.crystal_id[0] = 0xA1;
+        // Commit via bare commit() so qtic is still set (it always gets classified
+        // in commit_with_feedback). Test that at_risk_crystals returns those with
+        // high uncertainty regardless.
+        store.commit(&c_bad, &[], 2, "bad").unwrap();
+
+        let at_risk = store.at_risk_crystals(0.5);
+        // The low-stability/coherence crystal should have high uncertainty
+        let has_bad = at_risk.iter().any(|m| m.stability < 0.3);
+        assert!(has_bad, "low-stability crystal must appear in at-risk list");
+        // At-risk list must be sorted by descending uncertainty
+        for w in at_risk.windows(2) {
+            assert!(w[0].uncertainty >= w[1].uncertainty);
+        }
+    }
+
+    #[test]
+    fn crystal_health_returns_none_for_unknown_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        assert!(store.crystal_health("deadbeef00000000").is_none());
+    }
+
+    #[test]
+    fn crystal_health_returns_metrics_for_known_crystal() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c = dummy_crystal(0.80);
+        c.topology_signature.kuramoto_coherence = 0.70;
+        c.crystal_id[0] = 0xBB;
+
+        store.commit_with_feedback(&c, &[], 1, "health-test").unwrap();
+        let hex: String = c.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let prefix = &hex[..16];
+
+        let metrics = store.crystal_health(prefix).expect("must find committed crystal");
+        assert!((metrics.stability - 0.80).abs() < 1e-9);
+        assert!((metrics.coherence - 0.70).abs() < 1e-9);
+        assert!((0.0..=1.0).contains(&metrics.uncertainty));
     }
 }

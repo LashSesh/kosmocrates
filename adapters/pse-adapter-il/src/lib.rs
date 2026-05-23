@@ -32,6 +32,7 @@ pub mod constitutional;
 pub mod context;
 pub mod feedback;
 pub mod hdag;
+pub mod health;
 pub mod prompt;
 pub mod qtic;
 pub mod store;
@@ -44,6 +45,7 @@ pub use constitutional::{
     ConstitutionalReport, RulePredicate, RuleVerdict, Severity,
 };
 pub use context::{ContextBudget, CrystalSummary};
+pub use health::{crystal_uncertainty, CrystalHealthMetrics, MemoryHealthReport};
 pub use prompt::{GroundedPrompt, PromptConfig};
 pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};
