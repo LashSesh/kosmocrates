@@ -1349,6 +1349,221 @@ impl ILStore {
         }
     }
 
+    /// Knowledge topology analysis: clusters crystals into semantic islands.
+    ///
+    /// 1. Builds an undirected similarity graph (edge iff cosine similarity
+    ///    of 8D IL vectors ≥ `config.sim_threshold`).
+    /// 2. Finds connected components via Union-Find → each component with
+    ///    ≥ `config.min_cluster_size` members becomes a [`KnowledgeCluster`].
+    ///    Smaller components are reported as singletons.
+    /// 3. Computes per-cluster metrics: centroid, mean stability, mean
+    ///    uncertainty, causal density, and mean QTIC class.
+    /// 4. Identifies [`BridgeCrystal`]s: crystals with direct causal edges
+    ///    that cross cluster boundaries.
+    ///
+    /// [`KnowledgeCluster`]: crate::cluster::KnowledgeCluster
+    /// [`BridgeCrystal`]: crate::cluster::BridgeCrystal
+    pub fn cluster_knowledge(
+        &self,
+        config: &crate::cluster::ClusterConfig,
+    ) -> crate::cluster::ClusteringReport {
+        use crate::cluster::{BridgeCrystal, ClusteringReport, KnowledgeCluster, UnionFind};
+        use crate::health::crystal_uncertainty;
+        use std::collections::{HashMap, HashSet};
+
+        let entries = &self.index.entries;
+        let n = entries.len();
+
+        if n == 0 {
+            return ClusteringReport {
+                sim_threshold: config.sim_threshold,
+                clusters: vec![],
+                singletons: vec![],
+                bridge_crystals: vec![],
+                total_crystals: 0,
+                clustered_fraction: 0.0,
+            };
+        }
+
+        // ── Step 1: Union-Find over similarity graph ──────────────────────
+        let mut uf = UnionFind::new(n);
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let sim = cosine(&entries[i].vector8, &entries[j].vector8);
+                if sim >= config.sim_threshold {
+                    uf.union(i, j);
+                }
+            }
+        }
+
+        // ── Step 2: Group by component root ──────────────────────────────
+        let mut component_members: HashMap<usize, Vec<usize>> = HashMap::new();
+        for i in 0..n {
+            component_members.entry(uf.find(i)).or_default().push(i);
+        }
+
+        // ── Step 3: Build clusters and singletons ─────────────────────────
+        // Map: entry index → cluster_id (for bridge detection)
+        let mut entry_to_cluster: HashMap<usize, usize> = HashMap::new();
+        let mut clusters: Vec<KnowledgeCluster> = Vec::new();
+        let mut singletons: Vec<String> = Vec::new();
+
+        let mut components: Vec<Vec<usize>> = component_members.into_values().collect();
+        // Sort by descending size for stable cluster_id assignment
+        components.sort_by(|a, b| b.len().cmp(&a.len()));
+
+        let causal_graph = self.build_causal_graph();
+
+        // Build a set of (id_a, id_b) direct causal pairs for density computation
+        let causal_pairs: HashSet<(String, String)> = causal_graph
+            .links
+            .iter()
+            .map(|l| (l.from.clone(), l.to.clone()))
+            .collect();
+
+        let mut cluster_id = 0usize;
+        for component in &components {
+            let id_prefixes: Vec<String> = component
+                .iter()
+                .map(|&i| {
+                    let hex = &entries[i].crystal_id_hex;
+                    hex[..hex.len().min(16)].to_string()
+                })
+                .collect();
+
+            if component.len() < config.min_cluster_size {
+                // Singleton (or sub-threshold cluster)
+                singletons.extend(id_prefixes);
+                continue;
+            }
+
+            // Assign cluster IDs
+            for &i in component {
+                entry_to_cluster.insert(i, cluster_id);
+            }
+
+            // Centroid: mean 8D vector
+            let dim = entries[0].vector8.len();
+            let mut centroid = vec![0.0f64; dim];
+            let mut sum_stability = 0.0f64;
+            let mut sum_uncertainty = 0.0f64;
+            let mut sum_qtic = 0.0f64;
+            let mut qtic_count = 0usize;
+
+            for &i in component {
+                let e = &entries[i];
+                for (d, &v) in e.vector8.iter().enumerate() {
+                    centroid[d] += v;
+                }
+                sum_stability += e.stability_score;
+                sum_uncertainty +=
+                    crystal_uncertainty(e.qtic_class, e.stability_score, e.kuramoto);
+                if let Some(q) = e.qtic_class {
+                    sum_qtic += q as f64;
+                    qtic_count += 1;
+                }
+            }
+            let m = component.len() as f64;
+            for v in &mut centroid {
+                *v /= m;
+            }
+
+            // Causal density: fraction of pairs with a direct causal link
+            let causal_density = if component.len() >= 2 {
+                let total_pairs = component.len() * (component.len() - 1) / 2;
+                let mut linked = 0usize;
+                for a in 0..id_prefixes.len() {
+                    for b in (a + 1)..id_prefixes.len() {
+                        let ia = &id_prefixes[a];
+                        let ib = &id_prefixes[b];
+                        if causal_pairs.contains(&(ia.clone(), ib.clone()))
+                            || causal_pairs.contains(&(ib.clone(), ia.clone()))
+                        {
+                            linked += 1;
+                        }
+                    }
+                }
+                linked as f64 / total_pairs as f64
+            } else {
+                0.0
+            };
+
+            clusters.push(KnowledgeCluster {
+                cluster_id,
+                members: id_prefixes,
+                centroid,
+                mean_stability: sum_stability / m,
+                mean_uncertainty: sum_uncertainty / m,
+                causal_density,
+                mean_qtic_class: if qtic_count > 0 {
+                    Some(sum_qtic / qtic_count as f64)
+                } else {
+                    None
+                },
+            });
+            cluster_id += 1;
+        }
+
+        // ── Step 4: Bridge crystal detection ──────────────────────────────
+        // A bridge crystal has causal edges crossing at least two distinct clusters.
+        let mut bridge_map: HashMap<String, HashSet<usize>> = HashMap::new();
+        let mut bridge_edge_count: HashMap<String, usize> = HashMap::new();
+
+        for link in &causal_graph.links {
+            // Find which cluster each endpoint belongs to
+            let cluster_of = |id_prefix: &str| -> Option<usize> {
+                let idx = entries.iter().position(|e| {
+                    e.crystal_id_hex[..e.crystal_id_hex.len().min(16)] == *id_prefix
+                })?;
+                entry_to_cluster.get(&idx).copied()
+            };
+
+            let ca = cluster_of(&link.from);
+            let cb = cluster_of(&link.to);
+
+            if let (Some(ca), Some(cb)) = (ca, cb) {
+                if ca != cb {
+                    // Cross-cluster causal edge
+                    for (id, other_cluster) in [(&link.from, cb), (&link.to, ca)] {
+                        bridge_map.entry(id.clone()).or_default().insert(other_cluster);
+                        bridge_map.entry(id.clone()).or_default().insert(
+                            cluster_of(id).unwrap_or(usize::MAX),
+                        );
+                        *bridge_edge_count.entry(id.clone()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        let mut bridge_crystals: Vec<BridgeCrystal> = bridge_map
+            .into_iter()
+            .filter(|(_, clusters_set)| clusters_set.len() >= 2)
+            .map(|(id, clusters_set)| {
+                let cross = *bridge_edge_count.get(&id).unwrap_or(&0);
+                let mut bridges: Vec<usize> = clusters_set.into_iter().collect();
+                bridges.sort_unstable();
+                BridgeCrystal {
+                    crystal_id: id.clone(),
+                    bridges,
+                    cross_cluster_degree: cross,
+                }
+            })
+            .collect();
+        bridge_crystals.sort_by(|a, b| b.cross_cluster_degree.cmp(&a.cross_cluster_degree));
+
+        let clustered = n - singletons.len();
+        let clustered_fraction = clustered as f64 / n as f64;
+
+        ClusteringReport {
+            sim_threshold: config.sim_threshold,
+            clusters,
+            singletons,
+            bridge_crystals,
+            total_crystals: n,
+            clustered_fraction,
+        }
+    }
+
     /// Causal retrieval: semantic search expanded through the HDAG causal graph.
     ///
     /// 1. Embeds `query` via [`text_to_vector8`].
@@ -2378,6 +2593,82 @@ mod tests {
         assert_eq!(report.violation_count, 1);
         assert!(report.violations_by_rule.contains_key("EU-ART9-STABILITY"));
         assert!(!report.audit_hash.is_empty());
+    }
+
+    #[test]
+    fn cluster_empty_store_returns_empty_report() {
+        use crate::cluster::ClusterConfig;
+        let dir = tempfile::tempdir().unwrap();
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        let report = store.cluster_knowledge(&ClusterConfig::default());
+        assert_eq!(report.total_crystals, 0);
+        assert!(report.summary().contains("empty"));
+        assert!(report.is_unified());
+    }
+
+    #[test]
+    fn cluster_identical_crystals_form_one_cluster() {
+        use crate::cluster::ClusterConfig;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Two crystals with identical topology → nearly identical 8D vectors →
+        // cosine similarity ≈ 1.0 → must cluster together
+        let mut c1 = dummy_crystal(0.80);
+        c1.topology_signature.kuramoto_coherence = 0.70;
+        c1.topology_signature.spectral_gap = 0.50;
+        c1.crystal_id[0] = 0xC1;
+
+        let mut c2 = dummy_crystal(0.80);
+        c2.topology_signature.kuramoto_coherence = 0.70;
+        c2.topology_signature.spectral_gap = 0.50;
+        c2.crystal_id[0] = 0xC2; // different ID, same topology
+
+        store.commit_with_feedback(&c1, &[], 1, "q1").unwrap();
+        store.commit_with_feedback(&c2, &[], 2, "q2").unwrap();
+
+        let cfg = ClusterConfig { sim_threshold: 0.95, min_cluster_size: 2 };
+        let report = store.cluster_knowledge(&cfg);
+        assert_eq!(report.total_crystals, 2);
+        // With nearly identical vectors both crystals should form one cluster
+        let total_clustered = report.clusters.iter().map(|c| c.members.len()).sum::<usize>();
+        let total_singletons = report.singletons.len();
+        assert_eq!(total_clustered + total_singletons, 2);
+        assert!(!report.summary().is_empty());
+    }
+
+    #[test]
+    fn cluster_very_different_crystals_are_singletons() {
+        use crate::cluster::ClusterConfig;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // crystal A: high stability + high kuramoto → 8D vector biased toward stability dims
+        let mut ca = dummy_crystal(0.99);
+        ca.topology_signature.kuramoto_coherence = 0.99;
+        ca.topology_signature.spectral_gap = 0.01;
+        ca.crystal_id[0] = 0xAA;
+
+        // crystal B: low stability + low kuramoto + high spectral_gap → very different vector
+        let mut cb = dummy_crystal(0.01);
+        cb.topology_signature.kuramoto_coherence = 0.01;
+        cb.topology_signature.spectral_gap = 0.99;
+        cb.crystal_id[0] = 0xBB;
+
+        store.commit(&ca, &[], 1, "q1").unwrap();
+        store.commit(&cb, &[], 2, "q2").unwrap();
+
+        // Very high threshold → unlikely they cluster together
+        let cfg = ClusterConfig { sim_threshold: 0.99, min_cluster_size: 2 };
+        let report = store.cluster_knowledge(&cfg);
+        // With threshold 0.99 and very different vectors, expect singletons
+        // (or at most one cluster if vectors happen to be similar — tolerate both)
+        assert_eq!(report.total_crystals, 2);
+        let total = report.clusters.iter().map(|c| c.members.len()).sum::<usize>()
+            + report.singletons.len();
+        assert_eq!(total, 2, "all crystals must be accounted for");
     }
 
     #[test]

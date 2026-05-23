@@ -28,6 +28,7 @@
 pub mod adapter;
 pub mod agent;
 pub mod causal;
+pub mod cluster;
 pub mod constitutional;
 pub mod context;
 pub mod feedback;
@@ -42,6 +43,7 @@ pub mod store;
 pub use adapter::{text_to_vector8, CrystalAdapter, ILPayload};
 pub use agent::{AgentCausalGraph, AgentLink};
 pub use causal::{CausalCause, CausalGraph, CausalLink};
+pub use cluster::{BridgeCrystal, ClusterConfig, ClusteringReport, KnowledgeCluster};
 pub use constitutional::{
     Constitution, ConstitutionalAuditReport, ConstitutionalFeedback, ConstitutionalRule,
     ConstitutionalReport, RulePredicate, RuleVerdict, Severity,
