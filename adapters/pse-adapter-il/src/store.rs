@@ -20,7 +20,7 @@ use crate::adapter::{CrystalAdapter, ILPayload};
 use crate::feedback::ValidationFeedback;
 use crate::hdag::{crystal_to_tensor, HDAG};
 use crate::qtic::{classify, QticInput, MCI_THRESHOLD};
-use pse_types::SemanticCrystal;
+use pse_types::{SemanticCrystal, TopologySignature};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -80,6 +80,9 @@ struct IndexEntry {
     /// Set by [`ILStore::commit_as`]; mirrors `SemanticCrystal::universe_id`.
     #[serde(default)]
     agent_id: String,
+    /// Kuramoto coherence at commit time (topology_signature.kuramoto_coherence).
+    #[serde(default)]
+    kuramoto: f64,
 }
 
 fn default_stability() -> f64 {
@@ -397,6 +400,7 @@ impl ILStore {
             question,
             scale_tag: crystal.scale_tag.clone(),
             agent_id: String::new(), // set by commit_as() after the fact
+            kuramoto: crystal.topology_signature.kuramoto_coherence,
         });
         self.save_index()?;
 
@@ -910,10 +914,207 @@ impl ILStore {
         out
     }
 
+    /// Commit a crystal with constitutional compliance gating.
+    ///
+    /// 1. Performs a pre-commit structural check (no QTIC cert) to catch
+    ///    Blocking violations. If any Blocking rule fires, returns Err without
+    ///    writing to the ledger.
+    /// 2. Commits the crystal to the ledger (via `commit_as` when `agent_id`
+    ///    is Some, otherwise via `commit_with_feedback`).
+    /// 3. Evaluates the full constitution with the resulting QTIC certificate.
+    /// 4. Returns `ConstitutionalFeedback` with `constitutionally_admissible`
+    ///    reflecting the full post-commit evaluation.
+    ///
+    /// Required violations in the post-commit report do *not* undo the commit.
+    /// Use [`constitutional_audit`] to retroactively identify non-conformant crystals.
+    ///
+    /// [`constitutional_audit`]: ILStore::constitutional_audit
+    pub fn commit_constitutional(
+        &mut self,
+        crystal: &SemanticCrystal,
+        source_chunks: &[String],
+        session: usize,
+        question: &str,
+        agent_id: Option<&str>,
+        constitution: &crate::constitutional::Constitution,
+    ) -> Result<crate::constitutional::ConstitutionalFeedback, String> {
+        use crate::constitutional::ConstitutionalFeedback;
+
+        // Pre-commit blocking check (no QTIC cert available yet)
+        let pre_report = constitution.evaluate(crystal, None, agent_id);
+        if !pre_report.blocking_violations.is_empty() {
+            return Err(format!(
+                "Constitutional BLOCKING violation(s) prevented commit: [{}]",
+                pre_report.blocking_violations.join(", ")
+            ));
+        }
+
+        // Commit to ledger
+        let fb = match agent_id {
+            Some(aid) => self.commit_as(crystal, source_chunks, session, question, aid)?,
+            None => self.commit_with_feedback(crystal, source_chunks, session, question)?,
+        };
+
+        // Full constitutional evaluation with QTIC certificate
+        let cert = fb.qtic_certificate.as_ref();
+        let report = constitution.evaluate(crystal, cert, agent_id);
+        let constitutionally_admissible = report.overall_pass;
+
+        Ok(ConstitutionalFeedback {
+            feedback: fb,
+            report,
+            constitutionally_admissible,
+        })
+    }
+
+    /// Scan all committed crystals and evaluate them against a constitution.
+    ///
+    /// Returns a [`ConstitutionalAuditReport`] summarising compliance across
+    /// the entire store and reporting whether the constitutional fixpoint has
+    /// been reached (`is_constitutionally_closed()`).
+    ///
+    /// **Note on evidence_chain**: This audit operates from the IL index, which
+    /// does not store the full evidence chain.  `MinEvidenceEntries` predicates
+    /// see `count = 0` for all indexed crystals.  Since both preset constitutions
+    /// mark this predicate Advisory, `overall_pass` and `is_constitutionally_closed()`
+    /// are unaffected.
+    ///
+    /// [`ConstitutionalAuditReport`]: crate::constitutional::ConstitutionalAuditReport
+    pub fn constitutional_audit(
+        &self,
+        constitution: &crate::constitutional::Constitution,
+    ) -> crate::constitutional::ConstitutionalAuditReport {
+        use crate::constitutional::ConstitutionalAuditReport;
+        use std::collections::HashMap;
+
+        let mut violations = Vec::new();
+        let mut compliant_count = 0usize;
+        let mut blocking_count = 0usize;
+        let mut violations_by_rule: HashMap<String, usize> = HashMap::new();
+        let mut audit_hasher = Sha256::new();
+
+        for entry in &self.index.entries {
+            let proxy = entry_to_proxy_crystal(entry);
+            let cert = entry.qtic_class.map(|c| synthetic_qtic_cert(entry, c));
+            let agent_id = if entry.agent_id.is_empty() {
+                None
+            } else {
+                Some(entry.agent_id.as_str())
+            };
+
+            let report = constitution.evaluate(&proxy, cert.as_ref(), agent_id);
+            audit_hasher.update(report.report_hash.as_bytes());
+
+            if report.overall_pass {
+                compliant_count += 1;
+            } else {
+                if !report.blocking_violations.is_empty() {
+                    blocking_count += 1;
+                }
+                for rule_id in report
+                    .blocking_violations
+                    .iter()
+                    .chain(report.required_violations.iter())
+                {
+                    *violations_by_rule.entry(rule_id.clone()).or_insert(0) += 1;
+                }
+                let id_prefix =
+                    entry.crystal_id_hex[..entry.crystal_id_hex.len().min(16)].to_string();
+                violations.push((id_prefix, report));
+            }
+        }
+
+        let total_crystals = self.index.entries.len();
+        let violation_count = violations.len();
+        let audit_hash = audit_hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+
+        ConstitutionalAuditReport {
+            constitution_name: constitution.name.clone(),
+            constitution_version: constitution.version.clone(),
+            total_crystals,
+            compliant_count,
+            violation_count,
+            blocking_count,
+            violations_by_rule,
+            violations,
+            audit_hash,
+        }
+    }
+
     fn save_index(&self) -> Result<(), String> {
         let s = serde_json::to_string_pretty(&self.index)
             .map_err(|e| format!("serialise IL index: {e}"))?;
         std::fs::write(&self.index_path, s).map_err(|e| format!("write IL index: {e}"))
+    }
+}
+
+/// Build a minimal proxy [`SemanticCrystal`] from an [`IndexEntry`] for
+/// constitutional evaluation.  Only the fields inspected by constitutional
+/// predicates are populated; all others are zeroed / defaulted.
+fn entry_to_proxy_crystal(entry: &IndexEntry) -> SemanticCrystal {
+    let mut crystal_id = [0u8; 32];
+    let hex = &entry.crystal_id_hex;
+    let n = (hex.len() / 2).min(32);
+    for i in 0..n {
+        if let Ok(b) = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16) {
+            crystal_id[i] = b;
+        }
+    }
+    let mut topology_signature = TopologySignature::default();
+    topology_signature.kuramoto_coherence = entry.kuramoto;
+    SemanticCrystal {
+        crystal_id,
+        region: vec![],
+        constraint_program: Default::default(),
+        stability_score: entry.stability_score,
+        topology_signature,
+        betti_numbers: vec![],
+        evidence_chain: Default::default(),
+        commit_proof: Default::default(),
+        operator_versions: Default::default(),
+        created_at: 0,
+        free_energy: 0.0,
+        carrier_instance_idx: 0,
+        scale_tag: entry.scale_tag.clone(),
+        universe_id: String::new(),
+        sub_crystal_ids: vec![],
+        parent_crystal_ids: vec![],
+        genesis_metadata: None,
+        metatron_signature: None,
+    }
+}
+
+/// Build a synthetic [`QticCertificate`] from indexed fields for the audit.
+///
+/// This approximation is sufficient for all constitutional predicates that
+/// inspect QTIC data: `MinQticClass` uses `conformance_class` and
+/// `PathInvariant` uses `path_inv`.
+fn synthetic_qtic_cert(
+    entry: &IndexEntry,
+    class_u8: u8,
+) -> crate::qtic::QticCertificate {
+    use crate::qtic::{QticCertificate, QticClass};
+    let conformance_class = QticClass::from(class_u8);
+    let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
+    QticCertificate {
+        crystal_id: entry.crystal_id_hex.clone(),
+        hdag_node_id: entry.hdag_node_id.clone().unwrap_or_default(),
+        canonical_id: entry.block_hash.clone(),
+        conformance_class,
+        class_description: conformance_class.description().to_string(),
+        extrinsic_t: entry.block_index as u64,
+        intrinsic_theta: entry.kuramoto,
+        psi,
+        mci: 0.0,
+        mci_threshold: crate::qtic::MCI_THRESHOLD,
+        gate_passed: entry.stability_score > 0.5 && entry.kuramoto > 0.3,
+        trace_ready: !entry.block_hash.is_empty(),
+        replay_ready: entry.crystal_id_hex.chars().any(|c| c != '0'),
+        path_inv: conformance_class >= QticClass::Q5,
     }
 }
 
@@ -1506,5 +1707,103 @@ mod tests {
             Some(expected_class),
             "QTIC class must be persisted in the index"
         );
+    }
+
+    #[test]
+    fn commit_constitutional_blocks_incoherent_crystal() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // stability=0.8 but kuramoto=0.1 → CoherenceGate fails → Blocking
+        let mut c = dummy_crystal(0.80);
+        c.topology_signature.kuramoto_coherence = 0.10;
+        c.crystal_id[0] = 0xBA;
+
+        let result = store.commit_constitutional(
+            &c, &[], 1, "blocked commit", None,
+            &Constitution::pse_core_safety(),
+        );
+        assert!(result.is_err(), "Blocking violation must prevent commit");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("BLOCKING"), "error must name the blocking violation: {msg}");
+        assert_eq!(store.len(), 0, "ledger must be empty — nothing committed");
+    }
+
+    #[test]
+    fn commit_constitutional_admits_coherent_crystal() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // stability=0.75, kuramoto=0.65 → CoherenceGate passes
+        let mut c = dummy_crystal(0.75);
+        c.topology_signature.kuramoto_coherence = 0.65;
+        c.crystal_id[0] = 0xBC;
+
+        let fb = store
+            .commit_constitutional(
+                &c, &[], 1, "admitted commit", None,
+                &Constitution::pse_core_safety(),
+            )
+            .expect("coherent crystal must be admitted");
+        assert!(!fb.feedback.block_hash.is_empty());
+        // No Blocking violations for a gate-passing crystal
+        assert!(fb.report.blocking_violations.is_empty());
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn constitutional_audit_reaches_fixpoint_on_compliant_store() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Two crystals that both satisfy EU AI Act minimal Required rules
+        // (stability >= 0.6 and kuramoto >= 0.3)
+        for (s, k, id) in [(0.75f64, 0.60f64, 0xC1u8), (0.80, 0.70, 0xC2)] {
+            let mut c = dummy_crystal(s);
+            c.topology_signature.kuramoto_coherence = k;
+            c.crystal_id[0] = id;
+            store.commit(&c, &[], 1, "q").unwrap();
+        }
+
+        let report = store.constitutional_audit(&Constitution::eu_ai_act_minimal());
+        assert_eq!(report.total_crystals, 2);
+        assert!(
+            report.is_constitutionally_closed(),
+            "all compliant crystals → fixpoint reached: {}",
+            report.summary()
+        );
+    }
+
+    #[test]
+    fn constitutional_audit_detects_non_compliant_crystal() {
+        use crate::constitutional::Constitution;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Compliant crystal
+        let mut c1 = dummy_crystal(0.75);
+        c1.topology_signature.kuramoto_coherence = 0.60;
+        c1.crystal_id[0] = 0xD1;
+        store.commit(&c1, &[], 1, "q1").unwrap();
+
+        // Non-compliant crystal: stability < 0.6 → EU-ART9 Required violation
+        let mut c2 = dummy_crystal(0.30);
+        c2.topology_signature.kuramoto_coherence = 0.50;
+        c2.crystal_id[0] = 0xD2;
+        store.commit(&c2, &[], 2, "q2").unwrap();
+
+        let report = store.constitutional_audit(&Constitution::eu_ai_act_minimal());
+        assert_eq!(report.total_crystals, 2);
+        assert!(!report.is_constitutionally_closed(), "non-compliant crystal → fixpoint not reached");
+        assert_eq!(report.violation_count, 1);
+        assert!(report.violations_by_rule.contains_key("EU-ART9-STABILITY"));
+        assert!(!report.audit_hash.is_empty());
     }
 }
