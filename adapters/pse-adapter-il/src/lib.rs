@@ -33,6 +33,7 @@ pub mod context;
 pub mod feedback;
 pub mod hdag;
 pub mod health;
+pub mod lifecycle;
 pub mod prompt;
 pub mod qtic;
 pub mod store;
@@ -46,6 +47,10 @@ pub use constitutional::{
 };
 pub use context::{ContextBudget, CrystalSummary};
 pub use health::{crystal_uncertainty, CrystalHealthMetrics, MemoryHealthReport};
+pub use lifecycle::{
+    classify_lifecycle, ConsolidationCandidate, ConsolidationReason, CrystalLifecycle,
+    DecayModel, LifecycleReport, LifecycleStatus,
+};
 pub use prompt::{GroundedPrompt, PromptConfig};
 pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};

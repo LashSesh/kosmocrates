@@ -669,6 +669,145 @@ impl ILStore {
         &self.base_path
     }
 
+    /// Full lifecycle report for the store.
+    ///
+    /// Applies `model` to every committed crystal, computing decay, refresh
+    /// score, and lifecycle status.  Also detects consolidation candidates:
+    /// - **MetatronIsomorphic**: two crystals with the same non-empty
+    ///   `metatron_canonical_hash` (structurally identical regions).
+    /// - **SemanticOverlap**: two crystals whose 8D IL vectors have cosine
+    ///   similarity ≥ `sim_threshold` (semantically near-duplicate knowledge).
+    ///
+    /// `reference_index` is used as "now" for age computation.  Pass
+    /// `self.len() as i64` to use the current head of the ledger.
+    ///
+    /// Results are sorted by descending `refresh_score` — the most urgent
+    /// crystals appear first.
+    pub fn lifecycle_report(
+        &self,
+        model: crate::lifecycle::DecayModel,
+        sim_threshold: f64,
+        reference_index: i64,
+    ) -> crate::lifecycle::LifecycleReport {
+        use crate::health::crystal_uncertainty;
+        use crate::lifecycle::{
+            classify_lifecycle, ConsolidationCandidate, ConsolidationReason, CrystalLifecycle,
+            LifecycleReport, LifecycleStatus,
+        };
+
+        let mut crystals: Vec<CrystalLifecycle> = self
+            .index
+            .entries
+            .iter()
+            .map(|entry| {
+                let age = (reference_index - entry.block_index).max(0) as f64;
+                let decay = model.decay(age);
+                let uncertainty =
+                    crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
+                let refresh_score = uncertainty * (1.0 - decay);
+                let status = classify_lifecycle(decay, uncertainty);
+                CrystalLifecycle {
+                    crystal_id: entry.crystal_id_hex
+                        [..entry.crystal_id_hex.len().min(16)]
+                        .to_string(),
+                    age_blocks: age as i64,
+                    decay,
+                    uncertainty,
+                    refresh_score,
+                    status,
+                }
+            })
+            .collect();
+
+        crystals.sort_by(|a, b| {
+            b.refresh_score
+                .partial_cmp(&a.refresh_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let n = crystals.len();
+        let stale_count = crystals.iter().filter(|c| c.status == LifecycleStatus::Stale).count();
+        let vital_count = crystals.iter().filter(|c| c.status == LifecycleStatus::Vital).count();
+        let mean_decay = if n > 0 {
+            crystals.iter().map(|c| c.decay).sum::<f64>() / n as f64
+        } else {
+            0.0
+        };
+        let mean_refresh_score = if n > 0 {
+            crystals.iter().map(|c| c.refresh_score).sum::<f64>() / n as f64
+        } else {
+            0.0
+        };
+
+        // ── Consolidation candidate detection ──────────────────────────────
+        let entries = &self.index.entries;
+        let mut consolidation_candidates: Vec<ConsolidationCandidate> = Vec::new();
+        let mut seen_pairs: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+
+        for i in 0..entries.len() {
+            for j in (i + 1)..entries.len() {
+                if seen_pairs.contains(&(i, j)) {
+                    continue;
+                }
+
+                let ea = &entries[i];
+                let eb = &entries[j];
+
+                // MetatronIsomorphic: same non-empty canonical hash
+                let is_metatron = ea.metatron_canonical_hash.is_some()
+                    && ea.metatron_canonical_hash == eb.metatron_canonical_hash;
+
+                // SemanticOverlap: 8D vector cosine similarity ≥ threshold
+                let sim = cosine(&ea.vector8, &eb.vector8);
+                let is_semantic = sim >= sim_threshold;
+
+                if is_metatron || is_semantic {
+                    seen_pairs.insert((i, j));
+                    let reason = if is_metatron {
+                        ConsolidationReason::MetatronIsomorphic
+                    } else {
+                        ConsolidationReason::SemanticOverlap
+                    };
+
+                    // Retain the higher-QTIC crystal (tie: lower uncertainty)
+                    let ua = crystal_uncertainty(ea.qtic_class, ea.stability_score, ea.kuramoto);
+                    let ub = crystal_uncertainty(eb.qtic_class, eb.stability_score, eb.kuramoto);
+                    let qa = ea.qtic_class.unwrap_or(0);
+                    let qb = eb.qtic_class.unwrap_or(0);
+                    let retain_a = qa > qb || (qa == qb && ua <= ub);
+
+                    let id_a = ea.crystal_id_hex[..ea.crystal_id_hex.len().min(16)].to_string();
+                    let id_b = eb.crystal_id_hex[..eb.crystal_id_hex.len().min(16)].to_string();
+                    let (retain, deprecate) = if retain_a {
+                        (id_a.clone(), id_b.clone())
+                    } else {
+                        (id_b.clone(), id_a.clone())
+                    };
+
+                    consolidation_candidates.push(ConsolidationCandidate {
+                        id_a,
+                        id_b,
+                        reason,
+                        vector_similarity: sim,
+                        retain,
+                        deprecate,
+                    });
+                }
+            }
+        }
+
+        LifecycleReport {
+            model,
+            reference_index,
+            crystals,
+            stale_count,
+            vital_count,
+            mean_decay,
+            mean_refresh_score,
+            consolidation_candidates,
+        }
+    }
+
     /// Epistemic health metrics for a single crystal.
     ///
     /// Returns `None` when no crystal with the given ID prefix exists in the
@@ -2043,6 +2182,97 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ILStore::open(dir.path(), "TEST").unwrap();
         assert!(store.crystal_health("deadbeef00000000").is_none());
+    }
+
+    #[test]
+    fn lifecycle_report_fresh_crystal_is_vital() {
+        use crate::lifecycle::{DecayModel, LifecycleStatus};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c = dummy_crystal(0.85);
+        c.topology_signature.kuramoto_coherence = 0.75;
+        c.crystal_id[0] = 0xF0;
+        store.commit_with_feedback(&c, &[], 1, "fresh").unwrap();
+
+        // Reference index = commit index → age = 0 → decay = 1 → refresh_score ≈ 0
+        let report = store.lifecycle_report(
+            DecayModel::Exponential { half_life: 50.0 },
+            0.999, // very high sim threshold → no semantic consolidation candidates
+            0,     // reference_index matches commit index (block 0)
+        );
+        assert_eq!(report.crystals.len(), 1);
+        let c0 = &report.crystals[0];
+        assert!((c0.decay - 1.0).abs() < 1e-6, "age=0 → decay must be 1");
+        assert!(c0.refresh_score < 0.3, "fresh high-quality crystal → low refresh score");
+        assert_eq!(c0.status, LifecycleStatus::Vital);
+        assert!(report.summary().contains("vital=1"));
+    }
+
+    #[test]
+    fn lifecycle_report_old_crystal_is_stale() {
+        use crate::lifecycle::{DecayModel, LifecycleStatus};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c = dummy_crystal(0.50); // borderline stability
+        c.topology_signature.kuramoto_coherence = 0.30;
+        c.crystal_id[0] = 0xF1;
+        store.commit(&c, &[], 1, "old").unwrap(); // committed at block_index=0
+
+        // reference_index = 500 → age = 500, half_life = 50 → decay ≈ 0
+        let report = store.lifecycle_report(
+            DecayModel::Exponential { half_life: 50.0 },
+            0.999,
+            500,
+        );
+        assert_eq!(report.crystals.len(), 1);
+        let c0 = &report.crystals[0];
+        assert!(c0.decay < 0.01, "very old crystal → decay ≈ 0");
+        assert_eq!(c0.status, LifecycleStatus::Stale);
+        assert!(!report.is_lifecycle_closed());
+    }
+
+    #[test]
+    fn lifecycle_report_detects_metatron_consolidation_candidate() {
+        use crate::lifecycle::DecayModel;
+        use pse_types::MetatronTopologySignature;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Two crystals with the same metatron canonical hash
+        let shared_hash = "abc123def456abc1".to_string();
+        let sig = MetatronTopologySignature {
+            canonical_hash: shared_hash,
+            ..Default::default()
+        };
+
+        let mut c1 = dummy_crystal(0.80);
+        c1.topology_signature.kuramoto_coherence = 0.70;
+        c1.metatron_signature = Some(sig.clone());
+        c1.crystal_id[0] = 0xA1;
+
+        let mut c2 = dummy_crystal(0.75);
+        c2.topology_signature.kuramoto_coherence = 0.65;
+        c2.metatron_signature = Some(sig);
+        c2.crystal_id[0] = 0xA2;
+
+        store.commit_with_feedback(&c1, &[], 1, "iso-a").unwrap();
+        store.commit_with_feedback(&c2, &[], 2, "iso-b").unwrap();
+
+        let report = store.lifecycle_report(DecayModel::default(), 0.999, 2);
+        assert!(
+            !report.consolidation_candidates.is_empty(),
+            "same metatron hash → must detect consolidation candidate"
+        );
+        use crate::lifecycle::ConsolidationReason;
+        assert_eq!(
+            report.consolidation_candidates[0].reason,
+            ConsolidationReason::MetatronIsomorphic
+        );
     }
 
     #[test]
