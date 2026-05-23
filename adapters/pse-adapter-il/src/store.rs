@@ -281,8 +281,18 @@ impl ILStore {
         )
         .map_err(|e| format!("write block file: {e}"))?;
 
-        // ── HDAG: register 5D resonance tensor node + phase-gradient edge ────
+        // ── HDAG: register 5D resonance tensor node ──────────────────────────
         let hdag_node_id = self.register_hdag_node(crystal, &payload);
+
+        // ── HDAG: add semantic edges to all resonance-proximate predecessors ──
+        if let Some(ref nid) = hdag_node_id {
+            let n = self.add_semantic_edges(nid);
+            if n > 0 {
+                // Trace-level: only log when semantic edges were actually added
+                // (avoids noise in single-crystal stores)
+                let _ = n;
+            }
+        }
 
         // Compute coherence potential from the actual tensor for feedback
         let coherence_potential = {
@@ -346,7 +356,7 @@ impl ILStore {
         // HDAG enforces the coherence condition; None means gate was closed.
         if let Some(prev) = self.index.entries.last() {
             if let Some(ref prev_nid) = prev.hdag_node_id {
-                match hdag.add_edge(prev_nid, &node_id) {
+                match hdag.add_edge(prev_nid, &node_id, "sequential_commit") {
                     Ok(Some(edge)) => {
                         let _ = edge; // gradient available for future analytics
                     }
@@ -357,6 +367,38 @@ impl ILStore {
         }
 
         Some(node_id)
+    }
+
+    /// Scan all existing HDAG nodes and add phase-gradient edges to `node_id`
+    /// from any valid semantic predecessor (resonance_proximity edges).
+    ///
+    /// A node is a valid predecessor when it:
+    /// - Is in S_coh (coherence gate)
+    /// - Has ψ ≤ ψ(target) + ε  (coherence potential monotonicity)
+    /// - Is within `resonance_radius` in 5D tensor space
+    ///
+    /// Capped at `max_candidates` nearest neighbors to bound runtime.
+    /// Returns the number of semantic edges created.
+    fn add_semantic_edges(&mut self, node_id: &str) -> usize {
+        // Step 1: collect predecessors (immutable borrow)
+        let predecessors: Vec<String> = if let Some(ref hdag) = self.hdag {
+            hdag.find_semantic_predecessors(node_id, 20, 1.5)
+        } else {
+            return 0;
+        };
+
+        // Step 2: add edges (mutable borrow, one at a time)
+        let mut count = 0;
+        for pred_id in predecessors {
+            if let Some(ref mut hdag) = self.hdag {
+                match hdag.add_edge(&pred_id, node_id, "resonance_proximity") {
+                    Ok(Some(_)) => count += 1,
+                    Ok(None) => {}
+                    Err(e) => eprintln!("[IL] HDAG semantic edge error: {e}"),
+                }
+            }
+        }
+        count
     }
 
     /// Cosine-similarity nearest-neighbour search over committed 8D vectors.
@@ -623,6 +665,46 @@ mod tests {
         assert!(store.index.entries.iter().all(|e| e.hdag_node_id.is_some()));
         let order = store.topological_order();
         assert!(order.len() >= 2);
+    }
+
+    #[test]
+    fn semantic_edges_connect_resonant_crystals() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Crystal A: moderate stability, ψ(A)=0.30 — in S_coh, tensor near C
+        // tensor = [0.0, 0.60, 0.0, 0.10, 0.30]
+        let mut c_a = dummy_crystal(0.70);
+        c_a.topology_signature.kuramoto_coherence = 0.60;
+        c_a.topology_signature.spectral_gap = 0.10;
+        c_a.crystal_id[0] = 0xA1;
+
+        // Crystal B: higher ψ(B)=0.50 — in S_coh but tensor-DISTANT (spectral_gap=3.0)
+        // Sequential edge A→B passes (ψ increases). Semantic edge B→C blocked by distance.
+        // tensor = [0.0, 0.70, 0.0, 3.00, 0.20]
+        let mut c_b = dummy_crystal(0.80);
+        c_b.topology_signature.kuramoto_coherence = 0.70;
+        c_b.topology_signature.spectral_gap = 3.00;
+        c_b.crystal_id[0] = 0xB1;
+
+        // Crystal C: highest ψ(C)=0.60 — in S_coh, tensor-NEAR A (spectral_gap=0.12)
+        // Sequential edge B→C passes (ψ increases). Semantic edge A→C expected.
+        // tensor = [0.0, 0.75, 0.0, 0.12, 0.15]
+        let mut c_c = dummy_crystal(0.85);
+        c_c.topology_signature.kuramoto_coherence = 0.75;
+        c_c.topology_signature.spectral_gap = 0.12;
+        c_c.crystal_id[0] = 0xC1;
+
+        store.commit(&c_a, &[], 1, "q1").unwrap();
+        store.commit(&c_b, &[], 1, "q2").unwrap();
+        store.commit(&c_c, &[], 1, "q3").unwrap();
+
+        // C should have a sequential edge from B and a semantic edge from A
+        let hdag = store.hdag.as_ref().expect("HDAG must be active");
+        let seq_edges  = hdag.edge_count_by_cause("sequential_commit");
+        let sem_edges  = hdag.edge_count_by_cause("resonance_proximity");
+        assert!(seq_edges >= 2, "expect at least 2 sequential edges, got {seq_edges}");
+        assert!(sem_edges >= 1, "expect at least 1 semantic edge A→C, got {sem_edges}");
     }
 
     #[test]

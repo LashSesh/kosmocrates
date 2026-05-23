@@ -68,6 +68,8 @@ pub struct HDAGEdge {
     pub gradient: ResonanceTensor,
     /// ‖T_j − T_i‖ — magnitude of the phase transition.
     pub magnitude: f64,
+    /// Edge type: "sequential_commit" or "resonance_proximity".
+    pub cause: String,
 }
 
 /// Result of path invariance verification between two nodes.
@@ -174,11 +176,13 @@ impl HDAG {
     /// 2. ψ(T_j) ≥ ψ(T_i) − ε  (acyclicity via coherence potential)
     /// 3. T_i ≠ T_j (non-trivial gradient)
     ///
-    /// Returns the gradient vector if the edge was created, None otherwise.
+    /// `cause` labels the edge type, e.g. "sequential_commit" or "resonance_proximity".
+    /// Returns the edge if created, None if blocked by a gate.
     pub fn add_edge(
         &mut self,
         from: &str,
         to: &str,
+        cause: &str,
     ) -> Result<Option<HDAGEdge>, String> {
         let source = self.data.nodes.get(from)
             .ok_or_else(|| format!("HDAG: source node not found: {from}"))?
@@ -221,6 +225,7 @@ impl HDAG {
             to: to.to_string(),
             gradient,
             magnitude: mag,
+            cause: cause.to_string(),
         };
         self.data.edges.push(edge.clone());
         self.data.adjacency.entry(from.to_string()).or_default().push(to.to_string());
@@ -369,6 +374,79 @@ impl HDAG {
         self.data.nodes.get(node_id).map(|n| Self::is_in_s_coh(n))
     }
 
+    /// Find valid semantic predecessors for `target_id` by scanning the
+    /// resonance field.
+    ///
+    /// A node P is a valid predecessor of T when:
+    /// 1. P ∈ S_coh  (coherence gate — P can emit a phase-gradient edge)
+    /// 2. ψ(T) ≥ ψ(P) − ε  (T is at least as coherent — acyclicity)
+    /// 3. ‖T_T − T_P‖ < `resonance_radius`  (within resonance proximity)
+    /// 4. P ≠ T and not already connected to T
+    ///
+    /// Returns node IDs sorted by ascending tensor distance (nearest first),
+    /// capped at `max_candidates`.
+    pub fn find_semantic_predecessors(
+        &self,
+        target_id: &str,
+        max_candidates: usize,
+        resonance_radius: f64,
+    ) -> Vec<String> {
+        let target = match self.data.nodes.get(target_id) {
+            Some(n) => n,
+            None => return vec![],
+        };
+        let psi_target = Self::coherence_potential(&target.tensor);
+
+        // Pre-build set of already-connected predecessors
+        let already_connected: HashSet<&str> = self
+            .data
+            .edges
+            .iter()
+            .filter(|e| e.to == target_id)
+            .map(|e| e.from.as_str())
+            .collect();
+
+        let mut candidates: Vec<(String, f64)> = self
+            .data
+            .nodes
+            .iter()
+            .filter(|(id, _)| id.as_str() != target_id)
+            .filter(|(id, _)| !already_connected.contains(id.as_str()))
+            .filter_map(|(id, node)| {
+                // Gate 1: source must be coherent
+                if !Self::is_in_s_coh(node) {
+                    return None;
+                }
+                let psi_i = Self::coherence_potential(&node.tensor);
+                // Gate 2: coherence potential monotonicity
+                if psi_target < psi_i - self.coherence_tolerance {
+                    return None;
+                }
+                // Gate 3: resonance radius
+                let dist = tensor_l2_dist(&node.tensor, &target.tensor);
+                if dist >= resonance_radius {
+                    return None;
+                }
+                Some((id.clone(), dist))
+            })
+            .collect();
+
+        candidates
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.truncate(max_candidates);
+        candidates.into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// Number of edges with the given cause label.
+    pub fn edge_count_by_cause(&self, cause: &str) -> usize {
+        self.data.edges.iter().filter(|e| e.cause == cause).count()
+    }
+
+    /// All edges for a given cause type.
+    pub fn edges_by_cause(&self, cause: &str) -> Vec<&HDAGEdge> {
+        self.data.edges.iter().filter(|e| e.cause == cause).collect()
+    }
+
     pub fn node_count(&self) -> usize {
         self.data.nodes.len()
     }
@@ -399,6 +477,14 @@ impl HDAG {
     }
 }
 
+fn tensor_l2_dist(a: &ResonanceTensor, b: &ResonanceTensor) -> f64 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,7 +505,7 @@ mod tests {
         let mut h = fresh_hdag();
         h.add_node("A", "aaa", tensor(0.5, 0.8), true, "t0").unwrap();
         h.add_node("B", "bbb", tensor(0.7, 0.9), true, "t1").unwrap();
-        let e = h.add_edge("A", "B").unwrap();
+        let e = h.add_edge("A", "B", "test").unwrap();
         assert!(e.is_some(), "edge should form when ψ increases");
         let edge = e.unwrap();
         assert_eq!(edge.gradient.len(), 5);
@@ -434,7 +520,7 @@ mod tests {
         h.add_node("A", "aaa", tensor(0.1, 0.2), false, "t0").unwrap();
         h.add_node("B", "bbb", tensor(0.3, 0.4), false, "t1").unwrap();
         // ψ(A) = 0.1 − 0.8 = −0.7, below threshold
-        let e = h.add_edge("A", "B").unwrap();
+        let e = h.add_edge("A", "B", "test").unwrap();
         assert!(e.is_none(), "edge should be blocked when source is outside S_coh");
     }
 
@@ -444,7 +530,7 @@ mod tests {
         h.add_node("A", "aaa", tensor(0.8, 0.9), true, "t0").unwrap();
         h.add_node("B", "bbb", tensor(0.3, 0.4), true, "t1").unwrap();
         // A has high coherence potential, B has low — backward edge A→B should be blocked
-        let e = h.add_edge("A", "B").unwrap();
+        let e = h.add_edge("A", "B", "test").unwrap();
         assert!(e.is_none(), "backward edge must be blocked by coherence potential gate");
     }
 
@@ -460,10 +546,10 @@ mod tests {
         h.add_node("B", "bbb", t_b, true, "t1").unwrap();
         h.add_node("C", "ccc", t_c, true, "t2").unwrap();
         h.add_node("D", "ddd", t_d, true, "t3").unwrap();
-        h.add_edge("A", "B").unwrap();
-        h.add_edge("A", "C").unwrap();
-        h.add_edge("B", "D").unwrap();
-        h.add_edge("C", "D").unwrap();
+        h.add_edge("A", "B", "test").unwrap();
+        h.add_edge("A", "C", "test").unwrap();
+        h.add_edge("B", "D", "test").unwrap();
+        h.add_edge("C", "D", "test").unwrap();
 
         let result = h.verify_path_invariance("A", "D");
         assert_eq!(result.path_count, 2);
@@ -476,13 +562,77 @@ mod tests {
     }
 
     #[test]
+    fn semantic_predecessors_found_by_resonance_proximity() {
+        let mut h = fresh_hdag();
+        // Tensors: [temporal, morphic, relational, topological, entropic]
+        // ψ = T[1] - T[4]
+        // A: ψ = 0.6 - 0.3 = 0.3, near C in tensor space
+        let t_a: ResonanceTensor = [0.1, 0.6, 0.3, 0.1, 0.3];
+        // B: ψ = 0.6 - 0.3 = 0.3, but far from C (topological=3.0)
+        let t_b: ResonanceTensor = [0.1, 0.6, 0.3, 3.0, 0.3];
+        // C: ψ = 0.65 - 0.25 = 0.40 ≥ ψ(A)-ε and ≥ ψ(B)-ε; near A, far from B
+        let t_c: ResonanceTensor = [0.12, 0.65, 0.32, 0.12, 0.25];
+        h.add_node("A", "aaa", t_a, true, "t0").unwrap();
+        h.add_node("B", "bbb", t_b, true, "t1").unwrap();
+        h.add_node("C", "ccc", t_c, true, "t2").unwrap();
+
+        // Tight radius so only A (distance ~0.1) is included, not B (distance ~2.9)
+        let preds = h.find_semantic_predecessors("C", 10, 0.5);
+        assert!(preds.contains(&"A".to_string()), "A should be a semantic predecessor of C");
+        assert!(!preds.contains(&"B".to_string()), "B is too distant to be a predecessor of C");
+    }
+
+    #[test]
+    fn semantic_edges_labeled_resonance_proximity() {
+        let mut h = fresh_hdag();
+        let t_a: ResonanceTensor = [0.1, 0.6, 0.3, 0.4, 0.3];
+        let t_c: ResonanceTensor = [0.15, 0.65, 0.35, 0.45, 0.25];
+        h.add_node("A", "aaa", t_a, true, "t0").unwrap();
+        h.add_node("C", "ccc", t_c, true, "t1").unwrap();
+        let edge = h.add_edge("A", "C", "resonance_proximity").unwrap();
+        assert!(edge.is_some());
+        assert_eq!(edge.unwrap().cause, "resonance_proximity");
+        assert_eq!(h.edge_count_by_cause("resonance_proximity"), 1);
+    }
+
+    #[test]
+    fn two_semantic_paths_enable_nontrivial_path_invariance() {
+        // A→B (sequential), A→C (semantic), B→D (sequential), C→D (semantic)
+        // This creates two paths A→D: [A→B→D] and [A→C→D].
+        // With symmetric B and C tensors, path invariance should hold.
+        let mut h = fresh_hdag();
+        let t_a: ResonanceTensor = [0.0, 0.2, 0.0, 0.0, 0.7];
+        let t_b: ResonanceTensor = [0.0, 0.5, 0.1, 0.0, 0.4]; // slightly different
+        let t_c: ResonanceTensor = [0.0, 0.5, -0.1, 0.0, 0.4]; // mirror of B
+        let t_d: ResonanceTensor = [0.0, 0.8, 0.0, 0.0, 0.1];
+        h.add_node("A", "aaa", t_a, true, "t0").unwrap();
+        h.add_node("B", "bbb", t_b, true, "t1").unwrap();
+        h.add_node("C", "ccc", t_c, true, "t2").unwrap();
+        h.add_node("D", "ddd", t_d, true, "t3").unwrap();
+        h.add_edge("A", "B", "sequential_commit").unwrap();
+        h.add_edge("A", "C", "resonance_proximity").unwrap();
+        h.add_edge("B", "D", "sequential_commit").unwrap();
+        h.add_edge("C", "D", "resonance_proximity").unwrap();
+
+        let result = h.verify_path_invariance("A", "D");
+        assert_eq!(result.path_count, 2, "must find exactly 2 paths A→D");
+        // Both paths traverse the same total Δmorphic and Δentropic,
+        // so gradient sums should be close.
+        assert!(
+            result.max_divergence < 0.5,
+            "gradient divergence across symmetric paths should be small: {}",
+            result.max_divergence
+        );
+    }
+
+    #[test]
     fn topological_order_respects_edges() {
         let mut h = fresh_hdag();
         h.add_node("X", "xxx", tensor(0.4, 0.7), true, "t0").unwrap();
         h.add_node("Y", "yyy", tensor(0.6, 0.8), true, "t1").unwrap();
         h.add_node("Z", "zzz", tensor(0.8, 0.9), true, "t2").unwrap();
-        h.add_edge("X", "Y").unwrap();
-        h.add_edge("Y", "Z").unwrap();
+        h.add_edge("X", "Y", "test").unwrap();
+        h.add_edge("Y", "Z", "test").unwrap();
 
         let order = h.topological_order();
         let xi = order.iter().position(|s| s == "X").unwrap();
