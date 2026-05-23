@@ -21,10 +21,15 @@ mef-solvecoagula = { path = "../../vendors/infinityledger/mef-solvecoagula", opt
 mef-tic        = { path = "../../vendors/infinityledger/mef-tic",         optional = true }
 mef-ledger     = { path = "../../vendors/infinityledger/mef-ledger",      optional = true }
 mef-spiral     = { path = "../../vendors/infinityledger/mef-spiral",      optional = true }
+mef-hdag       = { path = "../../vendors/infinityledger/mef-hdag",        optional = true }
 
 [features]
 # Enable direct MEFCore pipeline (requires IL workspace to compile)
 il-pipeline = ["mef-core", "mef-ingestion", "mef-solvecoagula", "mef-tic", "mef-ledger", "mef-spiral"]
+# Enable HDAG temporal-causal graph over committed crystals
+hdag = ["mef-hdag"]
+# All IL features
+full = ["il-pipeline", "hdag"]
 
 [dev-dependencies]
 tempfile = "3"
