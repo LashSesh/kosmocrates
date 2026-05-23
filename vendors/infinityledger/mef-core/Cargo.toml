@@ -1,0 +1,36 @@
+[package]
+name = "mef-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ndarray = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+num-complex = "0.4"
+rand = "0.8"
+rustfft = "6.1"
+uuid = { version = "1.0", features = ["v4"] }
+chrono = "0.4"
+
+[dev-dependencies]
+tempfile = "3.8"
+mef-spiral = { path = "../mef-spiral" }
+
+# Pipeline dependencies (promoted from dev to main for MEFCore::process())
+[dependencies.mef-ingestion]
+path = "../mef-ingestion"
+
+[dependencies.mef-solvecoagula]
+path = "../mef-solvecoagula"
+
+[dependencies.mef-tic]
+path = "../mef-tic"
+
+[dependencies.mef-ledger]
+path = "../mef-ledger"
+
