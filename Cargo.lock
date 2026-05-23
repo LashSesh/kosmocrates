@@ -1324,6 +1324,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mef-hdag"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "mef-ingestion"
 version = "0.1.0"
 dependencies = [
@@ -1803,6 +1814,7 @@ name = "pse-adapter-il"
 version = "0.1.0"
 dependencies = [
  "mef-core",
+ "mef-hdag",
  "mef-ingestion",
  "mef-ledger",
  "mef-solvecoagula",
@@ -3629,6 +3641,7 @@ checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 
