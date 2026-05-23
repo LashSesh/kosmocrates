@@ -366,6 +366,26 @@ impl ILStore {
             }
         }
 
+        // Refinement edges: wire parent crystals into the genealogy graph.
+        // parent_crystal_ids holds the 64-char hex of each ancestor crystal,
+        // matching the crystal_id_hex stored in IndexEntry.  These edges record
+        // the IL feedback lineage explicitly in the HDAG topology.
+        for parent_hex in &crystal.parent_crystal_ids {
+            let parent_nid: Option<String> = self
+                .index
+                .entries
+                .iter()
+                .find(|e| &e.crystal_id_hex == parent_hex)
+                .and_then(|e| e.hdag_node_id.clone());
+            if let Some(ref pnid) = parent_nid {
+                match hdag.add_edge(pnid, &node_id, "refinement") {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {}
+                    Err(e) => eprintln!("[IL] HDAG refinement edge error: {e}"),
+                }
+            }
+        }
+
         Some(node_id)
     }
 
@@ -714,5 +734,57 @@ mod tests {
         store.commit(&dummy_crystal(0.8), &[], 1, "q").unwrap();
         let psi = store.mean_coherence_potential();
         assert!(psi.is_finite());
+    }
+
+    /// Commit order: original (A) → intermediate (B) → refined(from A).
+    ///
+    /// Sequential edges: A→B, B→refined.
+    /// Refinement edge:  A→refined  (distinct from the sequential edge B→refined).
+    ///
+    /// Tensor values are chosen so ψ is monotonically non-decreasing:
+    ///   ψ(A)=0.30, ψ(B)=0.40, ψ(refined)≈0.36  (all above -0.1, all in S_coh).
+    /// B→refined passes because ψ(refined)=0.36 ≥ ψ(B)-ε=0.35.
+    /// A→refined passes because ψ(refined)=0.36 ≥ ψ(A)-ε=0.25.
+    #[test]
+    fn refinement_edge_links_parent_to_refined_crystal() {
+        use crate::feedback::{compute_il_stability, refine_crystal, ValidationFeedback};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Original — ψ(A) = 0.60 − 0.30 = 0.30
+        let mut c_a = dummy_crystal(0.70);
+        c_a.topology_signature.kuramoto_coherence = 0.60;
+        c_a.crystal_id[0] = 0xA1;
+        store.commit(&c_a, &[], 1, "q1").unwrap();
+
+        // Intermediate — ψ(B) = 0.65 − 0.25 = 0.40 > ψ(A); sequential A→B created
+        let mut c_b = dummy_crystal(0.75);
+        c_b.topology_signature.kuramoto_coherence = 0.65;
+        c_b.crystal_id[0] = 0xB1;
+        store.commit(&c_b, &[], 1, "q2").unwrap();
+
+        // IL-refined from c_a — genuinely new crystal_id (SHA-256 content-addressed).
+        // il_stability=0.9 → new_stability=0.76 → ψ(refined)=0.36; passes B→refined gate.
+        let il_stability = compute_il_stability(true, true, 0.8);
+        let feedback = ValidationFeedback {
+            block_hash: "testhash".to_string(),
+            converged: true,
+            coherence_potential: 0.8,
+            gate_passed: true,
+            hdag_node_id: None,
+            il_stability,
+        };
+        let c_refined = refine_crystal(&c_a, &feedback, 2);
+        let orig_hex: String = c_a.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        assert!(
+            c_refined.parent_crystal_ids.contains(&orig_hex),
+            "sanity: parent_crystal_ids must reference the original"
+        );
+        store.commit(&c_refined, &[], 2, "q3").unwrap();
+
+        let hdag = store.hdag.as_ref().expect("HDAG must be active");
+        let ref_edges = hdag.edge_count_by_cause("refinement");
+        assert!(ref_edges >= 1, "expect at least 1 refinement edge A→refined, got {ref_edges}");
     }
 }
