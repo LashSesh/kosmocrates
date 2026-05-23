@@ -17,16 +17,23 @@
 //! PSE-side approximation.
 
 use crate::adapter::{CrystalAdapter, ILPayload};
+use crate::feedback::ValidationFeedback;
+use crate::hdag::{crystal_to_tensor, HDAG};
 use pse_types::SemanticCrystal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "hdag")]
-use mef_hdag::HDAG;
-
 #[cfg(feature = "il-pipeline")]
 use mef_core::MEFCore;
+
+/// Internal result from `commit_payload` carrying all data needed for feedback.
+struct CommitResult {
+    block_hash: String,
+    hdag_node_id: Option<String>,
+    coherence_potential: f64,
+    gate_passed: bool,
+}
 
 /// A search hit returned by `ILStore::search`.
 #[derive(Debug, Clone)]
@@ -46,7 +53,7 @@ struct IndexEntry {
     vector8: Vec<f64>,
     /// Spiral phase derived from the fixpoint; used as HDAG node phase.
     phase: f64,
-    /// HDAG node ID for this entry (populated when `hdag` feature is active).
+    /// HDAG node ID for this entry (always populated).
     #[serde(default)]
     hdag_node_id: Option<String>,
 }
@@ -65,8 +72,6 @@ pub struct ILStore {
     adapter: CrystalAdapter,
     genesis_hash: String,
     base_path: PathBuf,
-
-    #[cfg(feature = "hdag")]
     hdag: Option<HDAG>,
 
     #[cfg(feature = "il-pipeline")]
@@ -112,7 +117,6 @@ impl ILStore {
             ILIndex::default()
         };
 
-        #[cfg(feature = "hdag")]
         let hdag = {
             let hdag_path = base.join("hdag");
             match HDAG::new(&hdag_path) {
@@ -148,7 +152,6 @@ impl ILStore {
             adapter: CrystalAdapter::new(seed),
             genesis_hash: "0".repeat(64),
             base_path: base,
-            #[cfg(feature = "hdag")]
             hdag,
             #[cfg(feature = "il-pipeline")]
             mef_core,
@@ -164,8 +167,33 @@ impl ILStore {
         session: usize,
         question: &str,
     ) -> Result<String, String> {
+        self.commit_with_feedback(crystal, source_chunks, session, question)
+            .map(|fb| fb.block_hash)
+    }
+
+    /// Like `commit`, but also returns IL validation data for the feedback loop.
+    ///
+    /// The `ValidationFeedback` contains convergence status, coherence potential,
+    /// and a normalized IL stability signal ready to be blended into a refined crystal
+    /// via `pse_adapter_il::feedback::refine_crystal`.
+    pub fn commit_with_feedback(
+        &mut self,
+        crystal: &SemanticCrystal,
+        source_chunks: &[String],
+        session: usize,
+        question: &str,
+    ) -> Result<ValidationFeedback, String> {
         let payload = self.build_payload(crystal, source_chunks, session, question)?;
-        self.commit_payload(payload)
+        let result = self.commit_payload(crystal, payload)?;
+
+        let feedback = ValidationFeedback::from_crystal_heuristic(
+            result.block_hash,
+            crystal,
+            result.coherence_potential,
+            result.gate_passed,
+            result.hdag_node_id,
+        );
+        Ok(feedback)
     }
 
     /// Build an ILPayload, using MEFCore when `il-pipeline` is active.
@@ -193,15 +221,29 @@ impl ILStore {
             .convert_with_provenance(crystal, source_chunks, session, question)
     }
 
-    fn commit_payload(&mut self, payload: ILPayload) -> Result<String, String> {
-        // Idempotent: skip if already committed
+    fn commit_payload(
+        &mut self,
+        crystal: &SemanticCrystal,
+        payload: ILPayload,
+    ) -> Result<CommitResult, String> {
+        // Idempotent: return existing data if already committed
         if let Some(existing) = self
             .index
             .entries
             .iter()
             .find(|e| e.crystal_id_hex == payload.crystal_id_hex)
         {
-            return Ok(existing.block_hash.clone());
+            let cp = existing.phase; // phase ≈ spectral_gap; exact ψ needs HDAG
+            let node_id = existing.hdag_node_id.clone();
+            let gate = self.hdag.as_ref()
+                .and_then(|h| h.is_in_s_coh_for(node_id.as_deref().unwrap_or("")))
+                .unwrap_or(crystal.stability_score > 0.5);
+            return Ok(CommitResult {
+                block_hash: existing.block_hash.clone(),
+                hdag_node_id: node_id,
+                coherence_potential: cp,
+                gate_passed: gate,
+            });
         }
 
         let block_index = self.index.entries.len() as i64;
@@ -239,8 +281,29 @@ impl ILStore {
         )
         .map_err(|e| format!("write block file: {e}"))?;
 
-        // ── HDAG: register node + edge to previous ───────────────────────────
-        let hdag_node_id = self.register_hdag_node(&payload, block_index);
+        // ── HDAG: register 5D resonance tensor node ──────────────────────────
+        let hdag_node_id = self.register_hdag_node(crystal, &payload);
+
+        // ── HDAG: add semantic edges to all resonance-proximate predecessors ──
+        if let Some(ref nid) = hdag_node_id {
+            let n = self.add_semantic_edges(nid);
+            if n > 0 {
+                // Trace-level: only log when semantic edges were actually added
+                // (avoids noise in single-crystal stores)
+                let _ = n;
+            }
+        }
+
+        // Compute coherence potential from the actual tensor for feedback
+        let coherence_potential = {
+            let sig = &crystal.topology_signature;
+            sig.kuramoto_coherence - (1.0 - crystal.stability_score.clamp(0.0, 1.0))
+        };
+        let gate_passed = self.hdag.as_ref()
+            .and_then(|h| h.is_in_s_coh_for(
+                hdag_node_id.as_deref().unwrap_or(""),
+            ))
+            .unwrap_or(crystal.stability_score > 0.5);
 
         self.index.entries.push(IndexEntry {
             block_index,
@@ -250,48 +313,112 @@ impl ILStore {
             block_file: block_file_name,
             vector8: payload.vector8,
             phase: payload.phase,
-            hdag_node_id,
+            hdag_node_id: hdag_node_id.clone(),
         });
         self.save_index()?;
 
-        Ok(block_hash)
+        Ok(CommitResult {
+            block_hash,
+            hdag_node_id,
+            coherence_potential,
+            gate_passed,
+        })
     }
 
-    /// Register the crystal as an HDAG node; draw an edge from the previous node.
-    /// Returns the node-ID on success, None on any error or when hdag is disabled.
-    #[allow(unused_variables)]
+    /// Register the crystal as an HDAG node; attempt to draw a phase-gradient
+    /// edge from the previous node.  Acyclicity and coherence are enforced by
+    /// the HDAG itself — no explicit checks here.
     fn register_hdag_node(
         &mut self,
+        crystal: &SemanticCrystal,
         payload: &ILPayload,
-        _block_index: i64,
     ) -> Option<String> {
-        #[cfg(feature = "hdag")]
-        {
-            if let Some(ref mut hdag) = self.hdag {
-                let node_id = format!("N-{}", &payload.crystal_id_hex[..16]);
-                let ts = simple_timestamp();
+        let hdag = self.hdag.as_mut()?;
 
-                match hdag.create_node(
-                    &payload.tic_id,
-                    payload.phase,
-                    Some(ts),
-                    Some(node_id.clone()),
-                ) {
-                    Ok(_) => {
-                        // Edge from previous node (sequential commit causal link)
-                        if let Some(prev) = self.index.entries.last() {
-                            if let Some(ref prev_nid) = prev.hdag_node_id {
-                                let phi = cosine(&payload.vector8, &prev.vector8);
-                                let _ = hdag.create_edge(prev_nid, &node_id, phi, "sequential_commit");
-                            }
-                        }
-                        return Some(node_id);
+        let node_id = format!("N-{}", &payload.crystal_id_hex[..16]);
+        let tensor = crystal_to_tensor(crystal);
+        let kairos = crystal.stability_score > 0.5
+            && crystal.topology_signature.kuramoto_coherence > 0.2;
+        let ts = simple_timestamp();
+
+        if let Err(e) = hdag.add_node(
+            &node_id,
+            &payload.crystal_id_hex,
+            tensor,
+            kairos,
+            &ts,
+        ) {
+            eprintln!("[IL] HDAG add_node error: {e}");
+            return None;
+        }
+
+        // Attempt phase-gradient edge from previous node.
+        // HDAG enforces the coherence condition; None means gate was closed.
+        if let Some(prev) = self.index.entries.last() {
+            if let Some(ref prev_nid) = prev.hdag_node_id {
+                match hdag.add_edge(prev_nid, &node_id, "sequential_commit") {
+                    Ok(Some(edge)) => {
+                        let _ = edge; // gradient available for future analytics
                     }
-                    Err(e) => eprintln!("[IL] HDAG node error: {e}"),
+                    Ok(None) => {} // coherence gate closed — acyclicity enforced
+                    Err(e) => eprintln!("[IL] HDAG add_edge error: {e}"),
                 }
             }
         }
-        None
+
+        // Refinement edges: wire parent crystals into the genealogy graph.
+        // parent_crystal_ids holds the 64-char hex of each ancestor crystal,
+        // matching the crystal_id_hex stored in IndexEntry.  These edges record
+        // the IL feedback lineage explicitly in the HDAG topology.
+        for parent_hex in &crystal.parent_crystal_ids {
+            let parent_nid: Option<String> = self
+                .index
+                .entries
+                .iter()
+                .find(|e| &e.crystal_id_hex == parent_hex)
+                .and_then(|e| e.hdag_node_id.clone());
+            if let Some(ref pnid) = parent_nid {
+                match hdag.add_edge(pnid, &node_id, "refinement") {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {}
+                    Err(e) => eprintln!("[IL] HDAG refinement edge error: {e}"),
+                }
+            }
+        }
+
+        Some(node_id)
+    }
+
+    /// Scan all existing HDAG nodes and add phase-gradient edges to `node_id`
+    /// from any valid semantic predecessor (resonance_proximity edges).
+    ///
+    /// A node is a valid predecessor when it:
+    /// - Is in S_coh (coherence gate)
+    /// - Has ψ ≤ ψ(target) + ε  (coherence potential monotonicity)
+    /// - Is within `resonance_radius` in 5D tensor space
+    ///
+    /// Capped at `max_candidates` nearest neighbors to bound runtime.
+    /// Returns the number of semantic edges created.
+    fn add_semantic_edges(&mut self, node_id: &str) -> usize {
+        // Step 1: collect predecessors (immutable borrow)
+        let predecessors: Vec<String> = if let Some(ref hdag) = self.hdag {
+            hdag.find_semantic_predecessors(node_id, 20, 1.5)
+        } else {
+            return 0;
+        };
+
+        // Step 2: add edges (mutable borrow, one at a time)
+        let mut count = 0;
+        for pred_id in predecessors {
+            if let Some(ref mut hdag) = self.hdag {
+                match hdag.add_edge(&pred_id, node_id, "resonance_proximity") {
+                    Ok(Some(_)) => count += 1,
+                    Ok(None) => {}
+                    Err(e) => eprintln!("[IL] HDAG semantic edge error: {e}"),
+                }
+            }
+        }
+        count
     }
 
     /// Cosine-similarity nearest-neighbour search over committed 8D vectors.
@@ -314,19 +441,37 @@ impl ILStore {
             .collect()
     }
 
-    /// Topological order of committed crystals from the HDAG (when enabled).
-    /// Returns commit order as fallback when HDAG is not active.
-    pub fn topological_order(&mut self) -> Vec<String> {
-        #[cfg(feature = "hdag")]
-        if let Some(ref mut hdag) = self.hdag {
-            return hdag.get_topological_order();
+    /// Topological order of committed crystals from the HDAG.
+    /// Returns insertion order as fallback when HDAG is unavailable.
+    pub fn topological_order(&self) -> Vec<String> {
+        if let Some(ref hdag) = self.hdag {
+            return hdag.topological_order();
         }
-        // Fallback: insertion order
         self.index
             .entries
             .iter()
             .filter_map(|e| e.hdag_node_id.clone())
             .collect()
+    }
+
+    /// Verify path invariance between two HDAG nodes.
+    pub fn verify_path_invariance(
+        &self,
+        from_crystal_id_hex: &str,
+        to_crystal_id_hex: &str,
+    ) -> Option<crate::hdag::PathInvarianceResult> {
+        let hdag = self.hdag.as_ref()?;
+        let from_nid = format!("N-{}", &from_crystal_id_hex[..16.min(from_crystal_id_hex.len())]);
+        let to_nid   = format!("N-{}", &to_crystal_id_hex[..16.min(to_crystal_id_hex.len())]);
+        Some(hdag.verify_path_invariance(&from_nid, &to_nid))
+    }
+
+    /// Mean coherence potential ψ = morphic − entropic across all HDAG nodes.
+    pub fn mean_coherence_potential(&self) -> f64 {
+        self.hdag
+            .as_ref()
+            .map(|h| h.mean_coherence_potential())
+            .unwrap_or(0.0)
     }
 
     /// Number of committed blocks.
@@ -529,7 +674,6 @@ mod tests {
         let _ = adapter2; // suppress warning
     }
 
-    #[cfg(feature = "hdag")]
     #[test]
     fn hdag_nodes_created_on_commit() {
         let dir = tempfile::tempdir().unwrap();
@@ -537,9 +681,110 @@ mod tests {
         store.commit(&dummy_crystal(0.8), &[], 1, "q1").unwrap();
         store.commit(&dummy_crystal(0.6), &[], 2, "q2").unwrap();
 
-        // Both entries should have HDAG node IDs
-        // (We verify indirectly via topological_order)
+        // Both index entries should have HDAG node IDs
+        assert!(store.index.entries.iter().all(|e| e.hdag_node_id.is_some()));
         let order = store.topological_order();
         assert!(order.len() >= 2);
+    }
+
+    #[test]
+    fn semantic_edges_connect_resonant_crystals() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Crystal A: moderate stability, ψ(A)=0.30 — in S_coh, tensor near C
+        // tensor = [0.0, 0.60, 0.0, 0.10, 0.30]
+        let mut c_a = dummy_crystal(0.70);
+        c_a.topology_signature.kuramoto_coherence = 0.60;
+        c_a.topology_signature.spectral_gap = 0.10;
+        c_a.crystal_id[0] = 0xA1;
+
+        // Crystal B: higher ψ(B)=0.50 — in S_coh but tensor-DISTANT (spectral_gap=3.0)
+        // Sequential edge A→B passes (ψ increases). Semantic edge B→C blocked by distance.
+        // tensor = [0.0, 0.70, 0.0, 3.00, 0.20]
+        let mut c_b = dummy_crystal(0.80);
+        c_b.topology_signature.kuramoto_coherence = 0.70;
+        c_b.topology_signature.spectral_gap = 3.00;
+        c_b.crystal_id[0] = 0xB1;
+
+        // Crystal C: highest ψ(C)=0.60 — in S_coh, tensor-NEAR A (spectral_gap=0.12)
+        // Sequential edge B→C passes (ψ increases). Semantic edge A→C expected.
+        // tensor = [0.0, 0.75, 0.0, 0.12, 0.15]
+        let mut c_c = dummy_crystal(0.85);
+        c_c.topology_signature.kuramoto_coherence = 0.75;
+        c_c.topology_signature.spectral_gap = 0.12;
+        c_c.crystal_id[0] = 0xC1;
+
+        store.commit(&c_a, &[], 1, "q1").unwrap();
+        store.commit(&c_b, &[], 1, "q2").unwrap();
+        store.commit(&c_c, &[], 1, "q3").unwrap();
+
+        // C should have a sequential edge from B and a semantic edge from A
+        let hdag = store.hdag.as_ref().expect("HDAG must be active");
+        let seq_edges  = hdag.edge_count_by_cause("sequential_commit");
+        let sem_edges  = hdag.edge_count_by_cause("resonance_proximity");
+        assert!(seq_edges >= 2, "expect at least 2 sequential edges, got {seq_edges}");
+        assert!(sem_edges >= 1, "expect at least 1 semantic edge A→C, got {sem_edges}");
+    }
+
+    #[test]
+    fn mean_coherence_potential_is_finite() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+        store.commit(&dummy_crystal(0.8), &[], 1, "q").unwrap();
+        let psi = store.mean_coherence_potential();
+        assert!(psi.is_finite());
+    }
+
+    /// Commit order: original (A) → intermediate (B) → refined(from A).
+    ///
+    /// Sequential edges: A→B, B→refined.
+    /// Refinement edge:  A→refined  (distinct from the sequential edge B→refined).
+    ///
+    /// Tensor values are chosen so ψ is monotonically non-decreasing:
+    ///   ψ(A)=0.30, ψ(B)=0.40, ψ(refined)≈0.36  (all above -0.1, all in S_coh).
+    /// B→refined passes because ψ(refined)=0.36 ≥ ψ(B)-ε=0.35.
+    /// A→refined passes because ψ(refined)=0.36 ≥ ψ(A)-ε=0.25.
+    #[test]
+    fn refinement_edge_links_parent_to_refined_crystal() {
+        use crate::feedback::{compute_il_stability, refine_crystal, ValidationFeedback};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Original — ψ(A) = 0.60 − 0.30 = 0.30
+        let mut c_a = dummy_crystal(0.70);
+        c_a.topology_signature.kuramoto_coherence = 0.60;
+        c_a.crystal_id[0] = 0xA1;
+        store.commit(&c_a, &[], 1, "q1").unwrap();
+
+        // Intermediate — ψ(B) = 0.65 − 0.25 = 0.40 > ψ(A); sequential A→B created
+        let mut c_b = dummy_crystal(0.75);
+        c_b.topology_signature.kuramoto_coherence = 0.65;
+        c_b.crystal_id[0] = 0xB1;
+        store.commit(&c_b, &[], 1, "q2").unwrap();
+
+        // IL-refined from c_a — genuinely new crystal_id (SHA-256 content-addressed).
+        // il_stability=0.9 → new_stability=0.76 → ψ(refined)=0.36; passes B→refined gate.
+        let il_stability = compute_il_stability(true, true, 0.8);
+        let feedback = ValidationFeedback {
+            block_hash: "testhash".to_string(),
+            converged: true,
+            coherence_potential: 0.8,
+            gate_passed: true,
+            hdag_node_id: None,
+            il_stability,
+        };
+        let c_refined = refine_crystal(&c_a, &feedback, 2);
+        let orig_hex: String = c_a.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        assert!(
+            c_refined.parent_crystal_ids.contains(&orig_hex),
+            "sanity: parent_crystal_ids must reference the original"
+        );
+        store.commit(&c_refined, &[], 2, "q3").unwrap();
+
+        let hdag = store.hdag.as_ref().expect("HDAG must be active");
+        let ref_edges = hdag.edge_count_by_cause("refinement");
+        assert!(ref_edges >= 1, "expect at least 1 refinement edge A→refined, got {ref_edges}");
     }
 }
