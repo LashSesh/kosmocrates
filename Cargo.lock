@@ -2311,6 +2311,7 @@ name = "pse-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "pse-adapter-il",
  "pse-core",
  "pse-graph",
  "pse-types",
