@@ -536,6 +536,16 @@ impl ILStore {
             .unwrap_or(0.0)
     }
 
+    /// Number of HDAG edges with the given cause label.
+    /// Common causes: "sequential_commit", "resonance_proximity", "refinement".
+    /// Returns 0 when HDAG is inactive.
+    pub fn hdag_edge_count_by_cause(&self, cause: &str) -> usize {
+        self.hdag
+            .as_ref()
+            .map(|h| h.edge_count_by_cause(cause))
+            .unwrap_or(0)
+    }
+
     /// Number of committed blocks.
     pub fn len(&self) -> usize {
         self.index.entries.len()

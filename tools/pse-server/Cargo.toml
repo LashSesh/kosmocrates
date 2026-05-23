@@ -11,9 +11,10 @@ name = "pse-server"
 path = "src/main.rs"
 
 [dependencies]
-pse-core  = { path = "../../crates/pse-core" }
-pse-types = { path = "../../crates/pse-types" }
-pse-graph = { path = "../../crates/pse-graph" }
+pse-core       = { path = "../../crates/pse-core" }
+pse-types      = { path = "../../crates/pse-types" }
+pse-graph      = { path = "../../crates/pse-graph" }
+pse-adapter-il = { path = "../../adapters/pse-adapter-il" }
 axum        = { workspace = true }
 tower-http  = { workspace = true }
 tokio       = { workspace = true }
