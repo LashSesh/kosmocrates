@@ -26,6 +26,7 @@
 //! - `full`:        il-pipeline enabled
 
 pub mod adapter;
+pub mod agent;
 pub mod causal;
 pub mod context;
 pub mod feedback;
@@ -35,6 +36,7 @@ pub mod qtic;
 pub mod store;
 
 pub use adapter::{text_to_vector8, CrystalAdapter, ILPayload};
+pub use agent::{AgentCausalGraph, AgentLink};
 pub use causal::{CausalCause, CausalGraph, CausalLink};
 pub use context::{ContextBudget, CrystalSummary};
 pub use prompt::{GroundedPrompt, PromptConfig};

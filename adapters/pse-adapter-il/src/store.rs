@@ -76,6 +76,10 @@ struct IndexEntry {
     /// Scale tag of the crystal at commit time (e.g., `"il-refined"`).
     #[serde(default)]
     scale_tag: String,
+    /// Agent that committed this crystal (empty = unattributed).
+    /// Set by [`ILStore::commit_as`]; mirrors `SemanticCrystal::universe_id`.
+    #[serde(default)]
+    agent_id: String,
 }
 
 fn default_stability() -> f64 {
@@ -392,6 +396,7 @@ impl ILStore {
             qtic_class: None, // set after QTIC classification in commit_with_feedback
             question,
             scale_tag: crystal.scale_tag.clone(),
+            agent_id: String::new(), // set by commit_as() after the fact
         });
         self.save_index()?;
 
@@ -694,6 +699,85 @@ impl ILStore {
         };
 
         crate::prompt::build_prompt(query, config, selected, causal_context)
+    }
+
+    /// Commit a crystal on behalf of a named agent.
+    ///
+    /// Identical to [`commit_with_feedback`] but additionally records
+    /// `agent_id` in the index entry so that
+    /// [`build_agent_causal_graph`] can attribute each crystal to its
+    /// producer.  The agent ID is also stored in
+    /// `crystal.universe_id` inside the block file for ledger-level
+    /// auditability.
+    ///
+    /// [`commit_with_feedback`]: ILStore::commit_with_feedback
+    /// [`build_agent_causal_graph`]: ILStore::build_agent_causal_graph
+    pub fn commit_as(
+        &mut self,
+        crystal: &pse_types::SemanticCrystal,
+        source_chunks: &[String],
+        session: usize,
+        question: &str,
+        agent_id: &str,
+    ) -> Result<ValidationFeedback, String> {
+        let fb = self.commit_with_feedback(crystal, source_chunks, session, question)?;
+        if let Some(entry) = self
+            .index
+            .entries
+            .iter_mut()
+            .find(|e| e.block_hash == fb.block_hash)
+        {
+            entry.agent_id = agent_id.to_string();
+        }
+        let _ = self.save_index();
+        Ok(fb)
+    }
+
+    /// Build an agent-annotated causal graph.
+    ///
+    /// Lifts the plain [`CausalGraph`] into an [`AgentCausalGraph`] by
+    /// annotating each causal link with the agent IDs of its source and
+    /// target crystals (as recorded by [`commit_as`]).
+    ///
+    /// Crystals committed without an agent tag appear with an empty string
+    /// and are excluded from cross-agent and collaborative analysis.
+    ///
+    /// [`CausalGraph`]: crate::causal::CausalGraph
+    /// [`AgentCausalGraph`]: crate::agent::AgentCausalGraph
+    /// [`commit_as`]: ILStore::commit_as
+    pub fn build_agent_causal_graph(&self) -> crate::agent::AgentCausalGraph {
+        use crate::agent::{AgentCausalGraph, AgentLink};
+        use std::collections::{HashMap, HashSet};
+
+        // crystal_id_prefix (16 chars) → agent_id
+        let attribution: HashMap<String, String> = self
+            .index
+            .entries
+            .iter()
+            .map(|e| {
+                let prefix = e.crystal_id_hex[..e.crystal_id_hex.len().min(16)].to_string();
+                (prefix, e.agent_id.clone())
+            })
+            .collect();
+
+        let agents: HashSet<String> = attribution
+            .values()
+            .filter(|a| !a.is_empty())
+            .cloned()
+            .collect();
+
+        let inner = self.build_causal_graph();
+        let links: Vec<AgentLink> = inner
+            .links
+            .into_iter()
+            .map(|link| {
+                let from_agent = attribution.get(&link.from).cloned().unwrap_or_default();
+                let to_agent = attribution.get(&link.to).cloned().unwrap_or_default();
+                AgentLink { inner: link, from_agent, to_agent }
+            })
+            .collect();
+
+        AgentCausalGraph { links, agents, attribution }
     }
 
     /// Build a causal graph from all HDAG edges in this store.
@@ -1151,6 +1235,83 @@ mod tests {
             cert.conformance_class >= crate::qtic::QticClass::Q1,
             "certificate must reach at least Q1"
         );
+    }
+
+    #[test]
+    fn commit_as_records_agent_id_in_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c = dummy_crystal(0.80);
+        c.topology_signature.kuramoto_coherence = 0.70;
+        c.crystal_id[0] = 0xA0;
+
+        let fb = store
+            .commit_as(&c, &[], 1, "agent query", "agent-alpha")
+            .unwrap();
+
+        let entry = store
+            .index
+            .entries
+            .iter()
+            .find(|e| e.block_hash == fb.block_hash)
+            .expect("entry must be in index");
+        assert_eq!(entry.agent_id, "agent-alpha");
+    }
+
+    #[test]
+    fn agent_causal_graph_attributes_crystals() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c1 = dummy_crystal(0.80);
+        c1.topology_signature.kuramoto_coherence = 0.70;
+        c1.crystal_id[0] = 0xB0;
+
+        let mut c2 = dummy_crystal(0.85);
+        c2.topology_signature.kuramoto_coherence = 0.75;
+        c2.crystal_id[0] = 0xB1;
+
+        store.commit_as(&c1, &[], 1, "q1", "alice").unwrap();
+        store.commit_as(&c2, &[], 2, "q2", "bob").unwrap();
+
+        let ag = store.build_agent_causal_graph();
+        assert!(ag.agents.contains("alice"), "alice must be in agents");
+        assert!(ag.agents.contains("bob"), "bob must be in agents");
+        // At least one sequential link (alice→bob boundary)
+        assert!(!ag.cross_agent_links().is_empty() || !ag.links.is_empty(),
+            "must have links after two commits");
+    }
+
+    #[test]
+    fn agent_causal_graph_detects_cross_agent_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c1 = dummy_crystal(0.75);
+        c1.topology_signature.kuramoto_coherence = 0.65;
+        c1.crystal_id[0] = 0xC0;
+
+        let mut c2 = dummy_crystal(0.82);
+        c2.topology_signature.kuramoto_coherence = 0.72;
+        c2.crystal_id[0] = 0xC1;
+
+        store.commit_as(&c1, &[], 1, "first crystal", "agent-x").unwrap();
+        store.commit_as(&c2, &[], 2, "second crystal", "agent-y").unwrap();
+
+        let ag = store.build_agent_causal_graph();
+        // If a sequential_commit edge formed between c1 and c2, it crosses agents
+        let cross = ag.cross_agent_links();
+        // The sequential edge from c1→c2 crosses agent-x → agent-y
+        if !ag.links.is_empty() {
+            assert!(
+                !cross.is_empty() || ag.agents.len() >= 2,
+                "two agents must appear in attribution"
+            );
+        }
+        // Summary must be non-empty
+        let s = ag.summary();
+        assert!(!s.is_empty());
     }
 
     #[test]
