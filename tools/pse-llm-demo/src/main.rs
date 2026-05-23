@@ -362,14 +362,18 @@ fn main() {
         println!();
 
         for (crystal, sources) in &new_pairs {
-            il.commit(crystal, sources, session, question);
+            let canonical = if let Some(outcome) = il.commit(crystal, sources, session, question) {
+                outcome.refined.unwrap_or_else(|| crystal.clone())
+            } else {
+                crystal.clone()
+            };
             mem.crystal_records.push(CrystalRecord {
-                crystal: crystal.clone(),
+                crystal: canonical.clone(),
                 source_chunks: sources.clone(),
                 session,
                 question: question.to_string(),
             });
-            mem.crystals.push(crystal.clone());
+            mem.crystals.push(canonical);
         }
 
         if !new_pairs.is_empty() {
@@ -492,14 +496,18 @@ fn main() {
     }
 
     for (crystal, sources) in &new_pairs {
-        il.commit(crystal, sources, session, question);
+        let canonical = if let Some(outcome) = il.commit(crystal, sources, session, question) {
+            outcome.refined.unwrap_or_else(|| crystal.clone())
+        } else {
+            crystal.clone()
+        };
         mem.crystal_records.push(CrystalRecord {
-            crystal: crystal.clone(),
+            crystal: canonical.clone(),
             source_chunks: sources.clone(),
             session,
             question: question.to_string(),
         });
-        mem.crystals.push(crystal.clone());
+        mem.crystals.push(canonical);
     }
     mem.prior_responses.push(response);
 

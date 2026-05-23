@@ -359,6 +359,16 @@ impl HDAG {
         }
     }
 
+    /// Coherence potential of a specific node by ID.
+    pub fn coherence_potential_of(&self, node_id: &str) -> Option<f64> {
+        self.data.nodes.get(node_id).map(|n| Self::coherence_potential(&n.tensor))
+    }
+
+    /// Whether a specific node satisfies the S_coh condition.
+    pub fn is_in_s_coh_for(&self, node_id: &str) -> Option<bool> {
+        self.data.nodes.get(node_id).map(|n| Self::is_in_s_coh(n))
+    }
+
     pub fn node_count(&self) -> usize {
         self.data.nodes.len()
     }

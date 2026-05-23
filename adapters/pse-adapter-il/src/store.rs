@@ -17,6 +17,7 @@
 //! PSE-side approximation.
 
 use crate::adapter::{CrystalAdapter, ILPayload};
+use crate::feedback::ValidationFeedback;
 use crate::hdag::{crystal_to_tensor, HDAG};
 use pse_types::SemanticCrystal;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,14 @@ use std::path::{Path, PathBuf};
 
 #[cfg(feature = "il-pipeline")]
 use mef_core::MEFCore;
+
+/// Internal result from `commit_payload` carrying all data needed for feedback.
+struct CommitResult {
+    block_hash: String,
+    hdag_node_id: Option<String>,
+    coherence_potential: f64,
+    gate_passed: bool,
+}
 
 /// A search hit returned by `ILStore::search`.
 #[derive(Debug, Clone)]
@@ -158,8 +167,33 @@ impl ILStore {
         session: usize,
         question: &str,
     ) -> Result<String, String> {
+        self.commit_with_feedback(crystal, source_chunks, session, question)
+            .map(|fb| fb.block_hash)
+    }
+
+    /// Like `commit`, but also returns IL validation data for the feedback loop.
+    ///
+    /// The `ValidationFeedback` contains convergence status, coherence potential,
+    /// and a normalized IL stability signal ready to be blended into a refined crystal
+    /// via `pse_adapter_il::feedback::refine_crystal`.
+    pub fn commit_with_feedback(
+        &mut self,
+        crystal: &SemanticCrystal,
+        source_chunks: &[String],
+        session: usize,
+        question: &str,
+    ) -> Result<ValidationFeedback, String> {
         let payload = self.build_payload(crystal, source_chunks, session, question)?;
-        self.commit_payload(crystal, payload)
+        let result = self.commit_payload(crystal, payload)?;
+
+        let feedback = ValidationFeedback::from_crystal_heuristic(
+            result.block_hash,
+            crystal,
+            result.coherence_potential,
+            result.gate_passed,
+            result.hdag_node_id,
+        );
+        Ok(feedback)
     }
 
     /// Build an ILPayload, using MEFCore when `il-pipeline` is active.
@@ -187,15 +221,29 @@ impl ILStore {
             .convert_with_provenance(crystal, source_chunks, session, question)
     }
 
-    fn commit_payload(&mut self, crystal: &SemanticCrystal, payload: ILPayload) -> Result<String, String> {
-        // Idempotent: skip if already committed
+    fn commit_payload(
+        &mut self,
+        crystal: &SemanticCrystal,
+        payload: ILPayload,
+    ) -> Result<CommitResult, String> {
+        // Idempotent: return existing data if already committed
         if let Some(existing) = self
             .index
             .entries
             .iter()
             .find(|e| e.crystal_id_hex == payload.crystal_id_hex)
         {
-            return Ok(existing.block_hash.clone());
+            let cp = existing.phase; // phase ≈ spectral_gap; exact ψ needs HDAG
+            let node_id = existing.hdag_node_id.clone();
+            let gate = self.hdag.as_ref()
+                .and_then(|h| h.is_in_s_coh_for(node_id.as_deref().unwrap_or("")))
+                .unwrap_or(crystal.stability_score > 0.5);
+            return Ok(CommitResult {
+                block_hash: existing.block_hash.clone(),
+                hdag_node_id: node_id,
+                coherence_potential: cp,
+                gate_passed: gate,
+            });
         }
 
         let block_index = self.index.entries.len() as i64;
@@ -236,6 +284,17 @@ impl ILStore {
         // ── HDAG: register 5D resonance tensor node + phase-gradient edge ────
         let hdag_node_id = self.register_hdag_node(crystal, &payload);
 
+        // Compute coherence potential from the actual tensor for feedback
+        let coherence_potential = {
+            let sig = &crystal.topology_signature;
+            sig.kuramoto_coherence - (1.0 - crystal.stability_score.clamp(0.0, 1.0))
+        };
+        let gate_passed = self.hdag.as_ref()
+            .and_then(|h| h.is_in_s_coh_for(
+                hdag_node_id.as_deref().unwrap_or(""),
+            ))
+            .unwrap_or(crystal.stability_score > 0.5);
+
         self.index.entries.push(IndexEntry {
             block_index,
             crystal_id_hex: payload.crystal_id_hex,
@@ -244,11 +303,16 @@ impl ILStore {
             block_file: block_file_name,
             vector8: payload.vector8,
             phase: payload.phase,
-            hdag_node_id,
+            hdag_node_id: hdag_node_id.clone(),
         });
         self.save_index()?;
 
-        Ok(block_hash)
+        Ok(CommitResult {
+            block_hash,
+            hdag_node_id,
+            coherence_potential,
+            gate_passed,
+        })
     }
 
     /// Register the crystal as an HDAG node; attempt to draw a phase-gradient
