@@ -59,6 +59,10 @@ struct IndexEntry {
     /// PSE stability score at commit time; ρ in the Pfauenthron++ retrieval formula.
     #[serde(default = "default_stability")]
     stability_score: f64,
+    /// Metatron S₇ canonical hash, if the crystal carried a MetatronTopologySignature.
+    /// Two entries with the same non-empty hash are topologically isomorphic.
+    #[serde(default)]
+    metatron_canonical_hash: Option<String>,
 }
 
 fn default_stability() -> f64 {
@@ -322,6 +326,11 @@ impl ILStore {
             phase: payload.phase,
             hdag_node_id: hdag_node_id.clone(),
             stability_score: crystal.stability_score,
+            metatron_canonical_hash: crystal
+                .metatron_signature
+                .as_ref()
+                .filter(|m| !m.canonical_hash.is_empty())
+                .map(|m| m.canonical_hash.clone()),
         });
         self.save_index()?;
 
@@ -390,6 +399,36 @@ impl ILStore {
                     Ok(Some(_)) => {}
                     Ok(None) => {}
                     Err(e) => eprintln!("[IL] HDAG refinement edge error: {e}"),
+                }
+            }
+        }
+
+        // Metatron isomorphic edges: connect this crystal to all previous
+        // crystals that share the same S₇ canonical hash.  Two crystals
+        // with the same canonical_hash have isomorphic region subgraphs —
+        // a structural resonance that deserves an explicit HDAG connection.
+        // The coherence gate still applies; degenerate or anti-coherent
+        // pairs are excluded naturally.
+        if let Some(ref m_sig) = crystal.metatron_signature {
+            if !m_sig.canonical_hash.is_empty() {
+                let iso_nids: Vec<String> = self
+                    .index
+                    .entries
+                    .iter()
+                    .filter(|e| {
+                        e.metatron_canonical_hash
+                            .as_deref()
+                            .map(|h| h == m_sig.canonical_hash)
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|e| e.hdag_node_id.clone())
+                    .collect();
+                for iso_nid in iso_nids {
+                    match hdag.add_edge(&iso_nid, &node_id, "metatron_isomorphic") {
+                        Ok(Some(_)) => {}
+                        Ok(None) => {} // coherence gate closed — still consistent
+                        Err(e) => eprintln!("[IL] HDAG isomorphic edge error: {e}"),
+                    }
                 }
             }
         }

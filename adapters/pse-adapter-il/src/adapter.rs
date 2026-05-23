@@ -100,7 +100,23 @@ impl CrystalAdapter {
             "proof":         proof,
         });
 
-        let snapshot_json = serde_json::json!({
+        // Optional Metatron signature block — included when present.
+        let metatron_json: Option<serde_json::Value> =
+            crystal.metatron_signature.as_ref().map(|m| {
+                serde_json::json!({
+                    "canonical_hash":         m.canonical_hash,
+                    "n":                      m.n,
+                    "m":                      m.m,
+                    "orbit_size":             m.orbit_size,
+                    "stabilizer_order":       m.stabilizer_order,
+                    "algebraic_connectivity": m.algebraic_connectivity,
+                    "spectral_radius":        m.spectral_radius,
+                    "graph_energy":           m.graph_energy,
+                    "triangle_count":         m.triangle_count,
+                })
+            });
+
+        let mut snapshot_json = serde_json::json!({
             "crystal_id":    crystal_id_hex,
             "source_chunks": source_chunks,
             "coordinates":   fixpoint,
@@ -111,6 +127,15 @@ impl CrystalAdapter {
                 "por": if crystal.stability_score > 0.5 { "valid" } else { "invalid" },
             },
         });
+        if let Some(ref m) = metatron_json {
+            snapshot_json["metatron"] = m.clone();
+        }
+
+        let mut tic_json_mut = tic_json.clone();
+        if let Some(m) = metatron_json {
+            tic_json_mut["metatron"] = m;
+        }
+        let tic_json = tic_json_mut;
 
         let phase = fixpoint.first().copied().unwrap_or(0.0);
 

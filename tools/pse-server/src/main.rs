@@ -148,9 +148,10 @@ struct HealthResponse {
 
 #[derive(Serialize)]
 struct ILEdgeCounts {
-    sequential_commit:   usize,
-    resonance_proximity: usize,
-    refinement:          usize,
+    sequential_commit:    usize,
+    resonance_proximity:  usize,
+    refinement:           usize,
+    metatron_isomorphic:  usize,
 }
 
 #[derive(Serialize)]
@@ -320,6 +321,7 @@ async fn il_status(State(state): State<AppState>) -> impl IntoResponse {
                 sequential_commit:   store.hdag_edge_count_by_cause("sequential_commit"),
                 resonance_proximity: store.hdag_edge_count_by_cause("resonance_proximity"),
                 refinement:          store.hdag_edge_count_by_cause("refinement"),
+                metatron_isomorphic: store.hdag_edge_count_by_cause("metatron_isomorphic"),
             });
             Json(ILStatusResponse {
                 active: true,
@@ -410,6 +412,7 @@ async fn il_hdag_coherence(State(state): State<AppState>) -> impl IntoResponse {
                 sequential_commit:   store.hdag_edge_count_by_cause("sequential_commit"),
                 resonance_proximity: store.hdag_edge_count_by_cause("resonance_proximity"),
                 refinement:          store.hdag_edge_count_by_cause("refinement"),
+                metatron_isomorphic: store.hdag_edge_count_by_cause("metatron_isomorphic"),
             }),
         }).into_response(),
     }
