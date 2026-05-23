@@ -396,6 +396,37 @@ impl HDAG {
         self.data.nodes.get(node_id).map(|n| n.tensor)
     }
 
+    /// Check path invariance for a specific HDAG node.
+    ///
+    /// Verifies that all paths from any direct predecessor of `node_id` to
+    /// `node_id` produce the same canonical gradient condensation (QTIC §13.3
+    /// — HDAG path neutrality invariant).
+    ///
+    /// - If the node has 0 or 1 incoming edges: trivially returns `true`
+    ///   (single path per predecessor = no divergence possible).
+    /// - If the node has multiple incoming edges: for each predecessor P,
+    ///   calls `verify_path_invariance(P, node_id)`.  Returns `true` only
+    ///   when every check passes.
+    pub fn check_node_path_invariance(&self, node_id: &str) -> bool {
+        // Collect direct predecessors (nodes with edges pointing TO node_id)
+        let predecessors: Vec<&str> = self
+            .data
+            .edges
+            .iter()
+            .filter(|e| e.to == node_id)
+            .map(|e| e.from.as_str())
+            .collect();
+
+        if predecessors.len() <= 1 {
+            return true; // single or no predecessors: trivially path-invariant
+        }
+
+        // For each predecessor, verify all paths from it to node_id
+        predecessors.iter().all(|pred| {
+            self.verify_path_invariance(pred, node_id).invariant
+        })
+    }
+
     /// Find valid semantic predecessors for `target_id` by scanning the
     /// resonance field.
     ///

@@ -1,10 +1,10 @@
 //! IL → PSE feedback loop.
 //!
 //! Every crystal that passes through the IL pipeline carries back a
-//! `ValidationFeedback` with convergence and coherence information.  This
-//! feedback is used to produce a *refined* crystal whose `stability_score`
-//! is a weighted blend of the original PSE topological quality and IL's
-//! convergence signal.
+//! `ValidationFeedback` with convergence, coherence, and QTIC conformance
+//! information.  This feedback is used to produce a *refined* crystal whose
+//! `stability_score` is a weighted blend of the original PSE topological
+//! quality and IL's convergence signal.
 //!
 //! The refined crystal:
 //! - Has a new `crystal_id` (SHA-256 of "il-refined:<original_hex>:<new_stability>")
@@ -16,6 +16,7 @@
 //! crystal — it is not a mutation.  The original and the refined crystal
 //! coexist; the HDAG connects them via the genealogy edge.
 
+use crate::qtic::QticCertificate;
 use pse_types::SemanticCrystal;
 use sha2::{Digest, Sha256};
 
@@ -37,10 +38,17 @@ pub struct ValidationFeedback {
     /// gate status + coherence potential.  Used to compute the blended
     /// stability score of the refined crystal.
     pub il_stability: f64,
+    /// QTIC conformance certificate (Q0–Q5).
+    /// `None` only when the crystal was already committed (idempotent path).
+    pub qtic_certificate: Option<QticCertificate>,
 }
 
 impl ValidationFeedback {
     /// Build a ValidationFeedback without MEFCore (heuristic convergence).
+    ///
+    /// `qtic_certificate` is computed externally (in `ILStore::commit_with_feedback`)
+    /// once path invariance can be evaluated.  Pass `None` here and attach it afterwards,
+    /// or use `ILStore::commit_with_feedback` which wires everything automatically.
     pub fn from_crystal_heuristic(
         block_hash: String,
         crystal: &SemanticCrystal,
@@ -62,6 +70,7 @@ impl ValidationFeedback {
             gate_passed,
             hdag_node_id,
             il_stability,
+            qtic_certificate: None,
         }
     }
 
@@ -82,6 +91,7 @@ impl ValidationFeedback {
             gate_passed,
             hdag_node_id,
             il_stability,
+            qtic_certificate: None,
         }
     }
 }
@@ -204,6 +214,7 @@ mod tests {
             gate_passed,
             hdag_node_id: Some("N-abc".to_string()),
             il_stability,
+            qtic_certificate: None,
         }
     }
 
