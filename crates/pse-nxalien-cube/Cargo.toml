@@ -1,0 +1,16 @@
+[package]
+name = "pse-nxalien-cube"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Hypercube-HDAG embedding and compiler for nxalien"
+
+[dependencies]
+pse-nxalien-types = { path = "../pse-nxalien-types" }
+pse-nxalien-core = { path = "../pse-nxalien-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+petgraph = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }

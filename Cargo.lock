@@ -1558,6 +1558,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxalien-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pse-nxalien-agent",
+ "pse-nxalien-core",
+ "pse-nxalien-cube",
+ "pse-nxalien-pse",
+ "pse-nxalien-types",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2245,6 +2261,70 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "tracing",
+]
+
+[[package]]
+name = "pse-nxalien-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pse-nxalien-core",
+ "pse-nxalien-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pse-nxalien-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pse-nxalien-types",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pse-nxalien-cube"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "petgraph",
+ "pse-nxalien-core",
+ "pse-nxalien-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pse-nxalien-pse"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pse-nxalien-core",
+ "pse-nxalien-types",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pse-nxalien-types"
+version = "0.1.0"
+dependencies = [
+ "ordered-float",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
