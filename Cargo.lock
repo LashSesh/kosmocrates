@@ -1562,6 +1562,7 @@ name = "nxalien-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "pse-exploratory",
  "pse-nxalien-agent",
  "pse-nxalien-core",
  "pse-nxalien-cube",
@@ -2152,6 +2153,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-exploratory"
+version = "0.1.0"
+dependencies = [
+ "pse-nxalien-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "pse-extract"
 version = "0.1.0"
 dependencies = [
@@ -2422,6 +2433,7 @@ dependencies = [
  "pse-adapter-il",
  "pse-constitutional-interceptor",
  "pse-core",
+ "pse-exploratory",
  "pse-graph",
  "pse-nxalien-evolve",
  "pse-nxalien-types",

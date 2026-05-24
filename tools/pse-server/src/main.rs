@@ -34,6 +34,9 @@
 //!                                   Strict mode auto-activates when signal is
 //!                                   Drifting or Diverging.
 //!
+//!   GET  /exploratory/status      — pending hypotheses (negative-ψ crystals),
+//!                                   landing events, decay log, UnknownSlots.
+//!
 //! **Configuration (env vars):**
 //!
 //!   `PSE_SERVER_HOST`     bind address (default: `0.0.0.0`)
@@ -74,6 +77,7 @@ use axum::{
 use constitutional::{constitutional_check, ConstitutionalHandle, ConstitutionalLayer};
 use pse_adapter_il::{adapter::text_to_vector8, store::ILStore};
 use pse_constitutional_interceptor::ConstitutionalEvaluator;
+use pse_exploratory::{ExploratoryLedger, ExploratoryLedgerSummary, DEFAULT_DECAY_AFTER_RUNS, EXPLORATORY_PSI_THRESHOLD};
 use pse_nxalien_evolve::{
     commit_rules_to_il,
     evolution::{propose_rule_evolution, apply_validated_proposals, EvolutionGuard},
@@ -672,6 +676,23 @@ async fn nxalien_bundle(
         let _ = std::fs::write(&rules_path, j);
     }
 
+    // Exploratory ledger: park negative-ψ crystals as hypotheses.
+    {
+        let mut exp = ExploratoryLedger::open(&nxa_path);
+        let grounded: Vec<(&str, f64)> = il_summary.entries
+            .iter()
+            .filter(|e| e.coherence_potential >= EXPLORATORY_PSI_THRESHOLD)
+            .map(|e| (e.rule_id.as_str(), e.coherence_potential))
+            .collect();
+        exp.check_landings(&grounded, graph_state.run_count);
+        exp.tick_decay(graph_state.run_count);
+        for e in il_summary.entries.iter().filter(|e| e.coherence_potential < EXPLORATORY_PSI_THRESHOLD) {
+            exp.ingest(&e.rule_id, e.coherence_potential, e.qtic_class,
+                &e.block_hash_prefix, graph_state.run_count, DEFAULT_DECAY_AFTER_RUNS);
+        }
+        let _ = exp.save(&nxa_path);
+    }
+
     // Refresh constitutional evaluator with the post-evolution rule set.
     // Strict mode is activated when the signal is Drifting or Diverging —
     // governance tightens as the epistemic health of the system degrades.
@@ -817,6 +838,52 @@ async fn nxalien_rules_current(State(state): State<AppState>) -> impl IntoRespon
     .into_response()
 }
 
+// ── Exploratory ledger handler ────────────────────────────────────────────────
+
+/// Response for `GET /exploratory/status`.
+#[derive(Serialize)]
+struct ExploratoryStatusResponse {
+    active: bool,
+    summary: Option<ExploratoryLedgerSummary>,
+    /// Pending entries surfaced as UnknownSlots for the EpistemicAgenda.
+    pending_unknowns: Vec<pse_nxalien_types::UnknownSlot>,
+}
+
+/// `GET /exploratory/status` — current state of the exploratory ledger.
+///
+/// Shows pending hypotheses (negative-ψ crystals awaiting grounding),
+/// landed entries (hypotheses confirmed by evidence), and decayed entries
+/// (persistent knowledge gaps).  Pending and decayed entries also appear as
+/// `UnknownSlot`s so agents can see them in the EpistemicAgenda.
+async fn exploratory_status(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(ref nxa_path) = state.nxalien_path else {
+        return Json(ExploratoryStatusResponse {
+            active: false,
+            summary: None,
+            pending_unknowns: vec![],
+        })
+        .into_response();
+    };
+
+    let gs_run_count = state
+        .nxalien_state
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|gs| gs.run_count))
+        .unwrap_or(0);
+
+    let ledger = ExploratoryLedger::open(nxa_path);
+    let unknowns = ledger.to_unknown_slots();
+    let summary = ledger.summary(gs_run_count);
+
+    Json(ExploratoryStatusResponse {
+        active: true,
+        summary: Some(summary),
+        pending_unknowns: unknowns,
+    })
+    .into_response()
+}
+
 // ── Server startup ────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -896,6 +963,7 @@ async fn main() {
         .route("/nxalien/signal", get(nxalien_signal))
         .route("/nxalien/validate", post(nxalien_validate))
         .route("/nxalien/rules/current", get(nxalien_rules_current))
+        .route("/exploratory/status", get(exploratory_status))
         .merge(constitutional_router)
         .layer(ConstitutionalLayer::new(state.constitutional.clone()))
         .layer(CorsLayer::permissive())
@@ -929,6 +997,7 @@ async fn main() {
     println!("  POST /nxalien/validate    — dry-run constitutional check");
     println!("  GET  /nxalien/rules/current — evolved rule set");
     println!("  POST /constitutional/check  — evaluate action against live rules");
+    println!("  GET  /exploratory/status    — pending hypotheses + landing/decay log");
     println!();
     println!("  curl http://{addr}/health");
     println!();

@@ -66,6 +66,7 @@ members = [
     "crates/pse-nxalien-pse",
     "crates/pse-nxalien-evolve",
     "crates/pse-constitutional-interceptor",
+    "crates/pse-exploratory",
     "tools/nxalien-cli",
 ]
 
