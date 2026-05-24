@@ -37,6 +37,11 @@
 //!   GET  /exploratory/status      — pending hypotheses (negative-ψ crystals),
 //!                                   landing events, decay log, UnknownSlots.
 //!
+//!   POST /reasoning/guide         — Epistemic Thunderbolt Vector: D = ψ·ρ·ω
+//!                                   guided multi-hop traversal of the IL graph.
+//!                                   Returns a scored reasoning chain following
+//!                                   the path of highest epistemic energy.
+//!
 //! **Configuration (env vars):**
 //!
 //!   `PSE_SERVER_HOST`     bind address (default: `0.0.0.0`)
@@ -78,6 +83,7 @@ use constitutional::{constitutional_check, ConstitutionalHandle, ConstitutionalL
 use pse_adapter_il::{adapter::text_to_vector8, store::ILStore};
 use pse_constitutional_interceptor::ConstitutionalEvaluator;
 use pse_exploratory::{ExploratoryLedger, ExploratoryLedgerSummary, DEFAULT_DECAY_AFTER_RUNS, EXPLORATORY_PSI_THRESHOLD};
+use pse_reasoning::{guide as thunderbolt_guide, ReasoningChain, ThunderboltConfig};
 use pse_nxalien_evolve::{
     commit_rules_to_il,
     evolution::{propose_rule_evolution, apply_validated_proposals, EvolutionGuard},
@@ -884,6 +890,73 @@ async fn exploratory_status(State(state): State<AppState>) -> impl IntoResponse 
     .into_response()
 }
 
+// ── Epistemic Thunderbolt reasoning handler ───────────────────────────────────
+
+/// Request body for `POST /reasoning/guide`.
+#[derive(Deserialize)]
+struct ReasoningGuideRequest {
+    query: String,
+    #[serde(default)]
+    max_steps: Option<usize>,
+    #[serde(default)]
+    min_d_threshold: Option<f64>,
+    #[serde(default)]
+    top_k_per_step: Option<usize>,
+}
+
+/// Response for `POST /reasoning/guide`.
+#[derive(Serialize)]
+struct ReasoningGuideResponse {
+    /// Whether the IL store is active (required for reasoning).
+    active: bool,
+    chain: Option<ReasoningChain>,
+}
+
+/// `POST /reasoning/guide` — Epistemic Thunderbolt Vector reasoning.
+///
+/// Runs the D = ψ · ρ · ω guided traversal over the IL knowledge graph,
+/// returning a reasoning chain from the query through the highest-D crystals.
+///
+/// Each step in the chain:
+/// - Scores all crystals with D = ψ · ρ · ω (semantic × structural × temporal)
+/// - Selects the highest-D unvisited crystal
+/// - Advances the query vector to that crystal's 8D embedding
+///
+/// The chain is deterministic for a given store state.
+async fn reasoning_guide(
+    State(state): State<AppState>,
+    Json(req): Json<ReasoningGuideRequest>,
+) -> impl IntoResponse {
+    let guard = match state.il.lock() {
+        Ok(g) => g,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "IL store lock poisoned" })),
+            )
+                .into_response();
+        }
+    };
+
+    let Some(store) = &*guard else {
+        return Json(ReasoningGuideResponse { active: false, chain: None }).into_response();
+    };
+
+    let config = ThunderboltConfig {
+        max_steps: req.max_steps.unwrap_or(6),
+        min_d_threshold: req.min_d_threshold.unwrap_or(0.01),
+        top_k_per_step: req.top_k_per_step.unwrap_or(32),
+    };
+
+    let chain = thunderbolt_guide(&req.query, store, &config);
+
+    Json(ReasoningGuideResponse {
+        active: true,
+        chain: Some(chain),
+    })
+    .into_response()
+}
+
 // ── Server startup ────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -964,6 +1037,7 @@ async fn main() {
         .route("/nxalien/validate", post(nxalien_validate))
         .route("/nxalien/rules/current", get(nxalien_rules_current))
         .route("/exploratory/status", get(exploratory_status))
+        .route("/reasoning/guide", post(reasoning_guide))
         .merge(constitutional_router)
         .layer(ConstitutionalLayer::new(state.constitutional.clone()))
         .layer(CorsLayer::permissive())
@@ -998,6 +1072,7 @@ async fn main() {
     println!("  GET  /nxalien/rules/current — evolved rule set");
     println!("  POST /constitutional/check  — evaluate action against live rules");
     println!("  GET  /exploratory/status    — pending hypotheses + landing/decay log");
+    println!("  POST /reasoning/guide       — Epistemic Thunderbolt D=ψ·ρ·ω reasoning");
     println!();
     println!("  curl http://{addr}/health");
     println!();
