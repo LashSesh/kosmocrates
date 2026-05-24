@@ -39,6 +39,87 @@ note explicitly says so.
 
 ### Added
 
+* **nxalien — agent-context exoskeleton** (`crates/pse-nxalien-*`, `tools/nxalien-cli`) —
+  six new crates + CLI implementing the nxalien governance layer as a fully interwoven
+  PSE subsystem. nxalien is not a standalone product; every subsystem is wired to the
+  PSE corpus. 26 unit tests + 2 integration tests (all green).
+
+  **Six crates:**
+
+  - `pse-nxalien-types`: canonical governance types — `RuleAtom` (SHA-256 / JCS
+    content-addressed, evidence-sorted for hash stability), `UnknownSlot`,
+    `Severity` (Advisory / Required / Blocking), `GateOutcome` (Accept / Hold /
+    EvidenceOnly / Reject), `NxAlienBundle`, `NxAlienManifest`, `AgentContextCube`,
+    `C8Coord`. RuleAtom hashes use `pse_types::content_address` — same substrate
+    as `SemanticCrystal` IDs.
+
+  - `pse-nxalien-core`: `canon` (wraps PSE content-addressing), `gate` (8-gate
+    conjunctive evaluation: G_evidence / G_scope / G_replay / G_canon / G_delta /
+    G_budget / G_governance / G_bridge), `scanner` (project auto-detection:
+    Rust / TypeScript / Python with tool-chain recognition).
+
+  - `pse-nxalien-cube`: `HypercubeHdag` — C⁸ directed acyclic graph (8 axes:
+    ψ evidence_potential, ρ rule_density, ω temporal_phase, χ connectivity,
+    η causality, γ governance, υ uncertainty, λ utility). Edge admission by
+    semantic coherence R_A ≥ τ_A and causal drift ε_η. 5D projection to
+    PSE-native `FiveDState` via η' = clip(0,1, 0.50η + 0.25γ + 0.25(1−υ)).
+
+  - `pse-nxalien-agent`: `ContextProjector` — renders `[NXALIEN-CONTEXT]` blocks,
+    `CLAUDE.md`, `AGENTS.md`, `.rules` for LLM system-prompt injection.
+
+  - `pse-nxalien-pse`: `NxAlienObservationAdapter` implementing
+    `pse_graph::ObservationAdapter` — bundles enter PSE through the same pathway
+    as Binance / weather / seismo adapters. Phase hint from gate outcome
+    (Accept=π/4, Hold=π/2, EvidenceOnly=3π/4, Reject=π) so Mandorla interference
+    reflects governance quality. Invariant **I-BRIDGE-001** enforced by a static
+    source guard: nxalien crates must never construct `SemanticCrystal` directly.
+
+  - `pse-nxalien-evolve`: attractor-constrained rule evolution —
+    * `GraphState` persists the PSE point cloud across compile runs
+      (`.nxalien/graph_state.json`) so the attractor centroid accumulates history.
+    * `EpistemicSignal` classifies stability as Initialising / Converging / Stable /
+      Drifting / Diverging from distance to attractor centroid + free-energy trend
+      + live IL health overlay.
+    * `EvolutionGuard` prevents unbounded drift (min attractor alignment threshold,
+      max severity downgrade steps, evidence requirement).
+    * `propose_rule_evolution` / `apply_validated_proposals` — rejected proposals
+      become `UnknownSlot`s to keep drift visible.
+    * `il_bridge`: every `RuleAtom` committed to `ILStore` as a QTIC-certified
+      `SemanticCrystal`. Severity drives `stability_score` (0.50 / 0.75 / 1.00);
+      evidence density drives `kuramoto_coherence`; ψ = kuramoto − (1−stability)
+      reflects governance quality. Blocking rules with evidence reach **Q5**
+      (path-invariant attractor); Advisory rules without evidence sit at **Q3**.
+      `load_il_health_and_agenda` reads `MemoryHealthReport` + `EpistemicAgenda`
+      and folds them into `EpistemicSignal`: `at_risk_count > 0` overrides Stable →
+      Drifting; `mean_qtic < 2.0` → Diverging; healthy IL + Converging PSE →
+      Stable. Agenda items with p ≥ 0.50 surface as `UnknownSlot`s in the
+      `[NXALIEN-CONTEXT]` block.
+
+  **`nxalien compile` pipeline (one command, PSE workspace):**
+  1. Scan project → default `RuleAtom` set (5 rules for Rust/cargo)
+  2. `auto_downgrade_rules` — Required without evidence → Advisory
+  3. `HypercubeHdag` — 17 nodes, 23 edges (acyclic ✓)
+  4. 8-gate evaluation → `NxAlienGateReport` (Accept)
+  5. JCS manifest hash + SHA-256 replay hash chain
+  6. Ingest bundle into `PersistentGraph` via `NxAlienObservationAdapter`
+  7. Each `RuleAtom` → `SemanticCrystal` → `ILStore` (QTIC certificate per rule)
+  8. `EpistemicSignal::extract_with_il` — PSE attractor + IL health overlay
+  9. `propose_rule_evolution` → `apply_validated_proposals` (guard-constrained)
+  10. IL agenda → `UnknownSlot`s → `.nxalien/il_agenda_unknowns.json`
+  11. Outputs: `nxalien.manifest.json`, `nxalien.signal.json`, `.nxalien/il/`
+      ledger, `nxalien.rules.md`, `nxalien.evolved-rules.json`
+
+  **Live output (PSE workspace, 5 rules):**
+  ```
+  IL crystals : 5/5  QTIC̄=3.80  gate=✓
+    rust-test, no-direct-crystal  → Q5  (Blocking, path-invariant)
+    rust-fmt, rust-clippy, minimal-reversible → Q3  (Required, gate-passed)
+  PSE signal  : Stable (dist=0.000)  IL: Q̄=3.8 u=0.42 at_risk=0 ⚠
+  ```
+  The ⚠ correctly identifies that rules without Evidence references have
+  mean uncertainty 0.42 > 0.30 (healthy threshold) — the system requests
+  evidence before confirming full health.
+
 * **PSE+IL Intelligence Layer** — `adapters/pse-adapter-il` — 10 new modules
   implementing an active-cognition layer over the IL ledger. 191 unit tests total.
   The layer turns the ledger from a passive record-keeper into an epistemic system
