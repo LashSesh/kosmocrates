@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "descriptor": {
     "schema_version": "1.0",
-    "project_root_digest": "f73880821127784e4b597b1206dd8f89309490e527d0ec8b5d716fc2fa290c02",
+    "project_root_digest": "8c64771da196c1a5aef4cb104e5be8857025859c70a66ddf29ae9d38765cb340",
     "policy_digest": "bc3198241f9edb326c0d2ea764fd9273ed09853c5eab8e8a26d23bf4ea47a80f",
     "seed": 0,
     "started_at_utc": "2026-01-01T00:00:00Z"
@@ -165,6 +165,6 @@
     "outcome": "Accept",
     "notes": []
   },
-  "manifest_hash": "2c05c69a82f87399b204530868b3979827faf6905d551924cab54f2075241943",
-  "replay_hash": "92d6515ce9879238d069ad296181f7a596de408c249f0b796bb2f031bc001913"
+  "manifest_hash": "21d0301ad5ec661102b9bbbd00b84cb2427cee445522a4bb3ad6c3df95e60947",
+  "replay_hash": "f65348987203621cd009709d8b4113188fdf6b8b37521956f6e0c4f842e9aaab"
 }

@@ -1,5 +1,5 @@
 # nxalien rules — 
-# replay sha256:92d6515ce9879238d069ad296181f7a596de408c249f0b796bb2f031bc001913
+# replay sha256:f65348987203621cd009709d8b4113188fdf6b8b37521956f6e0c4f842e9aaab
 
 [Required] rust-fmt: Run `cargo fmt --all` before any commit. Code must be rustfmt-clean.
 [Required] rust-clippy: Run `cargo clippy --workspace --all-targets --locked -- -D warnings`. No warnings permitted.
