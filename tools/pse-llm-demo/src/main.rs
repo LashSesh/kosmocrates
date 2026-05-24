@@ -94,9 +94,16 @@ fn load_questions() -> Vec<String> {
 fn pse_config() -> Config {
     let mut config = Config::default();
     config.calibration.enabled = true;
-    config.calibration.target_pass_rate = 0.30;
+    // Target pass rate: fraction of ticks the Kairos gate should fire on.
+    // Override via PSE_LLM_PASS_RATE (e.g. 0.70 for dense crystallization).
+    let pass_rate = std::env::var("PSE_LLM_PASS_RATE")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|x| (0.05..=0.95).contains(x))
+        .unwrap_or(0.50);
+    config.calibration.target_pass_rate = pass_rate;
     config.calibration.window = 20;
-    config.calibration.warmup_ticks = 2;
+    config.calibration.warmup_ticks = 0;
     config.carrier.adaptive = true;
     // Kairos gate thresholds: kept low for LLM prose, which produces
     // consistent but moderate metric values across all 8 dimensions.
