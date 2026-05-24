@@ -153,10 +153,7 @@ impl RulePredicate {
             }
             Self::MinEvidenceEntries(n) => {
                 let count = crystal.evidence_chain.len();
-                (
-                    count >= *n,
-                    format!("evidence_entries={} >= {}", count, n),
-                )
+                (count >= *n, format!("evidence_entries={} >= {}", count, n))
             }
             Self::CoherenceGate => {
                 let s = crystal.stability_score;
@@ -172,20 +169,13 @@ impl RulePredicate {
                     let passed = cert.conformance_class >= *min_class;
                     (
                         passed,
-                        format!(
-                            "qtic=Q{} >= Q{}",
-                            cert.class_u8(),
-                            *min_class as u8
-                        ),
+                        format!("qtic=Q{} >= Q{}", cert.class_u8(), *min_class as u8),
                     )
                 }
                 None => (false, "qtic=unavailable".to_string()),
             },
             Self::PathInvariant => match qtic_cert {
-                Some(cert) => (
-                    cert.path_inv,
-                    format!("path_invariant={}", cert.path_inv),
-                ),
+                Some(cert) => (cert.path_inv, format!("path_invariant={}", cert.path_inv)),
                 None => (false, "qtic=unavailable".to_string()),
             },
             Self::RequiresAgentAttribution => {
@@ -275,10 +265,7 @@ pub struct ConstitutionalReport {
 }
 
 impl ConstitutionalReport {
-    fn build(
-        crystal_id: &str,
-        verdicts: Vec<RuleVerdict>,
-    ) -> Self {
+    fn build(crystal_id: &str, verdicts: Vec<RuleVerdict>) -> Self {
         let blocking_violations: Vec<String> = verdicts
             .iter()
             .filter(|v| !v.passed && v.severity == Severity::Blocking)
@@ -405,10 +392,9 @@ impl Constitution {
                     rule_id: "EU-ART13-COHERENCE".to_string(),
                     axiom_ref: "EU AI Act Article 13 — Transparency and Provision of Information"
                         .to_string(),
-                    description:
-                        "Outputs must exhibit phase-locking coherence (kuramoto ≥ 0.3) \
+                    description: "Outputs must exhibit phase-locking coherence (kuramoto ≥ 0.3) \
                          as a structural proxy for explainability."
-                            .to_string(),
+                        .to_string(),
                     severity: Severity::Required,
                     predicate: RulePredicate::MinKuramoto(0.3),
                 },
@@ -442,21 +428,19 @@ impl Constitution {
                     rule_id: "PSE-S1-GATE".to_string(),
                     axiom_ref: "PSE ADAMANT Protocol v1.0 — Axiom 6.1.1 Artifact Supremacy"
                         .to_string(),
-                    description:
-                        "Only gate-passed crystals (stability > 0.5 ∧ kuramoto > 0.3) \
+                    description: "Only gate-passed crystals (stability > 0.5 ∧ kuramoto > 0.3) \
                          may be committed. Fail-closed — no output when gate = 0."
-                            .to_string(),
+                        .to_string(),
                     severity: Severity::Blocking,
                     predicate: RulePredicate::CoherenceGate,
                 },
                 ConstitutionalRule {
                     rule_id: "PSE-S2-QTIC".to_string(),
                     axiom_ref: "QTIC Specification §7 — Q3 Conformance (gate-passed)".to_string(),
-                    description:
-                        "Constitutional crystals must reach Q3 (Kairos gate passed, \
+                    description: "Constitutional crystals must reach Q3 (Kairos gate passed, \
                          coherence stable). Below Q3, the crystal is not structurally \
                          trustworthy for grounding."
-                            .to_string(),
+                        .to_string(),
                     severity: Severity::Required,
                     predicate: RulePredicate::MinQticClass(QticClass::Q3),
                 },
@@ -474,11 +458,10 @@ impl Constitution {
                     rule_id: "PSE-S4-NO-INCOHERENT-CONFIDENCE".to_string(),
                     axiom_ref: "PSE ADAMANT Protocol v1.0 — Invariant I-11 No False Crystals"
                         .to_string(),
-                    description:
-                        "A crystal must not have high stability (> 0.8) with collapsed \
+                    description: "A crystal must not have high stability (> 0.8) with collapsed \
                          phase-coherence (kuramoto < 0.2). This structural pattern is the \
                          topological signature of a hallucination attractor."
-                            .to_string(),
+                        .to_string(),
                     severity: Severity::Required,
                     // NOT (stability > 0.8 AND kuramoto < 0.2)
                     predicate: RulePredicate::Not(Box::new(RulePredicate::All(vec![
@@ -501,16 +484,18 @@ impl Constitution {
         qtic_cert: Option<&QticCertificate>,
         agent_id: Option<&str>,
     ) -> ConstitutionalReport {
-        let crystal_id: String =
-            crystal.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let crystal_id: String = crystal
+            .crystal_id
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         let crystal_id_prefix = crystal_id[..crystal_id.len().min(16)].to_string();
 
         let verdicts: Vec<RuleVerdict> = self
             .rules
             .iter()
             .map(|rule| {
-                let (passed, evidence) =
-                    rule.predicate.evaluate(crystal, qtic_cert, agent_id);
+                let (passed, evidence) = rule.predicate.evaluate(crystal, qtic_cert, agent_id);
                 RuleVerdict {
                     rule_id: rule.rule_id.clone(),
                     severity: rule.severity,
@@ -615,9 +600,17 @@ mod tests {
     #[test]
     fn min_kuramoto_passes_and_fails() {
         let c_good = make_crystal(0.7, 0.6);
-        let c_bad  = make_crystal(0.7, 0.1);
-        assert!(RulePredicate::MinKuramoto(0.3).evaluate(&c_good, None, None).0);
-        assert!(!RulePredicate::MinKuramoto(0.3).evaluate(&c_bad, None, None).0);
+        let c_bad = make_crystal(0.7, 0.1);
+        assert!(
+            RulePredicate::MinKuramoto(0.3)
+                .evaluate(&c_good, None, None)
+                .0
+        );
+        assert!(
+            !RulePredicate::MinKuramoto(0.3)
+                .evaluate(&c_bad, None, None)
+                .0
+        );
     }
 
     #[test]
@@ -660,15 +653,18 @@ mod tests {
             RulePredicate::MinStability(0.7),
             RulePredicate::MinKuramoto(0.8), // fails
         ]);
-        assert!(!pred_fail.evaluate(&c, None, None).0, "one fails → All fails");
+        assert!(
+            !pred_fail.evaluate(&c, None, None).0,
+            "one fails → All fails"
+        );
     }
 
     #[test]
     fn any_predicate_requires_one() {
         let c = make_crystal(0.8, 0.2);
         let pred = RulePredicate::Any(vec![
-            RulePredicate::MinStability(0.9),  // fails
-            RulePredicate::MinStability(0.7),  // passes
+            RulePredicate::MinStability(0.9), // fails
+            RulePredicate::MinStability(0.7), // passes
         ]);
         assert!(pred.evaluate(&c, None, None).0, "one passes → Any passes");
     }
@@ -715,7 +711,10 @@ mod tests {
         let c = make_crystal(0.75, 0.5);
         let constitution = Constitution::eu_ai_act_minimal();
         let report = constitution.evaluate(&c, None, None);
-        assert!(report.overall_pass, "compliant crystal must pass EU AI Act minimal");
+        assert!(
+            report.overall_pass,
+            "compliant crystal must pass EU AI Act minimal"
+        );
         assert!(report.blocking_violations.is_empty());
         assert!(report.required_violations.is_empty());
     }
@@ -726,7 +725,9 @@ mod tests {
         let constitution = Constitution::eu_ai_act_minimal();
         let report = constitution.evaluate(&c, None, None);
         assert!(!report.overall_pass);
-        assert!(report.required_violations.contains(&"EU-ART9-STABILITY".to_string()));
+        assert!(report
+            .required_violations
+            .contains(&"EU-ART9-STABILITY".to_string()));
     }
 
     #[test]
@@ -736,7 +737,9 @@ mod tests {
         let constitution = Constitution::pse_core_safety();
         let report = constitution.evaluate(&c, None, None);
         assert!(!report.overall_pass);
-        assert!(report.blocking_violations.contains(&"PSE-S1-GATE".to_string()));
+        assert!(report
+            .blocking_violations
+            .contains(&"PSE-S1-GATE".to_string()));
     }
 
     #[test]
@@ -747,8 +750,12 @@ mod tests {
         let report = constitution.evaluate(&c, None, None);
         // PSE-S4 should fire (Required violation)
         assert!(
-            report.required_violations.contains(&"PSE-S4-NO-INCOHERENT-CONFIDENCE".to_string())
-                || report.blocking_violations.contains(&"PSE-S1-GATE".to_string()),
+            report
+                .required_violations
+                .contains(&"PSE-S4-NO-INCOHERENT-CONFIDENCE".to_string())
+                || report
+                    .blocking_violations
+                    .contains(&"PSE-S1-GATE".to_string()),
             "incoherent-confidence crystal must have at least one violation"
         );
     }
@@ -763,8 +770,13 @@ mod tests {
         let report = constitution.evaluate(&c, None, None);
         // PSE-S1 passes (gate satisfied), PSE-S4 passes (not incoherent)
         // PSE-S2 fails (no cert) → overall fails, but no Blocking
-        assert!(report.blocking_violations.is_empty(), "no Blocking for a coherent crystal");
-        assert!(!report.required_violations.contains(&"PSE-S1-GATE".to_string()));
+        assert!(
+            report.blocking_violations.is_empty(),
+            "no Blocking for a coherent crystal"
+        );
+        assert!(!report
+            .required_violations
+            .contains(&"PSE-S1-GATE".to_string()));
     }
 
     #[test]
@@ -774,9 +786,16 @@ mod tests {
         let constitution = Constitution::eu_ai_act_minimal();
         let report = constitution.evaluate(&c, None, None);
         // Advisory violations don't affect overall_pass
-        assert!(report.overall_pass, "Advisory violation must not block overall_pass");
+        assert!(
+            report.overall_pass,
+            "Advisory violation must not block overall_pass"
+        );
         // But the verdict itself should be fail
-        let art17 = report.verdicts.iter().find(|v| v.rule_id == "EU-ART17-TRACEABILITY").unwrap();
+        let art17 = report
+            .verdicts
+            .iter()
+            .find(|v| v.rule_id == "EU-ART17-TRACEABILITY")
+            .unwrap();
         assert!(!art17.passed, "zero evidence entries must fail EU-ART17");
     }
 
@@ -786,9 +805,16 @@ mod tests {
             Constitution::eu_ai_act_minimal(),
             Constitution::pse_core_safety(),
         ] {
-            let ids: std::collections::HashSet<&str> =
-                constitution.rules.iter().map(|r| r.rule_id.as_str()).collect();
-            assert_eq!(ids.len(), constitution.rules.len(), "rule IDs must be unique");
+            let ids: std::collections::HashSet<&str> = constitution
+                .rules
+                .iter()
+                .map(|r| r.rule_id.as_str())
+                .collect();
+            assert_eq!(
+                ids.len(),
+                constitution.rules.len(),
+                "rule IDs must be unique"
+            );
         }
     }
 }

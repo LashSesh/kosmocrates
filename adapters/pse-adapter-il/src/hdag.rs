@@ -49,7 +49,7 @@ pub fn crystal_to_tensor(crystal: &SemanticCrystal) -> ResonanceTensor {
             let n = m.n as f64;
             (
                 (m.algebraic_connectivity / n).clamp(0.0, 1.0),
-                (m.spectral_radius       / n).clamp(0.0, 1.0),
+                (m.spectral_radius / n).clamp(0.0, 1.0),
             )
         }
         _ => (s.cheeger_estimate, s.spectral_gap),
@@ -129,13 +129,11 @@ pub struct HDAG {
 impl HDAG {
     pub fn new(store_path: impl AsRef<Path>) -> Result<Self, String> {
         let store_path = store_path.as_ref().to_path_buf();
-        std::fs::create_dir_all(&store_path)
-            .map_err(|e| format!("HDAG store dir: {e}"))?;
+        std::fs::create_dir_all(&store_path).map_err(|e| format!("HDAG store dir: {e}"))?;
 
         let store_file = store_path.join("hdag.json");
         let data = if store_file.exists() {
-            let s = std::fs::read_to_string(&store_file)
-                .map_err(|e| format!("HDAG read: {e}"))?;
+            let s = std::fs::read_to_string(&store_file).map_err(|e| format!("HDAG read: {e}"))?;
             serde_json::from_str(&s).unwrap_or_default()
         } else {
             HDAGData::default()
@@ -174,13 +172,16 @@ impl HDAG {
         if self.data.nodes.contains_key(id) {
             return Ok(());
         }
-        self.data.nodes.insert(id.to_string(), HDAGNode {
-            id: id.to_string(),
-            crystal_id_hex: crystal_id_hex.to_string(),
-            tensor,
-            kairos,
-            timestamp: timestamp.to_string(),
-        });
+        self.data.nodes.insert(
+            id.to_string(),
+            HDAGNode {
+                id: id.to_string(),
+                crystal_id_hex: crystal_id_hex.to_string(),
+                tensor,
+                kairos,
+                timestamp: timestamp.to_string(),
+            },
+        );
         self.data.adjacency.entry(id.to_string()).or_default();
         self.save()
     }
@@ -200,10 +201,16 @@ impl HDAG {
         to: &str,
         cause: &str,
     ) -> Result<Option<HDAGEdge>, String> {
-        let source = self.data.nodes.get(from)
+        let source = self
+            .data
+            .nodes
+            .get(from)
             .ok_or_else(|| format!("HDAG: source node not found: {from}"))?
             .clone();
-        let dest = self.data.nodes.get(to)
+        let dest = self
+            .data
+            .nodes
+            .get(to)
             .ok_or_else(|| format!("HDAG: dest node not found: {to}"))?
             .clone();
 
@@ -228,7 +235,9 @@ impl HDAG {
         let gradient: ResonanceTensor = std::array::from_fn(|k| diff[k] / mag);
 
         // Avoid duplicate edges
-        if self.data.adjacency
+        if self
+            .data
+            .adjacency
             .get(from)
             .map(|succs| succs.contains(&to.to_string()))
             .unwrap_or(false)
@@ -244,7 +253,11 @@ impl HDAG {
             cause: cause.to_string(),
         };
         self.data.edges.push(edge.clone());
-        self.data.adjacency.entry(from.to_string()).or_default().push(to.to_string());
+        self.data
+            .adjacency
+            .entry(from.to_string())
+            .or_default()
+            .push(to.to_string());
         self.save()?;
 
         Ok(Some(edge))
@@ -322,11 +335,7 @@ impl HDAG {
     /// For each path, sums the gradient vectors of all edges along it.
     /// Invariance holds when all summed vectors are within `invariance_tolerance`
     /// of each other (the resonance field is curl-free between these nodes).
-    pub fn verify_path_invariance(
-        &self,
-        start: &str,
-        end: &str,
-    ) -> PathInvarianceResult {
+    pub fn verify_path_invariance(&self, start: &str, end: &str) -> PathInvarianceResult {
         let paths = self.all_paths(start, end);
 
         // Build edge gradient lookup
@@ -343,8 +352,8 @@ impl HDAG {
                 let mut sum = [0.0f64; 5];
                 for w in path.windows(2) {
                     if let Some(edge) = edge_map.get(&(w[0].as_str(), w[1].as_str())) {
-                        for k in 0..5 {
-                            sum[k] += edge.gradient[k];
+                        for (k, s) in sum.iter_mut().enumerate() {
+                            *s += edge.gradient[k];
                         }
                     }
                 }
@@ -382,12 +391,15 @@ impl HDAG {
 
     /// Coherence potential of a specific node by ID.
     pub fn coherence_potential_of(&self, node_id: &str) -> Option<f64> {
-        self.data.nodes.get(node_id).map(|n| Self::coherence_potential(&n.tensor))
+        self.data
+            .nodes
+            .get(node_id)
+            .map(|n| Self::coherence_potential(&n.tensor))
     }
 
     /// Whether a specific node satisfies the S_coh condition.
     pub fn is_in_s_coh_for(&self, node_id: &str) -> Option<bool> {
-        self.data.nodes.get(node_id).map(|n| Self::is_in_s_coh(n))
+        self.data.nodes.get(node_id).map(Self::is_in_s_coh)
     }
 
     /// Raw 5D resonance tensor for a node — used by the Pfauenthron++ scorer
@@ -422,9 +434,9 @@ impl HDAG {
         }
 
         // For each predecessor, verify all paths from it to node_id
-        predecessors.iter().all(|pred| {
-            self.verify_path_invariance(pred, node_id).invariant
-        })
+        predecessors
+            .iter()
+            .all(|pred| self.verify_path_invariance(pred, node_id).invariant)
     }
 
     /// Find valid semantic predecessors for `target_id` by scanning the
@@ -484,8 +496,7 @@ impl HDAG {
             })
             .collect();
 
-        candidates
-            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         candidates.truncate(max_candidates);
         candidates.into_iter().map(|(id, _)| id).collect()
     }
@@ -497,7 +508,11 @@ impl HDAG {
 
     /// All edges for a given cause type.
     pub fn edges_by_cause(&self, cause: &str) -> Vec<&HDAGEdge> {
-        self.data.edges.iter().filter(|e| e.cause == cause).collect()
+        self.data
+            .edges
+            .iter()
+            .filter(|e| e.cause == cause)
+            .collect()
     }
 
     /// All edges in the HDAG, regardless of cause.
@@ -533,10 +548,9 @@ impl HDAG {
     }
 
     fn save(&self) -> Result<(), String> {
-        let s = serde_json::to_string_pretty(&self.data)
-            .map_err(|e| format!("HDAG serialise: {e}"))?;
-        std::fs::write(&self.store_file, s)
-            .map_err(|e| format!("HDAG write: {e}"))
+        let s =
+            serde_json::to_string_pretty(&self.data).map_err(|e| format!("HDAG serialise: {e}"))?;
+        std::fs::write(&self.store_file, s).map_err(|e| format!("HDAG write: {e}"))
     }
 }
 
@@ -566,35 +580,50 @@ mod tests {
     #[test]
     fn edge_created_when_coherence_increases() {
         let mut h = fresh_hdag();
-        h.add_node("A", "aaa", tensor(0.5, 0.8), true, "t0").unwrap();
-        h.add_node("B", "bbb", tensor(0.7, 0.9), true, "t1").unwrap();
+        h.add_node("A", "aaa", tensor(0.5, 0.8), true, "t0")
+            .unwrap();
+        h.add_node("B", "bbb", tensor(0.7, 0.9), true, "t1")
+            .unwrap();
         let e = h.add_edge("A", "B", "test").unwrap();
         assert!(e.is_some(), "edge should form when ψ increases");
         let edge = e.unwrap();
         assert_eq!(edge.gradient.len(), 5);
         let norm: f64 = edge.gradient.iter().map(|x| x * x).sum::<f64>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-6, "gradient must be unit-normalised");
+        assert!(
+            (norm - 1.0).abs() < 1e-6,
+            "gradient must be unit-normalised"
+        );
     }
 
     #[test]
     fn edge_blocked_by_coherence_gate() {
         let mut h = fresh_hdag();
         // Low coherence source — not in S_coh, kairos=false
-        h.add_node("A", "aaa", tensor(0.1, 0.2), false, "t0").unwrap();
-        h.add_node("B", "bbb", tensor(0.3, 0.4), false, "t1").unwrap();
+        h.add_node("A", "aaa", tensor(0.1, 0.2), false, "t0")
+            .unwrap();
+        h.add_node("B", "bbb", tensor(0.3, 0.4), false, "t1")
+            .unwrap();
         // ψ(A) = 0.1 − 0.8 = −0.7, below threshold
         let e = h.add_edge("A", "B", "test").unwrap();
-        assert!(e.is_none(), "edge should be blocked when source is outside S_coh");
+        assert!(
+            e.is_none(),
+            "edge should be blocked when source is outside S_coh"
+        );
     }
 
     #[test]
     fn emergent_acyclicity_prevents_backward_edge() {
         let mut h = fresh_hdag();
-        h.add_node("A", "aaa", tensor(0.8, 0.9), true, "t0").unwrap();
-        h.add_node("B", "bbb", tensor(0.3, 0.4), true, "t1").unwrap();
+        h.add_node("A", "aaa", tensor(0.8, 0.9), true, "t0")
+            .unwrap();
+        h.add_node("B", "bbb", tensor(0.3, 0.4), true, "t1")
+            .unwrap();
         // A has high coherence potential, B has low — backward edge A→B should be blocked
         let e = h.add_edge("A", "B", "test").unwrap();
-        assert!(e.is_none(), "backward edge must be blocked by coherence potential gate");
+        assert!(
+            e.is_none(),
+            "backward edge must be blocked by coherence potential gate"
+        );
     }
 
     #[test]
@@ -641,8 +670,14 @@ mod tests {
 
         // Tight radius so only A (distance ~0.1) is included, not B (distance ~2.9)
         let preds = h.find_semantic_predecessors("C", 10, 0.5);
-        assert!(preds.contains(&"A".to_string()), "A should be a semantic predecessor of C");
-        assert!(!preds.contains(&"B".to_string()), "B is too distant to be a predecessor of C");
+        assert!(
+            preds.contains(&"A".to_string()),
+            "A should be a semantic predecessor of C"
+        );
+        assert!(
+            !preds.contains(&"B".to_string()),
+            "B is too distant to be a predecessor of C"
+        );
     }
 
     #[test]
@@ -691,9 +726,12 @@ mod tests {
     #[test]
     fn topological_order_respects_edges() {
         let mut h = fresh_hdag();
-        h.add_node("X", "xxx", tensor(0.4, 0.7), true, "t0").unwrap();
-        h.add_node("Y", "yyy", tensor(0.6, 0.8), true, "t1").unwrap();
-        h.add_node("Z", "zzz", tensor(0.8, 0.9), true, "t2").unwrap();
+        h.add_node("X", "xxx", tensor(0.4, 0.7), true, "t0")
+            .unwrap();
+        h.add_node("Y", "yyy", tensor(0.6, 0.8), true, "t1")
+            .unwrap();
+        h.add_node("Z", "zzz", tensor(0.8, 0.9), true, "t2")
+            .unwrap();
         h.add_edge("X", "Y", "test").unwrap();
         h.add_edge("Y", "Z", "test").unwrap();
 
@@ -701,6 +739,9 @@ mod tests {
         let xi = order.iter().position(|s| s == "X").unwrap();
         let yi = order.iter().position(|s| s == "Y").unwrap();
         let zi = order.iter().position(|s| s == "Z").unwrap();
-        assert!(xi < yi && yi < zi, "topological order must respect edge direction");
+        assert!(
+            xi < yi && yi < zi,
+            "topological order must respect edge direction"
+        );
     }
 }

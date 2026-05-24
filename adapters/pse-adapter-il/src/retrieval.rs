@@ -200,12 +200,16 @@ impl CausalRetrievalResult {
 
     /// All ancestor entries.
     pub fn ancestors(&self) -> impl Iterator<Item = &CausallyGroundedEntry> {
-        self.entries.iter().filter(|e| matches!(e.role, CausalRole::Ancestor { .. }))
+        self.entries
+            .iter()
+            .filter(|e| matches!(e.role, CausalRole::Ancestor { .. }))
     }
 
     /// All descendant entries.
     pub fn descendants(&self) -> impl Iterator<Item = &CausallyGroundedEntry> {
-        self.entries.iter().filter(|e| matches!(e.role, CausalRole::Descendant { .. }))
+        self.entries
+            .iter()
+            .filter(|e| matches!(e.role, CausalRole::Descendant { .. }))
     }
 }
 
@@ -230,8 +234,14 @@ mod tests {
     #[test]
     fn causal_role_labels_correct() {
         assert_eq!(CausalRole::Seed.label(), "SEED");
-        assert_eq!(CausalRole::Ancestor { depth: 1 }.label(), "ANCESTOR depth=1");
-        assert_eq!(CausalRole::Descendant { depth: 2 }.label(), "DESCENDANT depth=2");
+        assert_eq!(
+            CausalRole::Ancestor { depth: 1 }.label(),
+            "ANCESTOR depth=1"
+        );
+        assert_eq!(
+            CausalRole::Descendant { depth: 2 }.label(),
+            "DESCENDANT depth=2"
+        );
     }
 
     #[test]
@@ -251,7 +261,10 @@ mod tests {
             score: 0.3,
         };
         let text = entry.to_annotated_text();
-        assert!(text.contains("[ANCESTOR depth=1]"), "must include role label: {text}");
+        assert!(
+            text.contains("[ANCESTOR depth=1]"),
+            "must include role label: {text}"
+        );
         assert!(text.contains("PSE:"), "must include PSE prefix: {text}");
     }
 

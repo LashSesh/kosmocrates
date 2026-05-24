@@ -109,10 +109,16 @@ fn keyword_at_boundary(text: &str, keyword: &str) -> bool {
             Some(rel) => {
                 let pos = start + rel;
                 let pre_ok = pos == 0
-                    || !text[..pos].chars().next_back().map_or(false, |c| c.is_alphabetic());
+                    || !text[..pos]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphabetic());
                 let end = pos + keyword.len();
                 let post_ok = end >= text.len()
-                    || !text[end..].chars().next().map_or(false, |c| c.is_alphabetic());
+                    || !text[end..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphabetic());
                 if pre_ok && post_ok {
                     return true;
                 }
@@ -156,7 +162,9 @@ pub fn print_ab_report(
     println!();
     println!("  Baseline  [{baseline_ms:>5}ms]: {b_hits:>2}/{total} keywords  ({b_pct:.0}%)");
     println!("  Augmented [{augmented_ms:>5}ms]: {a_hits:>2}/{total} keywords  ({a_pct:.0}%)");
-    println!("  (timing reflects wall-clock network latency — not a meaningful performance metric)");
+    println!(
+        "  (timing reflects wall-clock network latency — not a meaningful performance metric)"
+    );
     println!();
 
     if b_pct > 65.0 {
@@ -167,9 +175,7 @@ pub fn print_ab_report(
     }
 
     if delta > 0 {
-        println!(
-            "  ✓ PSE augmentation: +{delta} keyword(s)  (+{delta_pct:.0}pp) on this run."
-        );
+        println!("  ✓ PSE augmentation: +{delta} keyword(s)  (+{delta_pct:.0}pp) on this run.");
         println!("    Coverage gap grows with crystal density — more sessions → stronger signal.");
     } else if delta == 0 {
         println!("  ~ PSE augmentation: no coverage difference on this session.");
@@ -185,8 +191,14 @@ pub fn print_ab_report(
 
     let b_preview: String = baseline_response.chars().take(200).collect();
     let a_preview: String = augmented_response.chars().take(200).collect();
-    println!("  Baseline  preview : \"{}…\"", b_preview.replace('\n', " "));
-    println!("  Augmented preview : \"{}…\"", a_preview.replace('\n', " "));
+    println!(
+        "  Baseline  preview : \"{}…\"",
+        b_preview.replace('\n', " ")
+    );
+    println!(
+        "  Augmented preview : \"{}…\"",
+        a_preview.replace('\n', " ")
+    );
     println!();
 }
 
@@ -215,8 +227,14 @@ mod tests {
 
     #[test]
     fn boundary_match_phrase() {
-        assert!(keyword_at_boundary("uses global workspace theory", "global workspace"));
-        assert!(keyword_at_boundary("conflict resolution in soar", "conflict resolution"));
+        assert!(keyword_at_boundary(
+            "uses global workspace theory",
+            "global workspace"
+        ));
+        assert!(keyword_at_boundary(
+            "conflict resolution in soar",
+            "conflict resolution"
+        ));
     }
 
     #[test]

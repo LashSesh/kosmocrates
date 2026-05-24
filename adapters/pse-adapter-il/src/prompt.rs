@@ -41,7 +41,7 @@
 use crate::context::{ContextBudget, CrystalSummary};
 
 /// Configuration for [`ILStore::build_grounded_prompt`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PromptConfig {
     /// Crystal selection budget (QTIC filter + token cap + top_k).
     pub budget: ContextBudget,
@@ -50,16 +50,6 @@ pub struct PromptConfig {
     pub system_prefix: Option<String>,
     /// Whether to append a causal explanation of the top-ranked crystal.
     pub include_causal: bool,
-}
-
-impl Default for PromptConfig {
-    fn default() -> Self {
-        Self {
-            budget: ContextBudget::default(),
-            system_prefix: None,
-            include_causal: false,
-        }
-    }
 }
 
 /// A ready-to-send LLM prompt with PSE crystal context injected.
@@ -242,7 +232,10 @@ mod tests {
         let sys = prompt.system_message();
         let prefix_pos = sys.find("helpful assistant").unwrap();
         let context_pos = sys.find("[PSE-CONTEXT]").unwrap();
-        assert!(prefix_pos < context_pos, "prefix must appear before crystal context");
+        assert!(
+            prefix_pos < context_pos,
+            "prefix must appear before crystal context"
+        );
     }
 
     #[test]
@@ -283,7 +276,11 @@ mod tests {
         let crystals = vec![make_summary(0.8, 4, 0.7, "q")];
         let prompt = build_prompt("query", &config, crystals, None);
         // Should not have a double newline at the start
-        assert!(!prompt.system_message().contains("[PSE-GROUNDING]\n\n[PSE-CONTEXT]"),
-            "empty prefix must not insert extra blank line");
+        assert!(
+            !prompt
+                .system_message()
+                .contains("[PSE-GROUNDING]\n\n[PSE-CONTEXT]"),
+            "empty prefix must not insert extra blank line"
+        );
     }
 }

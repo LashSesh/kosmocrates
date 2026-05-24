@@ -56,7 +56,9 @@ fn fnv1a_u64(data: &[u8]) -> u64 {
 // ── Tier 3: byte-average fallback ────────────────────────────────────────────
 
 fn byte_avg_phase(raw: &[u8]) -> f64 {
-    if raw.is_empty() { return 0.0; }
+    if raw.is_empty() {
+        return 0.0;
+    }
     let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
     (avg / 255.0) * TAU
 }
@@ -80,7 +82,11 @@ fn char_4gram_phase(raw: &[u8]) -> f64 {
         sum_cos += phi.cos();
         count += 1;
     }
-    if count == 0 { 0.0 } else { sum_sin.atan2(sum_cos).rem_euclid(TAU) }
+    if count == 0 {
+        0.0
+    } else {
+        sum_sin.atan2(sum_cos).rem_euclid(TAU)
+    }
 }
 
 // ── Tier 1: local embedding file ─────────────────────────────────────────────
@@ -104,15 +110,32 @@ impl WordEmbeddings {
                 continue;
             }
             let mut parts = line.splitn(3, '\t');
-            let word = match parts.next() { Some(w) => w, None => continue };
-            let x_str = match parts.next() { Some(s) => s, None => continue };
-            let y_str = match parts.next() { Some(s) => s, None => continue };
-            let x: f32 = match x_str.parse() { Ok(v) => v, Err(_) => continue };
-            let y: f32 = match y_str.parse() { Ok(v) => v, Err(_) => continue };
+            let word = match parts.next() {
+                Some(w) => w,
+                None => continue,
+            };
+            let x_str = match parts.next() {
+                Some(s) => s,
+                None => continue,
+            };
+            let y_str = match parts.next() {
+                Some(s) => s,
+                None => continue,
+            };
+            let x: f32 = match x_str.parse() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let y: f32 = match y_str.parse() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
             map.insert(word.to_string(), (x, y));
         }
         if map.is_empty() {
-            return Err(format!("PSE_LLM_EMBEDDING_FILE {path}: no valid entries found"));
+            return Err(format!(
+                "PSE_LLM_EMBEDDING_FILE {path}: no valid entries found"
+            ));
         }
         Ok(Self { map })
     }
@@ -191,7 +214,11 @@ pub fn chunk_phase(raw: &[u8]) -> f64 {
 
 /// Return the name of the active phase tier (for startup diagnostics).
 pub fn phase_tier_name() -> &'static str {
-    if get_embeddings().is_some() { "embedding (Tier 1)" } else { "char-4gram (Tier 2)" }
+    if get_embeddings().is_some() {
+        "embedding (Tier 1)"
+    } else {
+        "char-4gram (Tier 2)"
+    }
 }
 
 /// Count how many chunks have ≥1 word covered by the embedding vocabulary.
@@ -220,7 +247,9 @@ pub struct TextPhaseAdapter {
 
 impl TextPhaseAdapter {
     pub fn new(source: impl Into<String>) -> Self {
-        Self { source_id: source.into() }
+        Self {
+            source_id: source.into(),
+        }
     }
 }
 

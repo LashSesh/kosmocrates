@@ -47,20 +47,22 @@ pub use agent::{AgentCausalGraph, AgentLink};
 pub use causal::{CausalCause, CausalGraph, CausalLink};
 pub use cluster::{BridgeCrystal, ClusterConfig, ClusteringReport, KnowledgeCluster};
 pub use constitutional::{
-    Constitution, ConstitutionalAuditReport, ConstitutionalFeedback, ConstitutionalRule,
-    ConstitutionalReport, RulePredicate, RuleVerdict, Severity,
+    Constitution, ConstitutionalAuditReport, ConstitutionalFeedback, ConstitutionalReport,
+    ConstitutionalRule, RulePredicate, RuleVerdict, Severity,
 };
 pub use context::{ContextBudget, CrystalSummary};
-pub use health::{crystal_uncertainty, CrystalHealthMetrics, MemoryHealthReport};
-pub use lifecycle::{
-    classify_lifecycle, ConsolidationCandidate, ConsolidationReason, CrystalLifecycle,
-    DecayModel, LifecycleReport, LifecycleStatus,
-};
-pub use prompt::{GroundedPrompt, PromptConfig};
 pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};
-pub use qtic::{classify as classify_qtic, mirror_consistency_index, QticCertificate, QticClass,
-               QticInput, MCI_THRESHOLD};
+pub use health::{crystal_uncertainty, CrystalHealthMetrics, MemoryHealthReport};
+pub use lifecycle::{
+    classify_lifecycle, ConsolidationCandidate, ConsolidationReason, CrystalLifecycle, DecayModel,
+    LifecycleReport, LifecycleStatus,
+};
+pub use prompt::{GroundedPrompt, PromptConfig};
+pub use qtic::{
+    classify as classify_qtic, mirror_consistency_index, QticCertificate, QticClass, QticInput,
+    MCI_THRESHOLD,
+};
 pub use retrieval::{
     CausalRetrievalConfig, CausalRetrievalResult, CausalRole, CausallyGroundedEntry,
 };

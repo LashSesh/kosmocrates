@@ -59,7 +59,10 @@ pub struct ClusterConfig {
 
 impl Default for ClusterConfig {
     fn default() -> Self {
-        Self { sim_threshold: 0.80, min_cluster_size: 2 }
+        Self {
+            sim_threshold: 0.80,
+            min_cluster_size: 2,
+        }
     }
 }
 
@@ -187,7 +190,10 @@ pub(crate) struct UnionFind {
 
 impl UnionFind {
     pub fn new(n: usize) -> Self {
-        Self { parent: (0..n).collect(), rank: vec![0; n] }
+        Self {
+            parent: (0..n).collect(),
+            rank: vec![0; n],
+        }
     }
 
     pub fn find(&mut self, x: usize) -> usize {

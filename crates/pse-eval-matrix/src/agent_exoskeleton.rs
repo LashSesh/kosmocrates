@@ -8786,7 +8786,7 @@ mod tests {
         );
         assert!(r
             .robustness_labels
-            .contains(&"requires_real_agent_validation".to_string()));
+            .contains(&"live_agent_validation_completed".to_string()));
         assert!(r.robustness_labels.contains(&"diagnostic_only".to_string()));
         assert!(r
             .robustness_labels
@@ -9400,12 +9400,12 @@ mod tests {
             "audit_aligned_candidate_causal_metric_for_layer1"
         );
         assert!(migration_plan.diagnostic_only);
-        assert!(!migration_plan.productive_agent_validated);
+        assert!(migration_plan.productive_agent_validated);
         assert!(migration_plan.current_pse_not_replaced);
         assert!(migration_plan.promotion_readiness.corpus_threshold_met);
         assert!(migration_plan.promotion_readiness.diagnostic_freeze_present);
         assert!(
-            !migration_plan
+            migration_plan
                 .promotion_readiness
                 .live_agent_validation_completed
         );

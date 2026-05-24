@@ -27,7 +27,9 @@ pub struct CrystalAdapter {
 
 impl CrystalAdapter {
     pub fn new(seed: &str) -> Self {
-        Self { seed: seed.to_string() }
+        Self {
+            seed: seed.to_string(),
+        }
     }
 
     /// Core conversion: crystal → IL payload (pure PSE-side mapping).
@@ -142,7 +144,14 @@ impl CrystalAdapter {
         let vector8 = build_vector8(&fixpoint, sigma_psi, sigma_rho, sigma_omega)
             .ok_or("zero-norm 8D vector — crystal has no topology signal")?;
 
-        Ok(ILPayload { crystal_id_hex, tic_id, tic_json, snapshot_json, vector8, phase })
+        Ok(ILPayload {
+            crystal_id_hex,
+            tic_id,
+            tic_json,
+            snapshot_json,
+            vector8,
+            phase,
+        })
     }
 
     /// Extended conversion that also embeds session + question provenance.
@@ -164,7 +173,7 @@ impl CrystalAdapter {
 
 /// Build a normalised 8D vector from a 5D fixpoint + 3 spectral scalars.
 pub fn build_vector8(x5: &[f64], psi: f64, rho: f64, omega: f64) -> Option<Vec<f64>> {
-    let mut z: Vec<f64> = x5.iter().copied().collect();
+    let mut z: Vec<f64> = x5.to_vec();
     z.push(psi);
     z.push(rho);
     z.push(omega);
@@ -211,8 +220,9 @@ pub fn text_to_vector8(text: &str) -> Vec<f64> {
         .collect();
 
     // Global circular mean across all 5 bucket phases
-    let (gs, gc): (f64, f64) =
-        x5.iter().fold((0.0, 0.0), |(s, c), &p| (s + p.sin(), c + p.cos()));
+    let (gs, gc): (f64, f64) = x5
+        .iter()
+        .fold((0.0, 0.0), |(s, c), &p| (s + p.sin(), c + p.cos()));
     let global_phase = gs.atan2(gc);
 
     // σ-triple from text statistics
@@ -302,7 +312,8 @@ pub mod pipeline {
             "gap":       sig.spectral_gap,
             "delta_pi":  sig.cheeger_estimate,
         });
-        let sigma_bar = serde_json::json!({ "psi": sigma_psi, "rho": sigma_rho, "omega": sigma_omega });
+        let sigma_bar =
+            serde_json::json!({ "psi": sigma_psi, "rho": sigma_rho, "omega": sigma_omega });
         let proof = serde_json::json!({
             "por":    if crystal.stability_score > 0.5 { "valid" } else { "invalid" },
             "pi_gap": crystal.commit_proof.gate_values.n,

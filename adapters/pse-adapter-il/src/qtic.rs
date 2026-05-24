@@ -290,7 +290,10 @@ mod tests {
         let c = make_crystal(0.8, 0.7, 42);
         let inp = input(&c, "", true, 0.4, 0.8, true);
         let cert = classify(&inp);
-        assert!(cert.conformance_class < QticClass::Q4, "no trace → cannot reach Q4");
+        assert!(
+            cert.conformance_class < QticClass::Q4,
+            "no trace → cannot reach Q4"
+        );
     }
 
     #[test]
@@ -299,7 +302,10 @@ mod tests {
         // psi = 0.3 - (1 - 0.6) = 0.3 - 0.4 = -0.1 → exactly at boundary (not > -0.1)
         let inp = input(&c, "hash", true, -0.15, 0.8, true);
         let cert = classify(&inp);
-        assert!(cert.conformance_class < QticClass::Q2, "ψ ≤ -0.1 must block Q2");
+        assert!(
+            cert.conformance_class < QticClass::Q2,
+            "ψ ≤ -0.1 must block Q2"
+        );
     }
 
     #[test]
@@ -307,7 +313,10 @@ mod tests {
         let c = make_crystal(0.8, 0.7, 20);
         let inp = input(&c, "hash", false, 0.5, 0.8, true);
         let cert = classify(&inp);
-        assert!(cert.conformance_class < QticClass::Q3, "gate_passed=false must block Q3");
+        assert!(
+            cert.conformance_class < QticClass::Q3,
+            "gate_passed=false must block Q3"
+        );
     }
 
     #[test]
@@ -316,7 +325,10 @@ mod tests {
         // PSE stability=0.9, IL stability=0.1 → MCI = 1 - |0.9 - 0.1| = 0.2 < 0.7
         let inp = input(&c, "hash", true, 0.7, 0.1, true);
         let cert = classify(&inp);
-        assert!(cert.conformance_class < QticClass::Q4, "low MCI must block Q4");
+        assert!(
+            cert.conformance_class < QticClass::Q4,
+            "low MCI must block Q4"
+        );
         assert!((cert.mci - 0.2).abs() < 1e-6);
     }
 
@@ -325,7 +337,10 @@ mod tests {
         let c = make_crystal(0.8, 0.75, 40);
         let inp = input(&c, "hash", true, 0.55, 0.82, false);
         let cert = classify(&inp);
-        assert!(cert.conformance_class < QticClass::Q5, "path_inv=false must block Q5");
+        assert!(
+            cert.conformance_class < QticClass::Q5,
+            "path_inv=false must block Q5"
+        );
         assert_eq!(cert.conformance_class, QticClass::Q4);
     }
 
@@ -342,7 +357,9 @@ mod tests {
 
     #[test]
     fn mci_is_symmetric() {
-        assert!((mirror_consistency_index(0.8, 0.7) - mirror_consistency_index(0.7, 0.8)).abs() < 1e-10);
+        assert!(
+            (mirror_consistency_index(0.8, 0.7) - mirror_consistency_index(0.7, 0.8)).abs() < 1e-10
+        );
     }
 
     #[test]

@@ -6,9 +6,10 @@
 //!     produce a *refined* crystal (stability blended 70% PSE + 30% IL).
 //!   - On Session 3+, the question is scored against all crystals using the
 //!     Pfauenthron++ tripolar formula D = ψ · ρ · ω (Timeless Monolith spec):
-//!       ψ — IL cosine similarity (semantic alignment)
-//!       ρ — PSE stability score (structural coherence)
-//!       ω — HDAG coherence potential normalised (temporal readiness)
+//!     - ψ — IL cosine similarity (semantic alignment)
+//!     - ρ — PSE stability score (structural coherence)
+//!     - ω — HDAG coherence potential normalised (temporal readiness)
+//!
 //!     Results are sorted by D and returned as the unified retrieval ranking.
 //!
 //! When `PSE_IL_STORE` is not set the bridge is a no-op and zero overhead.
@@ -29,7 +30,6 @@ pub struct ILBridge {
 /// Outcome of an IL commit — carries the refined crystal when the feedback
 /// loop produced a meaningful stability correction.
 pub struct CommitOutcome {
-    pub block_hash: String,
     /// Some when |IL stability − PSE stability| > 0.02; None otherwise.
     pub refined: Option<SemanticCrystal>,
 }
@@ -72,10 +72,7 @@ impl ILBridge {
                 let short: String = feedback.block_hash.chars().take(12).collect();
                 println!(
                     "  IL commit : {}… | ψ={:.3} | converged={} | gate={}",
-                    short,
-                    feedback.coherence_potential,
-                    feedback.converged,
-                    feedback.gate_passed,
+                    short, feedback.coherence_potential, feedback.converged, feedback.gate_passed,
                 );
 
                 // Produce a refined crystal only when the delta is non-trivial.
@@ -93,7 +90,7 @@ impl ILBridge {
                     None
                 };
 
-                Some(CommitOutcome { block_hash: feedback.block_hash, refined })
+                Some(CommitOutcome { refined })
             }
             Err(e) => {
                 eprintln!("  [IL] commit error: {e}");
@@ -106,6 +103,7 @@ impl ILBridge {
     /// records from `all_records` that are most similar by cosine distance.
     ///
     /// Returns an empty vec when IL is disabled or when no match exceeds 0.5.
+    #[allow(dead_code)]
     pub fn query_similar<'a>(
         &self,
         question: &str,
@@ -186,6 +184,7 @@ impl ILBridge {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn is_active(&self) -> bool {
         self.store.is_some()
     }

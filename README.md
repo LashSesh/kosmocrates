@@ -249,16 +249,16 @@ variable:
 
 ```bash
 # Start with IL enabled
-PSE_IL_PATH=./il_data cargo run --release -p pse-server
+PSE_IL_STORE=./il_data cargo run --release -p pse-server
 
 # Retrieve via Pfauenthron++
-curl -X POST http://localhost:8080/il/retrieve \
+curl -X POST http://localhost:8765/il/retrieve \
      -H 'Content-Type: application/json' \
-     -d '{"query": "entropy and thermodynamics", "top_k": 5}'
+     -d '{"question": "entropy and thermodynamics", "top_k": 5}'
 
 # Inspect HDAG
-curl http://localhost:8080/il/hdag/coherence
-curl http://localhost:8080/il/hdag/order
+curl http://localhost:8765/il/hdag/coherence
+curl http://localhost:8765/il/hdag/order
 ```
 
 ---
@@ -659,7 +659,7 @@ Throughput reference, single-thread, release build, Xeon @ 2.10 GHz
 | `B01b` full pipeline (gate path) | up to **659 K obs/sec** | Gate eval + embedding, no crystal formation |
 | `B15` `macro_step` end-to-end | **43–110 µs / tick** | Full tick including constraint extraction |
 | `B05` determinism check | **PASS** | Bit-identical replay over 1 000 ticks |
-| Workspace test suite | **1275 / 1275** passing | |
+| Workspace test suite | **1315 / 1315** passing | |
 
 These numbers characterise pipeline latency on a small synthetic workload.
 Crystal formation rate depends on domain and calibration; run `pse-demo` to see
@@ -1445,7 +1445,7 @@ Normative specification documents live in [`specs/`](specs/):
 | Compiler warnings | `RUSTFLAGS="-D warnings" cargo build --workspace --all-targets --locked` | clean |
 | Format | `cargo fmt --all -- --check` | clean |
 | Lints | `cargo clippy --workspace --all-targets --locked` | clean (default level) |
-| Tests | `cargo test --workspace --locked` | 1275 / 1275 passing |
+| Tests | `cargo test --workspace --locked` | 1315 / 1315 passing |
 | Doc build | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` | clean |
 | Reproducible builds | `Cargo.lock` is committed; binaries are `--locked` | enforced |
 | CI | GitHub Actions: fmt + clippy + build (Linux/macOS/Windows) + test + doc + audit | `.github/workflows/ci.yml` |
