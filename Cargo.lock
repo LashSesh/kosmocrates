@@ -1568,6 +1568,7 @@ dependencies = [
  "pse-nxalien-evolve",
  "pse-nxalien-pse",
  "pse-nxalien-types",
+ "reqwest",
  "serde",
  "serde_jcs",
  "serde_json",
