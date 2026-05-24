@@ -58,8 +58,7 @@ impl ValidationFeedback {
     ) -> Self {
         let sig = &crystal.topology_signature;
         // Heuristic: a crystal "would converge" if it is topologically stable
-        let converged =
-            crystal.stability_score > 0.5 && sig.kuramoto_coherence > 0.3;
+        let converged = crystal.stability_score > 0.5 && sig.kuramoto_coherence > 0.3;
 
         let il_stability = compute_il_stability(converged, gate_passed, coherence_potential);
 
@@ -107,9 +106,9 @@ pub fn compute_il_stability(converged: bool, gate_passed: bool, coherence_potent
     let psi_norm = ((coherence_potential.clamp(-1.0, 1.0) + 1.0) / 2.0).clamp(0.0, 1.0);
 
     match (converged, gate_passed) {
-        (true, true)  => psi_norm,
+        (true, true) => psi_norm,
         (true, false) => psi_norm * 0.5,
-        (false, _)    => psi_norm * 0.2,
+        (false, _) => psi_norm * 0.2,
     }
 }
 
@@ -125,10 +124,9 @@ pub fn refine_crystal(
     new_created_at: u64,
 ) -> SemanticCrystal {
     let pse_weight = 0.7_f64;
-    let il_weight  = 0.3_f64;
-    let new_stability = (original.stability_score * pse_weight
-        + feedback.il_stability * il_weight)
-        .clamp(0.0, 1.0);
+    let il_weight = 0.3_f64;
+    let new_stability =
+        (original.stability_score * pse_weight + feedback.il_stability * il_weight).clamp(0.0, 1.0);
 
     // New content-addressed ID: SHA-256("il-refined:<orig_hex>:<new_stability>")
     let original_hex: String = original
@@ -223,7 +221,10 @@ mod tests {
         let original = dummy_crystal(0.7, 0.6);
         let fb = dummy_feedback(true, true, 0.5);
         let refined = refine_crystal(&original, &fb, 11);
-        assert_ne!(refined.crystal_id, original.crystal_id, "refined must have new id");
+        assert_ne!(
+            refined.crystal_id, original.crystal_id,
+            "refined must have new id"
+        );
     }
 
     #[test]
@@ -231,7 +232,11 @@ mod tests {
         let original = dummy_crystal(0.7, 0.6);
         let fb = dummy_feedback(true, true, 0.5);
         let refined = refine_crystal(&original, &fb, 11);
-        let orig_hex: String = original.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let orig_hex: String = original
+            .crystal_id
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         assert!(
             refined.parent_crystal_ids.contains(&orig_hex),
             "refined must reference original in parent_crystal_ids"
@@ -248,17 +253,18 @@ mod tests {
         assert!(
             (refined.stability_score - expected).abs() < 1e-6,
             "stability={} expected={}",
-            refined.stability_score, expected
+            refined.stability_score,
+            expected
         );
     }
 
     #[test]
     fn non_convergence_penalizes_stability() {
         let original = dummy_crystal(0.8, 0.7);
-        let fb_good = dummy_feedback(true,  true,  0.6);
-        let fb_bad  = dummy_feedback(false, false, 0.6);
+        let fb_good = dummy_feedback(true, true, 0.6);
+        let fb_bad = dummy_feedback(false, false, 0.6);
         let refined_good = refine_crystal(&original, &fb_good, 11);
-        let refined_bad  = refine_crystal(&original, &fb_bad,  11);
+        let refined_bad = refine_crystal(&original, &fb_bad, 11);
         assert!(
             refined_good.stability_score > refined_bad.stability_score,
             "convergence failure must penalize stability"
@@ -288,18 +294,35 @@ mod tests {
     fn heuristic_feedback_stable_crystal_converges() {
         let crystal = dummy_crystal(0.75, 0.6);
         let fb = ValidationFeedback::from_crystal_heuristic(
-            "hash".to_string(), &crystal, 0.3, true, None
+            "hash".to_string(),
+            &crystal,
+            0.3,
+            true,
+            None,
         );
-        assert!(fb.converged, "stable crystal with high kuramoto should mark as converged");
+        assert!(
+            fb.converged,
+            "stable crystal with high kuramoto should mark as converged"
+        );
     }
 
     #[test]
     fn heuristic_feedback_unstable_crystal_no_converge() {
         let crystal = dummy_crystal(0.3, 0.1);
         let fb = ValidationFeedback::from_crystal_heuristic(
-            "hash".to_string(), &crystal, -0.6, false, None
+            "hash".to_string(),
+            &crystal,
+            -0.6,
+            false,
+            None,
         );
-        assert!(!fb.converged, "unstable crystal should not mark as converged");
-        assert!(fb.il_stability < 0.3, "unstable crystal should produce low il_stability");
+        assert!(
+            !fb.converged,
+            "unstable crystal should not mark as converged"
+        );
+        assert!(
+            fb.il_stability < 0.3,
+            "unstable crystal should produce low il_stability"
+        );
     }
 }

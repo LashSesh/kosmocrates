@@ -41,9 +41,7 @@ pub struct AgentLink {
 impl AgentLink {
     /// True when source and target crystals were produced by different, known agents.
     pub fn is_cross_agent(&self) -> bool {
-        !self.from_agent.is_empty()
-            && !self.to_agent.is_empty()
-            && self.from_agent != self.to_agent
+        !self.from_agent.is_empty() && !self.to_agent.is_empty() && self.from_agent != self.to_agent
     }
 }
 
@@ -74,8 +72,7 @@ impl AgentCausalGraph {
         let inner_graph = CausalGraph {
             links: self.links.iter().map(|l| l.inner.clone()).collect(),
         };
-        let all_targets: HashSet<&str> =
-            self.links.iter().map(|l| l.inner.to.as_str()).collect();
+        let all_targets: HashSet<&str> = self.links.iter().map(|l| l.inner.to.as_str()).collect();
 
         all_targets
             .into_iter()
@@ -109,10 +106,7 @@ impl AgentCausalGraph {
                 *counts.entry(l.from_agent.as_str()).or_insert(0) += 1;
             }
         }
-        counts
-            .into_iter()
-            .max_by_key(|(_, c)| *c)
-            .map(|(a, _)| a)
+        counts.into_iter().max_by_key(|(_, c)| *c).map(|(a, _)| a)
     }
 
     /// Human-readable summary.
@@ -155,17 +149,29 @@ mod tests {
     }
 
     fn make_graph(links: Vec<AgentLink>, attr: &[(&str, &str)]) -> AgentCausalGraph {
-        let attribution: HashMap<String, String> =
-            attr.iter().map(|(c, a)| (c.to_string(), a.to_string())).collect();
-        let agents: HashSet<String> =
-            attribution.values().filter(|a| !a.is_empty()).cloned().collect();
-        AgentCausalGraph { links, agents, attribution }
+        let attribution: HashMap<String, String> = attr
+            .iter()
+            .map(|(c, a)| (c.to_string(), a.to_string()))
+            .collect();
+        let agents: HashSet<String> = attribution
+            .values()
+            .filter(|a| !a.is_empty())
+            .cloned()
+            .collect();
+        AgentCausalGraph {
+            links,
+            agents,
+            attribution,
+        }
     }
 
     #[test]
     fn cross_agent_link_detected() {
         let link = agent_link("aaa", "bbb", "alice", "bob");
-        assert!(link.is_cross_agent(), "different agents must be cross-agent");
+        assert!(
+            link.is_cross_agent(),
+            "different agents must be cross-agent"
+        );
     }
 
     #[test]
@@ -177,19 +183,27 @@ mod tests {
     #[test]
     fn empty_agent_not_cross_agent() {
         let link = agent_link("aaa", "bbb", "", "alice");
-        assert!(!link.is_cross_agent(), "untagged source must not be cross-agent");
+        assert!(
+            !link.is_cross_agent(),
+            "untagged source must not be cross-agent"
+        );
     }
 
     #[test]
     fn cross_agent_links_filters_correctly() {
         let links = vec![
             agent_link("aaa", "bbb", "alice", "bob"),   // cross
-            agent_link("bbb", "ccc", "bob", "bob"),      // same
+            agent_link("bbb", "ccc", "bob", "bob"),     // same
             agent_link("ccc", "ddd", "carol", "alice"), // cross
         ];
         let g = make_graph(
             links,
-            &[("aaa", "alice"), ("bbb", "bob"), ("ccc", "bob"), ("ddd", "alice")],
+            &[
+                ("aaa", "alice"),
+                ("bbb", "bob"),
+                ("ccc", "bob"),
+                ("ddd", "alice"),
+            ],
         );
         assert_eq!(g.cross_agent_links().len(), 2);
     }
@@ -223,7 +237,10 @@ mod tests {
             ],
         );
         let collab = g.collaborative_crystals();
-        assert!(collab.contains(&"ccc".to_string()), "ccc must be collaborative");
+        assert!(
+            collab.contains(&"ccc".to_string()),
+            "ccc must be collaborative"
+        );
     }
 
     #[test]
@@ -247,10 +264,7 @@ mod tests {
             agent_link("a2", "b2", "alice", "carol"),
             agent_link("d1", "b3", "dave", "carol"),
         ];
-        let g = make_graph(
-            links,
-            &[("a1", "alice"), ("a2", "alice"), ("d1", "dave")],
-        );
+        let g = make_graph(links, &[("a1", "alice"), ("a2", "alice"), ("d1", "dave")]);
         assert_eq!(g.most_active_agent(), Some("alice"));
     }
 

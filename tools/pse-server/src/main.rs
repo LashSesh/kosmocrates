@@ -4,7 +4,7 @@
 //! it without a Rust or Python toolchain.
 //!
 //! **Design:** fully stateless — the client carries state between calls via
-//! `memory_json` and `records_json` fields.  The server holds no sessions.
+//! `memory_json` fields.  The server holds no sessions.
 //! Exception: the IL store (activated by `PSE_IL_STORE`) is a persistent,
 //! file-backed ledger shared across all requests.
 //!
@@ -39,7 +39,7 @@
 //!   # Unified retrieval
 //!   curl -s -X POST http://localhost:8765/il/retrieve \
 //!     -H 'Content-Type: application/json' \
-//!     -d '{"question":"What is entropy?","records_json":"...","top_k":5}' | jq .
+//!     -d '{"question":"What is entropy?","top_k":5}' | jq .
 //! ```
 
 mod pse;
@@ -84,26 +84,28 @@ struct IngestRequest {
     source_name: Option<String>,
 }
 
-fn default_session() -> usize { 1 }
+fn default_session() -> usize {
+    1
+}
 
 /// IL commit summary included in `/ingest` responses when IL is active.
 #[derive(Serialize)]
 struct ILCommitInfo {
-    crystal_id:          String,
-    block_hash:          String,
-    converged:           bool,
+    crystal_id: String,
+    block_hash: String,
+    converged: bool,
     coherence_potential: f64,
-    gate_passed:         bool,
-    il_stability:        f64,
+    gate_passed: bool,
+    il_stability: f64,
 }
 
 #[derive(Serialize)]
 struct IngestResponse {
-    new_crystals:      Vec<pse::CrystalInfo>,
-    memory_json:       String,
-    records_json:      String,
-    pattern_hits:      u64,
-    commit_index:      u64,
+    new_crystals: Vec<pse::CrystalInfo>,
+    memory_json: String,
+    records_json: String,
+    pattern_hits: u64,
+    commit_index: u64,
     new_crystal_count: usize,
     /// Present when `PSE_IL_STORE` is active — one entry per new crystal.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -117,30 +119,32 @@ struct ContextRequest {
     top_k: usize,
 }
 
-fn default_top_k() -> usize { 5 }
+fn default_top_k() -> usize {
+    5
+}
 
 #[derive(Serialize)]
 struct ContextResponse {
-    context:      String,
+    context: String,
     record_count: usize,
 }
 
 #[derive(Deserialize)]
 struct CoverageRequest {
-    text:     String,
+    text: String,
     keywords: Vec<String>,
 }
 
 #[derive(Serialize)]
 struct CoverageResponse {
-    hits:     usize,
-    total:    usize,
+    hits: usize,
+    total: usize,
     coverage: f64,
 }
 
 #[derive(Serialize)]
 struct HealthResponse {
-    status:  &'static str,
+    status: &'static str,
     version: &'static str,
 }
 
@@ -148,58 +152,64 @@ struct HealthResponse {
 
 #[derive(Serialize)]
 struct ILEdgeCounts {
-    sequential_commit:    usize,
-    resonance_proximity:  usize,
-    refinement:           usize,
-    metatron_isomorphic:  usize,
+    sequential_commit: usize,
+    resonance_proximity: usize,
+    refinement: usize,
+    metatron_isomorphic: usize,
 }
 
 #[derive(Serialize)]
 struct ILStatusResponse {
-    active:                   bool,
-    block_count:              usize,
+    active: bool,
+    block_count: usize,
     mean_coherence_potential: f64,
-    edge_counts:              Option<ILEdgeCounts>,
+    edge_counts: Option<ILEdgeCounts>,
 }
 
 #[derive(Deserialize)]
 struct ILRetrieveRequest {
-    question:    String,
-    records_json: String,
+    question: String,
+    /// Accepted for backward compatibility; not used in the current retrieval path.
+    #[serde(default)]
+    #[allow(dead_code)]
+    records_json: Option<String>,
     #[serde(default = "default_top_k")]
-    top_k:       usize,
+    top_k: usize,
 }
 
 #[derive(Serialize)]
 struct ILRetrieveResult {
     crystal_id: String,
-    score_d:    f64,
-    rank:       usize,
+    score_d: f64,
+    rank: usize,
 }
 
 #[derive(Serialize)]
 struct ILRetrieveResponse {
-    active:  bool,
+    active: bool,
     results: Vec<ILRetrieveResult>,
 }
 
 #[derive(Serialize)]
 struct ILHdagCoherenceResponse {
     mean_coherence_potential: f64,
-    node_count:               usize,
-    edge_counts:              Option<ILEdgeCounts>,
+    node_count: usize,
+    edge_counts: Option<ILEdgeCounts>,
 }
 
 #[derive(Serialize)]
 struct ILHdagOrderResponse {
-    order:      Vec<String>,
+    order: Vec<String>,
     node_count: usize,
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 async fn health() -> impl IntoResponse {
-    Json(HealthResponse { status: "ok", version: env!("CARGO_PKG_VERSION") })
+    Json(HealthResponse {
+        status: "ok",
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 async fn ingest(
@@ -215,26 +225,35 @@ async fn ingest(
         &req.question,
         source,
     ) {
-        Err(e) => return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(serde_json::json!({ "error": e })),
-        ).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": e })),
+            )
+                .into_response()
+        }
         Ok(r) => r,
     };
 
     let memory_json = match serde_json::to_string(&result.all_crystals) {
         Ok(j) => j,
-        Err(e) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
     };
     let records_json = match serde_json::to_string(&result.all_records) {
         Ok(j) => j,
-        Err(e) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
     };
 
     // IL commit: when the store is active, commit every new crystal.
@@ -242,8 +261,12 @@ async fn ingest(
     if let Ok(mut guard) = state.il.lock() {
         if let Some(ref mut store) = *guard {
             for rec in &result.new_records {
-                let crystal_id: String =
-                    rec.crystal.crystal_id.iter().map(|b| format!("{b:02x}")).collect();
+                let crystal_id: String = rec
+                    .crystal
+                    .crystal_id
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
                 match store.commit_with_feedback(
                     &rec.crystal,
                     &rec.source_chunks,
@@ -265,8 +288,11 @@ async fn ingest(
     }
 
     let new_crystal_count = result.new_records.len();
-    let new_crystals: Vec<pse::CrystalInfo> =
-        result.new_records.iter().map(pse::CrystalInfo::from_record).collect();
+    let new_crystals: Vec<pse::CrystalInfo> = result
+        .new_records
+        .iter()
+        .map(pse::CrystalInfo::from_record)
+        .collect();
 
     Json(IngestResponse {
         new_crystals,
@@ -276,26 +302,43 @@ async fn ingest(
         commit_index: result.commit_index,
         new_crystal_count,
         il_commits,
-    }).into_response()
+    })
+    .into_response()
 }
 
 async fn context(Json(req): Json<ContextRequest>) -> impl IntoResponse {
     let records: Vec<pse::CrystalRecord> = match serde_json::from_str(&req.records_json) {
         Ok(r) => r,
-        Err(e) => return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(serde_json::json!({ "error": format!("records_json: {e}") })),
-        ).into_response(),
+        Err(e) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({ "error": format!("records_json: {e}") })),
+            )
+                .into_response()
+        }
     };
     let record_count = records.len();
     let context = pse::render_context(&records, req.top_k);
-    Json(ContextResponse { context, record_count }).into_response()
+    Json(ContextResponse {
+        context,
+        record_count,
+    })
+    .into_response()
 }
 
 async fn coverage(Json(req): Json<CoverageRequest>) -> impl IntoResponse {
     let (hits, total) = pse::score_coverage(&req.text, &req.keywords);
-    let coverage = if total == 0 { 0.0 } else { hits as f64 / total as f64 };
-    Json(CoverageResponse { hits, total, coverage }).into_response()
+    let coverage = if total == 0 {
+        0.0
+    } else {
+        hits as f64 / total as f64
+    };
+    Json(CoverageResponse {
+        hits,
+        total,
+        coverage,
+    })
+    .into_response()
 }
 
 // ── IL handlers ───────────────────────────────────────────────────────────────
@@ -303,10 +346,13 @@ async fn coverage(Json(req): Json<CoverageRequest>) -> impl IntoResponse {
 async fn il_status(State(state): State<AppState>) -> impl IntoResponse {
     let guard = match state.il.lock() {
         Ok(g) => g,
-        Err(_) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": "IL store lock poisoned" })),
-        ).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "IL store lock poisoned" })),
+            )
+                .into_response()
+        }
     };
 
     match &*guard {
@@ -315,12 +361,13 @@ async fn il_status(State(state): State<AppState>) -> impl IntoResponse {
             block_count: 0,
             mean_coherence_potential: 0.0,
             edge_counts: None,
-        }).into_response(),
+        })
+        .into_response(),
         Some(store) => {
             let edge_counts = Some(ILEdgeCounts {
-                sequential_commit:   store.hdag_edge_count_by_cause("sequential_commit"),
+                sequential_commit: store.hdag_edge_count_by_cause("sequential_commit"),
                 resonance_proximity: store.hdag_edge_count_by_cause("resonance_proximity"),
-                refinement:          store.hdag_edge_count_by_cause("refinement"),
+                refinement: store.hdag_edge_count_by_cause("refinement"),
                 metatron_isomorphic: store.hdag_edge_count_by_cause("metatron_isomorphic"),
             });
             Json(ILStatusResponse {
@@ -328,7 +375,8 @@ async fn il_status(State(state): State<AppState>) -> impl IntoResponse {
                 block_count: store.len(),
                 mean_coherence_potential: store.mean_coherence_potential(),
                 edge_counts,
-            }).into_response()
+            })
+            .into_response()
         }
     }
 }
@@ -337,24 +385,23 @@ async fn il_retrieve(
     State(state): State<AppState>,
     Json(req): Json<ILRetrieveRequest>,
 ) -> impl IntoResponse {
-    let records: Vec<pse::CrystalRecord> = match serde_json::from_str(&req.records_json) {
-        Ok(r) => r,
-        Err(e) => return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(serde_json::json!({ "error": format!("records_json: {e}") })),
-        ).into_response(),
-    };
-
     let guard = match state.il.lock() {
         Ok(g) => g,
-        Err(_) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": "IL store lock poisoned" })),
-        ).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "IL store lock poisoned" })),
+            )
+                .into_response()
+        }
     };
 
     let Some(store) = &*guard else {
-        return Json(ILRetrieveResponse { active: false, results: vec![] }).into_response();
+        return Json(ILRetrieveResponse {
+            active: false,
+            results: vec![],
+        })
+        .into_response();
     };
 
     let q_vec = text_to_vector8(&req.question);
@@ -364,39 +411,30 @@ async fn il_retrieve(
     let results: Vec<ILRetrieveResult> = hits
         .into_iter()
         .enumerate()
-        .filter_map(|(i, hit)| {
-            // Verify this crystal exists in the supplied records
-            let known = records.iter().any(|r| {
-                let hex: String = r.crystal.crystal_id.iter().map(|b| format!("{b:02x}")).collect();
-                hex == hit.crystal_id_hex
-            });
-            if known {
-                Some(ILRetrieveResult {
-                    crystal_id: hit.crystal_id_hex,
-                    score_d: hit.score,
-                    rank: i + 1,
-                })
-            } else {
-                // Crystal is in IL but not in the supplied records — include anyway
-                Some(ILRetrieveResult {
-                    crystal_id: hit.crystal_id_hex,
-                    score_d: hit.score,
-                    rank: i + 1,
-                })
-            }
+        .map(|(i, hit)| ILRetrieveResult {
+            crystal_id: hit.crystal_id_hex,
+            score_d: hit.score,
+            rank: i + 1,
         })
         .collect();
 
-    Json(ILRetrieveResponse { active: true, results }).into_response()
+    Json(ILRetrieveResponse {
+        active: true,
+        results,
+    })
+    .into_response()
 }
 
 async fn il_hdag_coherence(State(state): State<AppState>) -> impl IntoResponse {
     let guard = match state.il.lock() {
         Ok(g) => g,
-        Err(_) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": "IL store lock poisoned" })),
-        ).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "IL store lock poisoned" })),
+            )
+                .into_response()
+        }
     };
 
     match &*guard {
@@ -404,31 +442,40 @@ async fn il_hdag_coherence(State(state): State<AppState>) -> impl IntoResponse {
             mean_coherence_potential: 0.0,
             node_count: 0,
             edge_counts: None,
-        }).into_response(),
+        })
+        .into_response(),
         Some(store) => Json(ILHdagCoherenceResponse {
             mean_coherence_potential: store.mean_coherence_potential(),
             node_count: store.len(),
             edge_counts: Some(ILEdgeCounts {
-                sequential_commit:   store.hdag_edge_count_by_cause("sequential_commit"),
+                sequential_commit: store.hdag_edge_count_by_cause("sequential_commit"),
                 resonance_proximity: store.hdag_edge_count_by_cause("resonance_proximity"),
-                refinement:          store.hdag_edge_count_by_cause("refinement"),
+                refinement: store.hdag_edge_count_by_cause("refinement"),
                 metatron_isomorphic: store.hdag_edge_count_by_cause("metatron_isomorphic"),
             }),
-        }).into_response(),
+        })
+        .into_response(),
     }
 }
 
 async fn il_hdag_order(State(state): State<AppState>) -> impl IntoResponse {
     let guard = match state.il.lock() {
         Ok(g) => g,
-        Err(_) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": "IL store lock poisoned" })),
-        ).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "IL store lock poisoned" })),
+            )
+                .into_response()
+        }
     };
 
     match &*guard {
-        None => Json(ILHdagOrderResponse { order: vec![], node_count: 0 }).into_response(),
+        None => Json(ILHdagOrderResponse {
+            order: vec![],
+            node_count: 0,
+        })
+        .into_response(),
         Some(store) => {
             let order = store.topological_order();
             let node_count = order.len();
@@ -465,17 +512,19 @@ async fn main() {
         }
     });
     let il_active = il_store.is_some();
-    let state = AppState { il: Arc::new(Mutex::new(il_store)) };
+    let state = AppState {
+        il: Arc::new(Mutex::new(il_store)),
+    };
 
     let app = Router::new()
-        .route("/health",            get(health))
-        .route("/ingest",            post(ingest))
-        .route("/context",           post(context))
-        .route("/coverage",          post(coverage))
-        .route("/il/status",         get(il_status))
-        .route("/il/retrieve",       post(il_retrieve))
+        .route("/health", get(health))
+        .route("/ingest", post(ingest))
+        .route("/context", post(context))
+        .route("/coverage", post(coverage))
+        .route("/il/status", get(il_status))
+        .route("/il/retrieve", post(il_retrieve))
         .route("/il/hdag/coherence", get(il_hdag_coherence))
-        .route("/il/hdag/order",     get(il_hdag_order))
+        .route("/il/hdag/order", get(il_hdag_order))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

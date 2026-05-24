@@ -18,8 +18,8 @@
 //! 10. `lifecycle_closed_after_fresh_commits` — fresh store has no stale crystals
 
 use pse_adapter_il::{
-    AgendaConfig, ClusterConfig, Constitution, CausalRetrievalConfig,
-    DecayModel, ILStore, LifecycleStatus, classify_lifecycle,
+    classify_lifecycle, AgendaConfig, CausalRetrievalConfig, ClusterConfig, Constitution,
+    DecayModel, ILStore, LifecycleStatus,
 };
 use pse_types::SemanticCrystal;
 use tempfile::TempDir;
@@ -107,7 +107,9 @@ fn four_fixpoint_empty_store() {
 
     // Empty store is vacuously at all fixpoints.
     assert!(
-        store.constitutional_audit(&constitution).is_constitutionally_closed(),
+        store
+            .constitutional_audit(&constitution)
+            .is_constitutionally_closed(),
         "empty store: constitutional fixpoint must hold vacuously"
     );
     assert!(
@@ -117,11 +119,15 @@ fn four_fixpoint_empty_store() {
         "empty store: lifecycle fixpoint must hold vacuously"
     );
     assert!(
-        store.cluster_knowledge(&ClusterConfig::default()).is_unified(),
+        store
+            .cluster_knowledge(&ClusterConfig::default())
+            .is_unified(),
         "empty store: cluster unification must hold vacuously"
     );
     assert!(
-        store.epistemic_agenda(&AgendaConfig::default()).is_fixpoint(),
+        store
+            .epistemic_agenda(&AgendaConfig::default())
+            .is_fixpoint(),
         "empty store: epistemic agenda must be empty"
     );
     assert_eq!(store.memory_health().total_crystals, 0);
@@ -136,21 +142,37 @@ fn four_fixpoint_healthy_store() {
     for i in 0u8..5 {
         let c = good_crystal(0x10 + i);
         store
-            .commit(&c, &[format!("chunk {i}")], 1, &format!("What is concept {i}?"))
+            .commit(
+                &c,
+                &[format!("chunk {i}")],
+                1,
+                &format!("What is concept {i}?"),
+            )
             .unwrap();
     }
 
     let health = store.memory_health();
     assert_eq!(health.total_crystals, 5);
-    assert!(health.mean_stability > 0.75, "mean stability should be > 0.75");
-    assert!(health.mean_uncertainty < 0.6, "mean uncertainty should be < 0.6");
+    assert!(
+        health.mean_stability > 0.75,
+        "mean stability should be > 0.75"
+    );
+    assert!(
+        health.mean_uncertainty < 0.6,
+        "mean uncertainty should be < 0.6"
+    );
 
     // Constitutional audit — S1 (CoherenceGate) must pass for good crystals
     let audit = store.constitutional_audit(&Constitution::pse_core_safety());
     assert_eq!(
-        audit.blocking_count, 0,
+        audit.blocking_count,
+        0,
         "no blocking violations expected for good crystals, got: {:?}",
-        audit.violations.iter().map(|(id, r)| (id, &r.blocking_violations)).collect::<Vec<_>>()
+        audit
+            .violations
+            .iter()
+            .map(|(id, r)| (id, &r.blocking_violations))
+            .collect::<Vec<_>>()
     );
 
     // Lifecycle: freshly committed crystals must not be Stale.
@@ -162,11 +184,17 @@ fn four_fixpoint_healthy_store() {
         0.80,
         5, // reference_index = current count
     );
-    assert_eq!(lifecycle.stale_count, 0, "freshly committed crystals must not be stale");
+    assert_eq!(
+        lifecycle.stale_count, 0,
+        "freshly committed crystals must not be stale"
+    );
     // vital_count may be 0 if uncertainty is above threshold even for good crystals;
     // what matters is that no crystal is classified as Stale.
     assert!(
-        lifecycle.crystals.iter().all(|c| c.status != LifecycleStatus::Stale),
+        lifecycle
+            .crystals
+            .iter()
+            .all(|c| c.status != LifecycleStatus::Stale),
         "no crystal should be Stale for a fresh, good-quality store"
     );
 }
@@ -194,7 +222,10 @@ fn four_fixpoint_degraded_store_has_agenda_items() {
         0.80,
         10_000, // far future reference confirms Stale (but high uncertainty alone suffices)
     );
-    assert!(lifecycle.stale_count > 0, "poor crystals must be classified as Stale");
+    assert!(
+        lifecycle.stale_count > 0,
+        "poor crystals must be classified as Stale"
+    );
     assert!(
         !lifecycle.is_lifecycle_closed(),
         "lifecycle must NOT be closed when stale crystals exist"
@@ -205,13 +236,19 @@ fn four_fixpoint_degraded_store_has_agenda_items() {
     let mut cfg = AgendaConfig::default();
     cfg.decay_model = DecayModel::Exponential { half_life: 10.0 };
     let agenda = store.epistemic_agenda(&cfg);
-    assert!(!agenda.is_fixpoint(), "agenda must not be fixpoint for degraded store");
+    assert!(
+        !agenda.is_fixpoint(),
+        "agenda must not be fixpoint for degraded store"
+    );
     assert!(!agenda.items.is_empty(), "agenda items must be non-empty");
     let has_refresh = agenda
         .items
         .iter()
         .any(|i| matches!(i.action, pse_adapter_il::AgendaAction::Refresh { .. }));
-    assert!(has_refresh, "at least one REFRESH action expected for stale poor crystals");
+    assert!(
+        has_refresh,
+        "at least one REFRESH action expected for stale poor crystals"
+    );
 }
 
 // ─── Scenario 4: constitutional blocking ─────────────────────────────────────
@@ -234,7 +271,11 @@ fn constitutional_blocks_bad_commit() {
         "error must name the blocking rule, got: {err_msg}"
     );
     // Store must be unmodified (fail-closed)
-    assert_eq!(store.len(), 0, "store must be empty — bad crystal must not be committed");
+    assert_eq!(
+        store.len(),
+        0,
+        "store must be empty — bad crystal must not be committed"
+    );
 }
 
 // ─── Scenario 5: constitutional audit over mixed store ────────────────────────
@@ -260,13 +301,16 @@ fn constitutional_audit_mixed_store() {
     // violation count may be > 0 if not all crystals reach Q3, which is fine;
     // what matters is blocking_count = 0 (store is not blocking-blocked)
     assert!(
-        audit.is_constitutionally_closed()
-            || audit.violation_count <= audit.total_crystals,
+        audit.is_constitutionally_closed() || audit.violation_count <= audit.total_crystals,
         "violation_count must be bounded by total_crystals"
     );
 
     // Audit hash is a non-empty hex string (SHA-256 of all report hashes)
-    assert_eq!(audit.audit_hash.len(), 64, "audit_hash must be a 64-char hex SHA-256");
+    assert_eq!(
+        audit.audit_hash.len(),
+        64,
+        "audit_hash must be a 64-char hex SHA-256"
+    );
     assert!(
         audit.audit_hash.chars().all(|c| c.is_ascii_hexdigit()),
         "audit_hash must be lowercase hex"
@@ -282,7 +326,12 @@ fn grounded_prompt_end_to_end() {
     for i in 0u8..3 {
         let c = good_crystal(0x50 + i);
         store
-            .commit(&c, &[format!("chunk {i}")], 1, &format!("What is AGI concept {i}?"))
+            .commit(
+                &c,
+                &[format!("chunk {i}")],
+                1,
+                &format!("What is AGI concept {i}?"),
+            )
             .unwrap();
     }
 
@@ -304,10 +353,16 @@ fn grounded_prompt_end_to_end() {
 
     // to_messages() must return at least one message
     let msgs = prompt.to_messages();
-    assert!(!msgs.is_empty(), "to_messages must return at least one message");
+    assert!(
+        !msgs.is_empty(),
+        "to_messages must return at least one message"
+    );
     // When grounded, first message is role=system
     if prompt.is_grounded() {
-        assert_eq!(msgs[0].0, "system", "first message must be role=system when grounded");
+        assert_eq!(
+            msgs[0].0, "system",
+            "first message must be role=system when grounded"
+        );
     }
 }
 
@@ -323,13 +378,15 @@ fn cluster_knowledge_singleton_and_cluster() {
     store.commit(&c1, &[], 1, "q1").unwrap();
     store.commit(&c2, &[], 1, "q2").unwrap();
 
-    let cfg = ClusterConfig { sim_threshold: 0.20, min_cluster_size: 2 }; // very low threshold
+    let cfg = ClusterConfig {
+        sim_threshold: 0.20,
+        min_cluster_size: 2,
+    }; // very low threshold
     let report = store.cluster_knowledge(&cfg);
 
     assert_eq!(report.total_crystals, 2);
     assert!(
-        report.total_crystals == report.singletons.len()
-            || !report.clusters.is_empty(),
+        report.total_crystals == report.singletons.len() || !report.clusters.is_empty(),
         "with 2 crystals, they either form a cluster or are both singletons"
     );
     // clustered_fraction is bounded [0, 1]
@@ -353,15 +410,29 @@ fn causal_retrieval_ancestor_annotated() {
     let mut parent = good_crystal(0x70);
     parent.scale_tag = "il-test".to_string();
     store
-        .commit(&parent, &["working memory".to_string()], 1, "What is working memory?")
+        .commit(
+            &parent,
+            &["working memory".to_string()],
+            1,
+            "What is working memory?",
+        )
         .unwrap();
 
     // Commit child crystal with parent reference
-    let parent_hex: String = parent.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+    let parent_hex: String = parent
+        .crystal_id
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
     let mut child = good_crystal(0x71);
     child.parent_crystal_ids.push(parent_hex);
     store
-        .commit(&child, &["cognitive load".to_string()], 2, "What is cognitive load?")
+        .commit(
+            &child,
+            &["cognitive load".to_string()],
+            2,
+            "What is cognitive load?",
+        )
         .unwrap();
 
     let cfg = CausalRetrievalConfig {
@@ -387,8 +458,14 @@ fn causal_retrieval_ancestor_annotated() {
             block.starts_with("[PSE-CONTEXT causal=true]"),
             "context block must start with causal=true marker"
         );
-        assert!(block.ends_with("[/PSE-CONTEXT]"), "context block must end with closing tag");
-        assert!(block.contains("[SEED]"), "at least one entry must be annotated as SEED");
+        assert!(
+            block.ends_with("[/PSE-CONTEXT]"),
+            "context block must end with closing tag"
+        );
+        assert!(
+            block.contains("[SEED]"),
+            "at least one entry must be annotated as SEED"
+        );
     }
 }
 
@@ -431,8 +508,14 @@ fn agenda_items_sorted_descending_priority() {
 
     // Context block has correct structure
     let block = agenda.to_context_block(5);
-    assert!(block.starts_with("[AGENDA]"), "block must start with [AGENDA]");
-    assert!(block.ends_with("[/AGENDA]"), "block must end with [/AGENDA]");
+    assert!(
+        block.starts_with("[AGENDA]"),
+        "block must start with [AGENDA]"
+    );
+    assert!(
+        block.ends_with("[/AGENDA]"),
+        "block must end with [/AGENDA]"
+    );
 }
 
 // ─── Scenario 10: lifecycle — fresh crystals are not Stale ───────────────────
@@ -455,7 +538,10 @@ fn lifecycle_fresh_crystals_not_stale() {
 
     assert_eq!(report.stale_count, 0, "fresh crystals must not be Stale");
     assert!(
-        report.crystals.iter().all(|c| c.status != LifecycleStatus::Stale),
+        report
+            .crystals
+            .iter()
+            .all(|c| c.status != LifecycleStatus::Stale),
         "no crystal should have Stale status"
     );
     // Note: identical crystals (same stability/kuramoto → same 8D vector) will appear
@@ -477,7 +563,10 @@ fn lifecycle_fresh_crystals_not_stale() {
     // With diverse vectors, consolidation candidates may or may not exist depending
     // on the specific cosine similarities; what we can assert firmly is no staleness.
     assert!(
-        report2.crystals.iter().all(|c| c.status != LifecycleStatus::Stale),
+        report2
+            .crystals
+            .iter()
+            .all(|c| c.status != LifecycleStatus::Stale),
         "diverse fresh crystals must not be Stale"
     );
 }
@@ -565,7 +654,10 @@ fn store_persist_reload_intelligence_layer() {
         assert_eq!(health.total_crystals, 4);
 
         let audit = store.constitutional_audit(&Constitution::eu_ai_act_minimal());
-        assert_eq!(audit.total_crystals, 4, "audit must see all 4 reloaded crystals");
+        assert_eq!(
+            audit.total_crystals, 4,
+            "audit must see all 4 reloaded crystals"
+        );
 
         let agenda = store.epistemic_agenda(&AgendaConfig::default());
         // Agenda context block must be valid regardless of fixpoint state

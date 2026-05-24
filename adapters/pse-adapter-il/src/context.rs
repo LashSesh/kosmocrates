@@ -140,7 +140,12 @@ impl ContextBudget {
 mod tests {
     use super::*;
 
-    fn make_summary(stability: f64, qtic: Option<u8>, score: f64, question: &str) -> CrystalSummary {
+    fn make_summary(
+        stability: f64,
+        qtic: Option<u8>,
+        score: f64,
+        question: &str,
+    ) -> CrystalSummary {
         CrystalSummary {
             crystal_id: "abcdef1234567890".to_string(),
             stability,
@@ -160,7 +165,10 @@ mod tests {
         assert!(text.contains("0.87"), "must contain stability");
         assert!(text.contains("0.742"), "must contain tripolar score");
         assert!(text.contains("original"), "must contain scale_tag");
-        assert!(text.contains("working memory"), "must contain question excerpt");
+        assert!(
+            text.contains("working memory"),
+            "must contain question excerpt"
+        );
     }
 
     #[test]
@@ -197,10 +205,14 @@ mod tests {
         let summaries = vec![
             make_summary(0.9, Some(5), 0.9, "q"),
             make_summary(0.8, Some(3), 0.8, "q"),
-            make_summary(0.7, Some(2), 0.7, "q"),  // below min_qtic_class=3
-            make_summary(0.6, Some(1), 0.6, "q"),  // below min_qtic_class=3
+            make_summary(0.7, Some(2), 0.7, "q"), // below min_qtic_class=3
+            make_summary(0.6, Some(1), 0.6, "q"), // below min_qtic_class=3
         ];
-        let budget = ContextBudget { min_qtic_class: 3, top_k: 10, max_tokens: 4096 };
+        let budget = ContextBudget {
+            min_qtic_class: 3,
+            top_k: 10,
+            max_tokens: 4096,
+        };
         let selected = budget.select(&summaries);
         assert_eq!(selected.len(), 2, "only Q3+ should be selected");
         assert!(selected.iter().all(|s| s.qtic_class.unwrap_or(0) >= 3));
@@ -211,7 +223,11 @@ mod tests {
         let summaries: Vec<_> = (0..10)
             .map(|i| make_summary(0.8, Some(4), 0.9 - i as f64 * 0.01, "q"))
             .collect();
-        let budget = ContextBudget { min_qtic_class: 0, top_k: 3, max_tokens: 4096 };
+        let budget = ContextBudget {
+            min_qtic_class: 0,
+            top_k: 3,
+            max_tokens: 4096,
+        };
         assert_eq!(budget.select(&summaries).len(), 3);
     }
 
@@ -221,11 +237,18 @@ mod tests {
         let summaries: Vec<_> = (0..10)
             .map(|i| make_summary(0.8, Some(4), 0.9 - i as f64 * 0.01, "test question text"))
             .collect();
-        let budget = ContextBudget { min_qtic_class: 0, top_k: 100, max_tokens: 40 };
+        let budget = ContextBudget {
+            min_qtic_class: 0,
+            top_k: 100,
+            max_tokens: 40,
+        };
         let selected = budget.select(&summaries);
         assert!(!selected.is_empty());
         let total_tokens: usize = selected.iter().map(|s| s.token_estimate()).sum();
-        assert!(total_tokens <= 40, "total tokens {total_tokens} must not exceed budget");
+        assert!(
+            total_tokens <= 40,
+            "total tokens {total_tokens} must not exceed budget"
+        );
     }
 
     #[test]
@@ -234,7 +257,11 @@ mod tests {
             make_summary(0.5, Some(1), 0.5, "q"),
             make_summary(0.4, Some(0), 0.4, "q"),
         ];
-        let budget = ContextBudget { min_qtic_class: 5, top_k: 10, max_tokens: 4096 };
+        let budget = ContextBudget {
+            min_qtic_class: 5,
+            top_k: 10,
+            max_tokens: 4096,
+        };
         assert!(budget.select(&summaries).is_empty());
     }
 

@@ -23,6 +23,7 @@ use crate::qtic::{classify, QticInput, MCI_THRESHOLD};
 use pse_types::{SemanticCrystal, TopologySignature};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::cmp::Reverse;
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "il-pipeline")]
@@ -161,10 +162,7 @@ impl ILStore {
 
         #[cfg(feature = "il-pipeline")]
         let mef_core = if with_pipeline {
-            let base_str = base
-                .to_str()
-                .ok_or("non-UTF8 base path")?
-                .to_string();
+            let base_str = base.to_str().ok_or("non-UTF8 base path")?.to_string();
             match crate::adapter::pipeline::make_mef_core(&base_str, seed) {
                 Ok(m) => Some(m),
                 Err(e) => {
@@ -303,7 +301,9 @@ impl ILStore {
         {
             let cp = existing.phase; // phase ≈ spectral_gap; exact ψ needs HDAG
             let node_id = existing.hdag_node_id.clone();
-            let gate = self.hdag.as_ref()
+            let gate = self
+                .hdag
+                .as_ref()
                 .and_then(|h| h.is_in_s_coh_for(node_id.as_deref().unwrap_or("")))
                 .unwrap_or(crystal.stability_score > 0.5);
             return Ok(CommitResult {
@@ -345,8 +345,7 @@ impl ILStore {
         let block_file = self.ledger_path.join(&block_file_name);
         std::fs::write(
             &block_file,
-            serde_json::to_string_pretty(&block)
-                .map_err(|e| format!("serialise block: {e}"))?,
+            serde_json::to_string_pretty(&block).map_err(|e| format!("serialise block: {e}"))?,
         )
         .map_err(|e| format!("write block file: {e}"))?;
 
@@ -368,10 +367,10 @@ impl ILStore {
             let sig = &crystal.topology_signature;
             sig.kuramoto_coherence - (1.0 - crystal.stability_score.clamp(0.0, 1.0))
         };
-        let gate_passed = self.hdag.as_ref()
-            .and_then(|h| h.is_in_s_coh_for(
-                hdag_node_id.as_deref().unwrap_or(""),
-            ))
+        let gate_passed = self
+            .hdag
+            .as_ref()
+            .and_then(|h| h.is_in_s_coh_for(hdag_node_id.as_deref().unwrap_or("")))
             .unwrap_or(crystal.stability_score > 0.5);
 
         let question = payload
@@ -425,17 +424,11 @@ impl ILStore {
 
         let node_id = format!("N-{}", &payload.crystal_id_hex[..16]);
         let tensor = crystal_to_tensor(crystal);
-        let kairos = crystal.stability_score > 0.5
-            && crystal.topology_signature.kuramoto_coherence > 0.2;
+        let kairos =
+            crystal.stability_score > 0.5 && crystal.topology_signature.kuramoto_coherence > 0.2;
         let ts = simple_timestamp();
 
-        if let Err(e) = hdag.add_node(
-            &node_id,
-            &payload.crystal_id_hex,
-            tensor,
-            kairos,
-            &ts,
-        ) {
+        if let Err(e) = hdag.add_node(&node_id, &payload.crystal_id_hex, tensor, kairos, &ts) {
             eprintln!("[IL] HDAG add_node error: {e}");
             return None;
         }
@@ -602,14 +595,21 @@ impl ILStore {
                 // D = ψ · ρ · ω  (Pfauenthron++ score)
                 let score = psi_sem * rho_pse * omega_hdag;
                 if score > 0.0 {
-                    Some(ILMatch { crystal_id_hex: entry.crystal_id_hex.clone(), score })
+                    Some(ILMatch {
+                        crystal_id_hex: entry.crystal_id_hex.clone(),
+                        score,
+                    })
                 } else {
                     None
                 }
             })
             .collect();
 
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scored
     }
 
@@ -633,8 +633,14 @@ impl ILStore {
         to_crystal_id_hex: &str,
     ) -> Option<crate::hdag::PathInvarianceResult> {
         let hdag = self.hdag.as_ref()?;
-        let from_nid = format!("N-{}", &from_crystal_id_hex[..16.min(from_crystal_id_hex.len())]);
-        let to_nid   = format!("N-{}", &to_crystal_id_hex[..16.min(to_crystal_id_hex.len())]);
+        let from_nid = format!(
+            "N-{}",
+            &from_crystal_id_hex[..16.min(from_crystal_id_hex.len())]
+        );
+        let to_nid = format!(
+            "N-{}",
+            &to_crystal_id_hex[..16.min(to_crystal_id_hex.len())]
+        );
         Some(hdag.verify_path_invariance(&from_nid, &to_nid))
     }
 
@@ -707,8 +713,7 @@ impl ILStore {
                 let refresh_score = uncertainty * (1.0 - decay);
                 let status = classify_lifecycle(decay, uncertainty);
                 CrystalLifecycle {
-                    crystal_id: entry.crystal_id_hex
-                        [..entry.crystal_id_hex.len().min(16)]
+                    crystal_id: entry.crystal_id_hex[..entry.crystal_id_hex.len().min(16)]
                         .to_string(),
                     age_blocks: age as i64,
                     decay,
@@ -726,8 +731,14 @@ impl ILStore {
         });
 
         let n = crystals.len();
-        let stale_count = crystals.iter().filter(|c| c.status == LifecycleStatus::Stale).count();
-        let vital_count = crystals.iter().filter(|c| c.status == LifecycleStatus::Vital).count();
+        let stale_count = crystals
+            .iter()
+            .filter(|c| c.status == LifecycleStatus::Stale)
+            .count();
+        let vital_count = crystals
+            .iter()
+            .filter(|c| c.status == LifecycleStatus::Vital)
+            .count();
         let mean_decay = if n > 0 {
             crystals.iter().map(|c| c.decay).sum::<f64>() / n as f64
         } else {
@@ -742,7 +753,8 @@ impl ILStore {
         // ── Consolidation candidate detection ──────────────────────────────
         let entries = &self.index.entries;
         let mut consolidation_candidates: Vec<ConsolidationCandidate> = Vec::new();
-        let mut seen_pairs: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+        let mut seen_pairs: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
 
         for i in 0..entries.len() {
             for j in (i + 1)..entries.len() {
@@ -826,7 +838,8 @@ impl ILStore {
             .iter()
             .find(|e| e.crystal_id_hex.starts_with(crystal_id_prefix))?;
         let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
-        let uncertainty = crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
+        let uncertainty =
+            crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
         Some(CrystalHealthMetrics {
             crystal_id: entry.crystal_id_hex[..entry.crystal_id_hex.len().min(16)].to_string(),
             qtic_class: entry.qtic_class,
@@ -936,24 +949,21 @@ impl ILStore {
     /// descending uncertainty (most uncertain first).
     ///
     /// Use `threshold = 0.5` for the default "at risk" definition.
-    pub fn at_risk_crystals(
-        &self,
-        threshold: f64,
-    ) -> Vec<crate::health::CrystalHealthMetrics> {
+    pub fn at_risk_crystals(&self, threshold: f64) -> Vec<crate::health::CrystalHealthMetrics> {
         use crate::health::{crystal_uncertainty, CrystalHealthMetrics};
         let mut metrics: Vec<CrystalHealthMetrics> = self
             .index
             .entries
             .iter()
             .filter_map(|entry| {
-                let u = crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
+                let u =
+                    crystal_uncertainty(entry.qtic_class, entry.stability_score, entry.kuramoto);
                 if u < threshold {
                     return None;
                 }
                 let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
                 Some(CrystalHealthMetrics {
-                    crystal_id: entry.crystal_id_hex
-                        [..entry.crystal_id_hex.len().min(16)]
+                    crystal_id: entry.crystal_id_hex[..entry.crystal_id_hex.len().min(16)]
                         .to_string(),
                     qtic_class: entry.qtic_class,
                     stability: entry.stability_score,
@@ -1081,11 +1091,19 @@ impl ILStore {
             .map(|link| {
                 let from_agent = attribution.get(&link.from).cloned().unwrap_or_default();
                 let to_agent = attribution.get(&link.to).cloned().unwrap_or_default();
-                AgentLink { inner: link, from_agent, to_agent }
+                AgentLink {
+                    inner: link,
+                    from_agent,
+                    to_agent,
+                }
             })
             .collect();
 
-        AgentCausalGraph { links, agents, attribution }
+        AgentCausalGraph {
+            links,
+            agents,
+            attribution,
+        }
     }
 
     /// Build a causal graph from all HDAG edges in this store.
@@ -1171,8 +1189,7 @@ impl ILStore {
                     return None;
                 }
                 Some(CrystalSummary {
-                    crystal_id: entry.crystal_id_hex
-                        [..entry.crystal_id_hex.len().min(16)]
+                    crystal_id: entry.crystal_id_hex[..entry.crystal_id_hex.len().min(16)]
                         .to_string(),
                     stability: entry.stability_score,
                     qtic_class: entry.qtic_class,
@@ -1376,11 +1393,8 @@ impl ILStore {
 
         // ── Gather all signals ───────────────────────────────────────────
         let health = self.memory_health();
-        let lifecycle = self.lifecycle_report(
-            config.decay_model,
-            config.sim_threshold,
-            reference_index,
-        );
+        let lifecycle =
+            self.lifecycle_report(config.decay_model, config.sim_threshold, reference_index);
         let cluster_cfg = ClusterConfig {
             sim_threshold: config.sim_threshold,
             min_cluster_size: 2,
@@ -1389,8 +1403,7 @@ impl ILStore {
 
         // Build a lookup: crystal_id_prefix → causal-root status
         let causal_graph = self.build_causal_graph();
-        let roots: std::collections::HashSet<String> =
-            causal_graph.roots().into_iter().collect();
+        let roots: std::collections::HashSet<String> = causal_graph.roots().into_iter().collect();
 
         // Build a lookup: crystal_id_prefix → bridge_cluster_count
         let bridge_lookup: std::collections::HashMap<String, usize> = clustering
@@ -1556,19 +1569,24 @@ impl ILStore {
         // ── 6. Explore: cluster singletons ───────────────────────────────
         for singleton_id in &clustering.singletons {
             // Only if not already covered
-            if items.iter().any(|i| i.action.primary_id() == Some(singleton_id.as_str())) {
+            if items
+                .iter()
+                .any(|i| i.action.primary_id() == Some(singleton_id.as_str()))
+            {
                 continue;
             }
-            let question = question_lookup.get(singleton_id).cloned().unwrap_or_default();
+            let question = question_lookup
+                .get(singleton_id)
+                .cloned()
+                .unwrap_or_default();
             items.push(AgendaItem {
                 priority: 0.30,
                 action: AgendaAction::Explore {
                     root_crystal_id: singleton_id.clone(),
                     topic_hint: question,
                 },
-                rationale:
-                    "Isolated crystal with no semantic neighbours — possible knowledge gap"
-                        .to_string(),
+                rationale: "Isolated crystal with no semantic neighbours — possible knowledge gap"
+                    .to_string(),
                 expected_uncertainty_delta: 0.0,
             });
         }
@@ -1618,7 +1636,11 @@ impl ILStore {
             })
             .count();
 
-        EpistemicAgenda { items, diagnosis, items_to_fixpoint }
+        EpistemicAgenda {
+            items,
+            diagnosis,
+            items_to_fixpoint,
+        }
     }
 
     /// Knowledge topology analysis: clusters crystals into semantic islands.
@@ -1682,7 +1704,7 @@ impl ILStore {
 
         let mut components: Vec<Vec<usize>> = component_members.into_values().collect();
         // Sort by descending size for stable cluster_id assignment
-        components.sort_by(|a, b| b.len().cmp(&a.len()));
+        components.sort_by_key(|b| Reverse(b.len()));
 
         let causal_graph = self.build_causal_graph();
 
@@ -1728,8 +1750,7 @@ impl ILStore {
                     centroid[d] += v;
                 }
                 sum_stability += e.stability_score;
-                sum_uncertainty +=
-                    crystal_uncertainty(e.qtic_class, e.stability_score, e.kuramoto);
+                sum_uncertainty += crystal_uncertainty(e.qtic_class, e.stability_score, e.kuramoto);
                 if let Some(q) = e.qtic_class {
                     sum_qtic += q as f64;
                     qtic_count += 1;
@@ -1797,10 +1818,14 @@ impl ILStore {
                 if ca != cb {
                     // Cross-cluster causal edge
                     for (id, other_cluster) in [(&link.from, cb), (&link.to, ca)] {
-                        bridge_map.entry(id.clone()).or_default().insert(other_cluster);
-                        bridge_map.entry(id.clone()).or_default().insert(
-                            cluster_of(id).unwrap_or(usize::MAX),
-                        );
+                        bridge_map
+                            .entry(id.clone())
+                            .or_default()
+                            .insert(other_cluster);
+                        bridge_map
+                            .entry(id.clone())
+                            .or_default()
+                            .insert(cluster_of(id).unwrap_or(usize::MAX));
                         *bridge_edge_count.entry(id.clone()).or_insert(0) += 1;
                     }
                 }
@@ -1872,11 +1897,8 @@ impl ILStore {
         // ── Step 1: semantic seed selection ──────────────────────────────
         let all_summaries = self.build_context_entries(&query_vec);
         // Use a relaxed budget for seeds (no QTIC floor, just top_k = seed_k)
-        let seed_summaries: Vec<CrystalSummary> = all_summaries
-            .iter()
-            .take(config.seed_k)
-            .cloned()
-            .collect();
+        let seed_summaries: Vec<CrystalSummary> =
+            all_summaries.iter().take(config.seed_k).cloned().collect();
 
         // Build a lookup: crystal_id_prefix → semantic (tripolar) score
         let semantic_scores: HashMap<String, f64> = all_summaries
@@ -1978,7 +2000,9 @@ impl ILStore {
         let mut all_entries: Vec<CausallyGroundedEntry> = best.into_values().collect();
         // Sort by descending blended score before budget application
         all_entries.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Apply budget using the summaries
@@ -2030,6 +2054,7 @@ impl ILStore {
 ///   `causal = seed_semantic · path_strength / (1 + d)`
 ///
 /// `path_strength` is the product of CausalLink strengths along the path.
+#[allow(clippy::too_many_arguments)]
 fn expand_direction<F>(
     graph: &crate::causal::CausalGraph,
     seed_id: &str,
@@ -2124,8 +2149,10 @@ fn entry_to_proxy_crystal(entry: &IndexEntry) -> SemanticCrystal {
             crystal_id[i] = b;
         }
     }
-    let mut topology_signature = TopologySignature::default();
-    topology_signature.kuramoto_coherence = entry.kuramoto;
+    let topology_signature = TopologySignature {
+        kuramoto_coherence: entry.kuramoto,
+        ..Default::default()
+    };
     SemanticCrystal {
         crystal_id,
         region: vec![],
@@ -2153,10 +2180,7 @@ fn entry_to_proxy_crystal(entry: &IndexEntry) -> SemanticCrystal {
 /// This approximation is sufficient for all constitutional predicates that
 /// inspect QTIC data: `MinQticClass` uses `conformance_class` and
 /// `PathInvariant` uses `path_inv`.
-fn synthetic_qtic_cert(
-    entry: &IndexEntry,
-    class_u8: u8,
-) -> crate::qtic::QticCertificate {
+fn synthetic_qtic_cert(entry: &IndexEntry, class_u8: u8) -> crate::qtic::QticCertificate {
     use crate::qtic::{QticCertificate, QticClass};
     let conformance_class = QticClass::from(class_u8);
     let psi = entry.kuramoto - (1.0 - entry.stability_score.clamp(0.0, 1.0));
@@ -2238,7 +2262,16 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let month_days = [
         31u64,
         if is_leap(year) { 29 } else { 28 },
-        31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 1u64;
     for &md in &month_days {
@@ -2252,7 +2285,7 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 }
 
 fn is_leap(y: u64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 #[cfg(test)]
@@ -2353,7 +2386,11 @@ mod tests {
         assert_eq!(hits.len(), 2);
         // The high-stability crystal should score higher
         let adapter2 = CrystalAdapter::new("TEST");
-        let high_hex: String = c_high.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let high_hex: String = c_high
+            .crystal_id
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         assert_eq!(hits[0].crystal_id_hex, high_hex);
         let _ = adapter2; // suppress warning
     }
@@ -2405,10 +2442,16 @@ mod tests {
 
         // C should have a sequential edge from B and a semantic edge from A
         let hdag = store.hdag.as_ref().expect("HDAG must be active");
-        let seq_edges  = hdag.edge_count_by_cause("sequential_commit");
-        let sem_edges  = hdag.edge_count_by_cause("resonance_proximity");
-        assert!(seq_edges >= 2, "expect at least 2 sequential edges, got {seq_edges}");
-        assert!(sem_edges >= 1, "expect at least 1 semantic edge A→C, got {sem_edges}");
+        let seq_edges = hdag.edge_count_by_cause("sequential_commit");
+        let sem_edges = hdag.edge_count_by_cause("resonance_proximity");
+        assert!(
+            seq_edges >= 2,
+            "expect at least 2 sequential edges, got {seq_edges}"
+        );
+        assert!(
+            sem_edges >= 1,
+            "expect at least 1 semantic edge A→C, got {sem_edges}"
+        );
     }
 
     #[test]
@@ -2461,7 +2504,11 @@ mod tests {
             qtic_certificate: None,
         };
         let c_refined = refine_crystal(&c_a, &feedback, 2);
-        let orig_hex: String = c_a.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let orig_hex: String = c_a
+            .crystal_id
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         assert!(
             c_refined.parent_crystal_ids.contains(&orig_hex),
             "sanity: parent_crystal_ids must reference the original"
@@ -2470,7 +2517,10 @@ mod tests {
 
         let hdag = store.hdag.as_ref().expect("HDAG must be active");
         let ref_edges = hdag.edge_count_by_cause("refinement");
-        assert!(ref_edges >= 1, "expect at least 1 refinement edge A→refined, got {ref_edges}");
+        assert!(
+            ref_edges >= 1,
+            "expect at least 1 refinement edge A→refined, got {ref_edges}"
+        );
     }
 
     #[test]
@@ -2486,9 +2536,14 @@ mod tests {
             .commit_with_feedback(&crystal, &[], 1, "qtic-test")
             .expect("commit_with_feedback must succeed");
 
-        let cert = fb.qtic_certificate.expect("QTIC certificate must be present");
+        let cert = fb
+            .qtic_certificate
+            .expect("QTIC certificate must be present");
         assert!(!cert.crystal_id.is_empty());
-        assert!(!cert.canonical_id.is_empty(), "canonical_id = block_hash must be populated");
+        assert!(
+            !cert.canonical_id.is_empty(),
+            "canonical_id = block_hash must be populated"
+        );
         // ψ = 0.75 - (1 - 0.80) = 0.55 > -0.1 → Q2 satisfied
         assert!(cert.psi > -0.1, "ψ should be positive for a stable crystal");
         // Q3 requires gate_passed; first commit with stability=0.80 should pass heuristic
@@ -2540,8 +2595,10 @@ mod tests {
         assert!(ag.agents.contains("alice"), "alice must be in agents");
         assert!(ag.agents.contains("bob"), "bob must be in agents");
         // At least one sequential link (alice→bob boundary)
-        assert!(!ag.cross_agent_links().is_empty() || !ag.links.is_empty(),
-            "must have links after two commits");
+        assert!(
+            !ag.cross_agent_links().is_empty() || !ag.links.is_empty(),
+            "must have links after two commits"
+        );
     }
 
     #[test]
@@ -2557,8 +2614,12 @@ mod tests {
         c2.topology_signature.kuramoto_coherence = 0.72;
         c2.crystal_id[0] = 0xC1;
 
-        store.commit_as(&c1, &[], 1, "first crystal", "agent-x").unwrap();
-        store.commit_as(&c2, &[], 2, "second crystal", "agent-y").unwrap();
+        store
+            .commit_as(&c1, &[], 1, "first crystal", "agent-x")
+            .unwrap();
+        store
+            .commit_as(&c2, &[], 2, "second crystal", "agent-y")
+            .unwrap();
 
         let ag = store.build_agent_causal_graph();
         // If a sequential_commit edge formed between c1 and c2, it crosses agents
@@ -2592,12 +2653,18 @@ mod tests {
         store.commit(&c2, &[], 2, "second").unwrap();
 
         let graph = store.build_causal_graph();
-        assert!(!graph.links.is_empty(), "causal graph must have at least one link");
+        assert!(
+            !graph.links.is_empty(),
+            "causal graph must have at least one link"
+        );
         let has_seq = graph
             .links
             .iter()
             .any(|l| l.cause == crate::causal::CausalCause::SequentialCommit);
-        assert!(has_seq, "must have at least one sequential_commit causal link");
+        assert!(
+            has_seq,
+            "must have at least one sequential_commit causal link"
+        );
     }
 
     #[test]
@@ -2644,7 +2711,11 @@ mod tests {
         let refined = refine_crystal(&original, &fb, 2);
         store.commit(&refined, &[], 2, "refined version").unwrap();
 
-        let refined_hex: String = refined.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
+        let refined_hex: String = refined
+            .crystal_id
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         let prefix = &refined_hex[..16];
         let explanation = store.causal_explanation(prefix);
         // Must not be a root explanation — it has at least one cause (sequential or refinement)
@@ -2675,14 +2746,29 @@ mod tests {
         crystal.topology_signature.kuramoto_coherence = 0.72;
         crystal.crystal_id[0] = 0xDE;
         store
-            .commit_with_feedback(&crystal, &["working memory".into()], 1, "What is working memory?")
+            .commit_with_feedback(
+                &crystal,
+                &["working memory".into()],
+                1,
+                "What is working memory?",
+            )
             .unwrap();
 
         let q_vec = text_to_vector8("working memory cognitive");
-        let budget = ContextBudget { min_qtic_class: 0, top_k: 5, max_tokens: 512 };
+        let budget = ContextBudget {
+            min_qtic_class: 0,
+            top_k: 5,
+            max_tokens: 512,
+        };
         let ctx = store.context_for_query(&q_vec, &budget);
-        assert!(ctx.starts_with("[PSE-CONTEXT]"), "must open with PSE-CONTEXT tag");
-        assert!(ctx.ends_with("[/PSE-CONTEXT]"), "must close with /PSE-CONTEXT tag");
+        assert!(
+            ctx.starts_with("[PSE-CONTEXT]"),
+            "must open with PSE-CONTEXT tag"
+        );
+        assert!(
+            ctx.ends_with("[/PSE-CONTEXT]"),
+            "must close with /PSE-CONTEXT tag"
+        );
     }
 
     #[test]
@@ -2700,8 +2786,12 @@ mod tests {
         c_low.topology_signature.kuramoto_coherence = 0.2;
         c_low.crystal_id[0] = 0xE2;
 
-        store.commit(&c_high, &[], 1, "high stability crystal").unwrap();
-        store.commit(&c_low, &[], 2, "low stability crystal").unwrap();
+        store
+            .commit(&c_high, &[], 1, "high stability crystal")
+            .unwrap();
+        store
+            .commit(&c_low, &[], 2, "low stability crystal")
+            .unwrap();
 
         let q_vec = text_to_vector8("stability");
         let entries = store.build_context_entries(&q_vec);
@@ -2782,12 +2872,19 @@ mod tests {
         c.crystal_id[0] = 0xBA;
 
         let result = store.commit_constitutional(
-            &c, &[], 1, "blocked commit", None,
+            &c,
+            &[],
+            1,
+            "blocked commit",
+            None,
             &Constitution::pse_core_safety(),
         );
         assert!(result.is_err(), "Blocking violation must prevent commit");
         let msg = result.unwrap_err();
-        assert!(msg.contains("BLOCKING"), "error must name the blocking violation: {msg}");
+        assert!(
+            msg.contains("BLOCKING"),
+            "error must name the blocking violation: {msg}"
+        );
         assert_eq!(store.len(), 0, "ledger must be empty — nothing committed");
     }
 
@@ -2805,7 +2902,11 @@ mod tests {
 
         let fb = store
             .commit_constitutional(
-                &c, &[], 1, "admitted commit", None,
+                &c,
+                &[],
+                1,
+                "admitted commit",
+                None,
                 &Constitution::pse_core_safety(),
             )
             .expect("coherent crystal must be admitted");
@@ -2861,7 +2962,10 @@ mod tests {
 
         let report = store.constitutional_audit(&Constitution::eu_ai_act_minimal());
         assert_eq!(report.total_crystals, 2);
-        assert!(!report.is_constitutionally_closed(), "non-compliant crystal → fixpoint not reached");
+        assert!(
+            !report.is_constitutionally_closed(),
+            "non-compliant crystal → fixpoint not reached"
+        );
         assert_eq!(report.violation_count, 1);
         assert!(report.violations_by_rule.contains_key("EU-ART9-STABILITY"));
         assert!(!report.audit_hash.is_empty());
@@ -2892,13 +2996,19 @@ mod tests {
         c.crystal_id[0] = 0xAD;
         store.commit(&c, &[], 1, "low quality question").unwrap();
 
-        let cfg = AgendaConfig { at_risk_threshold: 0.5, ..Default::default() };
+        let cfg = AgendaConfig {
+            at_risk_threshold: 0.5,
+            ..Default::default()
+        };
         let agenda = store.epistemic_agenda(&cfg);
 
         // Must not be fixpoint (uncertain crystal present)
         assert!(!agenda.is_fixpoint());
         let has_reinforce_or_refresh = agenda.items.iter().any(|item| {
-            matches!(item.action, AgendaAction::Reinforce { .. } | AgendaAction::Refresh { .. })
+            matches!(
+                item.action,
+                AgendaAction::Reinforce { .. } | AgendaAction::Refresh { .. }
+            )
         });
         assert!(
             has_reinforce_or_refresh,
@@ -2943,7 +3053,9 @@ mod tests {
         let mut c = dummy_crystal(0.75);
         c.topology_signature.kuramoto_coherence = 0.65;
         c.crystal_id[0] = 0xA3;
-        store.commit_with_feedback(&c, &[], 1, "parseable test").unwrap();
+        store
+            .commit_with_feedback(&c, &[], 1, "parseable test")
+            .unwrap();
 
         let agenda = store.epistemic_agenda(&AgendaConfig::default());
         let block = agenda.to_context_block(10);
@@ -2985,11 +3097,18 @@ mod tests {
         store.commit_with_feedback(&c1, &[], 1, "q1").unwrap();
         store.commit_with_feedback(&c2, &[], 2, "q2").unwrap();
 
-        let cfg = ClusterConfig { sim_threshold: 0.95, min_cluster_size: 2 };
+        let cfg = ClusterConfig {
+            sim_threshold: 0.95,
+            min_cluster_size: 2,
+        };
         let report = store.cluster_knowledge(&cfg);
         assert_eq!(report.total_crystals, 2);
         // With nearly identical vectors both crystals should form one cluster
-        let total_clustered = report.clusters.iter().map(|c| c.members.len()).sum::<usize>();
+        let total_clustered = report
+            .clusters
+            .iter()
+            .map(|c| c.members.len())
+            .sum::<usize>();
         let total_singletons = report.singletons.len();
         assert_eq!(total_clustered + total_singletons, 2);
         assert!(!report.summary().is_empty());
@@ -3018,12 +3137,19 @@ mod tests {
         store.commit(&cb, &[], 2, "q2").unwrap();
 
         // Very high threshold → unlikely they cluster together
-        let cfg = ClusterConfig { sim_threshold: 0.99, min_cluster_size: 2 };
+        let cfg = ClusterConfig {
+            sim_threshold: 0.99,
+            min_cluster_size: 2,
+        };
         let report = store.cluster_knowledge(&cfg);
         // With threshold 0.99 and very different vectors, expect singletons
         // (or at most one cluster if vectors happen to be similar — tolerate both)
         assert_eq!(report.total_crystals, 2);
-        let total = report.clusters.iter().map(|c| c.members.len()).sum::<usize>()
+        let total = report
+            .clusters
+            .iter()
+            .map(|c| c.members.len())
+            .sum::<usize>()
             + report.singletons.len();
         assert_eq!(total, 2, "all crystals must be accounted for");
     }
@@ -3048,17 +3174,26 @@ mod tests {
         let mut c = dummy_crystal(0.85);
         c.topology_signature.kuramoto_coherence = 0.75;
         c.crystal_id[0] = 0xCA;
-        store.commit_with_feedback(&c, &[], 1, "What is working memory?").unwrap();
+        store
+            .commit_with_feedback(&c, &[], 1, "What is working memory?")
+            .unwrap();
 
         let cfg = CausalRetrievalConfig {
             seed_k: 3,
             max_depth: 1,
             causal_blend: 0.5,
-            budget: crate::context::ContextBudget { min_qtic_class: 0, top_k: 10, max_tokens: 4096 },
+            budget: crate::context::ContextBudget {
+                min_qtic_class: 0,
+                top_k: 10,
+                max_tokens: 4096,
+            },
             ..Default::default()
         };
         let result = store.causal_retrieval("working memory cognitive", &cfg);
-        assert!(result.is_grounded(), "must find at least the committed crystal as seed");
+        assert!(
+            result.is_grounded(),
+            "must find at least the committed crystal as seed"
+        );
         assert!(result.seed_count >= 1);
     }
 
@@ -3074,7 +3209,9 @@ mod tests {
         let mut original = dummy_crystal(0.72);
         original.topology_signature.kuramoto_coherence = 0.65;
         original.crystal_id[0] = 0xE0;
-        store.commit_with_feedback(&original, &[], 1, "original concept").unwrap();
+        store
+            .commit_with_feedback(&original, &[], 1, "original concept")
+            .unwrap();
 
         // IL-refined child — has a refinement edge back to original
         let il_stab = compute_il_stability(true, true, 0.8);
@@ -3088,13 +3225,19 @@ mod tests {
             qtic_certificate: None,
         };
         let refined = refine_crystal(&original, &fb, 2);
-        store.commit_with_feedback(&refined, &[], 2, "refined concept").unwrap();
+        store
+            .commit_with_feedback(&refined, &[], 2, "refined concept")
+            .unwrap();
 
         let cfg = CausalRetrievalConfig {
             seed_k: 1,
             max_depth: 2,
             causal_blend: 0.3, // lean toward causal
-            budget: crate::context::ContextBudget { min_qtic_class: 0, top_k: 10, max_tokens: 4096 },
+            budget: crate::context::ContextBudget {
+                min_qtic_class: 0,
+                top_k: 10,
+                max_tokens: 4096,
+            },
             include_ancestors: true,
             include_descendants: false,
         };
@@ -3122,10 +3265,16 @@ mod tests {
         let mut c = dummy_crystal(0.80);
         c.topology_signature.kuramoto_coherence = 0.70;
         c.crystal_id[0] = 0xCB;
-        store.commit_with_feedback(&c, &[], 1, "cognitive architecture").unwrap();
+        store
+            .commit_with_feedback(&c, &[], 1, "cognitive architecture")
+            .unwrap();
 
         let cfg = CausalRetrievalConfig {
-            budget: crate::context::ContextBudget { min_qtic_class: 0, top_k: 10, max_tokens: 4096 },
+            budget: crate::context::ContextBudget {
+                min_qtic_class: 0,
+                top_k: 10,
+                max_tokens: 4096,
+            },
             ..Default::default()
         };
         let result = store.causal_retrieval("cognitive architecture", &cfg);
@@ -3133,7 +3282,11 @@ mod tests {
             let block = result.to_annotated_context_block();
             assert!(block.starts_with("[PSE-CONTEXT causal=true]"));
             assert!(block.ends_with("[/PSE-CONTEXT]"));
-            assert!(block.contains("[SEED]") || block.contains("[ANCESTOR") || block.contains("[DESCENDANT"));
+            assert!(
+                block.contains("[SEED]")
+                    || block.contains("[ANCESTOR")
+                    || block.contains("[DESCENDANT")
+            );
         }
     }
 
@@ -3231,7 +3384,10 @@ mod tests {
         assert_eq!(report.crystals.len(), 1);
         let c0 = &report.crystals[0];
         assert!((c0.decay - 1.0).abs() < 1e-6, "age=0 → decay must be 1");
-        assert!(c0.refresh_score < 0.3, "fresh high-quality crystal → low refresh score");
+        assert!(
+            c0.refresh_score < 0.3,
+            "fresh high-quality crystal → low refresh score"
+        );
         assert_eq!(c0.status, LifecycleStatus::Vital);
         assert!(report.summary().contains("vital=1"));
     }
@@ -3249,11 +3405,8 @@ mod tests {
         store.commit(&c, &[], 1, "old").unwrap(); // committed at block_index=0
 
         // reference_index = 500 → age = 500, half_life = 50 → decay ≈ 0
-        let report = store.lifecycle_report(
-            DecayModel::Exponential { half_life: 50.0 },
-            0.999,
-            500,
-        );
+        let report =
+            store.lifecycle_report(DecayModel::Exponential { half_life: 50.0 }, 0.999, 500);
         assert_eq!(report.crystals.len(), 1);
         let c0 = &report.crystals[0];
         assert!(c0.decay < 0.01, "very old crystal → decay ≈ 0");
@@ -3310,11 +3463,15 @@ mod tests {
         c.topology_signature.kuramoto_coherence = 0.70;
         c.crystal_id[0] = 0xBB;
 
-        store.commit_with_feedback(&c, &[], 1, "health-test").unwrap();
+        store
+            .commit_with_feedback(&c, &[], 1, "health-test")
+            .unwrap();
         let hex: String = c.crystal_id.iter().map(|b| format!("{:02x}", b)).collect();
         let prefix = &hex[..16];
 
-        let metrics = store.crystal_health(prefix).expect("must find committed crystal");
+        let metrics = store
+            .crystal_health(prefix)
+            .expect("must find committed crystal");
         assert!((metrics.stability - 0.80).abs() < 1e-9);
         assert!((metrics.coherence - 0.70).abs() < 1e-9);
         assert!((0.0..=1.0).contains(&metrics.uncertainty));

@@ -77,7 +77,11 @@ impl DecayModel {
                 (-age * std::f64::consts::LN_2 / hl).exp()
             }
             Self::Step { half_life } => {
-                if age < *half_life { 1.0 } else { 0.0 }
+                if age < *half_life {
+                    1.0
+                } else {
+                    0.0
+                }
             }
         }
     }
@@ -322,7 +326,11 @@ mod tests {
             DecayModel::Exponential { half_life: 50.0 },
             DecayModel::Step { half_life: 50.0 },
         ] {
-            assert_eq!(model.decay(-5.0), 1.0, "negative age must give decay=1 for {model:?}");
+            assert_eq!(
+                model.decay(-5.0),
+                1.0,
+                "negative age must give decay=1 for {model:?}"
+            );
         }
     }
 

@@ -43,22 +43,22 @@ pub enum CausalCause {
 impl CausalCause {
     fn from_str(s: &str) -> Self {
         match s {
-            "sequential_commit"   => Self::SequentialCommit,
+            "sequential_commit" => Self::SequentialCommit,
             "resonance_proximity" => Self::ResonanceProximity,
-            "refinement"          => Self::Refinement,
+            "refinement" => Self::Refinement,
             "metatron_isomorphic" => Self::MetatronIsomorphic,
-            other                 => Self::Other(other.to_string()),
+            other => Self::Other(other.to_string()),
         }
     }
 
     /// Short label for display (matches the HDAG cause string).
     pub fn label(&self) -> &str {
         match self {
-            Self::SequentialCommit   => "sequential_commit",
+            Self::SequentialCommit => "sequential_commit",
             Self::ResonanceProximity => "resonance_proximity",
-            Self::Refinement         => "refinement",
+            Self::Refinement => "refinement",
             Self::MetatronIsomorphic => "metatron_isomorphic",
-            Self::Other(s)           => s.as_str(),
+            Self::Other(s) => s.as_str(),
         }
     }
 }
@@ -99,10 +99,15 @@ impl CausalGraph {
             .iter()
             .map(|e| {
                 let from = strip_node_prefix(&e.from);
-                let to   = strip_node_prefix(&e.to);
+                let to = strip_node_prefix(&e.to);
                 let cause = CausalCause::from_str(&e.cause);
                 let strength = compute_strength(&cause, &e.gradient, e.magnitude);
-                CausalLink { from, to, cause, strength }
+                CausalLink {
+                    from,
+                    to,
+                    cause,
+                    strength,
+                }
             })
             .collect();
         Self { links }
@@ -183,15 +188,36 @@ impl CausalGraph {
         }
         let roots = self.roots();
         let leaves = self.leaves();
-        let seq   = self.links.iter().filter(|l| l.cause == CausalCause::SequentialCommit).count();
-        let res   = self.links.iter().filter(|l| l.cause == CausalCause::ResonanceProximity).count();
-        let refin = self.links.iter().filter(|l| l.cause == CausalCause::Refinement).count();
-        let iso   = self.links.iter().filter(|l| l.cause == CausalCause::MetatronIsomorphic).count();
+        let seq = self
+            .links
+            .iter()
+            .filter(|l| l.cause == CausalCause::SequentialCommit)
+            .count();
+        let res = self
+            .links
+            .iter()
+            .filter(|l| l.cause == CausalCause::ResonanceProximity)
+            .count();
+        let refin = self
+            .links
+            .iter()
+            .filter(|l| l.cause == CausalCause::Refinement)
+            .count();
+        let iso = self
+            .links
+            .iter()
+            .filter(|l| l.cause == CausalCause::MetatronIsomorphic)
+            .count();
         format!(
             "CausalGraph: {} links ({} sequential, {} resonance, {} refinement, {} isomorphic)\n\
              Roots: {} | Leaves: {}",
-            self.links.len(), seq, res, refin, iso,
-            roots.len(), leaves.len()
+            self.links.len(),
+            seq,
+            res,
+            refin,
+            iso,
+            roots.len(),
+            leaves.len()
         )
     }
 }
@@ -207,13 +233,9 @@ fn strip_node_prefix(node_id: &str) -> String {
 fn compute_strength(cause: &CausalCause, gradient: &[f64; 5], magnitude: f64) -> f64 {
     match cause {
         // Δψ along the morphic axis — larger morphic gradient = stronger sequential pull.
-        CausalCause::SequentialCommit => {
-            (gradient[1] * magnitude).clamp(0.0, 1.0)
-        }
+        CausalCause::SequentialCommit => (gradient[1] * magnitude).clamp(0.0, 1.0),
         // Inverse tensor distance — closer resonance = stronger proximity link.
-        CausalCause::ResonanceProximity | CausalCause::Refinement => {
-            1.0 / (1.0 + magnitude)
-        }
+        CausalCause::ResonanceProximity | CausalCause::Refinement => 1.0 / (1.0 + magnitude),
         // Structural identity is always maximal strength.
         CausalCause::MetatronIsomorphic => 1.0,
         CausalCause::Other(_) => 0.5,
@@ -285,11 +307,11 @@ mod tests {
     #[test]
     fn cause_enum_maps_correctly() {
         let edges = vec![
-            make_edge("a", "b", "sequential_commit",   0.3),
+            make_edge("a", "b", "sequential_commit", 0.3),
             make_edge("b", "c", "resonance_proximity", 0.5),
-            make_edge("c", "d", "refinement",          0.2),
+            make_edge("c", "d", "refinement", 0.2),
             make_edge("d", "e", "metatron_isomorphic", 0.1),
-            make_edge("e", "f", "unknown_future",      0.4),
+            make_edge("e", "f", "unknown_future", 0.4),
         ];
         let g = CausalGraph::from_edges(&edges);
         assert_eq!(g.links[0].cause, CausalCause::SequentialCommit);
@@ -309,9 +331,9 @@ mod tests {
     #[test]
     fn strength_resonance_inversely_proportional_to_magnitude() {
         let edges_near = vec![make_edge("a", "b", "resonance_proximity", 0.1)];
-        let edges_far  = vec![make_edge("a", "b", "resonance_proximity", 2.0)];
+        let edges_far = vec![make_edge("a", "b", "resonance_proximity", 2.0)];
         let g_near = CausalGraph::from_edges(&edges_near);
-        let g_far  = CausalGraph::from_edges(&edges_far);
+        let g_far = CausalGraph::from_edges(&edges_far);
         assert!(
             g_near.links[0].strength > g_far.links[0].strength,
             "closer resonance must yield higher causal strength"
@@ -327,8 +349,14 @@ mod tests {
         ];
         let g = CausalGraph::from_edges(&edges);
         let ancs = g.ancestors("ccc");
-        assert!(ancs.contains(&"bbb".to_string()), "bbb must be an ancestor of ccc");
-        assert!(ancs.contains(&"aaa".to_string()), "aaa must be an ancestor of ccc");
+        assert!(
+            ancs.contains(&"bbb".to_string()),
+            "bbb must be an ancestor of ccc"
+        );
+        assert!(
+            ancs.contains(&"aaa".to_string()),
+            "aaa must be an ancestor of ccc"
+        );
     }
 
     #[test]
@@ -352,9 +380,18 @@ mod tests {
         let g = CausalGraph::from_edges(&edges);
         let roots = g.roots();
         let leaves = g.leaves();
-        assert!(roots.contains(&"aaa".to_string()), "first crystal must be a root");
-        assert!(leaves.contains(&"ccc".to_string()), "last crystal must be a leaf");
-        assert!(!roots.contains(&"ccc".to_string()), "last crystal must not be a root");
+        assert!(
+            roots.contains(&"aaa".to_string()),
+            "first crystal must be a root"
+        );
+        assert!(
+            leaves.contains(&"ccc".to_string()),
+            "last crystal must be a leaf"
+        );
+        assert!(
+            !roots.contains(&"ccc".to_string()),
+            "last crystal must not be a root"
+        );
     }
 
     #[test]
@@ -374,20 +411,29 @@ mod tests {
     fn causal_path_not_found_when_disconnected() {
         let edges = vec![make_edge("aaa", "bbb", "sequential_commit", 0.3)];
         let g = CausalGraph::from_edges(&edges);
-        assert!(g.causal_path("bbb", "aaa").is_none(), "no backward path in a DAG");
-        assert!(g.causal_path("aaa", "zzz").is_none(), "no path to unknown crystal");
+        assert!(
+            g.causal_path("bbb", "aaa").is_none(),
+            "no backward path in a DAG"
+        );
+        assert!(
+            g.causal_path("aaa", "zzz").is_none(),
+            "no path to unknown crystal"
+        );
     }
 
     #[test]
     fn summary_includes_link_counts() {
         let edges = vec![
-            make_edge("a", "b", "sequential_commit",   0.3),
+            make_edge("a", "b", "sequential_commit", 0.3),
             make_edge("b", "c", "resonance_proximity", 0.5),
-            make_edge("c", "d", "refinement",          0.2),
+            make_edge("c", "d", "refinement", 0.2),
         ];
         let g = CausalGraph::from_edges(&edges);
         let s = g.summary();
-        assert!(s.contains("3 links"), "summary must report total link count");
+        assert!(
+            s.contains("3 links"),
+            "summary must report total link count"
+        );
         assert!(s.contains("sequential"), "summary must mention sequential");
         assert!(s.contains("resonance"), "summary must mention resonance");
         assert!(s.contains("refinement"), "summary must mention refinement");

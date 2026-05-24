@@ -62,11 +62,7 @@ impl LlmClient {
 
     /// Same as `complete` but prepends `pse_context` to the system prompt.
     /// Pass an empty string for the baseline (no-context) condition.
-    pub fn complete_with_context(
-        &self,
-        prompt: &str,
-        pse_context: &str,
-    ) -> Result<String, String> {
+    pub fn complete_with_context(&self, prompt: &str, pse_context: &str) -> Result<String, String> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
         let system_base = "You are a precise, analytical assistant. \

@@ -28,7 +28,9 @@ fn semantic_phase(raw: &[u8]) -> f64 {
     let text = std::str::from_utf8(raw).unwrap_or("").to_lowercase();
     let chars: Vec<char> = text.chars().collect();
     if chars.len() < 4 {
-        if raw.is_empty() { return 0.0; }
+        if raw.is_empty() {
+            return 0.0;
+        }
         let avg: f64 = raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len() as f64;
         return (avg / 255.0) * TAU;
     }
@@ -43,7 +45,11 @@ fn semantic_phase(raw: &[u8]) -> f64 {
         sum_cos += phi.cos();
         count += 1;
     }
-    if count == 0 { 0.0 } else { sum_sin.atan2(sum_cos).rem_euclid(TAU) }
+    if count == 0 {
+        0.0
+    } else {
+        sum_sin.atan2(sum_cos).rem_euclid(TAU)
+    }
 }
 
 struct TextPhaseAdapter {
@@ -52,14 +58,22 @@ struct TextPhaseAdapter {
 
 impl TextPhaseAdapter {
     fn new(source: impl Into<String>) -> Self {
-        Self { source_id: source.into() }
+        Self {
+            source_id: source.into(),
+        }
     }
 }
 
 impl ObservationAdapter for TextPhaseAdapter {
-    fn source_id(&self) -> &str { &self.source_id }
+    fn source_id(&self) -> &str {
+        &self.source_id
+    }
 
-    fn canonicalize(&self, raw: &[u8], context: &MeasurementContext) -> Result<Observation, ObserveError> {
+    fn canonicalize(
+        &self,
+        raw: &[u8],
+        context: &MeasurementContext,
+    ) -> Result<Observation, ObserveError> {
         let phase = semantic_phase(raw);
         let payload = raw.to_vec();
         let digest = content_address_raw(&payload);
@@ -68,7 +82,11 @@ impl ObservationAdapter for TextPhaseAdapter {
         Ok(Observation {
             timestamp: 0.0,
             source_id: chunk_source,
-            provenance: ProvenanceEnvelope { origin: self.source_id.clone(), chain: Vec::new(), sig: None },
+            provenance: ProvenanceEnvelope {
+                origin: self.source_id.clone(),
+                chain: Vec::new(),
+                sig: None,
+            },
             payload,
             context: context.clone(),
             digest,
@@ -143,26 +161,31 @@ pub fn chunk_text(text: &str) -> Vec<Vec<u8>> {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CrystalRecord {
-    pub crystal:       SemanticCrystal,
+    pub crystal: SemanticCrystal,
     pub source_chunks: Vec<String>,
-    pub session:       usize,
-    pub question:      String,
+    pub session: usize,
+    pub question: String,
 }
 
 // ── CrystalInfo (wire format, no raw SemanticCrystal) ─────────────────────────
 
 #[derive(Serialize)]
 pub struct CrystalInfo {
-    pub id:            String,
-    pub stability:     f64,
-    pub region_size:   usize,
+    pub id: String,
+    pub stability: f64,
+    pub region_size: usize,
     pub source_chunks: Vec<String>,
 }
 
 impl CrystalInfo {
     pub fn from_record(r: &CrystalRecord) -> Self {
         CrystalInfo {
-            id: r.crystal.crystal_id.iter().map(|b| format!("{b:02x}")).collect(),
+            id: r
+                .crystal
+                .crystal_id
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
             stability: r.crystal.stability_score,
             region_size: r.crystal.region.len(),
             source_chunks: r.source_chunks.clone(),
@@ -173,11 +196,11 @@ impl CrystalInfo {
 // ── Ingest ────────────────────────────────────────────────────────────────────
 
 pub struct IngestResult {
-    pub new_records:   Vec<CrystalRecord>,
-    pub all_crystals:  Vec<SemanticCrystal>,
-    pub all_records:   Vec<CrystalRecord>,
-    pub pattern_hits:  u64,
-    pub commit_index:  u64,
+    pub new_records: Vec<CrystalRecord>,
+    pub all_crystals: Vec<SemanticCrystal>,
+    pub all_records: Vec<CrystalRecord>,
+    pub pattern_hits: u64,
+    pub commit_index: u64,
 }
 
 /// Process `text` through PSE. Returns crystals formed + updated state JSON.
@@ -185,12 +208,12 @@ pub struct IngestResult {
 /// `memory_json`  — from a previous response's `memory_json` field (warm start).
 /// `records_json` — from a previous response's `records_json` field.
 pub fn ingest(
-    text:         &str,
-    memory_json:  Option<&str>,
+    text: &str,
+    memory_json: Option<&str>,
     records_json: Option<&str>,
-    session:      usize,
-    question:     &str,
-    source_name:  &str,
+    session: usize,
+    question: &str,
+    source_name: &str,
 ) -> Result<IngestResult, String> {
     let config = default_config();
     let mut state = GlobalState::new(&config);
@@ -198,11 +221,11 @@ pub fn ingest(
     // Warm-start: load prior crystals into PatternMemory.
     let mut all_crystals: Vec<SemanticCrystal> = match memory_json {
         Some(j) => serde_json::from_str(j).map_err(|e| format!("memory_json: {e}"))?,
-        None    => Vec::new(),
+        None => Vec::new(),
     };
     let mut all_records: Vec<CrystalRecord> = match records_json {
         Some(j) => serde_json::from_str(j).map_err(|e| format!("records_json: {e}"))?,
-        None    => Vec::new(),
+        None => Vec::new(),
     };
     load_memory_from_crystals(&mut state, &all_crystals);
 
@@ -212,7 +235,8 @@ pub fn ingest(
     // sentences (same vocabulary cluster → similar phase).  Edges in the PSE
     // graph then connect semantically related content rather than positionally
     // adjacent sentences.
-    let mut phase_indexed: Vec<(f64, Vec<u8>)> = chunk_text(text).into_iter()
+    let mut phase_indexed: Vec<(f64, Vec<u8>)> = chunk_text(text)
+        .into_iter()
         .map(|c| (semantic_phase(&c), c))
         .collect();
     phase_indexed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -270,7 +294,13 @@ pub fn render_context(records: &[CrystalRecord], top_k: usize) -> String {
         sorted.len()
     );
     for r in &sorted {
-        let id: String = r.crystal.crystal_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+        let id: String = r
+            .crystal
+            .crystal_id
+            .iter()
+            .take(4)
+            .map(|b| format!("{b:02x}"))
+            .collect();
         out.push_str(&format!(
             "▸ Pattern #{id} (stability {:.3}, session {})\n",
             r.crystal.stability_score, r.session
@@ -300,10 +330,16 @@ fn keyword_at_boundary(text: &str, keyword: &str) -> bool {
             Some(rel) => {
                 let pos = start + rel;
                 let pre_ok = pos == 0
-                    || !text[..pos].chars().next_back().map_or(false, |c| c.is_alphabetic());
+                    || !text[..pos]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphabetic());
                 let end = pos + keyword.len();
                 let post_ok = end >= text.len()
-                    || !text[end..].chars().next().map_or(false, |c| c.is_alphabetic());
+                    || !text[end..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphabetic());
                 if pre_ok && post_ok {
                     return true;
                 }
@@ -316,6 +352,9 @@ fn keyword_at_boundary(text: &str, keyword: &str) -> bool {
 
 pub fn score_coverage(text: &str, keywords: &[String]) -> (usize, usize) {
     let lower = text.to_lowercase();
-    let hits = keywords.iter().filter(|k| keyword_at_boundary(&lower, k)).count();
+    let hits = keywords
+        .iter()
+        .filter(|k| keyword_at_boundary(&lower, k))
+        .count();
     (hits, keywords.len())
 }

@@ -13,6 +13,30 @@ note explicitly says so.
 
 ## [Unreleased]
 
+### Fixed
+
+* **Two stale test assertions in `pse-eval-matrix`** (`agent_exoskeleton.rs`):
+  `ablation_aggregate_base_metrics_present` expected the robustness label
+  `"requires_real_agent_validation"` but the production code now emits
+  `"live_agent_validation_completed"` (set when live proof was completed);
+  `trace_feature_design_report_is_present_and_consistent` asserted
+  `!migration_plan.productive_agent_validated` but the field is intentionally
+  `true` since the live Cerebras proof (commit `48fed88`). Both assertions now
+  reflect the actual system state. Workspace test suite is **1315 / 1315**.
+
+* **CHANGELOG `RulePredicate` variant names** corrected: entries `MaxUncertainty`,
+  `RequireAttribution`, and `NotHallucinationAttractor` never existed in the
+  implementation. Replaced with the actual variant set: `MinStability`,
+  `MinKuramoto`, `MaxFreeEnergy`, `MinEvidenceEntries`, `CoherenceGate`,
+  `PathInvariant`, `RequiresAgentAttribution`.
+
+* **Clippy warnings** eliminated across `pse-adapter-il`, `mef-core`, `pse-server`,
+  and `pse-llm-demo`: replaced indexed loop with iterator in `hdag.rs`,
+  `sort_by` → `sort_by_key` in cluster sort, `field_reassign_with_default` in
+  `entry_to_proxy_crystal()`, `filter_map` → `map` in the server IL retrieve
+  handler (always-`Some` branches collapsed), doc overindentation in
+  `il_bridge.rs`.
+
 ### Added
 
 * **PSE+IL Intelligence Layer** — `adapters/pse-adapter-il` — 10 new modules
@@ -40,8 +64,8 @@ note explicitly says so.
   - **Direction 4 — Constitutional AI substrate** (`constitutional.rs`):
     `ConstitutionalRule`, `Severity` (Blocking | Required | Advisory),
     `RulePredicate` (composable tree: All / Any / Not / MinQticClass /
-    MaxUncertainty / RequireAttribution / CoherenceGate /
-    NotHallucinationAttractor / MinStability), `ConstitutionalReport`
+    MinStability / MinKuramoto / MaxFreeEnergy / MinEvidenceEntries /
+    CoherenceGate / PathInvariant / RequiresAgentAttribution), `ConstitutionalReport`
     (SHA-256 content-addressed per crystal), `ConstitutionalAuditReport`,
     `ConstitutionalFeedback`, `Constitution`.
 

@@ -241,35 +241,63 @@ fn llm_text_config_produces_crystals() {
 
     fn fnv1a_u64(data: &[u8]) -> u64 {
         let mut h: u64 = 0xcbf29ce484222325;
-        for &b in data { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); }
+        for &b in data {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
         h
     }
 
     fn semantic_phase(raw: &[u8]) -> f64 {
         let text = std::str::from_utf8(raw).unwrap_or("");
-        let mut ss = 0.0_f64; let mut sc = 0.0_f64; let mut n = 0usize;
+        let mut ss = 0.0_f64;
+        let mut sc = 0.0_f64;
+        let mut n = 0usize;
         for w in text.split(|c: char| !c.is_alphabetic()) {
-            if w.len() < 3 { continue; }
+            if w.len() < 3 {
+                continue;
+            }
             let phi = (fnv1a_u64(w.to_lowercase().as_bytes()) as f64 / u64::MAX as f64) * TAU;
-            ss += phi.sin(); sc += phi.cos(); n += 1;
+            ss += phi.sin();
+            sc += phi.cos();
+            n += 1;
         }
-        if n == 0 { return (raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len().max(1) as f64 / 255.0) * TAU; }
+        if n == 0 {
+            return (raw.iter().map(|&b| b as f64).sum::<f64>() / raw.len().max(1) as f64 / 255.0)
+                * TAU;
+        }
         ss.atan2(sc).rem_euclid(TAU)
     }
 
-    struct TextPhaseAdapter { id: String }
+    struct TextPhaseAdapter {
+        id: String,
+    }
     impl ObservationAdapter for TextPhaseAdapter {
-        fn source_id(&self) -> &str { &self.id }
-        fn canonicalize(&self, raw: &[u8], ctx: &MeasurementContext) -> Result<Observation, ObserveError> {
+        fn source_id(&self) -> &str {
+            &self.id
+        }
+        fn canonicalize(
+            &self,
+            raw: &[u8],
+            ctx: &MeasurementContext,
+        ) -> Result<Observation, ObserveError> {
             let phase = semantic_phase(raw);
             let payload = raw.to_vec();
             let digest = content_address_raw(&payload);
             let chunk_source = format!("{}-{:016x}", self.id, fnv1a_u64(raw));
             Ok(Observation {
-                timestamp: 0.0, source_id: chunk_source,
-                provenance: ProvenanceEnvelope { origin: self.id.clone(), chain: vec![], sig: None },
-                payload, context: ctx.clone(), digest,
-                schema_version: "1.0.0".to_string(), phase_hint: Some(phase),
+                timestamp: 0.0,
+                source_id: chunk_source,
+                provenance: ProvenanceEnvelope {
+                    origin: self.id.clone(),
+                    chain: vec![],
+                    sig: None,
+                },
+                payload,
+                context: ctx.clone(),
+                digest,
+                schema_version: "1.0.0".to_string(),
+                phase_hint: Some(phase),
             })
         }
     }
@@ -292,7 +320,9 @@ fn llm_text_config_produces_crystals() {
     config.consensus.mirror_consistency_eta = 0.0;
     config.consensus.por_kappa_bar = 0.0;
 
-    let adapter = TextPhaseAdapter { id: "llm-test".to_string() };
+    let adapter = TextPhaseAdapter {
+        id: "llm-test".to_string(),
+    };
     let mut state = GlobalState::new(&config);
 
     // Synthetic "LLM response" — 20 sentences, each a separate ASCII chunk.

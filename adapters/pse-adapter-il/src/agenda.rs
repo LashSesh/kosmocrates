@@ -92,22 +92,24 @@ impl AgendaAction {
     /// Short verb label for the action.
     pub fn verb(&self) -> &'static str {
         match self {
-            Self::Refresh { .. }     => "REFRESH",
-            Self::Reinforce { .. }   => "REINFORCE",
+            Self::Refresh { .. } => "REFRESH",
+            Self::Reinforce { .. } => "REINFORCE",
             Self::Consolidate { .. } => "CONSOLIDATE",
-            Self::Guard { .. }       => "GUARD",
-            Self::Explore { .. }     => "EXPLORE",
+            Self::Guard { .. } => "GUARD",
+            Self::Explore { .. } => "EXPLORE",
         }
     }
 
     /// Crystal ID affected by this action (first, when relevant).
     pub fn primary_id(&self) -> Option<&str> {
         match self {
-            Self::Refresh { crystal_id, .. }   => Some(crystal_id),
+            Self::Refresh { crystal_id, .. } => Some(crystal_id),
             Self::Reinforce { crystal_id, .. } => Some(crystal_id),
-            Self::Consolidate { retain, .. }   => Some(retain),
-            Self::Guard { crystal_id, .. }     => Some(crystal_id),
-            Self::Explore { root_crystal_id, .. } => Some(root_crystal_id),
+            Self::Consolidate { retain, .. } => Some(retain),
+            Self::Guard { crystal_id, .. } => Some(crystal_id),
+            Self::Explore {
+                root_crystal_id, ..
+            } => Some(root_crystal_id),
         }
     }
 }
@@ -251,7 +253,11 @@ mod tests {
             "REFRESH"
         );
         assert_eq!(
-            AgendaAction::Reinforce { crystal_id: "a".into(), uncertainty: 0.7 }.verb(),
+            AgendaAction::Reinforce {
+                crystal_id: "a".into(),
+                uncertainty: 0.7
+            }
+            .verb(),
             "REINFORCE"
         );
         assert_eq!(

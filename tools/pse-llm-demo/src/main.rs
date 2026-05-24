@@ -76,10 +76,12 @@ fn load_questions() -> Vec<String> {
         match std::fs::read_to_string(&path) {
             Ok(json) => {
                 #[derive(serde::Deserialize)]
-                struct QFile { questions: Vec<String> }
+                struct QFile {
+                    questions: Vec<String>,
+                }
                 match serde_json::from_str::<QFile>(&json) {
                     Ok(qf) if !qf.questions.is_empty() => return qf.questions,
-                    Ok(_)  => eprintln!("  Warning: PSE_LLM_QUESTIONS_FILE has no questions"),
+                    Ok(_) => eprintln!("  Warning: PSE_LLM_QUESTIONS_FILE has no questions"),
                     Err(e) => eprintln!("  Warning: PSE_LLM_QUESTIONS_FILE parse error: {e}"),
                 }
             }
@@ -141,7 +143,8 @@ fn ingest_text(
     let diag = std::env::var("PSE_DIAG").is_ok();
 
     // Phase-sort: group same-topic sentences into the same windows.
-    let mut indexed: Vec<(f64, Vec<u8>)> = chunks.iter()
+    let mut indexed: Vec<(f64, Vec<u8>)> = chunks
+        .iter()
         .map(|c| (observe::chunk_phase(c), c.clone()))
         .collect();
     indexed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -151,9 +154,7 @@ fn ingest_text(
         let pct = emb_hits * 100 / emb_total.max(1);
         println!("  Embedding coverage: {emb_hits}/{emb_total} chunks ({pct}%) have ≥1 known word");
         if pct < 50 {
-            println!(
-                "    ⚠ Low coverage ({pct}%) — consider a domain-specific embedding file."
-            );
+            println!("    ⚠ Low coverage ({pct}%) — consider a domain-specific embedding file.");
         }
     }
 
@@ -181,8 +182,16 @@ fn ingest_text(
                 println!(
                     "  [diag tick {:>2}] kairos={} d={:.3} q={:.3} r={:.3} \
                      g={:.3} j={:.3} p={:.3} n={:.3} k={:.3} verts={}",
-                    tick, gate.kairos, gate.d, gate.q, gate.r,
-                    gate.g, gate.j, gate.p, gate.n, gate.k,
+                    tick,
+                    gate.kairos,
+                    gate.d,
+                    gate.q,
+                    gate.r,
+                    gate.g,
+                    gate.j,
+                    gate.p,
+                    gate.n,
+                    gate.k,
                     state.graph.active_vertices().len(),
                 );
             }
@@ -217,7 +226,11 @@ fn main() {
     println!(
         "  Session {}: {} ({} crystal{} in memory)",
         session,
-        if session == 1 { "COLD START" } else { "WARM START" },
+        if session == 1 {
+            "COLD START"
+        } else {
+            "WARM START"
+        },
         mem.crystals.len(),
         if mem.crystals.len() == 1 { "" } else { "s" },
     );
@@ -246,7 +259,11 @@ fn main() {
         println!(
             "  Re-processing {} prior LLM response{} through PSE…",
             mem.prior_responses.len(),
-            if mem.prior_responses.len() == 1 { "" } else { "s" },
+            if mem.prior_responses.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
         );
 
         let t_replay = Instant::now();
@@ -275,8 +292,8 @@ fn main() {
 
     // ── LLM query ────────────────────────────────────────────────────────────
     let questions = load_questions();
-    let keywords  = domain_keywords();
-    let question  = questions[(session - 1) % questions.len()].as_str();
+    let keywords = domain_keywords();
+    let question = questions[(session - 1) % questions.len()].as_str();
     println!(
         "────── LLM Query (Session {}) ──────────────────────────────────",
         session
@@ -382,8 +399,12 @@ fn main() {
         if !new_pairs.is_empty() {
             println!("  New crystals this session:");
             for (c, _) in &new_pairs {
-                let id: String =
-                    c.crystal_id.iter().take(8).map(|b| format!("{b:02x}")).collect();
+                let id: String = c
+                    .crystal_id
+                    .iter()
+                    .take(8)
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
                 println!(
                     "    #{id}…  stability={:.3}  region={} vertices",
                     c.stability_score,
@@ -408,7 +429,11 @@ fn main() {
                 mem.crystals.len(),
                 if mem.crystals.len() == 1 { "" } else { "s" },
                 mem.crystal_records.len(),
-                if mem.crystal_records.len() == 1 { "" } else { "s" },
+                if mem.crystal_records.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                },
                 store.path
             ),
             Err(e) => eprintln!("  Warning: could not save memory: {}", e),
@@ -475,8 +500,12 @@ fn main() {
     if !new_pairs.is_empty() {
         println!("  New crystals this session:");
         for (c, _) in &new_pairs {
-            let id: String =
-                c.crystal_id.iter().take(8).map(|b| format!("{b:02x}")).collect();
+            let id: String = c
+                .crystal_id
+                .iter()
+                .take(8)
+                .map(|b| format!("{b:02x}"))
+                .collect();
             println!(
                 "    #{id}…  stability={:.3}  region={} vertices",
                 c.stability_score,
@@ -520,7 +549,11 @@ fn main() {
             mem.crystals.len(),
             if mem.crystals.len() == 1 { "" } else { "s" },
             mem.crystal_records.len(),
-            if mem.crystal_records.len() == 1 { "" } else { "s" },
+            if mem.crystal_records.len() == 1 {
+                ""
+            } else {
+                "s"
+            },
             store.path
         ),
         Err(e) => eprintln!("  Warning: could not save memory: {}", e),

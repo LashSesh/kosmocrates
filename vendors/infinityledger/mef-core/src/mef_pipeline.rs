@@ -386,7 +386,11 @@ impl MEFCore {
             other => vec![other.to_string()],
         };
         let (_, psi_val) = self.spiral.step(&window_elements, 30);
-        let por_status = if !self.spiral.memory.is_empty() { "valid" } else { "invalid" };
+        let por_status = if !self.spiral.memory.is_empty() {
+            "valid"
+        } else {
+            "invalid"
+        };
 
         // Step 3: SolveCoagula fixpoint iteration on the 5D Triton vector
         let v0 = Array1::from_vec(normalized.vector.clone());
@@ -464,7 +468,7 @@ impl MEFCore {
 /// Build a normalized 8D vector from a 5D fixpoint + 3 spectral scalars.
 /// z' = [x0..x4, psi, rho, omega], ẑ = z' / ||z'||₂
 fn build_vector8(x5: &[f64], psi: f64, rho: f64, omega: f64) -> Vec<f64> {
-    let mut z: Vec<f64> = x5.iter().copied().collect();
+    let mut z: Vec<f64> = x5.to_vec();
     z.push(psi);
     z.push(rho);
     z.push(omega);

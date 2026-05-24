@@ -193,7 +193,10 @@ mod tests {
     fn uncertainty_is_one_for_unclassified_crystal() {
         // No QTIC → q_weight=0 → product=0 → u = 1 − 0 = 1
         let u = crystal_uncertainty(None, 1.0, 1.0);
-        assert!((u - 1.0).abs() < 1e-9, "unclassified crystal must have u=1, got {u}");
+        assert!(
+            (u - 1.0).abs() < 1e-9,
+            "unclassified crystal must have u=1, got {u}"
+        );
     }
 
     #[test]
@@ -215,7 +218,7 @@ mod tests {
     #[test]
     fn uncertainty_increases_as_coherence_decreases() {
         let u_high = crystal_uncertainty(Some(4), 0.8, 0.8);
-        let u_low  = crystal_uncertainty(Some(4), 0.8, 0.1);
+        let u_low = crystal_uncertainty(Some(4), 0.8, 0.1);
         assert!(u_low > u_high, "lower coherence → higher uncertainty");
     }
 
@@ -229,11 +232,19 @@ mod tests {
             (Some(3u8), 0.0, 1.0),
         ] {
             let u = crystal_uncertainty(q, s, k);
-            assert!((0.0..=1.0).contains(&u), "u must be in [0,1] for q={q:?} s={s} k={k}; got {u}");
+            assert!(
+                (0.0..=1.0).contains(&u),
+                "u must be in [0,1] for q={q:?} s={s} k={k}; got {u}"
+            );
         }
     }
 
-    fn make_metrics(qtic: Option<u8>, stability: f64, coherence: f64, idx: i64) -> CrystalHealthMetrics {
+    fn make_metrics(
+        qtic: Option<u8>,
+        stability: f64,
+        coherence: f64,
+        idx: i64,
+    ) -> CrystalHealthMetrics {
         let uncertainty = crystal_uncertainty(qtic, stability, coherence);
         let psi = coherence - (1.0 - stability.clamp(0.0, 1.0));
         CrystalHealthMetrics {
@@ -251,19 +262,28 @@ mod tests {
     #[test]
     fn healthy_crystal_passes_gate() {
         let m = make_metrics(Some(4), 0.80, 0.70, 0);
-        assert!(m.is_healthy(), "Q4, high stability/coherence must be healthy");
+        assert!(
+            m.is_healthy(),
+            "Q4, high stability/coherence must be healthy"
+        );
     }
 
     #[test]
     fn low_qtic_crystal_not_healthy() {
         let m = make_metrics(Some(2), 0.70, 0.60, 0);
-        assert!(!m.is_healthy(), "Q2 crystal must not be healthy (requires Q3+)");
+        assert!(
+            !m.is_healthy(),
+            "Q2 crystal must not be healthy (requires Q3+)"
+        );
     }
 
     #[test]
     fn at_risk_crystal_detected() {
         let m = make_metrics(None, 0.30, 0.10, 0);
-        assert!(m.is_at_risk(0.5), "unclassified, low-stability crystal must be at-risk");
+        assert!(
+            m.is_at_risk(0.5),
+            "unclassified, low-stability crystal must be at-risk"
+        );
     }
 
     #[test]
