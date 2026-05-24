@@ -16,7 +16,7 @@ toward closure**.
 At the core, PSE ingests observation streams from any model or application,
 tests them through fail-closed topological gates, and crystallizes only stable
 patterns into SHA-256 content-addressed records. With Infinity Ledger, HDAG,
-QTIC, Pfauenthron++ (thunderbolt retrieval), and the PSE+IL Intelligence Layer, those records
+QTIC, Pfauenthron++ retrieval with **Epistemic Thunderbolt Vector (ETV)**, and the PSE+IL Intelligence Layer, those records
 become an auditable, causally navigable, self-monitoring knowledge field for
 LLMs and agent systems.
 
