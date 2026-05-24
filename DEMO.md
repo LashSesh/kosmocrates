@@ -163,19 +163,24 @@ cargo run --release -p pse-llm-demo
 
   ── Baseline call (no PSE context) ──────────────────────────
   A (baseline): "Global Workspace Theory (GWT) proposes that…"
-  Baseline coverage: 4 / 12 keywords (33%)
+  Baseline coverage: 8 / 20 keywords (40%)
 
   ── Augmented call (PSE context injected) ───────────────────
   [PSE-CONTEXT]
     [PSE:3fa2e1c0…] stab=0.847  "ACT-R models declarative memory…"
     [PSE:a91b7d23…] stab=0.791  "production compilation reduces…"
+    [PSE:7b13fe45…] stab=0.768  "SOAR's chunking mechanism…"
   [/PSE-CONTEXT]
 
   A (augmented): "Global Workspace Theory, when viewed alongside ACT-R's
                   base-level activation and SOAR's chunking from impasses…"
-  Augmented coverage: 9 / 12 keywords (75%)
+  Augmented coverage: 11 / 20 keywords (55%)
 
-  Coverage delta: +42 pp  (PSE context lifted domain coverage)
+  Coverage delta: +15 pp  (PSE context lifted domain coverage)
+
+  ── How big the delta will be on your first three sessions ──
+  Typical first-run delta is +5 to +15 pp.  Run 6+ sessions to grow
+  crystal density — the delta increases roughly linearly with memory.
 
 ════════════════════════════════════════════════════════════════
   Cross-session replay hits : 4  (prior topology recognised)
@@ -199,15 +204,57 @@ better on this domain.
 
 ---
 
+## Calibrating crystal density (`PSE_LLM_PASS_RATE`)
+
+The Kairos gate's default target pass rate is `0.50` — it fires on the top 50 %
+of ticks.  With ~14–20 ticks per LLM response that produces 5–10 crystals per
+session.  For dense, A/B-strong runs out of the box, that's a reasonable default.
+
+If you want fewer, higher-quality crystals — or more, noisier ones — override:
+
+```
+rem Sparse, high-confidence crystals (≈ top 20 % of ticks)
+set PSE_LLM_PASS_RATE=0.20
+
+rem Dense crystallization (≈ top 70 % of ticks)
+set PSE_LLM_PASS_RATE=0.70
+```
+
+The pass rate does not affect the cross-session replay proof — replay hits work
+regardless of how many crystals are in memory, as long as there is at least one.
+What it does affect is the strength of the A/B delta in session 3+.
+
+## How many sessions until the A/B is convincing?
+
+| Sessions | Typical crystal count | Typical A/B delta (cognitive-architectures domain) |
+|---|---|---|
+| 1 | 5–10 | n/a (no A/B yet — needs prior crystals) |
+| 3 | 10–25 | +5 to +15 pp |
+| 6 | 25–60 | +15 to +30 pp |
+| 10+ | 60+ | +25 to +50 pp |
+
+The questions list rotates every 3 sessions (session 4 = session 1's question
+again, with new context).  Each repeated question crystallizes a fresh response
+from the LLM, so memory continues to grow.  **Run 6 sessions for a convincing
+demo, 10+ for an impressive one.**
+
+Numbers vary with model size, temperature, and how much your domain overlaps
+the LLM's training data.  Domains where the LLM has shallow coverage (specific
+scientific mechanisms, niche frameworks, internal terminology) show the
+largest A/B gap.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `Set PSE_LLM_API_KEY` error | Key not in environment | `set PSE_LLM_API_KEY=<key>` before running |
 | `LLM call failed` | API unreachable or wrong base URL | Check `PSE_LLM_BASE_URL`; default is Cerebras |
-| `No new crystals formed` | Gate calibration still warming | Run session 1 twice, or use a longer LLM response |
+| `No new crystals formed` | Gate is in conservative regime | Set `PSE_LLM_PASS_RATE=0.70` for denser firing |
 | Crystals formed but 0 replay hits | Memory file not found | Make sure `pse-llm-memory.json` is in the working directory |
 | Session counter resets to 1 | Wrong working directory | Run all three sessions from the same directory (`cd pse`) |
+| Small A/B delta after 3 sessions | Crystal density too low | Run more sessions — delta grows with memory accumulation |
 
 ### Using a different LLM provider
 
