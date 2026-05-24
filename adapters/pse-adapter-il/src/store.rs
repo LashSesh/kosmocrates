@@ -1349,6 +1349,278 @@ impl ILStore {
         }
     }
 
+    /// Synthesise a prioritised epistemic agenda from the store's current state.
+    ///
+    /// Internally calls [`memory_health`], [`lifecycle_report`], and
+    /// [`cluster_knowledge`], then combines their signals into a ranked action
+    /// list sorted by descending priority.
+    ///
+    /// See [`AgendaConfig`] for tuning parameters and [`AgendaAction`] for the
+    /// full action taxonomy.
+    ///
+    /// [`memory_health`]: ILStore::memory_health
+    /// [`lifecycle_report`]: ILStore::lifecycle_report
+    /// [`cluster_knowledge`]: ILStore::cluster_knowledge
+    /// [`AgendaConfig`]: crate::agenda::AgendaConfig
+    /// [`AgendaAction`]: crate::agenda::AgendaAction
+    pub fn epistemic_agenda(
+        &self,
+        config: &crate::agenda::AgendaConfig,
+    ) -> crate::agenda::EpistemicAgenda {
+        use crate::agenda::{AgendaAction, AgendaItem, EpistemicAgenda};
+        use crate::cluster::ClusterConfig;
+        use crate::health::crystal_uncertainty;
+        use crate::lifecycle::LifecycleStatus;
+
+        let reference_index = self.index.entries.len() as i64;
+
+        // ── Gather all signals ───────────────────────────────────────────
+        let health = self.memory_health();
+        let lifecycle = self.lifecycle_report(
+            config.decay_model,
+            config.sim_threshold,
+            reference_index,
+        );
+        let cluster_cfg = ClusterConfig {
+            sim_threshold: config.sim_threshold,
+            min_cluster_size: 2,
+        };
+        let clustering = self.cluster_knowledge(&cluster_cfg);
+
+        // Build a lookup: crystal_id_prefix → causal-root status
+        let causal_graph = self.build_causal_graph();
+        let roots: std::collections::HashSet<String> =
+            causal_graph.roots().into_iter().collect();
+
+        // Build a lookup: crystal_id_prefix → bridge_cluster_count
+        let bridge_lookup: std::collections::HashMap<String, usize> = clustering
+            .bridge_crystals
+            .iter()
+            .map(|b| (b.crystal_id.clone(), b.bridges.len()))
+            .collect();
+
+        // Build a lookup: crystal_id_prefix → original question
+        let question_lookup: std::collections::HashMap<String, String> = self
+            .index
+            .entries
+            .iter()
+            .map(|e| {
+                let pfx = e.crystal_id_hex[..e.crystal_id_hex.len().min(16)].to_string();
+                (pfx, e.question.clone())
+            })
+            .collect();
+
+        let mut items: Vec<AgendaItem> = Vec::new();
+
+        // ── 1. Guard: bridge crystals with high uncertainty ───────────────
+        for bridge in &clustering.bridge_crystals {
+            let u = self
+                .index
+                .entries
+                .iter()
+                .find(|e| e.crystal_id_hex.starts_with(&bridge.crystal_id))
+                .map(|e| crystal_uncertainty(e.qtic_class, e.stability_score, e.kuramoto))
+                .unwrap_or(1.0);
+            if u >= config.at_risk_threshold * 0.8 {
+                items.push(AgendaItem {
+                    priority: (0.90 * u).min(1.0),
+                    action: AgendaAction::Guard {
+                        crystal_id: bridge.crystal_id.clone(),
+                        bridges_clusters: bridge.bridges.len(),
+                        uncertainty: u,
+                    },
+                    rationale: format!(
+                        "Bridge crystal connecting {} cluster(s) has uncertainty {:.2} — \
+                         losing it would fragment the knowledge graph",
+                        bridge.bridges.len(),
+                        u
+                    ),
+                    expected_uncertainty_delta: u * 0.5,
+                });
+            }
+        }
+
+        // ── 2. Refresh: stale crystals (sorted by refresh_score desc) ────
+        let mut stale: Vec<&crate::lifecycle::CrystalLifecycle> = lifecycle
+            .crystals
+            .iter()
+            .filter(|c| c.status == LifecycleStatus::Stale)
+            .collect();
+        stale.sort_by(|a, b| {
+            b.refresh_score
+                .partial_cmp(&a.refresh_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for lc in stale {
+            let is_root = roots.contains(&lc.crystal_id);
+            let base_priority = if is_root { 0.85 } else { 0.65 };
+            let priority = (base_priority * lc.refresh_score).min(1.0);
+            // Guard items already cover bridge crystals — skip here
+            if bridge_lookup.contains_key(&lc.crystal_id) {
+                continue;
+            }
+            let question = question_lookup
+                .get(&lc.crystal_id)
+                .cloned()
+                .unwrap_or_default();
+            items.push(AgendaItem {
+                priority,
+                action: AgendaAction::Refresh {
+                    crystal_id: lc.crystal_id.clone(),
+                    original_question: question,
+                },
+                rationale: format!(
+                    "Crystal is stale (decay={:.2}, u={:.2}){}",
+                    lc.decay,
+                    lc.uncertainty,
+                    if is_root { " and is a causal root" } else { "" }
+                ),
+                expected_uncertainty_delta: lc.uncertainty * 0.6,
+            });
+        }
+
+        // ── 3. Consolidate: lifecycle consolidation candidates ────────────
+        for cand in &lifecycle.consolidation_candidates {
+            let priority = match cand.reason {
+                crate::lifecycle::ConsolidationReason::MetatronIsomorphic => 0.70,
+                crate::lifecycle::ConsolidationReason::SemanticOverlap => 0.60,
+            };
+            items.push(AgendaItem {
+                priority,
+                action: AgendaAction::Consolidate {
+                    retain: cand.retain.clone(),
+                    deprecate: cand.deprecate.clone(),
+                    reason: format!("{:?}", cand.reason).to_lowercase(),
+                },
+                rationale: format!(
+                    "Redundant knowledge: similarity={:.2} via {}",
+                    cand.vector_similarity,
+                    format!("{:?}", cand.reason).to_lowercase(),
+                ),
+                expected_uncertainty_delta: 0.01,
+            });
+        }
+
+        // ── 4. Reinforce: at-risk crystals not already covered ───────────
+        let at_risk = self.at_risk_crystals(config.at_risk_threshold);
+        let covered_ids: std::collections::HashSet<String> = items
+            .iter()
+            .filter_map(|i| i.action.primary_id().map(|s| s.to_string()))
+            .collect();
+
+        for m in &at_risk {
+            if covered_ids.contains(&m.crystal_id) {
+                continue;
+            }
+            items.push(AgendaItem {
+                priority: (m.uncertainty * 0.75).min(1.0),
+                action: AgendaAction::Reinforce {
+                    crystal_id: m.crystal_id.clone(),
+                    uncertainty: m.uncertainty,
+                },
+                rationale: format!(
+                    "Crystal uncertainty={:.2} exceeds threshold {:.2}",
+                    m.uncertainty, config.at_risk_threshold
+                ),
+                expected_uncertainty_delta: m.uncertainty * 0.4,
+            });
+        }
+
+        // ── 5. Explore: low-quality causal roots ─────────────────────────
+        for root_id in &roots {
+            let entry = self
+                .index
+                .entries
+                .iter()
+                .find(|e| e.crystal_id_hex[..e.crystal_id_hex.len().min(16)] == *root_id);
+            if let Some(e) = entry {
+                let u = crystal_uncertainty(e.qtic_class, e.stability_score, e.kuramoto);
+                if u >= 0.6 || e.stability_score < 0.5 {
+                    let question = e.question.clone();
+                    items.push(AgendaItem {
+                        priority: (u * 0.70).min(1.0),
+                        action: AgendaAction::Explore {
+                            root_crystal_id: root_id.clone(),
+                            topic_hint: question,
+                        },
+                        rationale: format!(
+                            "Foundational causal root has low quality (stability={:.2}, u={:.2})",
+                            e.stability_score, u
+                        ),
+                        expected_uncertainty_delta: u * 0.5,
+                    });
+                }
+            }
+        }
+
+        // ── 6. Explore: cluster singletons ───────────────────────────────
+        for singleton_id in &clustering.singletons {
+            // Only if not already covered
+            if items.iter().any(|i| i.action.primary_id() == Some(singleton_id.as_str())) {
+                continue;
+            }
+            let question = question_lookup.get(singleton_id).cloned().unwrap_or_default();
+            items.push(AgendaItem {
+                priority: 0.30,
+                action: AgendaAction::Explore {
+                    root_crystal_id: singleton_id.clone(),
+                    topic_hint: question,
+                },
+                rationale:
+                    "Isolated crystal with no semantic neighbours — possible knowledge gap"
+                        .to_string(),
+                expected_uncertainty_delta: 0.0,
+            });
+        }
+
+        // ── Sort by descending priority, cap at max_items ─────────────────
+        items.sort_by(|a, b| {
+            b.priority
+                .partial_cmp(&a.priority)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        items.truncate(config.max_items);
+
+        // ── Diagnosis ─────────────────────────────────────────────────────
+        let diagnosis = if health.total_crystals == 0 {
+            "empty store".to_string()
+        } else {
+            format!(
+                "{} crystals | Q4+={:.0}% | mean_u={:.2} | {} stale | {} at-risk | {} fixpoint: {}",
+                health.total_crystals,
+                health.fraction_q4_plus * 100.0,
+                health.mean_uncertainty,
+                lifecycle.stale_count,
+                health.at_risk_count,
+                if health.is_healthy() && lifecycle.is_lifecycle_closed() {
+                    "REACHED"
+                } else {
+                    "PENDING"
+                },
+                if health.is_healthy() && lifecycle.is_lifecycle_closed() {
+                    "store is healthy"
+                } else {
+                    "actions required"
+                },
+            )
+        };
+
+        // Estimate items needed to reach health fixpoint
+        let items_to_fixpoint = items
+            .iter()
+            .filter(|i| {
+                matches!(
+                    i.action,
+                    AgendaAction::Refresh { .. }
+                        | AgendaAction::Reinforce { .. }
+                        | AgendaAction::Guard { .. }
+                )
+            })
+            .count();
+
+        EpistemicAgenda { items, diagnosis, items_to_fixpoint }
+    }
+
     /// Knowledge topology analysis: clusters crystals into semantic islands.
     ///
     /// 1. Builds an undirected similarity graph (edge iff cosine similarity
@@ -2593,6 +2865,91 @@ mod tests {
         assert_eq!(report.violation_count, 1);
         assert!(report.violations_by_rule.contains_key("EU-ART9-STABILITY"));
         assert!(!report.audit_hash.is_empty());
+    }
+
+    #[test]
+    fn epistemic_agenda_empty_store() {
+        use crate::agenda::AgendaConfig;
+        let dir = tempfile::tempdir().unwrap();
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        let agenda = store.epistemic_agenda(&AgendaConfig::default());
+        assert!(agenda.is_fixpoint());
+        assert!(agenda.diagnosis.contains("empty"));
+        assert!(agenda.to_context_block(5).contains("fixpoint"));
+    }
+
+    #[test]
+    fn epistemic_agenda_suggests_reinforce_for_uncertain_crystal() {
+        use crate::agenda::{AgendaAction, AgendaConfig};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Low-quality crystal: no QTIC cert immediately (commit bare), low stability
+        // → uncertainty ≈ 1.0 → at-risk → Reinforce action
+        let mut c = dummy_crystal(0.20);
+        c.topology_signature.kuramoto_coherence = 0.10;
+        c.crystal_id[0] = 0xAD;
+        store.commit(&c, &[], 1, "low quality question").unwrap();
+
+        let cfg = AgendaConfig { at_risk_threshold: 0.5, ..Default::default() };
+        let agenda = store.epistemic_agenda(&cfg);
+
+        // Must not be fixpoint (uncertain crystal present)
+        assert!(!agenda.is_fixpoint());
+        let has_reinforce_or_refresh = agenda.items.iter().any(|item| {
+            matches!(item.action, AgendaAction::Reinforce { .. } | AgendaAction::Refresh { .. })
+        });
+        assert!(
+            has_reinforce_or_refresh,
+            "uncertain crystal must produce Reinforce or Refresh item"
+        );
+    }
+
+    #[test]
+    fn epistemic_agenda_sorted_by_descending_priority() {
+        use crate::agenda::AgendaConfig;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        // Two crystals of different quality
+        let mut c_good = dummy_crystal(0.85);
+        c_good.topology_signature.kuramoto_coherence = 0.75;
+        c_good.crystal_id[0] = 0xA1;
+        store.commit_with_feedback(&c_good, &[], 1, "good").unwrap();
+
+        let mut c_bad = dummy_crystal(0.15);
+        c_bad.topology_signature.kuramoto_coherence = 0.08;
+        c_bad.crystal_id[0] = 0xA2;
+        store.commit(&c_bad, &[], 2, "bad").unwrap();
+
+        let agenda = store.epistemic_agenda(&AgendaConfig::default());
+        for w in agenda.items.windows(2) {
+            assert!(
+                w[0].priority >= w[1].priority,
+                "items must be sorted by descending priority"
+            );
+        }
+    }
+
+    #[test]
+    fn epistemic_agenda_context_block_parseable() {
+        use crate::agenda::AgendaConfig;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let mut c = dummy_crystal(0.75);
+        c.topology_signature.kuramoto_coherence = 0.65;
+        c.crystal_id[0] = 0xA3;
+        store.commit_with_feedback(&c, &[], 1, "parseable test").unwrap();
+
+        let agenda = store.epistemic_agenda(&AgendaConfig::default());
+        let block = agenda.to_context_block(10);
+        assert!(block.starts_with("[AGENDA]"));
+        assert!(block.ends_with("[/AGENDA]"));
+        assert!(block.contains("diagnosis:"));
     }
 
     #[test]

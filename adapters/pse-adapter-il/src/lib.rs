@@ -26,6 +26,7 @@
 //! - `full`:        il-pipeline enabled
 
 pub mod adapter;
+pub mod agenda;
 pub mod agent;
 pub mod causal;
 pub mod cluster;
@@ -41,6 +42,7 @@ pub mod retrieval;
 pub mod store;
 
 pub use adapter::{text_to_vector8, CrystalAdapter, ILPayload};
+pub use agenda::{AgendaAction, AgendaConfig, AgendaItem, EpistemicAgenda};
 pub use agent::{AgentCausalGraph, AgentLink};
 pub use causal::{CausalCause, CausalGraph, CausalLink};
 pub use cluster::{BridgeCrystal, ClusterConfig, ClusteringReport, KnowledgeCluster};
