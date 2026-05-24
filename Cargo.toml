@@ -64,6 +64,7 @@ members = [
     "crates/pse-nxalien-cube",
     "crates/pse-nxalien-agent",
     "crates/pse-nxalien-pse",
+    "crates/pse-nxalien-evolve",
     "tools/nxalien-cli",
 ]
 

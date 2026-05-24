@@ -1565,6 +1565,7 @@ dependencies = [
  "pse-nxalien-agent",
  "pse-nxalien-core",
  "pse-nxalien-cube",
+ "pse-nxalien-evolve",
  "pse-nxalien-pse",
  "pse-nxalien-types",
  "serde",
@@ -2299,6 +2300,21 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pse-nxalien-evolve"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pse-constraint",
+ "pse-graph",
+ "pse-nxalien-core",
+ "pse-nxalien-pse",
+ "pse-nxalien-types",
+ "pse-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

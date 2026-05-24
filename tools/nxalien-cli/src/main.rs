@@ -18,6 +18,11 @@ use pse_nxalien_core::{
     scanner::ProjectScanner,
 };
 use pse_nxalien_cube::HypercubeHdag;
+use pse_nxalien_evolve::{
+    graph_state::GraphState,
+    signal::EpistemicSignal,
+    evolution::{propose_rule_evolution, apply_validated_proposals, EvolutionGuard},
+};
 use pse_nxalien_pse::{artifact_digest as nxa_artifact_digest, build_handoff_candidate};
 use pse_nxalien_types::{NxAlienBundle, NxAlienManifest, NxAlienPolicy, NxAlienRunDescriptor};
 use std::path::{Path, PathBuf};
@@ -223,6 +228,45 @@ fn cmd_compile(args: &[String]) -> Result<()> {
     println!("               : {}", context_path.display());
     println!("               : {}", replay_path.display());
     println!("               : {}", handoff_path.display());
+
+    // ── PSE feedback loop: attractor-constrained rule evolution ──────────────
+    let nxa_dir = root.join(".nxalien");
+    let mut graph_state = GraphState::load(&nxa_dir);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let live_graph = graph_state.ingest_and_update(&bundle, timestamp);
+    const ATTRACTOR_K: usize = 8;
+    let signal = EpistemicSignal::extract(&live_graph, &graph_state, ATTRACTOR_K);
+
+    println!("  PSE signal    : {:?} (dist={:.3}, trend={:.4})",
+        signal.stability, signal.distance_to_attractor, signal.free_energy_trend);
+
+    // Propose and apply validated rule evolutions.
+    let proposals = propose_rule_evolution(&signal, &bundle.rules, &policy);
+    if !proposals.is_empty() {
+        println!("  Evolution     : {} proposal(s) from signal", proposals.len());
+        let guard = EvolutionGuard::default();
+        let mut evolved_rules = bundle.rules.clone();
+        let new_unknowns = apply_validated_proposals(&mut evolved_rules, &proposals, &guard);
+        if !new_unknowns.is_empty() {
+            println!("  Unknowns+     : {} rejected proposal(s) surfaced as unknowns", new_unknowns.len());
+        }
+        // Write evolved rule set for the next compile cycle.
+        let evolved_path = root.join("nxalien.evolved-rules.json");
+        write_json(&evolved_path, &evolved_rules)?;
+        println!("               : nxalien.evolved-rules.json");
+    } else {
+        println!("  Evolution     : no proposals (signal {:?})", signal.stability);
+    }
+
+    // Persist signal and graph state.
+    let signal_path = root.join("nxalien.signal.json");
+    write_json(&signal_path, &signal)?;
+    println!("               : nxalien.signal.json");
+    graph_state.save(&nxa_dir)?;
+    println!("               : .nxalien/graph_state.json");
 
     // Context projections.
     let projector = ContextProjector::new(policy.max_context_chars);
