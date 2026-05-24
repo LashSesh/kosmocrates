@@ -59,6 +59,13 @@ members = [
     "tools/pse-eval-runner-cli",
     "tools/pse-llm-demo",
     "tools/pse-server",
+    "crates/pse-nxalien-types",
+    "crates/pse-nxalien-core",
+    "crates/pse-nxalien-cube",
+    "crates/pse-nxalien-agent",
+    "crates/pse-nxalien-pse",
+    "crates/pse-nxalien-evolve",
+    "tools/nxalien-cli",
 ]
 
 [workspace.package]

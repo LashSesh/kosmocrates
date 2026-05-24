@@ -1,0 +1,24 @@
+[package]
+name = "nxalien-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI tool for the nxalien agent-context exoskeleton"
+
+[[bin]]
+name = "nxalien"
+path = "src/main.rs"
+
+[dependencies]
+pse-nxalien-types = { path = "../../crates/pse-nxalien-types" }
+pse-nxalien-core = { path = "../../crates/pse-nxalien-core" }
+pse-nxalien-cube = { path = "../../crates/pse-nxalien-cube" }
+pse-nxalien-agent = { path = "../../crates/pse-nxalien-agent" }
+pse-nxalien-pse = { path = "../../crates/pse-nxalien-pse" }
+pse-nxalien-evolve = { path = "../../crates/pse-nxalien-evolve" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+sha2 = { workspace = true }
+anyhow = { workspace = true }

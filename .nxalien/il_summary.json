@@ -1,0 +1,44 @@
+{
+  "committed": 5,
+  "skipped": 0,
+  "mean_qtic_class": 3.8,
+  "mean_coherence_potential": 0.0,
+  "gate_passed_all": true,
+  "entries": [
+    {
+      "rule_id": "rust-fmt",
+      "qtic_class": 3,
+      "block_hash_prefix": "1f9a52349d58",
+      "coherence_potential": 0.0,
+      "gate_passed": true
+    },
+    {
+      "rule_id": "rust-clippy",
+      "qtic_class": 3,
+      "block_hash_prefix": "675909de390e",
+      "coherence_potential": 0.0,
+      "gate_passed": true
+    },
+    {
+      "rule_id": "rust-test",
+      "qtic_class": 5,
+      "block_hash_prefix": "f294690dc4c0",
+      "coherence_potential": 0.0,
+      "gate_passed": true
+    },
+    {
+      "rule_id": "no-direct-crystal",
+      "qtic_class": 5,
+      "block_hash_prefix": "0c533ca5bb97",
+      "coherence_potential": 0.0,
+      "gate_passed": true
+    },
+    {
+      "rule_id": "minimal-reversible",
+      "qtic_class": 3,
+      "block_hash_prefix": "ed40e68848bf",
+      "coherence_potential": 0.0,
+      "gate_passed": true
+    }
+  ]
+}

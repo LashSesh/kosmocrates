@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0",
+  "descriptor": {
+    "schema_version": "1.0",
+    "project_root_digest": "f73880821127784e4b597b1206dd8f89309490e527d0ec8b5d716fc2fa290c02",
+    "policy_digest": "bc3198241f9edb326c0d2ea764fd9273ed09853c5eab8e8a26d23bf4ea47a80f",
+    "seed": 0,
+    "started_at_utc": "2026-01-01T00:00:00Z"
+  },
+  "metadata": {
+    "name": "",
+    "language": "rust",
+    "package_manager": "cargo",
+    "license": "MIT",
+    "test_command": "cargo test --workspace --locked",
+    "build_command": "cargo build --workspace --locked",
+    "fmt_command": "cargo fmt --all",
+    "lint_command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+    "existing_context_files": []
+  },
+  "rules": [
+    {
+      "id": "rust-fmt",
+      "scope": {
+        "files": [
+          "**/*.rs"
+        ],
+        "modules": [],
+        "commands": []
+      },
+      "trigger": [
+        "format",
+        "style",
+        "fmt"
+      ],
+      "prescription": "Run `cargo fmt --all` before any commit. Code must be rustfmt-clean.",
+      "severity": "Required",
+      "evidence": [
+        {
+          "kind": "file",
+          "source": "Cargo.toml"
+        }
+      ],
+      "gate": null,
+      "decay": null,
+      "hash": "eafe2e19c9d9a0a2e4b1dd45c32824bea2661aff9651aeedcc9901a6b5e52dd4"
+    },
+    {
+      "id": "rust-clippy",
+      "scope": {
+        "files": [
+          "**/*.rs"
+        ],
+        "modules": [],
+        "commands": []
+      },
+      "trigger": [
+        "lint",
+        "clippy",
+        "warning"
+      ],
+      "prescription": "Run `cargo clippy --workspace --all-targets --locked -- -D warnings`. No warnings permitted.",
+      "severity": "Required",
+      "evidence": [
+        {
+          "kind": "file",
+          "source": "Cargo.toml"
+        }
+      ],
+      "gate": null,
+      "decay": null,
+      "hash": "958c6e9570c07ab7b807d07150e79b714cdf0d3f099f78b19d892eb4125781be"
+    },
+    {
+      "id": "rust-test",
+      "scope": {
+        "files": [],
+        "modules": [],
+        "commands": [
+          "cargo test"
+        ]
+      },
+      "trigger": [
+        "test",
+        "commit",
+        "ci"
+      ],
+      "prescription": "All workspace tests must pass before claiming completion. Run `cargo test --workspace --locked`.",
+      "severity": "Blocking",
+      "evidence": [
+        {
+          "kind": "file",
+          "source": "Cargo.toml"
+        }
+      ],
+      "gate": null,
+      "decay": null,
+      "hash": "4654bc79fd76b752d2b7ccb1640e6cc887c0b4a28c71cd9e1cef490893b52e91"
+    },
+    {
+      "id": "no-direct-crystal",
+      "scope": {
+        "files": [
+          "crates/pse-nxalien-*/**/*.rs"
+        ],
+        "modules": [],
+        "commands": []
+      },
+      "trigger": [
+        "crystal",
+        "SemanticCrystal",
+        "emit"
+      ],
+      "prescription": "nxalien crates MUST NOT directly construct SemanticCrystal. Emit NxAlienHandoffCandidate only. PSE-Bridge is the sole commit path.",
+      "severity": "Blocking",
+      "evidence": [
+        {
+          "kind": "user_directive",
+          "source": "nxalien specification §9"
+        }
+      ],
+      "gate": "bridge_supremacy",
+      "decay": null,
+      "hash": "888f486e517eac783a36321b8267902b0e54c808ada556984adba26adff43fc3"
+    },
+    {
+      "id": "minimal-reversible",
+      "scope": {
+        "files": [
+          "**/*.rs"
+        ],
+        "modules": [],
+        "commands": []
+      },
+      "trigger": [
+        "change",
+        "delete",
+        "refactor"
+      ],
+      "prescription": "Prefer minimal reversible changes. Do not delete without explicit instruction. Do not introduce abstractions beyond what the task requires.",
+      "severity": "Required",
+      "evidence": [
+        {
+          "kind": "user_directive",
+          "source": "PSE coding standard"
+        }
+      ],
+      "gate": null,
+      "decay": null,
+      "hash": "40ca373a9130d09859cefd34bbf4137e96281d2f6c1330fe8949fec3e55add80"
+    }
+  ],
+  "unknowns": [],
+  "cube_node_count": 17,
+  "cube_edge_count": 23,
+  "gate_report": {
+    "evidence_ok": true,
+    "scope_ok": true,
+    "replay_ok": true,
+    "canon_ok": true,
+    "delta_ok": true,
+    "budget_ok": true,
+    "governance_ok": true,
+    "bridge_ok": true,
+    "outcome": "Accept",
+    "notes": []
+  },
+  "manifest_hash": "2c05c69a82f87399b204530868b3979827faf6905d551924cab54f2075241943",
+  "replay_hash": "92d6515ce9879238d069ad296181f7a596de408c249f0b796bb2f031bc001913"
+}

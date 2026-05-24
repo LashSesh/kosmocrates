@@ -1,0 +1,15 @@
+[package]
+name = "pse-nxalien-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Context blocks and specialist activation for nxalien"
+
+[dependencies]
+pse-nxalien-types = { path = "../pse-nxalien-types" }
+pse-nxalien-core = { path = "../pse-nxalien-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }

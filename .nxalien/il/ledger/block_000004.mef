@@ -1,0 +1,47 @@
+{
+  "data": {
+    "fixpoint": [
+      0.0,
+      0.0,
+      0.49,
+      0.0,
+      0.44999999999999996
+    ],
+    "fixpoint_norm": 0.6652818951391958,
+    "invariants": {
+      "delta_pi": 0.0,
+      "gap": 0.0,
+      "retention": 0.49,
+      "variance": 0.55
+    },
+    "proof": {
+      "mci": 0.0,
+      "phi": 0.0,
+      "pi_gap": 0.0,
+      "por": "invalid"
+    },
+    "seed": "nxalien-v1",
+    "sigma_bar": {
+      "omega": 1.0,
+      "psi": 0.4542164326822591,
+      "rho": 0.725
+    },
+    "tic_id": "2ce50b83cedead06",
+    "window": [
+      "0",
+      "1"
+    ]
+  },
+  "hash": "ed40e68848bfe8bb6b484a95b327edc34535ea8f51aa29d1f8068b82375df416",
+  "index": 4,
+  "previous_hash": "0c533ca5bb97787f1ae1f05df7b119da24ffb78d1a67a777963e176be2c211f1",
+  "proof": {
+    "mci": 0.0,
+    "phi": 0.0,
+    "pi_gap": 0.0,
+    "por": "invalid"
+  },
+  "snapshot_hash": "01c8e3f18651385ed29b102c984df0008d29eb4191986185af5c0bcb8120c576",
+  "tic_id": "2ce50b83cedead06",
+  "timestamp": "2026-05-24T16:45:08Z"
+}

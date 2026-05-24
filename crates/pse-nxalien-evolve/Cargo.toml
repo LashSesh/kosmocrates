@@ -1,0 +1,22 @@
+[package]
+name = "pse-nxalien-evolve"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Attractor-constrained rule evolution: closes the PSE→nxalien feedback loop"
+
+[dependencies]
+pse-nxalien-types = { path = "../pse-nxalien-types" }
+pse-nxalien-core  = { path = "../pse-nxalien-core" }
+pse-nxalien-pse   = { path = "../pse-nxalien-pse" }
+pse-types         = { path = "../pse-types" }
+pse-graph         = { path = "../pse-graph" }
+pse-constraint    = { path = "../pse-constraint" }
+pse-adapter-il    = { path = "../../adapters/pse-adapter-il" }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+anyhow            = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,15 @@
+[package]
+name = "pse-nxalien-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Canonicalization, hashing, project scanner, and gate evaluation for nxalien"
+
+[dependencies]
+pse-nxalien-types = { path = "../pse-nxalien-types" }
+pse-types = { path = "../pse-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
