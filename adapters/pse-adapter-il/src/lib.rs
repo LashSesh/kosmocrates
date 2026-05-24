@@ -26,27 +26,42 @@
 //! - `full`:        il-pipeline enabled
 
 pub mod adapter;
+pub mod agenda;
 pub mod agent;
 pub mod causal;
+pub mod cluster;
 pub mod constitutional;
 pub mod context;
 pub mod feedback;
 pub mod hdag;
+pub mod health;
+pub mod lifecycle;
 pub mod prompt;
 pub mod qtic;
+pub mod retrieval;
 pub mod store;
 
 pub use adapter::{text_to_vector8, CrystalAdapter, ILPayload};
+pub use agenda::{AgendaAction, AgendaConfig, AgendaItem, EpistemicAgenda};
 pub use agent::{AgentCausalGraph, AgentLink};
 pub use causal::{CausalCause, CausalGraph, CausalLink};
+pub use cluster::{BridgeCrystal, ClusterConfig, ClusteringReport, KnowledgeCluster};
 pub use constitutional::{
     Constitution, ConstitutionalAuditReport, ConstitutionalFeedback, ConstitutionalRule,
     ConstitutionalReport, RulePredicate, RuleVerdict, Severity,
 };
 pub use context::{ContextBudget, CrystalSummary};
+pub use health::{crystal_uncertainty, CrystalHealthMetrics, MemoryHealthReport};
+pub use lifecycle::{
+    classify_lifecycle, ConsolidationCandidate, ConsolidationReason, CrystalLifecycle,
+    DecayModel, LifecycleReport, LifecycleStatus,
+};
 pub use prompt::{GroundedPrompt, PromptConfig};
 pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};
 pub use qtic::{classify as classify_qtic, mirror_consistency_index, QticCertificate, QticClass,
                QticInput, MCI_THRESHOLD};
+pub use retrieval::{
+    CausalRetrievalConfig, CausalRetrievalResult, CausalRole, CausallyGroundedEntry,
+};
 pub use store::{ILMatch, ILStore};

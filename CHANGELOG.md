@@ -15,6 +15,106 @@ note explicitly says so.
 
 ### Added
 
+* **PSE+IL Intelligence Layer** — `adapters/pse-adapter-il` — 10 new modules
+  implementing an active-cognition layer over the IL ledger. 191 unit tests total.
+  The layer turns the ledger from a passive record-keeper into an epistemic system
+  that monitors its own health, manages knowledge lifecycle, enforces constitutional
+  constraints, and generates a prioritised action plan toward the knowledge fixpoint.
+
+  - **Direction 1 — Context compression** (`context.rs`): `ContextBudget`
+    (max_tokens / top_k / min_qtic_class), `CrystalSummary` (compact 1-2 line
+    representation with Pfauenthron++ D score), `ILStore::context_for_query()` —
+    budget-filtered `[PSE-CONTEXT]...[/PSE-CONTEXT]` block for LLM system message
+    injection. `IndexEntry` gains `question`, `scale_tag`, `agent_id` fields
+    (backward-compatible via `#[serde(default)]`).
+
+  - **Direction 2 — Causal graph** (`causal.rs`): `CausalGraph`, `CausalLink`,
+    `CausalCause` (Refinement | Sequential | ResonanceProximity | MetatronIsomorphic |
+    UserAsserted), link strength ∈ [0, 1]. Persisted in `il_causal.json` alongside the
+    ledger index. `ILStore::causal_graph()` provides the full lineage DAG.
+
+  - **Direction 3 — Agent layer** (`agent.rs`): `AgentCausalGraph`, `AgentLink`
+    — multi-agent extension tracking crystal provenance per agent and cross-agent
+    causal relationships. Crystals committed with `agent_id` are automatically wired.
+
+  - **Direction 4 — Constitutional AI substrate** (`constitutional.rs`):
+    `ConstitutionalRule`, `Severity` (Blocking | Required | Advisory),
+    `RulePredicate` (composable tree: All / Any / Not / MinQticClass /
+    MaxUncertainty / RequireAttribution / CoherenceGate /
+    NotHallucinationAttractor / MinStability), `ConstitutionalReport`
+    (SHA-256 content-addressed per crystal), `ConstitutionalAuditReport`,
+    `ConstitutionalFeedback`, `Constitution`.
+
+    Two preset constitutions: `eu_ai_act_minimal()` (EU AI Act Articles 9/13/17)
+    and `pse_core_safety()` (4 rules including S4 hallucination attractor gate —
+    `NOT(stability > 0.8 AND kuramoto < 0.2)`).
+
+    `ILStore::commit_constitutional()` — blocking pre-commit check; crystals
+    violating a Blocking rule are rejected before writing. `is_constitutionally_closed()`
+    — knowledge-base-level Q5 fixpoint: all blocking rules pass for all crystals.
+    19 unit tests.
+
+  - **Direction 5 — Epistemic health monitoring** (`health.rs`):
+    `crystal_uncertainty(qtic_class, stability, coherence) -> f64`:
+    `u = 1 − (qtic_weight · stability · coherence)^(1/3)`.
+    `CrystalHealthMetrics`, `MemoryHealthReport` (total, mean QTIC class,
+    fraction_q4_plus, mean_stability, mean_coherence, mean_uncertainty,
+    healthy_count, at_risk_count, attributed_fraction, oldest/newest block).
+    `is_healthy()`: `fraction_q4_plus ≥ 0.80 AND mean_uncertainty ≤ 0.30`.
+    `ILStore::memory_health()`, `at_risk_crystals(threshold)`,
+    `crystal_health(id_prefix)`. 13 unit tests.
+
+  - **Direction 6 — Crystal lifecycle management** (`lifecycle.rs`):
+    `DecayModel` (Linear / Exponential / Step, each with `half_life`),
+    `LifecycleStatus` (Vital / Aging / Stale / Redundant),
+    `CrystalLifecycle` (age_blocks, decay, uncertainty, refresh_score, status),
+    `ConsolidationCandidate` (MetatronIsomorphic | SemanticOverlap, with
+    retain/deprecate decision), `LifecycleReport`.
+    `refresh_score = uncertainty × (1 − decay)` — urgency of re-asking a question.
+    `is_lifecycle_closed()`: no stale crystals and no consolidation candidates.
+    `ILStore::lifecycle_report(model, sim_threshold, reference_index)`. 18 unit tests.
+
+  - **LLM prompt grounding** (`prompt.rs`): `GroundedPrompt` and `PromptConfig`
+    — compose the full LLM system message from a `[PSE-CONTEXT]` block,
+    a `[AGENDA]` block, and the base system prompt, with configurable token budgets.
+
+  - **Causal retrieval** (`retrieval.rs`): `CausalRetrievalConfig` (seed_k,
+    max_depth, causal_blend α), `CausalRole` (Seed | Ancestor { depth } |
+    Descendant { depth }), `CausallyGroundedEntry` (summary + role + semantic_score
+    + causal_score + blended score), `CausalRetrievalResult`.
+    Score blending: `final = α · D_semantic + (1−α) · D_causal` where
+    `D_causal = seed_semantic · path_strength / (1 + hop_count)`.
+    `to_annotated_context_block()` → `[PSE-CONTEXT causal=true]` with
+    `[SEED]` / `[ANCESTOR depth=N]` / `[DESCENDANT depth=N]` annotations.
+    `ILStore::causal_retrieval(query, config)`. 11 unit tests.
+
+  - **Knowledge clustering** (`cluster.rs`): `ClusterConfig` (sim_threshold,
+    min_cluster_size), `KnowledgeCluster` (members, centroid, mean_stability,
+    mean_uncertainty, causal_density, mean_qtic_class), `BridgeCrystal`
+    (crystal_id, bridges: Vec<cluster_id>, cross_cluster_degree),
+    `ClusteringReport` (clusters, singletons, bridge_crystals, total_crystals,
+    clustered_fraction). Union-Find connected-component algorithm.
+    Causal density = direct causal edges / C(|members|, 2).
+    `is_unified()`: singletons empty AND clusters.len() ≤ 1.
+    `ILStore::cluster_knowledge(config)`. 13 unit tests.
+
+  - **Epistemic agenda** (`agenda.rs`): `AgendaAction` (Refresh / Reinforce /
+    Consolidate / Guard / Explore), `AgendaItem` (priority ∈ [0,1], action,
+    rationale, expected_uncertainty_delta), `EpistemicAgenda` (items sorted
+    by descending priority, diagnosis, items_to_fixpoint), `AgendaConfig`.
+    Priority model: blocking constitutional violation → 1.00; bridge at risk
+    → 0.90×u; stale causal root → 0.85×refresh; consolidation metatron → 0.70;
+    consolidation semantic → 0.60; at-risk non-root → 0.75×u; stale non-root
+    → 0.65×refresh; singleton → 0.30.
+    `to_context_block(top_k)` → `[AGENDA]...[/AGENDA]` for LLM system message.
+    `is_fixpoint()`: items list is empty. 13 unit tests.
+
+    **The four fixpoint conditions** — the IL store is at epistemic fixpoint when
+    `constitutional_audit().is_constitutionally_closed()` AND
+    `lifecycle_report().is_lifecycle_closed()` AND
+    `cluster_knowledge().is_unified()` AND
+    `epistemic_agenda().is_fixpoint()` all hold simultaneously.
+
 * **Infinity Ledger (IL) integration** — `adapters/pse-adapter-il` — full
   PSE+IL fusion layer.
 
