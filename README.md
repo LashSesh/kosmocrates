@@ -197,15 +197,60 @@ The IL store reaches epistemic fixpoint only when all four conditions hold:
 At fixpoint, the knowledge base has no currently known constitutional, lifecycle,
 topological, or agenda-level defect.
 
+## nxalien — agent-context exoskeleton
+
+nxalien is a PSE subsystem, not a standalone tool. It closes the feedback loop
+between a project's governance rules and the PSE knowledge field: rules are
+crystallized into the IL store, their epistemic health is monitored, and the
+attractor dynamics of the knowledge field govern how rules may evolve.
+
+```
+project files → nxalien scan → RuleAtoms → HypercubeHdag (C⁸ DAG)
+                                    ↓
+                        8-gate evaluation → NxAlienBundle
+                                    ↓
+              NxAlienObservationAdapter → PersistentGraph (PSE)
+                                    ↓
+              RuleAtom → SemanticCrystal → ILStore → QTIC certificate
+                                    ↓
+              EpistemicSignal (PSE attractor + IL health + free-energy trend)
+                                    ↓
+              EvolutionGuard → RuleEvolutionProposals → updated rules
+                                    ↓
+              IL agenda → UnknownSlots → [NXALIEN-CONTEXT] block
+```
+
+Key properties:
+
+- **Content-addressed governance**: every `RuleAtom` has the same SHA-256/JCS
+  substrate as `SemanticCrystal` IDs. Governance hashes and knowledge hashes
+  are in the same space.
+- **Phase-gradient HDAG**: Blocking rules with evidence sit at high coherence
+  potential ψ (attractor nodes); Advisory rules without evidence have negative ψ
+  (leaf nodes). The IL HDAG topology reflects governance quality geometrically.
+- **QTIC-certified rules**: `rust-test` (Blocking) → Q5 path-invariant;
+  `rust-fmt` (Required, no evidence) → Q3. The system tells you which rules are
+  structurally sound.
+- **Self-tightening**: rules escalate toward Blocking under a Drifting / Diverging
+  signal, constrained by the EvolutionGuard's attractor alignment threshold. No
+  unbounded drift.
+- **I-BRIDGE-001 invariant**: nxalien crates must not construct `SemanticCrystal`
+  directly. Enforced by a static source guard test.
+
+Run `nxalien compile` in any project root. On a Rust workspace it detects
+Cargo.toml, generates 5 default rules, builds the HDAG, runs the 8 gates,
+ingests into PSE+IL, extracts the EpistemicSignal, and writes all governance
+artifacts in one pass.
+
 ## Current status
 
 PSE is implemented as a Rust workspace with the core engine, traversal stack,
 Infinity Ledger adapter, HDAG, QTIC conformance engine, PSE+IL Intelligence Layer,
-server routes, validation tooling, and governance layers.
+nxalien governance exoskeleton, server routes, validation tooling, and governance layers.
 
 Current validation status:
 
-- Workspace test suite: **1315 / 1315 passing**
+- Workspace test suite: **1315 / 1315 passing** (PSE core) + **26 nxalien tests**
 - Replay invariance: **verified**
 - Safety improvement over B0 baseline on real LLM output: **verified**
 - Agent relevance ranking benchmark: **verified**

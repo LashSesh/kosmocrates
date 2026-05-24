@@ -4,6 +4,8 @@
 //!   init      Create .nxalien/ with default policy
 //!   inspect   Print detected project substrate
 //!   compile   Full pipeline → nxalien.manifest.json + context artifacts
+//!             --remote <url>    POST bundle to a PSE server (cross-repo attractor)
+//!             --remote-only     skip local IL/PSE state after remote POST
 //!   ground    Print [NXALIEN-CONTEXT] block to stdout
 //!   handoff   Print handoff candidates JSON
 //!   replay    Recompute hashes and compare to manifest
@@ -11,6 +13,7 @@
 //!   export    Generate CLAUDE.md / AGENTS.md / .rules
 
 use anyhow::{bail, Context, Result};
+use serde::Deserialize;
 use pse_nxalien_agent::ContextProjector;
 use pse_nxalien_core::{
     canon::{compute_replay_hash, sha256_jcs},
@@ -112,6 +115,15 @@ fn cmd_inspect(args: &[String]) -> Result<()> {
 fn cmd_compile(args: &[String]) -> Result<()> {
     let root = project_root(args);
     let policy = load_policy(&root);
+
+    // --remote <url>   POST bundle to a PSE server after local compilation
+    // --remote-only    skip writing local .nxalien/ state (IL + PSE graph)
+    let remote_url: Option<String> = args
+        .iter()
+        .skip_while(|a| a.as_str() != "--remote")
+        .nth(1)
+        .cloned();
+    let remote_only = args.iter().any(|a| a == "--remote-only");
 
     println!("nxalien v{VERSION}  — compile");
     println!("  Scanning project root: {}", root.display());
@@ -229,6 +241,21 @@ fn cmd_compile(args: &[String]) -> Result<()> {
     println!("               : {}", context_path.display());
     println!("               : {}", replay_path.display());
     println!("               : {}", handoff_path.display());
+
+    // ── Remote: POST bundle to PSE server (cross-repo attractor) ─────────────
+    if let Some(ref url) = remote_url {
+        push_bundle_remote(url, &bundle)?;
+        if remote_only {
+            println!("  --remote-only  : local IL/PSE state skipped");
+            let projector = ContextProjector::new(policy.max_context_chars);
+            std::fs::write(
+                root.join("nxalien.rules.md"),
+                projector.render_rules_file(&manifest),
+            )?;
+            println!("               : nxalien.rules.md");
+            return Ok(());
+        }
+    }
 
     // ── IL bridge: commit every RuleAtom as a SemanticCrystal ────────────────
     let nxa_dir = root.join(".nxalien");
@@ -444,6 +471,92 @@ fn cmd_export(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+// ─── Remote push ─────────────────────────────────────────────────────────────
+
+/// Minimal response shape for /nxalien/bundle.
+/// Only the fields we print; extra server fields are ignored.
+#[derive(Deserialize, Debug)]
+struct RemoteBundleResponse {
+    first_run: bool,
+    il_committed: usize,
+    proposal_count: usize,
+    new_unknowns: usize,
+    signal: RemoteSignal,
+}
+
+#[derive(Deserialize, Debug)]
+struct RemoteSignal {
+    stability: String,
+    distance_to_attractor: f64,
+    run_count: u64,
+    #[serde(default)]
+    il_health: Option<RemoteILHealth>,
+}
+
+#[derive(Deserialize, Debug)]
+struct RemoteILHealth {
+    total_crystals: usize,
+    mean_qtic_class: f64,
+    healthy: bool,
+}
+
+/// POST the compiled bundle to a remote PSE server.
+///
+/// Prints a compact summary of the server's response and returns Ok(()).
+/// Network or HTTP errors are surfaced as anyhow errors.
+fn push_bundle_remote(base_url: &str, bundle: &NxAlienBundle) -> Result<()> {
+    let url = format!("{}/nxalien/bundle", base_url.trim_end_matches('/'));
+    println!("  Remote PSE    : {url}");
+
+    let body = serde_json::json!({ "bundle": bundle });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .context("building HTTP client")?;
+
+    let resp = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .with_context(|| format!("POST {url}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().unwrap_or_default();
+        bail!("PSE server returned {status}: {text}");
+    }
+
+    let data: RemoteBundleResponse = resp
+        .json()
+        .with_context(|| format!("parsing response from {url}"))?;
+
+    println!(
+        "  Remote signal : {} (dist={:.3}  run={}{})",
+        data.signal.stability,
+        data.signal.distance_to_attractor,
+        data.signal.run_count,
+        if data.first_run { "  first-run" } else { "" },
+    );
+    println!(
+        "  Remote IL     : {}/{} rules committed  {} proposal(s)  {} new-unknown(s)",
+        data.il_committed,
+        data.il_committed + data.new_unknowns,
+        data.proposal_count,
+        data.new_unknowns,
+    );
+    if let Some(ref h) = data.signal.il_health {
+        println!(
+            "  Remote health : {} crystals  Q̄={:.2}  {}",
+            h.total_crystals,
+            h.mean_qtic_class,
+            if h.healthy { "healthy" } else { "⚠ degraded" },
+        );
+    }
+    Ok(())
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn print_usage() {
@@ -456,6 +569,8 @@ fn print_usage() {
     println!("  init      Create .nxalien/ with default policy");
     println!("  inspect   Print detected project substrate");
     println!("  compile   Full pipeline → nxalien.manifest.json + context files");
+    println!("            --remote <url>   POST bundle to PSE server (cross-repo attractor)");
+    println!("            --remote-only    skip local IL/PSE state after remote POST");
     println!("  ground    Print [NXALIEN-CONTEXT] block to stdout");
     println!("  handoff   Print handoff candidates JSON");
     println!("  replay    Verify replay hash chain");

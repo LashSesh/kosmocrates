@@ -1568,6 +1568,7 @@ dependencies = [
  "pse-nxalien-evolve",
  "pse-nxalien-pse",
  "pse-nxalien-types",
+ "reqwest",
  "serde",
  "serde_jcs",
  "serde_json",
@@ -2038,6 +2039,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-constitutional-interceptor"
+version = "0.1.0"
+dependencies = [
+ "pse-nxalien-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-constraint"
 version = "0.1.0"
 dependencies = [
@@ -2410,12 +2420,17 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "pse-adapter-il",
+ "pse-constitutional-interceptor",
  "pse-core",
  "pse-graph",
+ "pse-nxalien-evolve",
+ "pse-nxalien-types",
  "pse-types",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tower",
  "tower-http",
 ]
 

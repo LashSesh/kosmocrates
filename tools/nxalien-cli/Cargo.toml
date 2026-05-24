@@ -22,3 +22,4 @@ serde_json = { workspace = true }
 serde_jcs = { workspace = true }
 sha2 = { workspace = true }
 anyhow = { workspace = true }
+reqwest = { workspace = true }
