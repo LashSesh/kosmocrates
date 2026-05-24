@@ -1,73 +1,226 @@
 # PSE — Post-Symbolic Engine
 
-**PSE is a universal, model-agnostic cognitive substrate for LLMs.**
+**PSE is a deterministic epistemic substrate for AI systems.**
 
-It gives any language model — GPT, Claude, Gemini, Llama, or whatever comes next —
-what it structurally cannot have on its own: **persistent, verifiable, topology-aware
-memory that accumulates across sessions and model versions.**
+It turns stateless LLM interactions into persistent, verifiable, topology-aware
+knowledge structures: content-addressed crystals, ledgered evidence, causal
+retrieval paths, QTIC conformance certificates, and self-maintaining epistemic
+health signals.
 
-LLMs are stateless. Every API call is a fresh context window. PSE is the layer that
-turns a stateless oracle into a system with history, structure, and proof.
+PSE is not another vector memory, prompt wrapper, or RAG convenience layer.
+It is an execution substrate for deciding **what may become memory**, **why it
+was allowed to persist**, **how it can be replayed**, **where it sits in a causal
+knowledge graph**, and **what must be repaired before the knowledge base can move
+toward closure**.
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Your Application                  │
-├──────────────────────────┬──────────────────────────┤
-│        LLM Layer         │       PSE Layer           │
-│  (Claude / GPT / Llama)  │  (persistent, auditable)  │
-│                          │                           │
-│  generates text          │  ingests LLM output as    │
-│  reasons over context  ──┼──▶ observation stream     │
-│  answers questions       │  crystallizes stable      │
-│                        ◀─┼── patterns into memory    │
-│  next call gets relevant │  PatternMemory lookup:    │
-│  crystals as context     │  topology + canonical ID  │
-└──────────────────────────┴──────────────────────────┘
-```
+At the core, PSE ingests observation streams from any model or application,
+tests them through fail-closed topological gates, and crystallizes only stable
+patterns into SHA-256 content-addressed records. With Infinity Ledger, HDAG,
+QTIC, Pfauenthron++ retrieval, and the PSE+IL Intelligence Layer, those records
+become an auditable, causally navigable, self-monitoring knowledge field for
+LLMs and agent systems.
 
-PSE is **model-agnostic**: it sees byte streams. Swap the LLM without touching PSE.
-PSE is **cryptographically auditable**: every pattern it crystallizes carries a
-SHA-256 content address and a replay-identical execution proof.
-PSE is **fail-closed**: it emits nothing when the pattern is not stable enough.
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              Your Application                               │
+├────────────────────────────────┬─────────────────────────────────────────────┤
+│           LLM / Agent           │                PSE Substrate                │
+│ GPT / Claude / Gemini / Llama   │ deterministic, auditable, fail-closed       │
+│ local models / tool agents      │                                             │
+├────────────────────────────────┼─────────────────────────────────────────────┤
+│ generates text                  │ ingests observation streams                 │
+│ reasons over context       ────┼──▶ tests topology + gate stability           │
+│ calls tools                     │ crystallizes stable patterns                │
+│ receives grounded memory   ◀───┼── commits to Infinity Ledger                 │
+│ follows agenda signals          │ builds HDAG causal topology                 │
+│                                │ certifies QTIC Q0–Q5 conformance            │
+│                                │ retrieves via D = ψ · ρ · ω                 │
+│                                │ monitors health, lifecycle, clusters        │
+│                                │ emits an epistemic action agenda            │
+└────────────────────────────────┴─────────────────────────────────────────────┘
 
-> **What PSE is and is not**
->
-> PSE is a **topological pattern memory**.  It crystallizes structurally stable
-> observation sequences into content-addressed records and recognises them
-> deterministically when the same sequence is replayed.
->
-> **PSE alone** is not a semantic retrieval system — cross-session recall happens
-> when the *same* observation sequence is re-encountered, not when *similar*
-> content is encountered.
->
-> **PSE + Infinity Ledger** extends this with the **Pfauenthron++ unified
-> retrieval** (`D = ψ · ρ · ω`): a multiplicative tripolar score combining
-> semantic cosine similarity (ψ), PSE gate-certified structural stability (ρ),
-> and HDAG temporal coherence potential (ω).  This gives you provable topology
-> *and* semantic similarity — not either/or.
+## What PSE gives an AI system
 
-### The problem PSE solves
+PSE gives an LLM or agent what the model itself does not structurally possess:
 
-LLMs are impressive — but they are plausibility engines. They produce what is likely
-to be correct in context. Not what is verifiably true. This is not a design flaw; it
-is the structural nature of the technology.
+- **Persistent memory** across sessions, runs, and model versions.
+- **Content-addressed evidence** for what was processed and committed.
+- **Deterministic replay**: byte-identical inputs produce byte-identical outputs.
+- **Fail-closed crystallization**: unstable patterns emit no persistent memory.
+- **Topology-aware knowledge** instead of flat chunks or unverified embeddings.
+- **Causal retrieval** over ancestors, descendants, refinements, and related crystals.
+- **QTIC conformance certificates** classifying committed knowledge from Q0 to Q5.
+- **Constitutional pre-commit checks** for blocking, required, and advisory rules.
+- **Epistemic health monitoring** for uncertainty, risk, attribution, and stability.
+- **Lifecycle management** for stale, redundant, aging, and vital crystals.
+- **Knowledge clustering** with bridge-crystal detection.
+- **Epistemic agenda generation**: concrete actions to refresh, reinforce,
+  consolidate, guard, or explore knowledge toward fixpoint closure.
 
-PSE does not make LLMs smarter. It makes them *accountable*. The eight-metric Kairos
-gate acts as an epistemic filter: a pattern is only crystallized when it satisfies
-eight independent structural conditions simultaneously. Most patterns fail. That is the
-point. What passes is certified — not by confidence, but by topology.
+PSE does not make an LLM omniscient, sentient, or automatically correct.
+It makes the surrounding cognitive process **auditable, replayable, structurally
+filtered, and self-maintaining**.
 
-The difference:
-- Without PSE: *"This looks right."*
-- With PSE: *"This pattern passed eight independent structural gates, carries a
-  SHA-256 content address, can be replayed bit-identically, and has a falsification
-  p-value attached. Here is the proof."*
+## What PSE is and is not
 
-This is what the original vision of artificial intelligence always implied — not
-statistical plausibility, but verifiable structure. PSE is the infrastructure layer
-that closes that gap.
+PSE alone is a **topological pattern-memory engine**. It crystallizes structurally
+stable observation sequences into content-addressed records and recognizes them
+deterministically when the same sequence is replayed.
 
-For *what post-symbolic computation means as a category*, see
+PSE alone is **not** fuzzy semantic memory. Exact replay and structural stability
+are its base guarantees.
+
+**PSE + Infinity Ledger** extends the core with semantic and causal retrieval:
+
+D = ψ · ρ · ω
+
+
+where:
+
+| Axis | Symbol | Meaning |
+|---|---:|---|
+| Semantic similarity | ψ | cosine similarity over IL semantic vectors |
+| Structural stability | ρ | PSE gate-certified crystal stability |
+| Temporal / HDAG coherence | ω | normalized HDAG coherence potential |
+
+This means retrieval is not ranked by similarity alone. A candidate must be
+semantically relevant, structurally stable, and temporally/topologically coherent.
+If one axis collapses, the whole score collapses.
+
+## Why PSE exists
+
+LLMs are powerful plausibility engines. They can generate useful answers, but they
+do not natively provide persistent proof of what was processed, why something was
+stored, whether a memory is stale, which prior state caused a later state, or what
+must be repaired before the system can safely continue.
+
+PSE addresses that missing substrate.
+
+The difference is:
+
+| Without PSE | With PSE |
+|---|---|
+| “This looks right.” | “This passed structural gates and can be replayed.” |
+| Context window only | Persistent content-addressed memory |
+| Similarity-only retrieval | Semantic × structural × temporal retrieval |
+| Flat memory chunks | Crystals in causal HDAG topology |
+| No commit proof | SHA-256 IDs, evidence chains, replay packs |
+| No memory health | uncertainty, lifecycle, clustering, agenda |
+| No closure condition | explicit epistemic fixpoint criteria |
+
+## Core architecture
+
+PSE is organized into three tiers.
+
+### Tier 1 — Core Engine
+
+The observation-to-crystal pipeline. It feeds observation streams into a
+5D-embedded topological graph, evaluates resonance and Kairos gate stability,
+runs consensus and falsification checks, and emits a content-addressed crystal
+only when the pattern is stable enough to persist.
+
+Core properties:
+
+- model-agnostic byte-stream ingestion
+- SHA-256 / JCS content addressing
+- fail-closed gate semantics
+- deterministic replay
+- evidence chains and commit proofs
+- pattern-memory lookup
+- operator algebra: `compose`, `dual`, `bridge`, `query`, `interpolate`
+
+### Tier 2 — Cognitive / Traversal Stack
+
+The deterministic agent-facing layer above the core engine. It contains formal
+modules for traversal, signature search, dynamics, horizon geometry, cognition,
+Phase Matrix, Dual-Fabric Stitch, TPT-MTL topology, NCTCS closure, and Metatron
+holistic eigenmode closure.
+
+Every layer is fail-closed. Candidate structures may be formed, inspected, traced,
+and replayed, but the PSE-Bridge remains the only valid path to a committed
+`SemanticCrystal`.
+
+### Tier 3 — Governance
+
+The governance layer defines the architectural contract for safe materialization:
+
+- **ADAMANT protocol** as the constitutional governance contract.
+- **Artifact Supremacy**: machine-readable artifacts override prose summaries.
+- **Dissolution-Grundsatz**: compaction may remove working state, never trace,
+  evidence, or gate history.
+- **Replay identity** as a non-negotiable invariant.
+- **Eval Matrix** as structured conformance and validation instrument.
+- **Domain Validation Layer** for empirical benchmark-backed conclusions.
+
+## Infinity Ledger, HDAG, and QTIC
+
+When Infinity Ledger is active, gate-passing `SemanticCrystal` records are
+committed into a private append-only ledger. Each ledger block carries semantic
+vectors, topology signatures, stability scores, Metatron hashes, and QTIC
+classification metadata.
+
+HDAG builds a 5D resonance graph over those ledgered crystals. Edges encode
+sequential commits, resonance proximity, refinement, and Metatron-isomorphic
+structure. Path invariance checks ensure that equivalent causal routes condense
+to equivalent canonical structure.
+
+QTIC — Quasi-Temporal Information Crystal — provides the conformance model.
+Every committed crystal receives a `QticCertificate` classifying it from Q0 to Q5.
+A Q5 crystal is a gate-passed, auditable, replayable, path-invariant information
+attractor between extrinsic ledger time and intrinsic phase coherence.
+
+## PSE+IL Intelligence Layer
+
+The Intelligence Layer turns Infinity Ledger from a passive record store into an
+active epistemic system. It includes ten modules:
+
+1. **Context compression** — budget-aware `[PSE-CONTEXT]` generation.
+2. **Causal graph** — content-addressed lineage DAG over crystals.
+3. **Agent layer** — per-agent provenance and cross-agent causal links.
+4. **Constitutional AI substrate** — blocking pre-commit rule checks.
+5. **Epistemic health monitoring** — uncertainty and risk metrics.
+6. **Crystal lifecycle management** — decay, staleness, redundancy, refresh need.
+7. **Prompt grounding** — system prompt assembly from context and agenda.
+8. **Causal retrieval** — semantic seeds expanded through causal ancestors and descendants.
+9. **Knowledge clustering** — semantic islands, bridge crystals, unification checks.
+10. **Epistemic agenda** — prioritized actions toward knowledge fixpoint.
+
+The IL store reaches epistemic fixpoint only when all four conditions hold:
+
+| Condition | Meaning |
+|---|---|
+| Constitutional closure | all blocking rules pass |
+| Lifecycle closure | no stale or redundant crystals remain |
+| Topological unification | knowledge forms one coherent island |
+| Agenda empty | no remaining action is needed |
+
+At fixpoint, the knowledge base has no currently known constitutional, lifecycle,
+topological, or agenda-level defect.
+
+## Current status
+
+PSE is implemented as a Rust workspace with the core engine, traversal stack,
+Infinity Ledger adapter, HDAG, QTIC conformance engine, PSE+IL Intelligence Layer,
+server routes, validation tooling, and governance layers.
+
+Current validation status:
+
+- Workspace test suite: **1315 / 1315 passing**
+- Replay invariance: **verified**
+- Safety improvement over B0 baseline on real LLM output: **verified**
+- Agent relevance ranking benchmark: **verified**
+- Productive cross-session memory demo with live Cerebras output: **verified**
+- Domain validation layer: **shipped**
+- NCTCS closure layer: **shipped**
+- Metatron holistic eigenmode closure: **shipped**
+- Phase Matrix and Dual-Fabric Stitch: **shipped**
+- TPT-MTL topology layer: **shipped**
+
+PSE remains pre-1.0. The public Rust API may still evolve, but replay,
+content-addressing, and report-byte contracts are treated as core invariants unless
+a release note explicitly declares a breaking change.
+
+For what post-symbolic computation means as a category, see
 **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)**.
 
 ---
