@@ -25,8 +25,14 @@
 //!                                   commits rules to IL, updates cross-repo
 //!                                   attractor, returns EpistemicSignal
 //!   GET  /nxalien/signal          — current cross-repo EpistemicSignal
-//!   POST /nxalien/validate        — constitutional pre-check of a bundle's rules
+//!   POST /nxalien/validate        — dry-run constitutional check (no state change)
 //!   GET  /nxalien/rules/current   — evolved rule set after last signal
+//!
+//!   POST /constitutional/check    — evaluate an agent action against the live
+//!                                   constitutional rule set; returns
+//!                                   Allow / Block / Warn decision.
+//!                                   Strict mode auto-activates when signal is
+//!                                   Drifting or Diverging.
 //!
 //! **Configuration (env vars):**
 //!
@@ -49,6 +55,7 @@
 //!   curl http://localhost:8765/nxalien/signal | jq .
 //! ```
 
+mod constitutional;
 mod pse;
 
 use std::{
@@ -64,12 +71,14 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use constitutional::{constitutional_check, ConstitutionalHandle, ConstitutionalLayer};
 use pse_adapter_il::{adapter::text_to_vector8, store::ILStore};
+use pse_constitutional_interceptor::ConstitutionalEvaluator;
 use pse_nxalien_evolve::{
     commit_rules_to_il,
     evolution::{propose_rule_evolution, apply_validated_proposals, EvolutionGuard},
     graph_state::GraphState,
-    signal::EpistemicSignal,
+    signal::{EpistemicSignal, SignalStability},
 };
 use pse_nxalien_types::{NxAlienBundle, NxAlienPolicy, RuleAtom};
 use serde::{Deserialize, Serialize};
@@ -85,6 +94,9 @@ struct AppState {
     nxalien_state: Arc<Mutex<Option<GraphState>>>,
     /// Base path for nxalien persistent state (graph_state.json, il/).
     nxalien_path: Option<PathBuf>,
+    /// Live constitutional evaluator — updated on every /nxalien/bundle POST.
+    /// Strict mode is auto-set when EpistemicSignal is Drifting/Diverging.
+    constitutional: ConstitutionalHandle,
 }
 
 // ── Request / Response types ──────────────────────────────────────────────────
@@ -660,6 +672,18 @@ async fn nxalien_bundle(
         let _ = std::fs::write(&rules_path, j);
     }
 
+    // Refresh constitutional evaluator with the post-evolution rule set.
+    // Strict mode is activated when the signal is Drifting or Diverging —
+    // governance tightens as the epistemic health of the system degrades.
+    let strict = matches!(
+        signal.stability,
+        SignalStability::Drifting | SignalStability::Diverging
+    );
+    {
+        let mut ev = state.constitutional.lock().unwrap_or_else(|p| p.into_inner());
+        *ev = ConstitutionalEvaluator::new(evolved.clone()).with_strict_mode(strict);
+    }
+
     Json(NxAlienBundleResponse {
         first_run,
         signal,
@@ -832,11 +856,32 @@ async fn main() {
     });
     let nxa_active = nxalien_path.is_some();
 
+    // Constitutional evaluator: pre-load rules from current_rules.json if present.
+    let initial_rules: Vec<RuleAtom> = nxalien_path
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p.join("current_rules.json")).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    if !initial_rules.is_empty() {
+        println!("  interceptor: {} rule(s) pre-loaded from current_rules.json", initial_rules.len());
+    }
+    let constitutional_handle: ConstitutionalHandle =
+        Arc::new(Mutex::new(ConstitutionalEvaluator::new(initial_rules)));
+
     let state = AppState {
         il: Arc::new(Mutex::new(il_store)),
         nxalien_state: Arc::new(Mutex::new(nxalien_graph_state)),
         nxalien_path: nxalien_path.clone(),
+        constitutional: constitutional_handle,
     };
+
+    // Constitutional check route uses its own State extractor (ConstitutionalHandle).
+    let constitutional_router = Router::new()
+        .route(
+            "/constitutional/check",
+            post(constitutional_check::<()>),
+        )
+        .with_state(state.constitutional.clone());
 
     let app = Router::new()
         .route("/health", get(health))
@@ -851,6 +896,8 @@ async fn main() {
         .route("/nxalien/signal", get(nxalien_signal))
         .route("/nxalien/validate", post(nxalien_validate))
         .route("/nxalien/rules/current", get(nxalien_rules_current))
+        .merge(constitutional_router)
+        .layer(ConstitutionalLayer::new(state.constitutional.clone()))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -881,6 +928,7 @@ async fn main() {
     println!("  GET  /nxalien/signal      — current EpistemicSignal");
     println!("  POST /nxalien/validate    — dry-run constitutional check");
     println!("  GET  /nxalien/rules/current — evolved rule set");
+    println!("  POST /constitutional/check  — evaluate action against live rules");
     println!();
     println!("  curl http://{addr}/health");
     println!();

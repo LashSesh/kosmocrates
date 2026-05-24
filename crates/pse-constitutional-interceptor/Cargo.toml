@@ -1,0 +1,12 @@
+[package]
+name         = "pse-constitutional-interceptor"
+version.workspace   = true
+edition.workspace   = true
+authors.workspace   = true
+license.workspace   = true
+description  = "Constitutional enforcement layer — evaluates agent actions against nxalien rules before they touch application state"
+
+[dependencies]
+pse-nxalien-types = { path = "../pse-nxalien-types" }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
