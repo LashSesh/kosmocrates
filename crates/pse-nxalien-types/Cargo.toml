@@ -7,9 +7,8 @@ license.workspace = true
 description = "Canonical types and schemas for the nxalien agent-context exoskeleton"
 
 [dependencies]
+pse-types = { path = "../pse-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_jcs = { workspace = true }
-sha2 = { workspace = true }
 ordered-float = { workspace = true }
 thiserror = { workspace = true }

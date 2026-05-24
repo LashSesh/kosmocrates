@@ -18,7 +18,7 @@ use pse_nxalien_core::{
     scanner::ProjectScanner,
 };
 use pse_nxalien_cube::HypercubeHdag;
-use pse_nxalien_pse::NxAlienObservationAdapter;
+use pse_nxalien_pse::{artifact_digest as nxa_artifact_digest, build_handoff_candidate};
 use pse_nxalien_types::{NxAlienBundle, NxAlienManifest, NxAlienPolicy, NxAlienRunDescriptor};
 use std::path::{Path, PathBuf};
 
@@ -214,7 +214,7 @@ fn cmd_compile(args: &[String]) -> Result<()> {
         unknowns,
         metadata: meta,
     };
-    let candidate = NxAlienObservationAdapter::build_handoff_candidate(&bundle);
+    let candidate = build_handoff_candidate(&bundle);
     let handoff_path = root.join("nxalien.handoff.json");
     write_json(&handoff_path, &candidate)?;
 
@@ -421,7 +421,7 @@ fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
 }
 
 fn file_digest(path: &Path) -> Option<pse_nxalien_types::ArtifactDigest> {
-    NxAlienObservationAdapter::artifact_digest(path.to_str()?)
+    nxa_artifact_digest(path.to_str()?)
 }
 
 fn utc_now() -> String {

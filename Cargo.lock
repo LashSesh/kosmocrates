@@ -2281,10 +2281,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "pse-nxalien-types",
+ "pse-types",
  "serde",
- "serde_jcs",
  "serde_json",
- "sha2 0.11.0",
  "thiserror 2.0.18",
 ]
 
@@ -2296,6 +2295,7 @@ dependencies = [
  "petgraph",
  "pse-nxalien-core",
  "pse-nxalien-types",
+ "pse-types",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2306,10 +2306,11 @@ name = "pse-nxalien-pse"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "pse-graph",
  "pse-nxalien-core",
  "pse-nxalien-types",
+ "pse-types",
  "serde",
- "serde_jcs",
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.18",
@@ -2320,10 +2321,9 @@ name = "pse-nxalien-types"
 version = "0.1.0"
 dependencies = [
  "ordered-float",
+ "pse-types",
  "serde",
- "serde_jcs",
  "serde_json",
- "sha2 0.11.0",
  "thiserror 2.0.18",
 ]
 

@@ -8,9 +8,8 @@ description = "Canonicalization, hashing, project scanner, and gate evaluation f
 
 [dependencies]
 pse-nxalien-types = { path = "../pse-nxalien-types" }
+pse-types = { path = "../pse-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_jcs = { workspace = true }
-sha2 = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }

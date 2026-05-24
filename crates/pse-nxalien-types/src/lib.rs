@@ -1,8 +1,13 @@
 //! Canonical types and schemas for the nxalien agent-context exoskeleton.
 
+use pse_types::content_address;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use std::collections::BTreeMap;
+
+/// Encode a PSE Hash256 as lowercase hex.
+pub fn hash256_hex(h: &pse_types::Hash256) -> String {
+    h.iter().map(|b| format!("{b:02x}")).collect()
+}
 
 // ─── Enumerations ─────────────────────────────────────────────────────────────
 
@@ -367,9 +372,7 @@ impl RuleAtom {
             gate: self.gate.as_deref(),
             decay: self.decay.as_deref(),
         };
-        let canonical = serde_jcs::to_vec(&hashable).expect("JCS serialization must not fail");
-        let digest = sha2::Sha256::digest(&canonical);
-        digest.iter().map(|b| format!("{b:02x}")).collect()
+        hash256_hex(&content_address(&hashable))
     }
 
     /// Return a clone with the `hash` field populated.

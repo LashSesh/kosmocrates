@@ -9,6 +9,7 @@ description = "Hypercube-HDAG embedding and compiler for nxalien"
 [dependencies]
 pse-nxalien-types = { path = "../pse-nxalien-types" }
 pse-nxalien-core = { path = "../pse-nxalien-core" }
+pse-types = { path = "../pse-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 petgraph = { workspace = true }

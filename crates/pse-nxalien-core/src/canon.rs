@@ -1,23 +1,24 @@
-//! JCS-based canonical hashing for nxalien types.
+//! Canonical hashing for nxalien — delegates to pse_types primitives.
+//!
+//! All SHA-256 and JCS operations go through pse_types::content_address /
+//! pse_types::canonical_bytes so that nxalien is on the same hash substrate
+//! as the rest of the PSE stack.
 
-use pse_nxalien_types::NxAlienRunDescriptor;
+use pse_nxalien_types::{hash256_hex, NxAlienRunDescriptor};
+use pse_types::{content_address, content_address_raw};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
-/// Encode bytes as lowercase hex string.
-pub fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Compute SHA-256 of a JCS-serialized value and return as lowercase hex.
+/// Compute SHA-256(JCS(value)) and return as lowercase hex.
+///
+/// Thin wrapper over `pse_types::content_address` for callers that need a
+/// display string rather than a raw Hash256.
 pub fn sha256_jcs<T: Serialize>(value: &T) -> String {
-    let canonical = serde_jcs::to_vec(value).expect("JCS serialization must not fail");
-    bytes_to_hex(&Sha256::digest(&canonical))
+    hash256_hex(&content_address(value))
 }
 
 /// Compute SHA-256 of raw bytes and return as lowercase hex.
 pub fn sha256_bytes(bytes: &[u8]) -> String {
-    bytes_to_hex(&Sha256::digest(bytes))
+    hash256_hex(&content_address_raw(bytes))
 }
 
 // ─── Replay hash chain ───────────────────────────────────────────────────────
@@ -30,7 +31,10 @@ struct ReplayChain<'a> {
     seed: u64,
 }
 
-/// Compute the replay chain hash from manifest + context + descriptor.
+/// Compute the replay chain hash from manifest_hash + context_hash + descriptor.
+///
+/// Uses pse_types::content_address so the chain is on the same substrate as
+/// PSE crystal IDs.
 pub fn compute_replay_hash(
     manifest_hash: &str,
     context_hash: &str,
