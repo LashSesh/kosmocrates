@@ -242,15 +242,47 @@ Cargo.toml, generates 5 default rules, builds the HDAG, runs the 8 gates,
 ingests into PSE+IL, extracts the EpistemicSignal, and writes all governance
 artifacts in one pass.
 
+### nxalien expansion paths
+
+**Pfad B — Constitutional Interceptor** (`pse-constitutional-interceptor`): every
+`RuleAtom` compiled by nxalien also loads into the PSE server's `ConstitutionalEvaluator`.
+Requests to the server carrying `x-nxalien-verb` / `x-nxalien-target` headers are
+evaluated before any handler executes. `POST /constitutional/check` exposes the same
+evaluator for explicit action checks. Strict mode (Drifting/Diverging signal) escalates
+Required rules from Warn to Block automatically — no manual override needed.
+
+**Pfad C — Multi-Repo Attractor**: `nxalien compile --remote <url>` POSTs the compiled
+`NxAlienBundle` to a shared PSE server (`POST /nxalien/bundle`) and prints the remote
+`EpistemicSignal`, IL health, and QTIC statistics from the server's JSON response.
+`--remote-only` skips local IL commit, making the shared server the sole attractor for
+cross-repo governance. Any repository needs only HTTP access to participate.
+
+**Pfad D — Exploratory Ledger** (`pse-exploratory`): rules with ψ < 0 (negative HDAG
+coherence potential — low evidence, low quality) are parked as `Pending` hypotheses in
+`.nxalien/exploratory.json`. When the same rule later achieves ψ ≥ 0 it transitions to
+`Landed`. After `DEFAULT_DECAY_AFTER_RUNS = 10` compile passes without landing, it
+transitions to `Decayed`. Both statuses surface as `UnknownSlot`s in the
+`[NXALIEN-CONTEXT]` block so an LLM agent sees what the governance field does not yet
+know. `GET /exploratory/status` exposes the live ledger summary.
+
+**Pfad E — Epistemic Thunderbolt Vector** (`pse-reasoning`): `POST /reasoning/guide`
+runs the ETV algorithm over the IL store — a directed multi-hop walk guided by
+D = ψ·ρ·ω at every step. Each hop follows the vector of the selected crystal as the
+next query, tracing the path of highest epistemic energy through the knowledge field.
+Returns a `ReasoningChain` with per-step D scores, QTIC class, and stability; terminates
+on `MaxSteps | MinThreshold | NoNewMatches | EmptyStore`.
+
 ## Current status
 
 PSE is implemented as a Rust workspace with the core engine, traversal stack,
 Infinity Ledger adapter, HDAG, QTIC conformance engine, PSE+IL Intelligence Layer,
-nxalien governance exoskeleton, server routes, validation tooling, and governance layers.
+nxalien governance exoskeleton, constitutional interceptor, exploratory ledger,
+Epistemic Thunderbolt Vector reasoning, server routes, validation tooling, and
+governance layers.
 
 Current validation status:
 
-- Workspace test suite: **1315 / 1315 passing** (PSE core) + **26 nxalien tests**
+- Workspace test suite: **1315 / 1315 passing** (PSE core) + **63 nxalien / governance tests** (26 nxalien core + 11 constitutional interceptor + 16 exploratory ledger + 10 reasoning chain)
 - Replay invariance: **verified**
 - Safety improvement over B0 baseline on real LLM output: **verified**
 - Agent relevance ranking benchmark: **verified**
@@ -429,21 +461,33 @@ other two scores.
 
 ### PSE Server — HTTP API
 
-`tools/pse-server` exposes PSE+IL over HTTP. Eight routes:
+`tools/pse-server` exposes PSE+IL and all nxalien governance services over HTTP.
+Fifteen routes, wrapped in a `ConstitutionalLayer` Tower middleware:
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/health` | Server health check |
 | `POST` | `/ingest` | Ingest observation bytes → crystals → optional IL commit |
-| `GET` | `/status` | Engine status + crystal count |
-| `GET` | `/crystals` | List all crystals in the registry |
-| `POST` | `/retrieve` | Vector-based retrieval (legacy, PSE only) |
+| `POST` | `/context` | Context assembly for LLM system messages |
+| `POST` | `/coverage` | Coverage check against the IL store |
 | `GET` | `/il/status` | IL ledger status + HDAG edge counts by cause |
 | `POST` | `/il/retrieve` | Pfauenthron++ tripolar retrieval (`D = ψ·ρ·ω`) |
 | `GET` | `/il/hdag/coherence` | Mean HDAG coherence potential across all nodes |
 | `GET` | `/il/hdag/order` | Topological order of HDAG nodes (Kahn's algorithm) |
+| `POST` | `/nxalien/bundle` | Accept a compiled nxalien bundle → evolve + IL commit |
+| `GET` | `/nxalien/signal` | Current `EpistemicSignal` (stability, distances, IL overlay) |
+| `POST` | `/nxalien/validate` | Validate a bundle without committing to the ledger |
+| `GET` | `/nxalien/rules/current` | Active rule set as `RuleAtom[]` |
+| `POST` | `/constitutional/check` | Evaluate `ActionContext` against loaded rules → `Allow\|Block\|Warn` |
+| `GET` | `/exploratory/status` | Exploratory ledger summary + pending `UnknownSlot`s |
+| `POST` | `/reasoning/guide` | Epistemic Thunderbolt Vector multi-hop reasoning chain |
 
-IL routes are only active when the server starts with a valid `PSE_IL_PATH` environment
-variable:
+`ConstitutionalLayer` wraps the entire router. Requests carrying `x-nxalien-verb` /
+`x-nxalien-target` headers are evaluated before dispatch: Block → 403 JSON; Warn →
+`x-nxalien-warn` response header added without interrupting the handler.
+
+IL routes are only active when the server starts with a valid `PSE_IL_STORE`
+environment variable pointing to a writable directory:
 
 ```bash
 # Start with IL enabled
@@ -457,6 +501,21 @@ curl -X POST http://localhost:8765/il/retrieve \
 # Inspect HDAG
 curl http://localhost:8765/il/hdag/coherence
 curl http://localhost:8765/il/hdag/order
+
+# Push a nxalien bundle from a remote repo
+curl -X POST http://localhost:8765/nxalien/bundle \
+     -H 'Content-Type: application/json' \
+     -d '{"bundle": { ... }}'
+
+# Evaluate a proposed action against loaded constitutional rules
+curl -X POST http://localhost:8765/constitutional/check \
+     -H 'Content-Type: application/json' \
+     -d '{"action": {"verb": "write", "target": "production-db", "description": "drop table"}}'
+
+# Run a Thunderbolt reasoning chain over the IL store
+curl -X POST http://localhost:8765/reasoning/guide \
+     -H 'Content-Type: application/json' \
+     -d '{"query": "epistemic stability under Drifting signal", "max_steps": 4}'
 ```
 
 ---
@@ -1470,7 +1529,7 @@ cargo run --release -p pse-bench-gt --bin bench_gt -- \
 
 ## Workspace layout
 
-30 crates, 10 domain adapters, 11 tool binaries:
+39 crates, 10 domain adapters, 12 tool binaries:
 
 ```
 crates/
@@ -1518,6 +1577,29 @@ crates/
                   PSE-TRAVERSE-DYNAMICS-01, PSE-TRAVERSE-HORIZON-03,
                   PSE-TRAVERSE-COGNITION-01)
   pse-eval-matrix PSE-EVAL-MATRIX-01 evaluation matrix
+  pse-nxalien-types   nxalien governance types (RuleAtom, UnknownSlot, Severity,
+                      GateOutcome, NxAlienBundle, C8Coord, …)
+  pse-nxalien-core    8-gate conjunctive evaluation, project scanner (Rust/TS/Python),
+                      content-addressing via PSE substrate
+  pse-nxalien-cube    HypercubeHdag (C⁸ DAG, 8 axes: ψ/ρ/ω/χ/η/γ/υ/λ), 5D projection
+  pse-nxalien-agent   ContextProjector: [NXALIEN-CONTEXT] / CLAUDE.md / AGENTS.md /
+                      .rules for LLM system-prompt injection
+  pse-nxalien-pse     NxAlienObservationAdapter (PSE ObservationAdapter bridge,
+                      I-BRIDGE-001 static source guard)
+  pse-nxalien-evolve  GraphState, EpistemicSignal (Initialising/Converging/Stable/
+                      Drifting/Diverging), EvolutionGuard, propose_rule_evolution,
+                      il_bridge (RuleAtom → ILStore → QTIC certificate)
+  pse-constitutional-interceptor
+                      ConstitutionalEvaluator — ActionContext → Decision (Allow /
+                      Block / Warn); two-pass evaluation; Tower ConstitutionalLayer
+                      middleware; strict mode on Drifting/Diverging signal;
+                      11 unit tests
+  pse-exploratory     ExploratoryLedger — ψ<0 hypothesis tracking: Pending →
+                      Landed (same rule, new ψ≥0) / Decayed (after decay_after_runs);
+                      to_unknown_slots(); 16 unit tests
+  pse-reasoning       Epistemic Thunderbolt Vector — D=ψ·ρ·ω guided multi-hop
+                      reasoning via guide(query, store, config) → ReasoningChain;
+                      10 unit tests
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -1554,9 +1636,12 @@ tools/
   pse-bench-bbo       TRITON spiral vs Random vs Halton on BBO test functions
   pse-audit           Determinism / replay auditor
   pse-demo            30-second runnable showcase + gate diagnostics
-  pse-server          HTTP API server (8 routes): PSE ingest + retrieve + status +
-                      IL ledger status + Pfauenthron++ retrieve + HDAG coherence +
-                      HDAG topological order (binary: pse-server)
+  pse-server          HTTP API server (15 routes + Tower middleware): PSE core
+                      (health/ingest/context/coverage) + IL (status/retrieve/HDAG) +
+                      nxalien governance (bundle/signal/validate/rules) +
+                      ConstitutionalLayer Tower middleware wrapping the full router +
+                      POST /constitutional/check + GET /exploratory/status +
+                      POST /reasoning/guide (binary: pse-server)
   pse-traverse-cli    Traversal Agent CLI: inspect / plan [--signature] /
                       run [--signature-gate] / replay / search /
                       dynamics (init | tick | run | replay | inspect)
@@ -1588,6 +1673,9 @@ tools/
                       inspect / project-local / isomorphism /
                       spectral-gap / close / replay / verify
                       (binary: pse-metatron)
+  nxalien-cli         nxalien governance CLI:
+                      compile [--remote <url>] [--remote-only]
+                      (binary: nxalien)
 ```
 
 ---

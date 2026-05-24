@@ -18,6 +18,8 @@ pse-adapter-il = { path = "../../adapters/pse-adapter-il" }
 pse-nxalien-types             = { path = "../../crates/pse-nxalien-types" }
 pse-nxalien-evolve            = { path = "../../crates/pse-nxalien-evolve" }
 pse-constitutional-interceptor = { path = "../../crates/pse-constitutional-interceptor" }
+pse-exploratory                = { path = "../../crates/pse-exploratory" }
+pse-reasoning                  = { path = "../../crates/pse-reasoning" }
 axum        = { workspace = true }
 tower       = { workspace = true }
 tower-http  = { workspace = true }

@@ -17,6 +17,7 @@ pse-nxalien-cube = { path = "../../crates/pse-nxalien-cube" }
 pse-nxalien-agent = { path = "../../crates/pse-nxalien-agent" }
 pse-nxalien-pse = { path = "../../crates/pse-nxalien-pse" }
 pse-nxalien-evolve = { path = "../../crates/pse-nxalien-evolve" }
+pse-exploratory    = { path = "../../crates/pse-exploratory" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }

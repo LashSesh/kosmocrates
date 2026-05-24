@@ -13,6 +13,7 @@
 //!   export    Generate CLAUDE.md / AGENTS.md / .rules
 
 use anyhow::{bail, Context, Result};
+use pse_exploratory::{ExploratoryLedger, DEFAULT_DECAY_AFTER_RUNS, EXPLORATORY_PSI_THRESHOLD};
 use serde::Deserialize;
 use pse_nxalien_agent::ContextProjector;
 use pse_nxalien_core::{
@@ -257,10 +258,19 @@ fn cmd_compile(args: &[String]) -> Result<()> {
         }
     }
 
-    // ── IL bridge: commit every RuleAtom as a SemanticCrystal ────────────────
+    // ── PSE graph state: load first so run_count is available for IL commit ──
     let nxa_dir = root.join(".nxalien");
     let il_path = nxa_dir.join("il");
-    let il_summary = commit_rules_to_il(&bundle.rules, &il_path, 0);
+    let mut graph_state = GraphState::load(&nxa_dir);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let live_graph = graph_state.ingest_and_update(&bundle, timestamp);
+    let run_count = graph_state.run_count;
+
+    // ── IL bridge: commit every RuleAtom as a SemanticCrystal ────────────────
+    let il_summary = commit_rules_to_il(&bundle.rules, &il_path, run_count);
     println!(
         "  IL crystals   : {}/{} committed  QTIC̄={:.2}  ψ̄={:.3}  gate={}",
         il_summary.committed,
@@ -270,22 +280,67 @@ fn cmd_compile(args: &[String]) -> Result<()> {
         if il_summary.gate_passed_all { "✓" } else { "✗ partial" },
     );
     for entry in &il_summary.entries {
+        let marker = if entry.coherence_potential < EXPLORATORY_PSI_THRESHOLD { " ◈" } else { "" };
         println!(
-            "    {:20}  Q{}  ψ={:.3}  {}",
+            "    {:20}  Q{}  ψ={:.3}  {}{}",
             entry.rule_id, entry.qtic_class, entry.coherence_potential,
-            entry.block_hash_prefix,
+            entry.block_hash_prefix, marker,
         );
     }
     write_json(&nxa_dir.join("il_summary.json"), &il_summary)?;
     println!("               : .nxalien/il_summary.json");
 
-    // ── PSE feedback loop: attractor-constrained rule evolution ──────────────
-    let mut graph_state = GraphState::load(&nxa_dir);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0);
-    let live_graph = graph_state.ingest_and_update(&bundle, timestamp);
+    // ── Exploratory ledger: park negative-ψ crystals as hypotheses ───────────
+    let mut exp_ledger = ExploratoryLedger::open(&nxa_dir);
+
+    // Landing check: rules that now have ψ ≥ 0 may ground a pending hypothesis.
+    let grounded_pairs: Vec<(&str, f64)> = il_summary.entries
+        .iter()
+        .filter(|e| e.coherence_potential >= EXPLORATORY_PSI_THRESHOLD)
+        .map(|e| (e.rule_id.as_str(), e.coherence_potential))
+        .collect();
+    let landings = exp_ledger.check_landings(&grounded_pairs, run_count);
+    for l in &landings {
+        println!(
+            "  Exploratory   : ↑ landed  {} ψ {:.3} → {:.3} ({} runs pending)",
+            l.rule_id, l.initial_psi, l.grounded_psi, l.runs_pending,
+        );
+    }
+
+    // Decay: hypotheses that have waited too long without evidence.
+    let decays = exp_ledger.tick_decay(run_count);
+    for d in &decays {
+        println!(
+            "  Exploratory   : ✗ decayed {} ψ={:.3} after {} runs",
+            d.rule_id, d.initial_psi, d.runs_pending,
+        );
+    }
+
+    // Ingest new exploratory entries (ψ < 0).
+    for entry in il_summary.entries.iter().filter(|e| e.coherence_potential < EXPLORATORY_PSI_THRESHOLD) {
+        exp_ledger.ingest(
+            &entry.rule_id,
+            entry.coherence_potential,
+            entry.qtic_class,
+            &entry.block_hash_prefix,
+            run_count,
+            DEFAULT_DECAY_AFTER_RUNS,
+        );
+    }
+
+    let exp_summary = exp_ledger.summary(run_count);
+    if exp_summary.total > 0 {
+        println!(
+            "  Exploratory   : {} pending  {} landed  {} decayed  ψ̄={:.3}",
+            exp_summary.pending, exp_summary.landed, exp_summary.decayed,
+            exp_summary.mean_pending_psi,
+        );
+    }
+    exp_ledger.save(&nxa_dir)?;
+    if exp_summary.total > 0 {
+        write_json(&nxa_dir.join("exploratory_summary.json"), &exp_summary)?;
+        println!("               : .nxalien/exploratory_summary.json");
+    }
     const ATTRACTOR_K: usize = 8;
     let signal = EpistemicSignal::extract_with_il(&live_graph, &graph_state, ATTRACTOR_K, &il_path);
     println!("  PSE signal    : {}", signal.summary_line());

@@ -1,0 +1,16 @@
+[package]
+name         = "pse-reasoning"
+version.workspace   = true
+edition.workspace   = true
+authors.workspace   = true
+license.workspace   = true
+description  = "Epistemic Thunderbolt Vector — D=ψ·ρ·ω guided reasoning over the IL knowledge graph"
+
+[dependencies]
+pse-adapter-il = { path = "../../adapters/pse-adapter-il" }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+
+[dev-dependencies]
+pse-types = { path = "../pse-types" }
+tempfile  = "3"

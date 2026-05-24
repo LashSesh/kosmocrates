@@ -671,6 +671,28 @@ impl ILStore {
         self.index.entries.is_empty()
     }
 
+    /// Return the 8D embedding vector for a crystal, looked up by hex ID.
+    ///
+    /// Used by the Epistemic Thunderbolt reasoning engine to follow the
+    /// highest-D path through the knowledge graph: after selecting a crystal
+    /// at step N, its vector8 becomes the query vector for step N+1.
+    pub fn crystal_vector8(&self, crystal_id_hex: &str) -> Option<Vec<f64>> {
+        self.index
+            .entries
+            .iter()
+            .find(|e| e.crystal_id_hex == crystal_id_hex)
+            .map(|e| e.vector8.clone())
+    }
+
+    /// QTIC class and stability score for a crystal, looked up by hex ID.
+    pub fn crystal_meta(&self, crystal_id_hex: &str) -> Option<(u8, f64)> {
+        self.index
+            .entries
+            .iter()
+            .find(|e| e.crystal_id_hex == crystal_id_hex)
+            .map(|e| (e.qtic_class.unwrap_or(0), e.stability_score))
+    }
+
     pub fn base_path(&self) -> &Path {
         &self.base_path
     }
