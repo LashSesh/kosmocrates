@@ -357,6 +357,185 @@ the passage from ephemeral resonance to persistent crystal is never automatic.
 
 ---
 
+## PSE+IL Intelligence Layer
+
+The `pse-adapter-il` crate ships a complete active-cognition layer on top of the core
+PSE+IL+HDAG+QTIC substrate. It turns the IL ledger from a passive record-keeper into an
+**epistemic system** that monitors its own health, manages the lifecycle of its knowledge,
+understands what it does not know, and generates a prioritised action plan to close those
+gaps. Ten modules implement this layer:
+
+### Direction 1 — Context Compression (`context.rs`)
+
+Budget-aware context selection for LLM system messages. `ILStore::context_for_query` selects
+the top-k crystals by Pfauenthron++ D score, subject to a token budget and a minimum QTIC
+class floor, and formats them as a `[PSE-CONTEXT]...[/PSE-CONTEXT]` block ready for injection
+into the LLM system message.
+
+```rust
+pub struct ContextBudget {
+    pub max_tokens: usize,      // default 2000
+    pub top_k: usize,           // default 5
+    pub min_qtic_class: u8,     // default 0 (no floor)
+}
+
+// CrystalSummary::to_compact_text():
+// "[PSE:abcdef1234567890] Q4 stab=0.87 D=0.742 t=3\n  q: original question…"
+```
+
+### Direction 2 — Causal Graph (`causal.rs`)
+
+Content-addressed DAG of causal relationships between crystals. Every edge carries a
+`CausalCause` (Refinement | Sequential | ResonanceProximity | MetatronIsomorphic |
+UserAsserted) and a strength ∈ [0, 1]. Persisted in `il_causal.json`. Enables causal
+lineage queries — given a crystal, find all its causes and all its effects.
+
+### Direction 3 — Agent Layer (`agent.rs`)
+
+Multi-agent extension. Each crystal committed with an `agent_id` is registered in the
+`AgentCausalGraph`, tracking causal relationships per agent and across agents. `AgentLink`
+records the generating agent for each causal edge, enabling per-agent knowledge provenance
+and cross-agent causal queries.
+
+### Direction 4 — Constitutional AI Substrate (`constitutional.rs`)
+
+A rule engine for constitutional constraints over the IL ledger. Rules are `ConstitutionalRule`
+values with a `Severity` (Blocking | Required | Advisory) and a `RulePredicate` — a composable
+tree of conjunctions, disjunctions, negations, and leaf checks:
+
+```rust
+pub enum RulePredicate {
+    All(Vec<RulePredicate>), Any(Vec<RulePredicate>), Not(Box<RulePredicate>),
+    MinQticClass(u8),           // qtic_class >= n
+    MaxUncertainty(f64),        // uncertainty <= u
+    RequireAttribution,         // agent_id present
+    CoherenceGate,              // coherence_potential >= 0
+    NotHallucinationAttractor,  // NOT(stability>0.8 AND kuramoto<0.2) — PSE-S4
+    MinStability(f64),
+}
+```
+
+Two preset constitutions: `Constitution::eu_ai_act_minimal()` (Articles 9/13/17) and
+`Constitution::pse_core_safety()` (4 rules including the S4 hallucination attractor gate).
+
+`ILStore::commit_constitutional()` runs a **blocking pre-commit check** — no crystal passes
+that violates a Blocking rule. `ILStore::constitutional_audit()` evaluates the full store.
+
+**Constitutional fixpoint** (`is_constitutionally_closed()`): the ledger is closed when
+every crystal's `ConstitutionalReport` records all blocking rules passed — equivalent to
+QTIC Q5 path invariance at the knowledge-base level.
+
+### Direction 5 — Epistemic Health Monitoring (`health.rs`)
+
+Uncertainty quantification for every crystal in the store.
+
+```
+u = 1 − (qtic_weight · stability · coherence)^(1/3)
+```
+
+`ILStore::memory_health()` returns a `MemoryHealthReport` covering mean QTIC class, fraction
+Q4+, mean stability, mean coherence, mean uncertainty, healthy/at-risk counts, and attributed
+fraction. `is_healthy()`: `fraction_q4_plus ≥ 0.80 AND mean_uncertainty ≤ 0.30`.
+
+### Direction 6 — Crystal Lifecycle Management (`lifecycle.rs`)
+
+Temporal decay modelling and consolidation candidate detection.
+
+```rust
+pub enum DecayModel {
+    Linear     { half_life: f64 },   // max(0, 1 − age/hl)
+    Exponential{ half_life: f64 },   // exp(−age·ln2/hl)
+    Step       { half_life: f64 },   // age < hl ? 1 : 0
+}
+// refresh_score = uncertainty × (1 − decay)  — how urgently to re-ask a question
+pub enum LifecycleStatus { Vital, Aging, Stale, Redundant }
+```
+
+`ILStore::lifecycle_report()` classifies every crystal's decay and flags consolidation
+candidates (MetatronIsomorphic or SemanticOverlap). `is_lifecycle_closed()`: no stale
+crystals and no consolidation candidates remain.
+
+### LLM Prompt Grounding (`prompt.rs`)
+
+`GroundedPrompt` composes the full LLM system message from a `[PSE-CONTEXT]` block +
+a `[AGENDA]` block + the base system prompt. `PromptConfig` controls token budgets and
+which blocks are included.
+
+### Causal Retrieval (`retrieval.rs`)
+
+Extends Pfauenthron++ with HDAG causal graph traversal. Seed selection is semantic (top-k
+by D score); each seed is expanded through the causal graph up to `max_depth` hops in both
+directions. Score blending:
+
+```
+final = α · D_semantic + (1 − α) · D_causal
+D_causal = seed_semantic · path_strength / (1 + hop_count)
+```
+
+Each result entry carries a `CausalRole` (Seed | Ancestor | Descendant) and role annotations
+appear in the `[PSE-CONTEXT causal=true]` block:
+
+```
+[PSE:abc12345ef012345] Q4 stab=0.87 D=0.742 t=3  [SEED]
+[PSE:def67890ab123456] Q3 stab=0.72 D=0.614 t=1  [ANCESTOR depth=1]
+[PSE:789abc0123456789] Q4 stab=0.81 D=0.591 t=7  [DESCENDANT depth=1]
+```
+
+### Knowledge Clustering (`cluster.rs`)
+
+Semantic island detection over the IL vector space. An undirected similarity graph is built
+(edges where cosine similarity ≥ threshold); connected components become clusters via
+Union-Find. Per-cluster metrics: centroid (mean 8D vector), mean stability, mean uncertainty,
+causal density (fraction of member-pairs with a direct causal link), and mean QTIC class.
+
+**Bridge crystals** — crystals with causal edges crossing ≥ 2 cluster boundaries — are
+identified separately. They are the high-value connectors whose loss would fragment the
+knowledge graph. `is_unified()`: no singletons AND at most one cluster.
+
+### Epistemic Agenda — capstone (`agenda.rs`)
+
+Synthesises all prior signals (health + lifecycle + clustering + constitutional + causal) into
+a single prioritised action list that tells the system — or a human operator — exactly what to
+do next to move the store toward the knowledge fixpoint.
+
+| Action | Source signal | Priority |
+|---|---|---|
+| `Guard` | Bridge crystal at risk | 0.90 × uncertainty |
+| `Refresh` | Stale crystal | refresh_score × 0.65–0.85 |
+| `Consolidate` | Redundant crystal pair | 0.60–0.70 |
+| `Reinforce` | At-risk crystal | uncertainty × 0.75 |
+| `Explore` | Low-quality causal root | derived |
+
+Priority 1.0 is reserved for blocking constitutional violations.
+
+```rust
+// Inject into LLM system message:
+let agenda = store.epistemic_agenda(&AgendaConfig::default());
+system_message += &agenda.to_context_block(5);
+// → [AGENDA]
+//   diagnosis: 3 crystals at risk, 1 bridge guard required
+//   items_to_fixpoint: 4 | total: 7
+//   [p=1.00] GUARD bridge001 — bridge crystal uncertainty=0.72 …
+//   [/AGENDA]
+```
+
+### The Four Fixpoint Conditions
+
+The IL store has reached **epistemic fixpoint** when all four conditions hold simultaneously:
+
+| Condition | Check |
+|---|---|
+| Constitutional closure | `constitutional_audit(constitution).is_constitutionally_closed()` |
+| Lifecycle closure | `lifecycle_report(model, sim_thresh, ref).is_lifecycle_closed()` |
+| Topological unification | `cluster_knowledge(config).is_unified()` |
+| Agenda empty | `epistemic_agenda(config).is_fixpoint()` |
+
+At fixpoint: every crystal is constitutionally compliant, no crystal is stale or redundant, all
+knowledge is clustered into a single coherent island, and the system has no actionable improvement
+left to perform. This is the IL analogue of QTIC Q5 at the knowledge-base level.
+
+---
+
 ## Architecture
 
 PSE is organised into three tiers:
@@ -445,6 +624,16 @@ domains is documented in §Productive-task validation below.
 | **pse-server IL/HDAG routes** (4 new routes: `/il/*`) | **Shipped** |
 | **MetatronTopologySignature** in HDAG tensor (algebraic_connectivity, spectral_radius) | **Shipped** |
 | **QTIC conformance engine** (`qtic.rs`: Q0–Q5, `QticCertificate`, MCI, path invariance) | **Shipped** |
+| **Context compression** (`context.rs`: `ContextBudget`, `CrystalSummary`, `context_for_query`) | **Shipped** |
+| **Causal graph** (`causal.rs`: `CausalGraph`, `CausalLink`, `CausalCause`) | **Shipped** |
+| **Agent causal layer** (`agent.rs`: `AgentCausalGraph`, `AgentLink`) | **Shipped** |
+| **Constitutional AI substrate** (`constitutional.rs`: `Constitution`, `RulePredicate`, blocking pre-commit gate, Q5 fixpoint closure) | **Shipped** |
+| **Epistemic health monitoring** (`health.rs`: `crystal_uncertainty()`, `MemoryHealthReport`, `at_risk_crystals()`) | **Shipped** |
+| **Crystal lifecycle management** (`lifecycle.rs`: `DecayModel`, `LifecycleReport`, `classify_lifecycle()`, consolidation candidates) | **Shipped** |
+| **LLM prompt grounding** (`prompt.rs`: `GroundedPrompt`, `PromptConfig`) | **Shipped** |
+| **Causal retrieval** (`retrieval.rs`: `CausalRole`, `CausallyGroundedEntry`, `CausalRetrievalResult`, BFS causal expansion) | **Shipped** |
+| **Knowledge clustering** (`cluster.rs`: `KnowledgeCluster`, `BridgeCrystal`, `ClusteringReport`, Union-Find) | **Shipped** |
+| **Epistemic agenda** (`agenda.rs`: `EpistemicAgenda`, `AgendaAction`, `[AGENDA]` context block, four fixpoint conditions) | **Shipped** |
 | **Replay invariance** (`ReplayIdentity = 1`, Invariant I4) | **Verified** — bit-identical output across independent runs |
 | **Safety improvement** (`ΔU_safety ≥ 0`) | **Verified** — B6 false-commit rate < B0 on real LLM output (Cerebras) |
 | **Agent relevance ranking** (PSE-EVAL-MATRIX-01 § exoskeleton) | **Verified** — see table below |
@@ -1134,7 +1323,22 @@ adapters/
   pse-adapter-modelmon    ML model monitoring
   pse-adapter-il          Infinity Ledger integration: ILStore, HDAG (5D resonance
                           tensors, 4 edge causes, path invariance), ValidationFeedback,
-                          refine_crystal(), Pfauenthron++ score_tripolar()
+                          refine_crystal(), Pfauenthron++ score_tripolar().
+                          Intelligence layer (10 modules, 191 unit tests):
+                          context compression (ContextBudget, CrystalSummary),
+                          causal graph (CausalGraph, CausalLink, CausalCause),
+                          agent layer (AgentCausalGraph, AgentLink),
+                          constitutional substrate (Constitution, RulePredicate,
+                          blocking pre-commit gate, Q5 fixpoint closure),
+                          epistemic health (crystal_uncertainty, MemoryHealthReport),
+                          crystal lifecycle (DecayModel, LifecycleReport,
+                          consolidation candidates), LLM prompt grounding
+                          (GroundedPrompt, PromptConfig), causal retrieval
+                          (CausalRole, CausallyGroundedEntry, BFS expansion),
+                          knowledge clustering (KnowledgeCluster, BridgeCrystal,
+                          ClusteringReport), epistemic agenda (EpistemicAgenda,
+                          AgendaAction, [AGENDA] context block, four fixpoint
+                          conditions)
 
 tools/
   pse-bench-gt        Ground-truth precision/recall (PSE vs STL-z-score vs IsoForest)
