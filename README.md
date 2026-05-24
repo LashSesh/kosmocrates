@@ -1423,6 +1423,9 @@ Normative specification documents live in [`specs/`](specs/):
 
 ## Where to go next
 
+* **[DEMO.md](DEMO.md)** — three-session live demo with a real LLM (Cerebras /
+  OpenAI / Groq / Ollama). Windows and Linux commands, expected output, and
+  presentation talking points included.
 * **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** — step-by-step integration
   guide: Tier 1 streaming, Tier 2 planning, gate diagnostics, calibration options.
 * **[docs/POST_SYMBOLIC.md](docs/POST_SYMBOLIC.md)** — what post-symbolic computation
