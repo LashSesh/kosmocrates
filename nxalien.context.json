@@ -1,0 +1,590 @@
+{
+  "dimension": 8,
+  "nodes": {
+    "evidence:Cargo.toml": {
+      "id": "evidence:Cargo.toml",
+      "kind": "Evidence",
+      "label": "Cargo.toml",
+      "coord": [
+        0.8,
+        0.2,
+        0.6,
+        0.4,
+        0.4,
+        0.1,
+        0.2,
+        0.5
+      ],
+      "payload": {
+        "kind": "file",
+        "source": "Cargo.toml"
+      }
+    },
+    "evidence:PSE coding standard": {
+      "id": "evidence:PSE coding standard",
+      "kind": "Evidence",
+      "label": "PSE coding standard",
+      "coord": [
+        0.8,
+        0.2,
+        0.6,
+        0.4,
+        0.4,
+        0.1,
+        0.2,
+        0.5
+      ],
+      "payload": {
+        "kind": "user_directive",
+        "source": "PSE coding standard"
+      }
+    },
+    "evidence:nxalien specification §9": {
+      "id": "evidence:nxalien specification §9",
+      "kind": "Evidence",
+      "label": "nxalien specification §9",
+      "coord": [
+        0.8,
+        0.2,
+        0.6,
+        0.4,
+        0.4,
+        0.1,
+        0.2,
+        0.5
+      ],
+      "payload": {
+        "kind": "user_directive",
+        "source": "nxalien specification §9"
+      }
+    },
+    "gate:G_A": {
+      "id": "gate:G_A",
+      "kind": "Gate",
+      "label": "G_A",
+      "coord": [
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.8,
+        0.0,
+        0.5
+      ],
+      "payload": {
+        "gates": 8
+      }
+    },
+    "output:manifest": {
+      "id": "output:manifest",
+      "kind": "Output",
+      "label": "nxalien.manifest.json",
+      "coord": [
+        0.9,
+        0.7,
+        0.8,
+        0.6,
+        0.7,
+        0.5,
+        0.0,
+        0.9
+      ],
+      "payload": {
+        "file": "nxalien.manifest.json"
+      }
+    },
+    "project:root": {
+      "id": "project:root",
+      "kind": "Project",
+      "label": "",
+      "coord": [
+        0.9,
+        0.5,
+        0.5,
+        1.0,
+        0.5,
+        0.3,
+        0.1,
+        0.8
+      ],
+      "payload": {
+        "build_command": "cargo build --workspace --locked",
+        "existing_context_files": [],
+        "fmt_command": "cargo fmt --all",
+        "language": "rust",
+        "license": "MIT",
+        "lint_command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+        "name": "",
+        "package_manager": "cargo",
+        "test_command": "cargo test --workspace --locked"
+      }
+    },
+    "rule:minimal-reversible": {
+      "id": "rule:minimal-reversible",
+      "kind": "Rule",
+      "label": "minimal-reversible",
+      "coord": [
+        0.3333333333333333,
+        0.7,
+        0.5,
+        0.6,
+        0.5,
+        0.7,
+        0.1,
+        0.7
+      ],
+      "payload": {
+        "decay": null,
+        "evidence": [
+          {
+            "kind": "user_directive",
+            "source": "PSE coding standard"
+          }
+        ],
+        "gate": null,
+        "hash": "40ca373a9130d09859cefd34bbf4137e96281d2f6c1330fe8949fec3e55add80",
+        "id": "minimal-reversible",
+        "prescription": "Prefer minimal reversible changes. Do not delete without explicit instruction. Do not introduce abstractions beyond what the task requires.",
+        "scope": {
+          "commands": [],
+          "files": [
+            "**/*.rs"
+          ],
+          "modules": []
+        },
+        "severity": "Required",
+        "trigger": [
+          "change",
+          "delete",
+          "refactor"
+        ]
+      }
+    },
+    "rule:no-direct-crystal": {
+      "id": "rule:no-direct-crystal",
+      "kind": "Rule",
+      "label": "no-direct-crystal",
+      "coord": [
+        0.3333333333333333,
+        0.9,
+        0.5,
+        0.7,
+        0.6,
+        1.0,
+        0.0,
+        0.9
+      ],
+      "payload": {
+        "decay": null,
+        "evidence": [
+          {
+            "kind": "user_directive",
+            "source": "nxalien specification §9"
+          }
+        ],
+        "gate": "bridge_supremacy",
+        "hash": "888f486e517eac783a36321b8267902b0e54c808ada556984adba26adff43fc3",
+        "id": "no-direct-crystal",
+        "prescription": "nxalien crates MUST NOT directly construct SemanticCrystal. Emit NxAlienHandoffCandidate only. PSE-Bridge is the sole commit path.",
+        "scope": {
+          "commands": [],
+          "files": [
+            "crates/pse-nxalien-*/**/*.rs"
+          ],
+          "modules": []
+        },
+        "severity": "Blocking",
+        "trigger": [
+          "crystal",
+          "SemanticCrystal",
+          "emit"
+        ]
+      }
+    },
+    "rule:rust-clippy": {
+      "id": "rule:rust-clippy",
+      "kind": "Rule",
+      "label": "rust-clippy",
+      "coord": [
+        0.3333333333333333,
+        0.7,
+        0.5,
+        0.6,
+        0.5,
+        0.7,
+        0.1,
+        0.7
+      ],
+      "payload": {
+        "decay": null,
+        "evidence": [
+          {
+            "kind": "file",
+            "source": "Cargo.toml"
+          }
+        ],
+        "gate": null,
+        "hash": "958c6e9570c07ab7b807d07150e79b714cdf0d3f099f78b19d892eb4125781be",
+        "id": "rust-clippy",
+        "prescription": "Run `cargo clippy --workspace --all-targets --locked -- -D warnings`. No warnings permitted.",
+        "scope": {
+          "commands": [],
+          "files": [
+            "**/*.rs"
+          ],
+          "modules": []
+        },
+        "severity": "Required",
+        "trigger": [
+          "lint",
+          "clippy",
+          "warning"
+        ]
+      }
+    },
+    "rule:rust-fmt": {
+      "id": "rule:rust-fmt",
+      "kind": "Rule",
+      "label": "rust-fmt",
+      "coord": [
+        0.3333333333333333,
+        0.7,
+        0.5,
+        0.6,
+        0.5,
+        0.7,
+        0.1,
+        0.7
+      ],
+      "payload": {
+        "decay": null,
+        "evidence": [
+          {
+            "kind": "file",
+            "source": "Cargo.toml"
+          }
+        ],
+        "gate": null,
+        "hash": "eafe2e19c9d9a0a2e4b1dd45c32824bea2661aff9651aeedcc9901a6b5e52dd4",
+        "id": "rust-fmt",
+        "prescription": "Run `cargo fmt --all` before any commit. Code must be rustfmt-clean.",
+        "scope": {
+          "commands": [],
+          "files": [
+            "**/*.rs"
+          ],
+          "modules": []
+        },
+        "severity": "Required",
+        "trigger": [
+          "format",
+          "style",
+          "fmt"
+        ]
+      }
+    },
+    "rule:rust-test": {
+      "id": "rule:rust-test",
+      "kind": "Rule",
+      "label": "rust-test",
+      "coord": [
+        0.3333333333333333,
+        0.9,
+        0.5,
+        0.7,
+        0.6,
+        1.0,
+        0.0,
+        0.9
+      ],
+      "payload": {
+        "decay": null,
+        "evidence": [
+          {
+            "kind": "file",
+            "source": "Cargo.toml"
+          }
+        ],
+        "gate": null,
+        "hash": "4654bc79fd76b752d2b7ccb1640e6cc887c0b4a28c71cd9e1cef490893b52e91",
+        "id": "rust-test",
+        "prescription": "All workspace tests must pass before claiming completion. Run `cargo test --workspace --locked`.",
+        "scope": {
+          "commands": [
+            "cargo test"
+          ],
+          "files": [],
+          "modules": []
+        },
+        "severity": "Blocking",
+        "trigger": [
+          "test",
+          "commit",
+          "ci"
+        ]
+      }
+    },
+    "specialist:quality": {
+      "id": "specialist:quality",
+      "kind": "Specialist",
+      "label": "specialist:quality",
+      "coord": [
+        0.6,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.1,
+        0.7
+      ],
+      "payload": {
+        "triggers": [
+          "test",
+          "ci"
+        ]
+      }
+    },
+    "specialist:safety": {
+      "id": "specialist:safety",
+      "kind": "Specialist",
+      "label": "specialist:safety",
+      "coord": [
+        0.6,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.1,
+        0.7
+      ],
+      "payload": {
+        "triggers": [
+          "commit",
+          "crystal"
+        ]
+      }
+    },
+    "tool:build": {
+      "id": "tool:build",
+      "kind": "Tool",
+      "label": "tool:build",
+      "coord": [
+        0.7,
+        0.4,
+        0.5,
+        0.6,
+        0.5,
+        0.4,
+        0.1,
+        0.8
+      ],
+      "payload": {
+        "command": "cargo build --workspace --locked"
+      }
+    },
+    "tool:fmt": {
+      "id": "tool:fmt",
+      "kind": "Tool",
+      "label": "tool:fmt",
+      "coord": [
+        0.7,
+        0.4,
+        0.5,
+        0.6,
+        0.5,
+        0.4,
+        0.1,
+        0.8
+      ],
+      "payload": {
+        "command": "cargo fmt --all"
+      }
+    },
+    "tool:lint": {
+      "id": "tool:lint",
+      "kind": "Tool",
+      "label": "tool:lint",
+      "coord": [
+        0.7,
+        0.4,
+        0.5,
+        0.6,
+        0.5,
+        0.4,
+        0.1,
+        0.8
+      ],
+      "payload": {
+        "command": "cargo clippy --workspace --all-targets --locked -- -D warnings"
+      }
+    },
+    "tool:test": {
+      "id": "tool:test",
+      "kind": "Tool",
+      "label": "tool:test",
+      "coord": [
+        0.7,
+        0.4,
+        0.5,
+        0.6,
+        0.5,
+        0.4,
+        0.1,
+        0.8
+      ],
+      "payload": {
+        "command": "cargo test --workspace --locked"
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "project:root",
+      "to": "tool:test",
+      "cause": "DerivesFrom",
+      "weight": 1.0
+    },
+    {
+      "from": "project:root",
+      "to": "tool:build",
+      "cause": "DerivesFrom",
+      "weight": 1.0
+    },
+    {
+      "from": "project:root",
+      "to": "tool:fmt",
+      "cause": "DerivesFrom",
+      "weight": 1.0
+    },
+    {
+      "from": "project:root",
+      "to": "tool:lint",
+      "cause": "DerivesFrom",
+      "weight": 1.0
+    },
+    {
+      "from": "project:root",
+      "to": "rule:rust-fmt",
+      "cause": "DerivesFrom",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:rust-fmt",
+      "to": "tool:fmt",
+      "cause": "ValidatesBy",
+      "weight": 0.7
+    },
+    {
+      "from": "project:root",
+      "to": "rule:rust-clippy",
+      "cause": "DerivesFrom",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:rust-clippy",
+      "to": "tool:lint",
+      "cause": "ValidatesBy",
+      "weight": 0.7
+    },
+    {
+      "from": "project:root",
+      "to": "rule:rust-test",
+      "cause": "DerivesFrom",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:rust-test",
+      "to": "tool:test",
+      "cause": "ValidatesBy",
+      "weight": 0.7
+    },
+    {
+      "from": "project:root",
+      "to": "rule:no-direct-crystal",
+      "cause": "DerivesFrom",
+      "weight": 0.8
+    },
+    {
+      "from": "project:root",
+      "to": "rule:minimal-reversible",
+      "cause": "DerivesFrom",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:rust-test",
+      "to": "specialist:quality",
+      "cause": "Triggers",
+      "weight": 0.6
+    },
+    {
+      "from": "rule:rust-test",
+      "to": "specialist:safety",
+      "cause": "Triggers",
+      "weight": 0.6
+    },
+    {
+      "from": "rule:rust-test",
+      "to": "specialist:quality",
+      "cause": "Triggers",
+      "weight": 0.6
+    },
+    {
+      "from": "rule:no-direct-crystal",
+      "to": "specialist:safety",
+      "cause": "Triggers",
+      "weight": 0.6
+    },
+    {
+      "from": "project:root",
+      "to": "gate:G_A",
+      "cause": "ValidatesBy",
+      "weight": 1.0
+    },
+    {
+      "from": "rule:rust-fmt",
+      "to": "gate:G_A",
+      "cause": "Constrains",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:rust-clippy",
+      "to": "gate:G_A",
+      "cause": "Constrains",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:rust-test",
+      "to": "gate:G_A",
+      "cause": "Constrains",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:no-direct-crystal",
+      "to": "gate:G_A",
+      "cause": "Constrains",
+      "weight": 0.8
+    },
+    {
+      "from": "rule:minimal-reversible",
+      "to": "gate:G_A",
+      "cause": "Constrains",
+      "weight": 0.8
+    },
+    {
+      "from": "gate:G_A",
+      "to": "output:manifest",
+      "cause": "HandoffToPSE",
+      "weight": 1.0
+    }
+  ],
+  "policy": {
+    "max_context_chars": 8000,
+    "tau_a": 0.05,
+    "eta_eps": 0.1,
+    "min_evidence_for_required": 1,
+    "require_replay": true
+  }
+}

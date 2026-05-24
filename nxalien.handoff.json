@@ -1,0 +1,26 @@
+{
+  "candidate_id": "nxa-2c05c69a",
+  "observation_bytes_digest": "f931b30178cef66dff85f9d5872aca86be1cc561dda17973bf37bed1e4a1fd5b",
+  "source_artifacts": [
+    {
+      "path": "./nxalien.manifest.json",
+      "sha256": "b6ad909d63385b8ec1f55b0b818467daae649c267b25eac0c804e311f457aa31",
+      "size_bytes": 4477
+    },
+    {
+      "path": "./nxalien.context.json",
+      "sha256": "5ee255e578ddd4143e3bb73bdfded2b365698cbc595c358c2a1bcb919959cba7",
+      "size_bytes": 12269
+    },
+    {
+      "path": "./nxalien.replay.json",
+      "sha256": "ee7ada692a4be1379a4df26cce30c8b144e2018746856bbd58bbb03a4e9aea14",
+      "size_bytes": 300
+    }
+  ],
+  "intended_bridge": "pse-bridge-v0.2",
+  "admissibility": {
+    "admissible": true,
+    "reason": "All gates passed"
+  }
+}

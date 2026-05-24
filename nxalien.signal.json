@@ -1,0 +1,31 @@
+{
+  "embedding": {
+    "p": 0.0,
+    "rho": 0.0,
+    "omega": 1.0,
+    "chi": 0.0,
+    "eta": 0.5
+  },
+  "attractor_centroid": {
+    "p": 0.0,
+    "rho": 0.0,
+    "omega": 1.0,
+    "chi": 0.0,
+    "eta": 0.5
+  },
+  "distance_to_attractor": 0.0,
+  "free_energy_trend": 0.0,
+  "run_count": 2,
+  "topology": {
+    "betti_0": 1,
+    "betti_1": 0,
+    "betti_2": 0,
+    "spectral_gap": 0.0,
+    "euler_char": 1,
+    "cheeger_estimate": 0.0,
+    "kuramoto_coherence": 0.0,
+    "mean_propagation_time": 0.0,
+    "dtl_connected": false
+  },
+  "stability": "Stable"
+}
