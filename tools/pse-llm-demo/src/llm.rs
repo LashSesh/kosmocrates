@@ -62,6 +62,9 @@ impl LlmClient {
 
     /// Same as `complete` but prepends `pse_context` to the system prompt.
     /// Pass an empty string for the baseline (no-context) condition.
+    ///
+    /// Automatically retries on HTTP 429 with exponential backoff
+    /// (5 s → 10 s → 20 s → 40 s) up to 4 attempts total.
     pub fn complete_with_context(&self, prompt: &str, pse_context: &str) -> Result<String, String> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
@@ -91,27 +94,49 @@ impl LlmClient {
             temperature: 0.3,
         };
 
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .map_err(|e| format!("HTTP error: {e}"))?;
+        const MAX_ATTEMPTS: u32 = 4;
+        let mut delay_secs: u64 = 5;
 
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().unwrap_or_default();
-            return Err(format!("API returned {status}: {body}"));
+        for attempt in 1..=MAX_ATTEMPTS {
+            let resp = self
+                .client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&body)
+                .send()
+                .map_err(|e| format!("HTTP error: {e}"))?;
+
+            let status = resp.status();
+
+            if status.as_u16() == 429 {
+                let body_text = resp.text().unwrap_or_default();
+                if attempt == MAX_ATTEMPTS {
+                    return Err(format!("API returned 429 after {MAX_ATTEMPTS} attempts: {body_text}"));
+                }
+                eprintln!(
+                    "  [429 rate-limited, attempt {attempt}/{MAX_ATTEMPTS}] \
+                     waiting {delay_secs}s before retry…"
+                );
+                std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+                delay_secs *= 2;
+                continue;
+            }
+
+            if !status.is_success() {
+                let body_text = resp.text().unwrap_or_default();
+                return Err(format!("API returned {status}: {body_text}"));
+            }
+
+            let parsed: ChatResponse = resp.json().map_err(|e| format!("JSON parse error: {e}"))?;
+
+            return parsed
+                .choices
+                .into_iter()
+                .next()
+                .map(|c| c.message.content)
+                .ok_or_else(|| "API returned empty choices".to_string());
         }
 
-        let parsed: ChatResponse = resp.json().map_err(|e| format!("JSON parse error: {e}"))?;
-
-        parsed
-            .choices
-            .into_iter()
-            .next()
-            .map(|c| c.message.content)
-            .ok_or_else(|| "API returned empty choices".to_string())
+        unreachable!()
     }
 }

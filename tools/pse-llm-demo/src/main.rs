@@ -350,6 +350,8 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("failed: {e}");
+                eprintln!();
+                eprintln!("  Memory is unchanged — re-run to retry session {}.", session);
                 std::process::exit(1);
             }
         };
@@ -364,6 +366,8 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("failed: {e}");
+                eprintln!();
+                eprintln!("  Memory is unchanged — re-run to retry session {}.", session);
                 std::process::exit(1);
             }
         };
@@ -469,6 +473,7 @@ fn main() {
             eprintln!("  LLM call failed: {}", e);
             eprintln!();
             eprintln!("  Set PSE_LLM_API_KEY (and optionally PSE_LLM_BASE_URL, PSE_LLM_MODEL).");
+            eprintln!("  Memory is unchanged — re-run to retry session {}.", session);
             std::process::exit(1);
         }
     };
