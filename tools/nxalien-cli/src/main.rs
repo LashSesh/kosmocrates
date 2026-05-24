@@ -19,9 +19,10 @@ use pse_nxalien_core::{
 };
 use pse_nxalien_cube::HypercubeHdag;
 use pse_nxalien_evolve::{
+    commit_rules_to_il,
+    evolution::{apply_validated_proposals, propose_rule_evolution, EvolutionGuard},
     graph_state::GraphState,
     signal::EpistemicSignal,
-    evolution::{propose_rule_evolution, apply_validated_proposals, EvolutionGuard},
 };
 use pse_nxalien_pse::{artifact_digest as nxa_artifact_digest, build_handoff_candidate};
 use pse_nxalien_types::{NxAlienBundle, NxAlienManifest, NxAlienPolicy, NxAlienRunDescriptor};
@@ -229,8 +230,29 @@ fn cmd_compile(args: &[String]) -> Result<()> {
     println!("               : {}", replay_path.display());
     println!("               : {}", handoff_path.display());
 
-    // ── PSE feedback loop: attractor-constrained rule evolution ──────────────
+    // ── IL bridge: commit every RuleAtom as a SemanticCrystal ────────────────
     let nxa_dir = root.join(".nxalien");
+    let il_path = nxa_dir.join("il");
+    let il_summary = commit_rules_to_il(&bundle.rules, &il_path, 0);
+    println!(
+        "  IL crystals   : {}/{} committed  QTIC̄={:.2}  ψ̄={:.3}  gate={}",
+        il_summary.committed,
+        bundle.rules.len(),
+        il_summary.mean_qtic_class,
+        il_summary.mean_coherence_potential,
+        if il_summary.gate_passed_all { "✓" } else { "✗ partial" },
+    );
+    for entry in &il_summary.entries {
+        println!(
+            "    {:20}  Q{}  ψ={:.3}  {}",
+            entry.rule_id, entry.qtic_class, entry.coherence_potential,
+            entry.block_hash_prefix,
+        );
+    }
+    write_json(&nxa_dir.join("il_summary.json"), &il_summary)?;
+    println!("               : .nxalien/il_summary.json");
+
+    // ── PSE feedback loop: attractor-constrained rule evolution ──────────────
     let mut graph_state = GraphState::load(&nxa_dir);
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

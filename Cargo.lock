@@ -2307,6 +2307,7 @@ name = "pse-nxalien-evolve"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "pse-adapter-il",
  "pse-constraint",
  "pse-graph",
  "pse-nxalien-core",
@@ -2315,6 +2316,7 @@ dependencies = [
  "pse-types",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

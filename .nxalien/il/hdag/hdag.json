@@ -1,0 +1,136 @@
+{
+  "nodes": {
+    "N-e489c58a49770721": {
+      "id": "N-e489c58a49770721",
+      "crystal_id_hex": "e489c58a497707214766e1010f8ec869c8fda1aacad115a36aaa397a605ed61a",
+      "tensor": [
+        0.0,
+        0.49,
+        0.0,
+        0.0,
+        0.55
+      ],
+      "kairos": false,
+      "timestamp": "2026-05-24T16:45:08Z"
+    },
+    "N-0027d9b09514b660": {
+      "id": "N-0027d9b09514b660",
+      "crystal_id_hex": "0027d9b09514b660915cd8f9e57a93130bf0de6a669b0f44b1bb2ef7cfcfe731",
+      "tensor": [
+        0.0,
+        0.52,
+        0.0,
+        0.0,
+        0.4
+      ],
+      "kairos": true,
+      "timestamp": "2026-05-24T16:45:08Z"
+    },
+    "N-2ce50b83cedead06": {
+      "id": "N-2ce50b83cedead06",
+      "crystal_id_hex": "2ce50b83cedead06be3918a422474d00363d21f9c5804dda5a2253af2cb2bb3f",
+      "tensor": [
+        0.0,
+        0.49,
+        0.0,
+        0.0,
+        0.55
+      ],
+      "kairos": false,
+      "timestamp": "2026-05-24T16:45:08Z"
+    },
+    "N-7fe94b1c26ebba15": {
+      "id": "N-7fe94b1c26ebba15",
+      "crystal_id_hex": "7fe94b1c26ebba15ef0585e7a595b6f0eaeeca975ea7f7d6f88e0b9cb78f9f86",
+      "tensor": [
+        0.0,
+        0.52,
+        0.0,
+        0.0,
+        0.4
+      ],
+      "kairos": true,
+      "timestamp": "2026-05-24T16:45:08Z"
+    },
+    "N-fe5bb28a0fd3c5c3": {
+      "id": "N-fe5bb28a0fd3c5c3",
+      "crystal_id_hex": "fe5bb28a0fd3c5c3f35fdc8ca05e87987f375a4dfd6227c431140e07242ade17",
+      "tensor": [
+        0.0,
+        0.49,
+        0.0,
+        0.0,
+        0.55
+      ],
+      "kairos": false,
+      "timestamp": "2026-05-24T16:45:08Z"
+    }
+  },
+  "edges": [
+    {
+      "from": "N-fe5bb28a0fd3c5c3",
+      "to": "N-0027d9b09514b660",
+      "gradient": [
+        0.0,
+        0.19611613513818416,
+        0.0,
+        0.0,
+        -0.9805806756909201
+      ],
+      "magnitude": 0.15297058540778358,
+      "cause": "sequential_commit"
+    },
+    {
+      "from": "N-e489c58a49770721",
+      "to": "N-0027d9b09514b660",
+      "gradient": [
+        0.0,
+        0.19611613513818416,
+        0.0,
+        0.0,
+        -0.9805806756909201
+      ],
+      "magnitude": 0.15297058540778358,
+      "cause": "resonance_proximity"
+    },
+    {
+      "from": "N-e489c58a49770721",
+      "to": "N-7fe94b1c26ebba15",
+      "gradient": [
+        0.0,
+        0.19611613513818416,
+        0.0,
+        0.0,
+        -0.9805806756909201
+      ],
+      "magnitude": 0.15297058540778358,
+      "cause": "resonance_proximity"
+    },
+    {
+      "from": "N-fe5bb28a0fd3c5c3",
+      "to": "N-7fe94b1c26ebba15",
+      "gradient": [
+        0.0,
+        0.19611613513818416,
+        0.0,
+        0.0,
+        -0.9805806756909201
+      ],
+      "magnitude": 0.15297058540778358,
+      "cause": "resonance_proximity"
+    }
+  ],
+  "adjacency": {
+    "N-fe5bb28a0fd3c5c3": [
+      "N-0027d9b09514b660",
+      "N-7fe94b1c26ebba15"
+    ],
+    "N-2ce50b83cedead06": [],
+    "N-e489c58a49770721": [
+      "N-0027d9b09514b660",
+      "N-7fe94b1c26ebba15"
+    ],
+    "N-7fe94b1c26ebba15": [],
+    "N-0027d9b09514b660": []
+  }
+}
