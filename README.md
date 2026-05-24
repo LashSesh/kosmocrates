@@ -405,14 +405,25 @@ tree of conjunctions, disjunctions, negations, and leaf checks:
 
 ```rust
 pub enum RulePredicate {
-    All(Vec<RulePredicate>), Any(Vec<RulePredicate>), Not(Box<RulePredicate>),
-    MinQticClass(u8),           // qtic_class >= n
-    MaxUncertainty(f64),        // uncertainty <= u
-    RequireAttribution,         // agent_id present
-    CoherenceGate,              // coherence_potential >= 0
-    NotHallucinationAttractor,  // NOT(stability>0.8 AND kuramoto<0.2) — PSE-S4
-    MinStability(f64),
+    // Structural invariants
+    MinStability(f64),          // stability_score >= threshold
+    MinKuramoto(f64),           // kuramoto_coherence >= threshold
+    MaxFreeEnergy(f64),         // free_energy <= threshold
+    MinEvidenceEntries(usize),  // evidence_chain.len() >= n
+    // Gate / conformance invariants
+    CoherenceGate,              // stability > 0.5 AND kuramoto > 0.3 (heuristic Kairos)
+    MinQticClass(QticClass),    // qtic_class >= Q0..Q5
+    PathInvariant,              // qtic cert.path_inv == true (Q5 gate)
+    // Agent invariants
+    RequiresAgentAttribution,   // agent_id is non-empty
+    // Boolean combinators (composable — express any predicate tree)
+    All(Vec<RulePredicate>),
+    Any(Vec<RulePredicate>),
+    Not(Box<RulePredicate>),
 }
+// PSE-S4 hallucination attractor expressed via composable predicates:
+// Not(All([MinStability(0.8), Not(MinKuramoto(0.2))]))
+// = NOT(stability > 0.8 AND kuramoto < 0.2)
 ```
 
 Two preset constitutions: `Constitution::eu_ai_act_minimal()` (Articles 9/13/17) and
