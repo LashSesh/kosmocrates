@@ -39,6 +39,111 @@ note explicitly says so.
 
 ### Added
 
+* **Pfad B — Constitutional Interceptor** (`crates/pse-constitutional-interceptor`,
+  11 unit tests) — action-level governance gate layered over the PSE server.
+
+  New crate `pse-constitutional-interceptor`:
+  - `ActionContext { verb, target, description, metadata }` — describes any proposed
+    system action (request, write, delete, execute, …).
+  - `Decision::Allow | Block { rule_id, reason } | Warn { rule_id, reason }` — the
+    three constitutional outcomes.
+  - `ConstitutionalEvaluator` — evaluates an `ActionContext` against loaded `RuleAtom`s.
+    Two-pass evaluation: Pass 1 scans all triggered rules for Blocking (blocking always
+    wins, regardless of rule list order); Pass 2 scans for Required (strict mode →
+    Block; non-strict → Warn). Trigger matching is case-insensitive substring over
+    `"verb target description"`.
+  - `EvaluationReport` — per-rule trigger / decision audit trail returned with every
+    evaluation.
+  - **Strict mode** auto-activates when the nxalien `EpistemicSignal` is Drifting or
+    Diverging — Required rules escalate from Warn to Block automatically.
+
+  Tower middleware (`tools/pse-server/src/constitutional.rs`):
+  - `ConstitutionalLayer` / `ConstitutionalService<S>` — wraps the entire app router.
+    Requests without `x-nxalien-*` headers pass through transparently.
+    Block decision → 403 JSON response; Warn decision → `x-nxalien-warn` header added
+    to the upstream response without interrupting the handler.
+  - `POST /constitutional/check` — evaluate an `ActionContext` against the server's
+    loaded rules. Accepts `{ action, strict_mode? }`, returns
+    `{ report, active_rule_count, server_strict_mode }`. Returns 403 on Block, 200
+    on Allow or Warn (with warn details inline). Strict mode defaults to the server's
+    current epistemic signal state (Drifting/Diverging → strict).
+  - The `nxalien_bundle` handler refreshes the evaluator's loaded rule set and updates
+    the strict mode flag after every evolution cycle.
+
+* **Pfad C — Multi-Repo Attractor** (`tools/nxalien-cli`) — `nxalien compile`
+  extended with `--remote <url>` and `--remote-only` flags.
+
+  - `--remote <url>`: after building the local bundle, POST it to a running PSE server
+    at `<url>/nxalien/bundle` via `reqwest::blocking`. Prints the remote server's
+    `EpistemicSignal`, IL health (`MemoryHealthReport`), and QTIC statistics from the
+    JSON response.
+  - `--remote-only`: after the remote POST, skip IL commit and `GraphState` update on
+    the local filesystem. Useful for repos that treat the shared PSE server as the
+    single central attractor.
+  - `RemoteBundleResponse / RemoteSignal / RemoteILHealth` — typed response structs
+    (`Deserialize`) for parsing the server JSON reply.
+  - Enables multi-repo governance: any repository can contribute governance rules to a
+    shared PSE attractor over HTTP, without filesystem access to the central IL store.
+  - `reqwest = { workspace = true }` and `pse-exploratory` added to
+    `tools/nxalien-cli/Cargo.toml`.
+
+* **Pfad D — Exploratory Ledger** (`crates/pse-exploratory`, 16 unit tests) —
+  negative-ψ hypothesis tracking for the nxalien governance pipeline.
+
+  New crate `pse-exploratory`:
+  - `EntryStatus::Pending | Landed { grounded_at_run, grounded_psi } |
+    Decayed { decayed_at_run }`.
+  - `ExploratoryEntry { rule_id, initial_psi, initial_qtic, block_hash_prefix,
+    added_at_run, decay_after_runs, status }`.
+  - Constants: `EXPLORATORY_PSI_THRESHOLD: f64 = 0.0`,
+    `DEFAULT_DECAY_AFTER_RUNS: u64 = 10`.
+  - `ExploratoryLedger` — file-backed at `<nxalien_dir>/exploratory.json`:
+    * `ingest(rule_id, psi, qtic, block_hash_prefix, run)` — idempotent; only parks
+      entries with ψ < 0. Already-Pending entries for the same rule_id are no-ops.
+    * `check_landings(grounded, current_run)` — same rule_id reappears with new ψ ≥ 0
+      → `Pending → Landed` transition.
+    * `tick_decay(current_run)` — Pending entries older than `decay_after_runs` runs
+      → `Pending → Decayed` transition.
+    * `to_unknown_slots()` — Pending → `Unknown` slot (confidence =
+      `(1+ψ).clamp(0, 0.99)`); Decayed → `Stale` slot. Used to surface hypotheses in
+      the `[NXALIEN-CONTEXT]` block.
+  - `ExploratoryLedgerSummary { pending_count, landed_count, decayed_count, mean_psi }`.
+
+  Integrated into the nxalien pipeline:
+  - `nxalien compile`: rules with ψ < 0 marked with `◈` in IL crystal output; these
+    are ingested into the ledger; landing/decay checked each run; `exploratory_summary.json`
+    written to `.nxalien/`.
+  - `nxalien_bundle` handler: updates the exploratory ledger after every bundle
+    (check_landings → tick_decay → ingest new negative-ψ entries → save).
+  - `GET /exploratory/status` server route: `{ active, summary, pending_unknowns }`.
+
+* **Pfad E — Epistemic Thunderbolt Vector** (`crates/pse-reasoning`, 10 unit tests) —
+  D=ψ·ρ·ω guided multi-hop reasoning over the IL knowledge graph.
+
+  New crate `pse-reasoning`:
+  - `ThunderboltConfig { max_steps: 6, min_d_threshold: 0.01, top_k_per_step: 32 }`.
+  - `ReasoningStep { step_index, crystal_id_hex, d_score, cumulative_d, qtic_class,
+    stability_score, is_exploratory }`. `is_exploratory = qtic_class ≤ 1`.
+  - `TerminationReason::MaxSteps | MinThreshold | NoNewMatches | EmptyStore`.
+  - `ReasoningChain { query, steps, total_d, mean_d, terminated_by,
+    has_exploratory_steps }` + helper methods `peak_d()`, `mean_qtic()`, `is_empty()`.
+  - `guide(query, store, config) -> ReasoningChain` — Epistemic Thunderbolt Vector:
+    1. `text_to_vector8(query)` → initial 8D semantic vector.
+    2. `score_tripolar(vec)` → all IL crystals ranked by D = ψ·ρ·ω.
+    3. Select highest-D unvisited crystal (loop prevention via `HashSet<String>`).
+    4. `crystal_meta(id)` → `(qtic_class, stability_score)` for step annotation.
+    5. Advance: `crystal_vector8(id)` → next query vector.
+    6. Repeat until `MaxSteps | MinThreshold | NoNewMatches | EmptyStore`.
+
+  Two new methods added to `ILStore` in `adapters/pse-adapter-il`:
+  `crystal_vector8(crystal_id_hex) -> Option<Vec<f64>>` and
+  `crystal_meta(crystal_id_hex) -> Option<(u8, f64)>`.
+
+  Server route `POST /reasoning/guide` accepts `{ query, max_steps?, min_d_threshold? }`
+  and returns the full `ReasoningChain`. Returns `{ active: false }` when the IL store
+  is not loaded. Live example: 4-hop chain on a 5-crystal store, `total_d = 0.835`,
+  terminated by `MaxSteps`.
+
 * **nxalien — agent-context exoskeleton** (`crates/pse-nxalien-*`, `tools/nxalien-cli`) —
   six new crates + CLI implementing the nxalien governance layer as a fully interwoven
   PSE subsystem. nxalien is not a standalone product; every subsystem is wired to the
