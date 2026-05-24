@@ -19,7 +19,7 @@ use pse_nxalien_core::{
 };
 use pse_nxalien_cube::HypercubeHdag;
 use pse_nxalien_evolve::{
-    commit_rules_to_il,
+    agenda_to_unknowns, commit_rules_to_il,
     evolution::{apply_validated_proposals, propose_rule_evolution, EvolutionGuard},
     graph_state::GraphState,
     signal::EpistemicSignal,
@@ -260,10 +260,8 @@ fn cmd_compile(args: &[String]) -> Result<()> {
         .unwrap_or(0.0);
     let live_graph = graph_state.ingest_and_update(&bundle, timestamp);
     const ATTRACTOR_K: usize = 8;
-    let signal = EpistemicSignal::extract(&live_graph, &graph_state, ATTRACTOR_K);
-
-    println!("  PSE signal    : {:?} (dist={:.3}, trend={:.4})",
-        signal.stability, signal.distance_to_attractor, signal.free_energy_trend);
+    let signal = EpistemicSignal::extract_with_il(&live_graph, &graph_state, ATTRACTOR_K, &il_path);
+    println!("  PSE signal    : {}", signal.summary_line());
 
     // Propose and apply validated rule evolutions.
     let proposals = propose_rule_evolution(&signal, &bundle.rules, &policy);
@@ -281,6 +279,20 @@ fn cmd_compile(args: &[String]) -> Result<()> {
         println!("               : nxalien.evolved-rules.json");
     } else {
         println!("  Evolution     : no proposals (signal {:?})", signal.stability);
+    }
+
+    // IL agenda → UnknownSlots (surface at-risk crystals to the agent).
+    if let Some(ref health) = signal.il_health {
+        let agenda_unknowns = agenda_to_unknowns(&health.agenda_items, 0.50);
+        if !agenda_unknowns.is_empty() {
+            println!("  IL agenda     : {} item(s) → unknowns", agenda_unknowns.len());
+            for u in &agenda_unknowns {
+                println!("    [p≥0.5] {}", u.name);
+            }
+            let agenda_path = nxa_dir.join("il_agenda_unknowns.json");
+            write_json(&agenda_path, &agenda_unknowns)?;
+            println!("               : .nxalien/il_agenda_unknowns.json");
+        }
     }
 
     // Persist signal and graph state.

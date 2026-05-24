@@ -182,6 +182,99 @@ pub fn commit_rules_to_il(
     summary
 }
 
+// ─── IL health + agenda snapshot ─────────────────────────────────────────────
+
+/// Compact snapshot of the IL store's health and agenda — serializable,
+/// embedded into EpistemicSignal so every compile run carries full IL state.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ILHealthSnapshot {
+    pub total_crystals: usize,
+    pub mean_qtic_class: f64,
+    pub fraction_q4_plus: f64,
+    pub mean_uncertainty: f64,
+    pub at_risk_count: usize,
+    pub healthy: bool,
+    pub agenda_items: Vec<AgendaItemSnapshot>,
+}
+
+/// Serializable summary of a single epistemic agenda item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgendaItemSnapshot {
+    pub priority: f64,
+    pub verb: String,
+    pub rationale: String,
+    pub expected_uncertainty_delta: f64,
+}
+
+/// Open the IL store at `il_path` and read its current health + agenda.
+///
+/// Returns `None` if the store does not exist yet (first run before any
+/// commit has happened) or if opening fails.
+pub fn load_il_health_and_agenda(il_path: &Path) -> Option<ILHealthSnapshot> {
+    if !il_path.exists() {
+        return None;
+    }
+    let store = ILStore::open(il_path, "nxalien-v1").ok()?;
+    if store.is_empty() {
+        return None;
+    }
+
+    let health = store.memory_health();
+    let agenda = store.epistemic_agenda(&Default::default());
+
+    let items: Vec<AgendaItemSnapshot> = agenda
+        .items
+        .iter()
+        .map(|item| AgendaItemSnapshot {
+            priority: item.priority,
+            verb: item.action.verb().to_string(),
+            rationale: item.rationale.clone(),
+            expected_uncertainty_delta: item.expected_uncertainty_delta,
+        })
+        .collect();
+
+    Some(ILHealthSnapshot {
+        total_crystals: health.total_crystals,
+        mean_qtic_class: health.mean_qtic_class.unwrap_or(0.0),
+        fraction_q4_plus: health.fraction_q4_plus,
+        mean_uncertainty: health.mean_uncertainty,
+        at_risk_count: health.at_risk_count,
+        healthy: health.is_healthy(),
+        agenda_items: items,
+    })
+}
+
+/// Convert agenda snapshots into UnknownSlots for the nxalien compile output.
+///
+/// Only agenda items with priority ≥ `min_priority` are included.
+/// The slots appear in the `[NXALIEN-CONTEXT]` block so agents see them.
+pub fn agenda_to_unknowns(
+    items: &[AgendaItemSnapshot],
+    min_priority: f64,
+) -> Vec<pse_nxalien_types::UnknownSlot> {
+    use pse_nxalien_types::{UnknownSlot, UnknownStatus};
+
+    items
+        .iter()
+        .filter(|item| item.priority >= min_priority)
+        .enumerate()
+        .map(|(idx, item)| UnknownSlot {
+            name: format!(
+                "il-agenda-{}-{:03}",
+                item.verb.to_lowercase(),
+                idx,
+            ),
+            domain: vec!["il-health".to_string(), item.verb.to_lowercase()],
+            status: UnknownStatus::Unknown,
+            candidates: vec![item.rationale.clone()],
+            evidence: vec![],
+            resolution: None,
+            confidence: 1.0 - item.expected_uncertainty_delta.min(1.0),
+            expires: None,
+        })
+        .collect()
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

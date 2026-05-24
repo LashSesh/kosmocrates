@@ -239,6 +239,7 @@ mod tests {
             run_count: 5,
             topology: TopologySignature::default(),
             stability,
+            il_health: None,
         }
     }
 
