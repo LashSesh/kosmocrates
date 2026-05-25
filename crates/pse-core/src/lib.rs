@@ -195,7 +195,10 @@ impl GlobalState {
             adaptive,
             scale_state: pse_scale::MultiScaleState::default(),
             pattern_hits: 0,
-            memory: PatternMemory::new(MemoryConfig::default()),
+            memory: PatternMemory::new(MemoryConfig {
+                similarity_threshold: config.consensus.memory_similarity_threshold,
+                ..MemoryConfig::default()
+            }),
             last_data_helix: None,
             navigator_state: None,
             #[cfg(feature = "swarm")]
@@ -649,13 +652,14 @@ pub fn macro_step(
             return Ok(None);
         }
         // Fallback: check archive region overlap (within-session)
+        let dom_threshold = config.consensus.archive_dominance;
         let dominated = state.archive.crystals().iter().any(|c| {
             if c.region.is_empty() {
                 return false;
             }
             let overlap = region.iter().filter(|v| c.region.contains(v)).count();
             let coverage = overlap as f64 / region.len().max(1) as f64;
-            coverage >= 0.7
+            coverage >= dom_threshold
         });
         if dominated {
             state.pattern_hits += 1;
