@@ -1756,6 +1756,7 @@ dependencies = [
 name = "pse"
 version = "0.1.0"
 dependencies = [
+ "pse-adapter-il",
  "pse-capsule",
  "pse-cascade",
  "pse-constraint",
@@ -1768,6 +1769,7 @@ dependencies = [
  "pse-metatron",
  "pse-navigator",
  "pse-pmhd",
+ "pse-reasoning",
  "pse-registry",
  "pse-replay",
  "pse-scale",
