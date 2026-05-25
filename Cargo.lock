@@ -2367,6 +2367,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-paper-bench"
+version = "0.1.0"
+dependencies = [
+ "pse-adapter-il",
+ "pse-bench-gt",
+ "pse-constitutional-interceptor",
+ "pse-eval-matrix",
+ "pse-nxalien-types",
+ "pse-reasoning",
+ "pse-types",
+ "rand 0.8.6",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+]
+
+[[package]]
 name = "pse-phase-matrix-cli"
 version = "0.1.0"
 dependencies = [

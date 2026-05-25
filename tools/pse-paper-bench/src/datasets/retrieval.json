@@ -1,0 +1,376 @@
+{
+  "documents": [
+    {"id": "thermo-001", "title": "Entropy and the Second Law of Thermodynamics", "body": "The second law of thermodynamics states that the total entropy of an isolated system can never decrease over time. Entropy is a measure of the number of microscopic configurations compatible with a macroscopic state. Boltzmann's famous equation S = k ln W relates entropy to the statistical weight of configurations.", "domain": "thermodynamics", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "thermo-002", "title": "Carnot Cycle and Thermodynamic Efficiency", "body": "The Carnot cycle defines the maximum efficiency of a heat engine operating between two thermal reservoirs. No real engine can exceed Carnot efficiency, which depends only on the temperatures of the hot and cold reservoirs. The cycle consists of two isothermal and two adiabatic processes.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "thermo-003", "title": "Statistical Mechanics and Partition Functions", "body": "Statistical mechanics bridges microscopic particle dynamics and macroscopic thermodynamic quantities. The partition function Z encodes the statistical properties of a system in thermal equilibrium, from which free energy, entropy, and other thermodynamic potentials can be derived.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-004", "title": "Boltzmann Distribution and Thermal Equilibrium", "body": "The Boltzmann distribution gives the probability that a system occupies a particular microstate at thermal equilibrium. The probability is proportional to exp(-E/kT), where E is the energy of the state and T is the temperature. This distribution underlies all of statistical thermodynamics.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "thermo-005", "title": "Gibbs Free Energy and Chemical Equilibrium", "body": "The Gibbs free energy G = H - TS determines the direction of chemical reactions at constant pressure and temperature. A reaction proceeds spontaneously when delta G < 0. At equilibrium, the Gibbs free energy is minimized and delta G = 0.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-006", "title": "Thermodynamic Potentials and Legendre Transforms", "body": "Thermodynamic potentials — internal energy, enthalpy, Helmholtz free energy, Gibbs free energy — are related by Legendre transforms. Each potential is most useful under specific constraints of temperature, pressure, or volume.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-007", "title": "Phase Transitions and Critical Phenomena", "body": "Phase transitions occur when a system changes its state of matter. First-order transitions involve latent heat; second-order (continuous) transitions are characterized by diverging susceptibility and correlation length near the critical point. Critical exponents describe universal scaling behavior.", "domain": "thermodynamics", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "thermo-008", "title": "Ising Model and Ferromagnetism", "body": "The Ising model describes ferromagnetism using interacting binary spins on a lattice. It exhibits a phase transition at the Curie temperature between ordered and disordered phases. The model has exact solutions in one and two dimensions and has become a paradigm for statistical mechanics.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-009", "title": "Fluctuation-Dissipation Theorem", "body": "The fluctuation-dissipation theorem relates the spontaneous fluctuations of a system in equilibrium to its response to external perturbations. This fundamental result links the diffusion coefficient to the mobility through the Einstein relation.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-010", "title": "Non-Equilibrium Thermodynamics and Entropy Production", "body": "Non-equilibrium thermodynamics describes systems that are not in thermal equilibrium. Entropy production rate quantifies the dissipation. The Onsager reciprocal relations connect irreversible processes in the linear regime near equilibrium.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "thermo-011", "title": "Maxwell Relations and Thermodynamic Identities", "body": "Maxwell relations are a set of equations derived from the symmetry of second derivatives of thermodynamic potentials. They connect partial derivatives of state variables and are essential tools for computing thermodynamic quantities from experimentally accessible measurements.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-012", "title": "Van der Waals Equation and Real Gases", "body": "The van der Waals equation modifies the ideal gas law to account for intermolecular attractions and finite molecular volume. It predicts vapor-liquid phase transitions and the existence of a critical point characterized by a critical temperature, pressure, and volume.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-013", "title": "Heat Capacity and Equipartition Theorem", "body": "The equipartition theorem states that each quadratic degree of freedom contributes kT/2 to the average energy. The heat capacity of a system at constant volume equals the derivative of internal energy with respect to temperature. Quantum effects cause deviations at low temperatures.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-014", "title": "Thermodynamic Cycles and Refrigeration", "body": "Refrigeration cycles operate by absorbing heat from a cold reservoir and rejecting it to a hot reservoir, requiring work input. The coefficient of performance measures refrigeration efficiency. Common refrigeration cycles include vapor compression, absorption, and thermoelectric cooling.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-015", "title": "Renormalization Group in Statistical Physics", "body": "The renormalization group provides a systematic framework for studying how physical systems behave across different length scales. Fixed points of the RG flow correspond to scale-invariant critical systems. It explains universality — systems with different microscopic details share the same critical exponents.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "thermo-016", "title": "Quantum Statistical Mechanics and Bose-Einstein Condensation", "body": "Quantum statistical mechanics applies to systems where quantum effects are important. Bosons obey Bose-Einstein statistics and can undergo Bose-Einstein condensation at low temperatures, where macroscopic occupation of the ground state occurs. Fermions obey Fermi-Dirac statistics.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-017", "title": "Langevin Equation and Brownian Motion", "body": "The Langevin equation describes the dynamics of a particle in a viscous medium subject to random thermal forces. The solution exhibits Brownian motion with a mean squared displacement proportional to time. The diffusion coefficient is related to temperature and friction by the Einstein relation.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-018", "title": "Jarzynski Equality and Non-Equilibrium Work Relations", "body": "The Jarzynski equality relates the non-equilibrium work performed during a thermodynamic process to the equilibrium free energy difference. It holds even far from equilibrium and is a fundamental result in stochastic thermodynamics.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-019", "title": "Mean Field Theory and Symmetry Breaking", "body": "Mean field theory approximates many-body interactions by replacing them with an effective field. It predicts phase transitions and spontaneous symmetry breaking. While neglecting fluctuations, it captures qualitative behavior and becomes exact in high dimensions.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "thermo-020", "title": "Thermodynamics of Information and Maxwell Demon", "body": "The connection between information and thermodynamics is illustrated by Maxwell's demon thought experiment. Landauer's principle states that erasing one bit of information dissipates at least kT ln 2 of energy as heat, linking computation to thermodynamics.", "domain": "thermodynamics", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "thermo-021", "title": "Virial Theorem and Equation of State", "body": "The virial theorem relates the time-averaged kinetic energy to the potential energy in a system. For interacting gases, the virial expansion provides systematic corrections to the ideal gas law as a power series in density.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-022", "title": "Landau Theory of Phase Transitions", "body": "Landau theory describes phase transitions through an order parameter that vanishes in the disordered phase and is nonzero in the ordered phase. The free energy is expanded as a polynomial in the order parameter, with coefficients that depend on temperature.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-023", "title": "Spin Glasses and Frustrated Systems", "body": "Spin glasses are disordered magnetic systems with competing ferromagnetic and antiferromagnetic interactions. They exhibit frustration, where no spin configuration simultaneously satisfies all interactions. Their complex energy landscape serves as a model for combinatorial optimization.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-024", "title": "Monte Carlo Methods in Statistical Mechanics", "body": "Monte Carlo methods simulate thermodynamic systems by sampling configurations according to the Boltzmann distribution. The Metropolis algorithm uses a rejection criterion to ensure detailed balance and convergence to the equilibrium distribution.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "thermo-025", "title": "Path Integrals in Quantum Statistical Mechanics", "body": "Feynman's path integral formulation of quantum mechanics is mathematically equivalent to a partition function for a classical statistical mechanical system in one higher dimension. This quantum-classical correspondence is central to quantum field theory and condensed matter physics.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-026", "title": "Superconductivity and BCS Theory", "body": "Superconductivity is the phenomenon of zero electrical resistance below a critical temperature. BCS theory explains conventional superconductivity through the condensation of Cooper pairs mediated by phonon interactions. The superconducting gap is an energy scale analogous to an order parameter.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-027", "title": "Free Energy and Protein Folding", "body": "Protein folding is thermodynamically driven by minimization of free energy. The hydrophobic effect contributes favorably to folding entropy, while backbone conformational entropy opposes it. Misfolded proteins aggregate and are associated with neurodegenerative diseases.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-028", "title": "Thermodynamics of Black Holes", "body": "Black holes obey thermodynamic laws: Hawking radiation gives black holes a temperature, and the Bekenstein-Hawking entropy is proportional to the horizon area. This suggests deep connections between gravity, thermodynamics, and quantum information theory.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-029", "title": "Chemical Thermodynamics and Reaction Rates", "body": "Chemical kinetics and thermodynamics together determine the rate and equilibrium of chemical reactions. Transition state theory uses thermodynamic concepts to compute reaction rates via the activated complex at the energy barrier.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-030", "title": "Entropy Production and Dissipative Structures", "body": "Ilya Prigogine showed that open systems far from equilibrium can self-organize into dissipative structures. These ordered states are maintained by continuous energy flow and entropy export to the environment. Examples include Belousov-Zhabotinsky reactions and convection cells.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "thermo-031", "title": "Thermodynamics of Polymers and Rubber Elasticity", "body": "The elasticity of rubber is primarily entropic. When a polymer network is stretched, the entropy of the chains decreases because fewer configurations are available. The restoring force is proportional to temperature, unlike metallic springs which are energetically elastic.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-032", "title": "Dimensional Analysis and Scaling in Thermodynamics", "body": "Dimensional analysis and scaling relations provide powerful tools in thermodynamics without solving full models. The law of corresponding states shows that thermodynamic properties of different fluids collapse onto universal curves when scaled by critical parameters.", "domain": "thermodynamics", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "thermo-033", "title": "Boltzmann Equation and Kinetic Theory", "body": "The Boltzmann equation describes the evolution of the probability distribution of particle velocities in a dilute gas. The H-theorem proves that the entropy increases monotonically, providing a microscopic derivation of the second law of thermodynamics.", "domain": "thermodynamics", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-001", "title": "Epistemic Uncertainty Quantification in Machine Learning", "body": "Epistemic uncertainty arises from limited training data and model capacity. Bayesian deep learning methods quantify this uncertainty through posterior distributions over model parameters. Dropout as approximate Bayesian inference provides practical uncertainty estimates without expensive sampling.", "domain": "epistemic_ai", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "ai-002", "title": "Knowledge Graphs and Semantic Reasoning", "body": "Knowledge graphs encode factual knowledge as entities and typed relationships. SPARQL enables querying over RDF knowledge graphs, while OWL provides a logical framework for reasoning. Large-scale knowledge graphs like Wikidata and Freebase contain billions of facts.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-003", "title": "Formal Epistemology and Belief Revision", "body": "Formal epistemology applies mathematical logic to the study of knowledge and rational belief. The AGM postulates provide axioms for rational belief revision when new information is acquired. Possible worlds semantics interprets modal epistemic logic.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-004", "title": "Bayesian Networks and Probabilistic Graphical Models", "body": "Bayesian networks represent probability distributions over variables as directed acyclic graphs. The structure encodes conditional independence assumptions. Exact inference is polynomial in tree-width; approximate methods like belief propagation handle large networks.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-005", "title": "Conformal Prediction and Distribution-Free Uncertainty", "body": "Conformal prediction provides distribution-free uncertainty quantification with guaranteed coverage. It constructs prediction sets that contain the true label with a user-specified probability. The approach works for any exchangeable data and any underlying model.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-006", "title": "Causal Discovery from Observational Data", "body": "Causal discovery algorithms infer causal structure from observational data using conditional independence tests (PC algorithm) or score-based methods (GES). Identifiability conditions determine when the causal structure can be uniquely recovered from the data distribution.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-007", "title": "Epistemic Logic and Multi-Agent Knowledge", "body": "Epistemic logic formalizes knowledge and belief using modal operators K (knows) and B (believes). Multi-agent epistemic logic captures distributed knowledge, common knowledge, and reasoning about what others know. Applications include distributed systems protocols and game theory.", "domain": "epistemic_ai", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "ai-008", "title": "Probabilistic Programming and Bayesian Inference", "body": "Probabilistic programming languages allow specification of probabilistic models as programs and automate Bayesian inference. Systems like Stan, PyMC, and Pyro use Hamiltonian Monte Carlo or variational inference to compute posterior distributions over model parameters.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-009", "title": "Out-of-Distribution Detection and Open World Recognition", "body": "Out-of-distribution detection identifies inputs that differ significantly from the training distribution. Methods include maximum softmax probability, Mahalanobis distance, energy-based models, and generative model likelihood ratios. Reliable OOD detection is critical for safe AI deployment.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-010", "title": "Active Learning and Optimal Experimental Design", "body": "Active learning selects the most informative examples to label, reducing annotation cost while maintaining model quality. Acquisition functions like expected information gain, uncertainty sampling, and query-by-committee guide the selection. Bayesian optimal experimental design formalizes this process.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-011", "title": "Neuro-Symbolic Integration and Logical Neural Networks", "body": "Neuro-symbolic AI combines neural networks with logical reasoning. Logical neural networks encode first-order logic formulas as differentiable computational graphs. This enables learning and inference in a unified framework with interpretable representations.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-012", "title": "Information-Theoretic Approaches to Explainability", "body": "Information theory provides tools for understanding neural network representations. Mutual information between layers and inputs measures the information retained. The information bottleneck principle suggests that good representations compress the input while preserving task-relevant information.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-013", "title": "Grounded Language Models and Symbol Anchoring", "body": "The symbol grounding problem asks how symbolic representations acquire meaning. Neural language models learn distributional representations but may lack grounding in perceptual experience. Multi-modal models that process both text and images provide partial solutions to grounding.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-014", "title": "Epistemic Planning and Knowledge-Based Agent Design", "body": "Epistemic planning extends classical AI planning to settings where agents have incomplete or uncertain knowledge. Plans must account for sensing actions that acquire information and may need to reason about the knowledge states of other agents in multi-agent settings.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-015", "title": "Calibration and Reliability of Probabilistic Predictions", "body": "A well-calibrated model assigns probabilities that match empirical frequencies. Temperature scaling, isotonic regression, and Platt scaling are post-hoc calibration methods. Reliability diagrams visualize calibration error across confidence levels.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-016", "title": "Logical Constraints in Neural Networks", "body": "Integrating logical constraints into neural network training improves generalization and sample efficiency. Methods include differentiable logic (semantic loss), constraint satisfaction layers, and posterior regularization. Symbolic knowledge can guide learning toward valid solutions.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-017", "title": "Inductive Logic Programming and Relational Learning", "body": "Inductive logic programming learns first-order Horn clause theories from examples and background knowledge. It can learn interpretable rules that generalize beyond feature-based representations. ProLog-style logic programs serve as hypothesis spaces.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-018", "title": "Markov Logic Networks and Probabilistic Logic", "body": "Markov logic networks combine probabilistic graphical models with first-order logic. Each formula is assigned a weight; worlds that violate formulas are exponentially less probable according to those weights. This enables joint learning and inference over relational domains.", "domain": "epistemic_ai", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "ai-019", "title": "Verification and Fairness of Machine Learning Models", "body": "Formal verification of machine learning models uses abstract interpretation, SMT solvers, or interval arithmetic to prove properties like robustness and fairness. Individual fairness requires similar predictions for similar individuals; group fairness requires statistical parity across demographic groups.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-020", "title": "Continual Learning and Catastrophic Forgetting", "body": "Continual learning systems must learn new tasks without forgetting previous ones. Catastrophic forgetting occurs when training on new data overwrites weights encoding previous tasks. Elastic weight consolidation, progressive neural networks, and memory replay address this challenge.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-021", "title": "Structured Prediction and Globally Consistent Outputs", "body": "Structured prediction produces outputs with complex interdependencies, such as parse trees or sequences. Conditional random fields and structured SVMs enforce global consistency. Energy-based models learn an energy function whose minima correspond to valid output structures.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-022", "title": "Self-Supervised Learning and Representation Learning", "body": "Self-supervised learning exploits structure in unlabeled data to learn useful representations. Contrastive learning maximizes agreement between different views of the same example. Masked autoencoders predict missing parts of inputs, forcing the model to learn semantic structure.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-023", "title": "Transformer Attention and Long-Range Dependencies", "body": "The transformer architecture uses self-attention to model dependencies between all pairs of positions in a sequence. This enables learning long-range dependencies that are difficult for recurrent networks. Positional encodings convey sequence order information to the position-invariant attention mechanism.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-024", "title": "Metacognition and Self-Monitoring in AI Systems", "body": "Metacognition refers to the ability to monitor and regulate one's own cognitive processes. In AI systems, metacognitive capabilities include knowing when to ask for clarification, recognizing errors, and estimating confidence. These capabilities are essential for reliable autonomous systems.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-025", "title": "Compositional Generalization and Systematic Reasoning", "body": "Compositional generalization refers to the ability to understand and produce novel combinations of known concepts. Humans readily generalize compositionally; neural networks often fail to do so. SCAN and COGS benchmarks test compositional generalization in sequence-to-sequence models.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-026", "title": "Uncertainty in Reinforcement Learning", "body": "Uncertainty in reinforcement learning arises from partial observability, stochastic transitions, and limited experience. Exploration-exploitation tradeoffs are managed through uncertainty estimates. Thompson sampling and UCB algorithms use uncertainty to guide exploration.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-027", "title": "Abductive Reasoning and Inference to the Best Explanation", "body": "Abductive reasoning infers the most likely explanation for observed facts. It differs from deduction (which draws necessary conclusions) and induction (which generalizes from examples). Peirce's abduction is widely used in diagnostic systems and scientific reasoning.", "domain": "epistemic_ai", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "ai-028", "title": "Neural-Symbolic Concept Learners", "body": "Neural-symbolic concept learners combine neural perception with symbolic reasoning. They learn symbolic concepts from raw data and use them for compositional reasoning. Examples include differentiable forward simulators and concept learning from few examples.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-029", "title": "Foundation Models and Emergent Capabilities", "body": "Foundation models are large pre-trained models that exhibit emergent capabilities not present in smaller models. Few-shot learning, chain-of-thought reasoning, and instruction following emerge at sufficient scale. Understanding and predicting emergence is an active research challenge.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-030", "title": "Knowledge Distillation and Model Compression", "body": "Knowledge distillation transfers knowledge from a large teacher model to a smaller student model. The student is trained to mimic the teacher's soft output probabilities rather than hard labels. This compression technique yields compact models with performance close to the teacher.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-031", "title": "Counterfactual Explanations and Algorithmic Recourse", "body": "Counterfactual explanations identify the minimum changes to an input that would change the model's prediction. They provide actionable feedback to individuals affected by algorithmic decisions. Generating valid, proximate counterfactuals is a structured prediction problem.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "ai-032", "title": "Temporal Knowledge Graphs and Event Reasoning", "body": "Temporal knowledge graphs augment facts with timestamps, enabling reasoning about when events occurred and how facts change over time. They support temporal question answering and event prediction. Special embedding methods handle the temporal dimension.", "domain": "epistemic_ai", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "ai-033", "title": "Commonsense Reasoning and World Models", "body": "Commonsense reasoning requires understanding of everyday facts about the world that humans take for granted. Commonsense knowledge bases like ConceptNet encode such knowledge. Neural networks can learn commonsense associations but struggle with robust inference.", "domain": "epistemic_ai", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-001", "title": "P-waves and S-waves in Seismic Propagation", "body": "Seismic waves propagate through the Earth in two primary body wave types. P-waves (primary waves) are compressional and travel fastest, while S-waves (secondary waves) are shear waves that travel slower and cannot pass through liquids. The P-S arrival time difference is used to determine earthquake distance.", "domain": "seismology", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "seismo-002", "title": "Richter Scale and Moment Magnitude", "body": "The Richter magnitude scale was the first quantitative measure of earthquake size. Modern seismology uses the moment magnitude scale (Mw), which is calibrated to agree with Richter magnitudes for moderate earthquakes but is more accurate for large events. Each unit increase represents approximately 31.6 times more energy.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-003", "title": "Seismic Hazard Assessment and Probabilistic Methods", "body": "Probabilistic seismic hazard analysis (PSHA) quantifies the likelihood of exceeding a given ground motion level at a site over a specified period. It integrates over all possible earthquake scenarios, including magnitude, location, and fault type. PSHA results inform building codes and risk assessments.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-004", "title": "Fault Mechanics and Earthquake Nucleation", "body": "Earthquakes nucleate when stress on a fault exceeds the frictional resistance. Rate-and-state friction laws describe how friction evolves with slip rate and contact age. The nucleation zone size depends on stiffness and frictional parameters, determining whether slip will accelerate to dynamic rupture.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-005", "title": "Surface Waves and Ground Motion Prediction", "body": "Surface waves — Rayleigh waves and Love waves — travel along the Earth's surface and are responsible for most damage in distant earthquakes. Ground motion prediction equations (GMPEs) relate earthquake magnitude, distance, and site conditions to expected ground shaking intensity.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-006", "title": "Seismic Tomography and Earth Structure", "body": "Seismic tomography uses travel time variations of seismic waves to image the Earth's interior velocity structure. Similar to medical CT scanning, it reveals mantle plumes, subducted plates, and heterogeneity in the deep Earth. The technique has revolutionized our understanding of mantle dynamics.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-007", "title": "Aftershock Sequences and Gutenberg-Richter Law", "body": "Aftershocks follow the mainshock in a sequence governed by Omori's law: the aftershock rate decays as an inverse power law of time. The Gutenberg-Richter relation describes the frequency-magnitude distribution of earthquakes as a power law with a b-value typically near 1.", "domain": "seismology", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "seismo-008", "title": "Seismic Early Warning Systems", "body": "Earthquake early warning systems detect the P-wave arrival and rapidly estimate magnitude to alert regions before the more damaging S-waves and surface waves arrive. Lead times range from seconds to tens of seconds. Japan's Shinkansen railway uses early warning to trigger automatic braking.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-009", "title": "Induced Seismicity and Wastewater Injection", "body": "Disposal of wastewater from oil and gas operations by deep well injection has been linked to increased earthquake occurrence in previously aseismic regions. The injected fluids increase pore pressure along pre-existing faults, triggering slip. Monitoring and regulation of injection rates can mitigate risk.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-010", "title": "Tsunami Generation and Propagation", "body": "Tsunamis are generated by submarine earthquakes that produce vertical seafloor displacement, displacing a large volume of water. They propagate across ocean basins at speeds of 500-800 km/h. Runup heights can exceed 30 meters as waves shoal in shallow coastal waters, as observed in the 2011 Tohoku tsunami.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-011", "title": "Subduction Zone Megathrust Earthquakes", "body": "Subduction zones produce the world's largest earthquakes where oceanic plates dive beneath continental plates. Megathrust earthquakes can exceed magnitude 9 and generate devastating tsunamis. The Cascadia, Japan, and Chile subduction zones are monitored as sources of future great earthquakes.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-012", "title": "Seismic Anisotropy and Mantle Flow", "body": "Seismic anisotropy — the dependence of wave speed on propagation direction — reflects preferred crystallographic alignment of minerals. In the mantle, anisotropy reveals patterns of past and present flow. Shear wave splitting measurements provide a direct probe of mantle deformation fabrics.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-013", "title": "Microseismicity and Tectonic Stress", "body": "Microseismic monitoring uses networks of sensitive seismometers to detect small earthquakes invisible to regional networks. In mining and hydraulic fracturing, microseismic monitoring tracks induced fracture propagation. Regional microseismicity patterns reveal tectonic stress orientations.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-014", "title": "Earthquake Source Parameters and Focal Mechanisms", "body": "Focal mechanisms describe the geometry of fault slip during an earthquake using beach ball diagrams that show the orientation of the fault plane and slip direction. First-motion polarities and moment tensor inversion determine the focal mechanism from seismograms recorded at multiple stations.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-015", "title": "Coda Wave Interferometry and Temporal Velocity Changes", "body": "Coda waves — the late, scattered portion of a seismogram — are sensitive probes of velocity changes in the crust. Coda wave interferometry compares seismograms from repeated earthquakes or ambient noise to detect tiny velocity changes associated with stress, fluid, or damage variations.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-016", "title": "Ambient Seismic Noise and Surface Wave Tomography", "body": "The ambient seismic noise field is dominated by ocean wave microseisms in the 5-10 second period band. Cross-correlation of noise records between station pairs retrieves empirical Green's functions equivalent to seismograms between the stations. This enables surface wave tomography without earthquakes.", "domain": "seismology", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "seismo-017", "title": "Deep Learning for Seismic Phase Picking", "body": "Deep learning has transformed seismic phase picking by automatically detecting and classifying P and S wave arrivals in continuous seismograms. Convolutional neural networks trained on millions of labeled arrivals achieve human-level accuracy. These tools enable processing of massive seismic datasets.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-018", "title": "Liquefaction and Earthquake-Induced Ground Failure", "body": "Liquefaction occurs in saturated, loosely packed granular soils when cyclic shaking increases pore water pressure until effective stress falls to zero, causing the soil to behave like a liquid. It caused catastrophic damage in the 1964 Alaska earthquake and 2010 Christchurch earthquake.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-019", "title": "Slow Earthquakes and Episodic Tremor and Slip", "body": "Slow earthquakes release energy over hours to months rather than seconds. Episodic tremor and slip (ETS) events recur periodically in subduction zones at depths of 25-45 km. They may represent nucleation zones for great megathrust earthquakes and inform models of fault behavior.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-020", "title": "Seismic Risk and Exposure in Urban Areas", "body": "Seismic risk depends on hazard, exposure, and vulnerability. Rapid urbanization in seismically active regions increases exposure. Building inventory databases and fragility functions characterize vulnerability. Scenario-based risk assessments identify mitigation priorities for earthquake preparedness.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-021", "title": "Hydroacoustics and Underwater Sound Monitoring", "body": "The SOFAR channel in the deep ocean guides acoustic waves over long distances. Hydroacoustic monitoring stations detect submarine earthquakes, volcanic eruptions, and nuclear explosions. These stations contribute to the Comprehensive Nuclear-Test-Ban Treaty verification network.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-022", "title": "Plate Tectonics and Seismicity Patterns", "body": "The theory of plate tectonics explains the global distribution of seismicity. Most earthquakes occur along plate boundaries — convergent, divergent, and transform. Intraplate earthquakes occur far from plate boundaries and are driven by stress transmitted through the rigid lithosphere.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-023", "title": "Seismic Resilience and Building Performance", "body": "Seismic resilience describes a community's ability to withstand and recover from earthquake damage. Performance-based earthquake engineering quantifies expected damage and loss for various shaking levels. Retrofitting of vulnerable structures reduces seismic risk in older building stock.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-024", "title": "Rheology of the Crust and Mantle", "body": "The crust and mantle deform ductilely over geological time scales and elastically over seismic time scales. The transition between elastic and viscous behavior occurs near the brittle-ductile transition zone. Post-seismic deformation following large earthquakes provides constraints on crustal and upper mantle rheology.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-025", "title": "Strong Motion Seismology and Engineering Applications", "body": "Strong motion seismology studies the intense ground shaking close to large earthquakes. Near-fault ground motions can include directivity pulses and hanging wall effects that amplify shaking. Accelerograph networks record these motions for engineering analysis and GMPE development.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-026", "title": "Seismic Reflection Profiling and Basin Structure", "body": "Seismic reflection profiling shoots acoustic waves into the Earth and records reflections from subsurface interfaces. It reveals sedimentary basin structure, fault geometry, and crustal architecture. The technique is widely used in hydrocarbon exploration and tectonic studies.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-027", "title": "Volcanic Seismicity and Eruption Forecasting", "body": "Volcanoes generate characteristic seismic signals — volcano-tectonic earthquakes, long-period events, and volcanic tremor — that reflect magma movement and pressurization. Continuous seismic monitoring forms the cornerstone of volcanic eruption forecasting and early warning.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-028", "title": "Coulomb Stress Transfer and Earthquake Triggering", "body": "Coulomb stress changes due to an earthquake can bring nearby faults closer to failure, triggering aftershocks and future earthquakes. Static stress transfer propagates instantaneously; dynamic stress transfer operates during passage of seismic waves. Both mechanisms contribute to aftershock patterns.", "domain": "seismology", "stability": 0.88, "kuramoto": 0.80},
+    {"id": "seismo-029", "title": "InSAR and Geodetic Measurement of Crustal Deformation", "body": "Interferometric synthetic aperture radar (InSAR) measures surface deformation at centimeter precision by comparing radar phase of satellite images acquired at different times. Combined with GPS networks, InSAR constrains interseismic coupling, coseismic slip, and postseismic relaxation on faults.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-030", "title": "Seismic Networks and Real-Time Monitoring", "body": "Modern seismic networks consist of arrays of broadband and strong-motion seismometers connected in real time. They rapidly detect, locate, and characterize earthquakes. Dense urban networks enable sophisticated monitoring including early warning, hazard assessment, and structural health monitoring.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55},
+    {"id": "seismo-031", "title": "Mantle Convection and Plume Dynamics", "body": "Mantle convection drives plate tectonics through buoyancy forces from temperature and composition differences. Thermal plumes rise from the core-mantle boundary and produce hotspot volcanism at the surface. Convection models constrain heat flow and the thermal evolution of the Earth.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-032", "title": "Site Amplification and Basin Effects", "body": "Local site conditions significantly amplify or attenuate seismic ground motions. Soft sedimentary basins can amplify shaking by factors of 5-10 relative to bedrock. Nonlinear soil behavior at large strains further modifies amplification. Site amplification is incorporated into building codes through site classification.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-033", "title": "Earthquake Cycle and Interseismic Loading", "body": "The earthquake cycle describes the accumulation and release of tectonic stress over decades to centuries. Interseismic GPS velocities measure strain accumulation on locked fault segments. Paleoseismic trenching reveals the history of past earthquakes from offset features and disturbed stratigraphy.", "domain": "seismology", "stability": 0.40, "kuramoto": 0.30},
+    {"id": "seismo-034", "title": "Global Seismographic Network and Earth Normal Modes", "body": "The Global Seismographic Network operates broadband seismometers at over 150 stations worldwide. Large earthquakes excite Earth's normal modes — standing waves that oscillate with periods of minutes to hours. Analysis of normal modes provides constraints on the Earth's density and elastic structure.", "domain": "seismology", "stability": 0.65, "kuramoto": 0.55}
+  ],
+  "queries": [
+    {
+      "id": "q-thermo-01",
+      "text": "How does entropy change in irreversible processes and what does the second law state?",
+      "relevant": [
+        {"doc_id": "thermo-001", "grade": 2},
+        {"doc_id": "thermo-033", "grade": 1},
+        {"doc_id": "thermo-030", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-02",
+      "text": "What is the Carnot cycle and what determines thermodynamic efficiency?",
+      "relevant": [
+        {"doc_id": "thermo-002", "grade": 2},
+        {"doc_id": "thermo-014", "grade": 1},
+        {"doc_id": "thermo-006", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-03",
+      "text": "Explain phase transitions and critical phenomena in statistical mechanics",
+      "relevant": [
+        {"doc_id": "thermo-007", "grade": 2},
+        {"doc_id": "thermo-013", "grade": 1},
+        {"doc_id": "thermo-022", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-04",
+      "text": "How does the Boltzmann distribution describe thermal equilibrium?",
+      "relevant": [
+        {"doc_id": "thermo-004", "grade": 2},
+        {"doc_id": "thermo-003", "grade": 1},
+        {"doc_id": "thermo-028", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-05",
+      "text": "What is the Gibbs free energy and its role in chemical reactions?",
+      "relevant": [
+        {"doc_id": "thermo-005", "grade": 2},
+        {"doc_id": "thermo-029", "grade": 1},
+        {"doc_id": "thermo-006", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-06",
+      "text": "How does information theory relate to thermodynamics through Maxwell demon?",
+      "relevant": [
+        {"doc_id": "thermo-020", "grade": 2},
+        {"doc_id": "thermo-001", "grade": 1},
+        {"doc_id": "thermo-021", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-07",
+      "text": "What is the renormalization group and universality in phase transitions?",
+      "relevant": [
+        {"doc_id": "thermo-015", "grade": 2},
+        {"doc_id": "thermo-007", "grade": 1},
+        {"doc_id": "thermo-019", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-08",
+      "text": "Describe Brownian motion and the Langevin equation",
+      "relevant": [
+        {"doc_id": "thermo-017", "grade": 2},
+        {"doc_id": "thermo-009", "grade": 1},
+        {"doc_id": "thermo-010", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-09",
+      "text": "How does statistical mechanics explain the partition function?",
+      "relevant": [
+        {"doc_id": "thermo-003", "grade": 2},
+        {"doc_id": "thermo-004", "grade": 1},
+        {"doc_id": "thermo-016", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-thermo-10",
+      "text": "What are dissipative structures and entropy production in open systems?",
+      "relevant": [
+        {"doc_id": "thermo-030", "grade": 2},
+        {"doc_id": "thermo-010", "grade": 1},
+        {"doc_id": "thermo-018", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-01",
+      "text": "How do Bayesian methods quantify epistemic uncertainty in neural networks?",
+      "relevant": [
+        {"doc_id": "ai-001", "grade": 2},
+        {"doc_id": "ai-008", "grade": 1},
+        {"doc_id": "ai-015", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-02",
+      "text": "What are knowledge graphs and how do they enable semantic reasoning?",
+      "relevant": [
+        {"doc_id": "ai-002", "grade": 2},
+        {"doc_id": "ai-011", "grade": 1},
+        {"doc_id": "ai-032", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-03",
+      "text": "Explain formal epistemic logic and its multi-agent extensions",
+      "relevant": [
+        {"doc_id": "ai-007", "grade": 2},
+        {"doc_id": "ai-003", "grade": 1},
+        {"doc_id": "ai-014", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-04",
+      "text": "How do Bayesian networks represent probabilistic dependencies?",
+      "relevant": [
+        {"doc_id": "ai-004", "grade": 2},
+        {"doc_id": "ai-008", "grade": 1},
+        {"doc_id": "ai-026", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-05",
+      "text": "What is Markov logic and probabilistic logic programming?",
+      "relevant": [
+        {"doc_id": "ai-018", "grade": 2},
+        {"doc_id": "ai-017", "grade": 1},
+        {"doc_id": "ai-004", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-06",
+      "text": "How does abductive reasoning explain observations by inference to the best explanation?",
+      "relevant": [
+        {"doc_id": "ai-027", "grade": 2},
+        {"doc_id": "ai-003", "grade": 1},
+        {"doc_id": "ai-033", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-07",
+      "text": "What is out-of-distribution detection and how is it relevant for reliable AI?",
+      "relevant": [
+        {"doc_id": "ai-009", "grade": 2},
+        {"doc_id": "ai-005", "grade": 1},
+        {"doc_id": "ai-001", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-08",
+      "text": "Explain information bottleneck theory and neural network representations",
+      "relevant": [
+        {"doc_id": "ai-012", "grade": 2},
+        {"doc_id": "ai-022", "grade": 1},
+        {"doc_id": "ai-025", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-09",
+      "text": "How does causal discovery infer causal structure from observational data?",
+      "relevant": [
+        {"doc_id": "ai-006", "grade": 2},
+        {"doc_id": "ai-031", "grade": 1},
+        {"doc_id": "ai-023", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-ai-10",
+      "text": "What are foundation models and what emergent capabilities do they exhibit?",
+      "relevant": [
+        {"doc_id": "ai-029", "grade": 2},
+        {"doc_id": "ai-022", "grade": 1},
+        {"doc_id": "ai-020", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-01",
+      "text": "What are P-waves and S-waves and how do they propagate through the Earth?",
+      "relevant": [
+        {"doc_id": "seismo-001", "grade": 2},
+        {"doc_id": "seismo-005", "grade": 1},
+        {"doc_id": "seismo-006", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-02",
+      "text": "How do aftershock sequences follow the Gutenberg-Richter law?",
+      "relevant": [
+        {"doc_id": "seismo-007", "grade": 2},
+        {"doc_id": "seismo-004", "grade": 1},
+        {"doc_id": "seismo-028", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-03",
+      "text": "Explain ambient seismic noise and how it enables tomography without earthquakes",
+      "relevant": [
+        {"doc_id": "seismo-016", "grade": 2},
+        {"doc_id": "seismo-006", "grade": 1},
+        {"doc_id": "seismo-015", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-04",
+      "text": "How is earthquake magnitude measured and what does the Richter scale represent?",
+      "relevant": [
+        {"doc_id": "seismo-002", "grade": 2},
+        {"doc_id": "seismo-001", "grade": 1},
+        {"doc_id": "seismo-007", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-05",
+      "text": "What generates tsunamis and how do they propagate across oceans?",
+      "relevant": [
+        {"doc_id": "seismo-010", "grade": 2},
+        {"doc_id": "seismo-011", "grade": 1},
+        {"doc_id": "seismo-001", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-06",
+      "text": "How does Coulomb stress transfer explain earthquake triggering and aftershocks?",
+      "relevant": [
+        {"doc_id": "seismo-028", "grade": 2},
+        {"doc_id": "seismo-007", "grade": 1},
+        {"doc_id": "seismo-004", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-07",
+      "text": "Describe seismic hazard assessment and probabilistic methods for earthquake risk",
+      "relevant": [
+        {"doc_id": "seismo-003", "grade": 2},
+        {"doc_id": "seismo-020", "grade": 1},
+        {"doc_id": "seismo-023", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-08",
+      "text": "What is seismic tomography and what does it reveal about Earth structure?",
+      "relevant": [
+        {"doc_id": "seismo-006", "grade": 2},
+        {"doc_id": "seismo-012", "grade": 1},
+        {"doc_id": "seismo-016", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-09",
+      "text": "How are fault focal mechanisms determined and what do they indicate?",
+      "relevant": [
+        {"doc_id": "seismo-014", "grade": 2},
+        {"doc_id": "seismo-004", "grade": 1},
+        {"doc_id": "seismo-013", "grade": 1}
+      ]
+    },
+    {
+      "id": "q-seismo-10",
+      "text": "Describe induced seismicity from wastewater injection and its mechanisms",
+      "relevant": [
+        {"doc_id": "seismo-009", "grade": 2},
+        {"doc_id": "seismo-004", "grade": 1},
+        {"doc_id": "seismo-013", "grade": 1}
+      ]
+    }
+  ]
+}
