@@ -57,16 +57,18 @@ while BM25 degrades 77pp — a 23× advantage in robustness.\n\n");
     s.push_str(&format!("| Keyword filter | — | — | — | {:.3} |\n\n", r.b3.keyword_macro_f1));
 
     s.push_str("## B4 — ETV Reasoning Chain Quality\n\n");
-    s.push_str("Note: ETV D-scores use D = ψ·ρ·ω (product of cosine, stability, coherence ∈ [0,1]); \
-greedy-cosine scores are raw cosine similarities. The columns are on different scales and \
-measure different properties — use chain_length and diversity for cross-system comparison.\n\n");
-    s.push_str("| System | score (mean) | score (peak) | avg_length | QTIC diversity |\n");
+    s.push_str("ETV D-scores = ψ·ρ·ω ∈ [0,1]; Beam amplitude = ∏D_k (joint trajectory energy); \
+greedy scores are raw cosine (different scale). Compare chain_length and QTIC diversity across systems. \
+Beam ETV uses beam_width=4, fan_out=3, QTIC phase encoding Q_k→k·π/3.\n\n");
+    s.push_str("| System | score/amplitude (mean) | avg_length | QTIC diversity | interference/query |\n");
     s.push_str("|---|---|---|---|---|\n");
-    s.push_str(&format!("| ETV — D=ψ·ρ·ω | {:.4} | {:.4} | {:.1} | {:.1} |\n",
-        r.b4.pse_mean_d, r.b4.pse_peak_d, r.b4.pse_avg_length, r.b4.pse_diversity));
-    s.push_str(&format!("| Greedy cosine | {:.4} | {:.4} | {:.1} | {:.1} |\n",
-        r.b4.greedy_mean_d, r.b4.greedy_peak_d, r.b4.greedy_avg_length, r.b4.greedy_diversity));
-    s.push_str(&format!("| Random walk | {:.4} | — | {:.1} | — |\n\n",
+    s.push_str(&format!("| ETV single-path | {:.4} | {:.1} | {:.1} | — |\n",
+        r.b4.pse_mean_d, r.b4.pse_avg_length, r.b4.pse_diversity));
+    s.push_str(&format!("| **Beam ETV** (QW) | **{:.4e}** | **{:.1}** | **{:.1}** | **{:.1}** |\n",
+        r.b4.beam_mean_amplitude, r.b4.beam_avg_length, r.b4.beam_diversity, r.b4.beam_interference_per_query));
+    s.push_str(&format!("| Greedy cosine | {:.4} | {:.1} | {:.1} | — |\n",
+        r.b4.greedy_mean_d, r.b4.greedy_avg_length, r.b4.greedy_diversity));
+    s.push_str(&format!("| Random walk | {:.4} | {:.1} | — | — |\n\n",
         r.b4.random_mean_d, r.b4.random_avg_length));
 
     s.push_str("## B5 — Anomaly Detection (preset_anomaly_detection config)\n\n");
