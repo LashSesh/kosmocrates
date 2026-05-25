@@ -46,17 +46,21 @@ All benchmarks are self-contained, deterministic, and reproducible with a single
     s.push_str("|---|---|---|---|---|\n");
     s.push_str(&format!("| ETV (Pfauenthron++) | {:.4} | {:.4} | {:.1} | {:.1} |\n",
         r.b4.pse_mean_d, r.b4.pse_peak_d, r.b4.pse_avg_length, r.b4.pse_diversity));
-    s.push_str(&format!("| Greedy cosine | {:.4} | {:.4} | {:.1} | — |\n",
-        r.b4.greedy_mean_d, r.b4.greedy_peak_d, r.b4.greedy_avg_length));
+    s.push_str(&format!("| Greedy cosine | {:.4} | {:.4} | {:.1} | {:.1} |\n",
+        r.b4.greedy_mean_d, r.b4.greedy_peak_d, r.b4.greedy_avg_length, r.b4.greedy_diversity));
     s.push_str(&format!("| Random walk | {:.4} | — | {:.1} | — |\n\n",
         r.b4.random_mean_d, r.b4.random_avg_length));
 
     s.push_str("## B5 — Anomaly Detection\n\n");
-    s.push_str("| Scenario | PSE F1 | Precision | Recall |\n");
-    s.push_str("|---|---|---|---|\n");
+    s.push_str("| Scenario | Detector | F1 | Precision | Recall |\n");
+    s.push_str("|---|---|---|---|---|\n");
     for sc in [&r.b5.seismo, &r.b5.vitals, &r.b5.binance] {
-        s.push_str(&format!("| {} | {:.3} | {:.3} | {:.3} |\n",
+        s.push_str(&format!("| {} | PSE | {:.3} | {:.3} | {:.3} |\n",
             sc.name, sc.pse_f1, sc.pse_precision, sc.pse_recall));
+        s.push_str(&format!("| | STL z-score | {:.3} | {:.3} | {:.3} |\n",
+            sc.stl_f1, sc.stl_precision, sc.stl_recall));
+        s.push_str(&format!("| | IsoForest | {:.3} | {:.3} | {:.3} |\n",
+            sc.isoforest_f1, sc.isoforest_precision, sc.isoforest_recall));
     }
     s.push('\n');
 
