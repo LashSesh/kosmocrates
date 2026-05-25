@@ -51,6 +51,10 @@ pub use pse_swarm as swarm;
 pub use pse_topology as topology;
 /// Core types: SemanticCrystal, Observation, VertexId, Hash256, EvidenceChain, Config.
 pub use pse_types as types;
+/// IL adapter: ILStore, text_to_vector8 — char-4-gram HDAG knowledge store.
+pub use pse_adapter_il as il;
+/// ETV reasoning: guide (single-path) and guide_beam (Quantum-Walk) over ILStore.
+pub use pse_reasoning as reasoning;
 
 /// Prelude — import everything you need for a typical PSE application.
 pub mod prelude {

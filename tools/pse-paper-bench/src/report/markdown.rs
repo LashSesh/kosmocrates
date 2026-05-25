@@ -15,6 +15,8 @@ Key findings: PSE is 23× more noise-robust than BM25 at 50% character noise (B2
 achieves perfect macro-F1 on constitutional action governance (B3); \
 outperforms keyword-filter agent scheduling by 57pp Hit@3 (B6); \
 and scales to 5K crystals at 51µs mean retrieval latency (B7). \
+B4 introduces a Quantum-Walk Beam ETV extension: k simultaneous paths with QTIC \
+phase interference (Q_k → k·π/3), evaluated across retrieval (B1) and agent ranking (B6). \
 B5 documents a calibration limitation: PSE's adaptive Kairos gate requires O(10³) \
 observations to stabilise — short anomaly-detection streams (100–600 obs) produce zero detections. \
 All benchmarks are self-contained, deterministic, and reproducible with a single command.\n\n");
@@ -22,18 +24,21 @@ All benchmarks are self-contained, deterministic, and reproducible with a single
     s.push_str("## B1 — Retrieval Quality (Clean Text)\n\n");
     s.push_str("PSE uses 8-dimensional char-4-gram phase vectors — morphological \
 fingerprints, not semantic embeddings. On exact-vocabulary queries BM25 is expected \
-to dominate; the key PSE claim is noise robustness (B2).\n\n");
+to dominate; the key PSE claim is noise robustness (B2). \
+Beam ETV (beam_width=4, fan_out=3, max_steps=3) explores multi-hop paths and ranks \
+crystals by amplitude-weighted traversal order.\n\n");
     s.push_str("| System | Hit@1 | Hit@3 [95% CI] | Hit@5 | MRR | NDCG@10 |\n");
     s.push_str("|---|---|---|---|---|---|\n");
     let p = &r.b1.pfauenthron;
     s.push_str(&format!("| Pfauenthron++ | {:.3} [{:.3},{:.3}] | {:.3} [{:.3},{:.3}] | {:.3} | {:.3} | {:.3} |\n",
         p.hit1, p.hit1_lo, p.hit1_hi, p.hit3, p.hit3_lo, p.hit3_hi, p.hit5, p.mrr, p.ndcg10));
-    let bm = &r.b1.bm25; let cos = &r.b1.cosine_only; let st = &r.b1.stability_only;
+    let bm = &r.b1.bm25; let cos = &r.b1.cosine_only; let st = &r.b1.stability_only; let be = &r.b1.beam_etv;
     s.push_str(&format!("| BM25 | — | {:.3} [{:.3},{:.3}] | — | — | — |\n", bm.hit3, bm.hit3_lo, bm.hit3_hi));
     s.push_str(&format!("| Cosine-only | — | {:.3} [{:.3},{:.3}] | — | — | — |\n", cos.hit3, cos.hit3_lo, cos.hit3_hi));
     s.push_str(&format!("| Stability-only | — | {:.3} [{:.3},{:.3}] | — | — | — |\n", st.hit3, st.hit3_lo, st.hit3_hi));
-    s.push_str(&format!("\n*Δ Pfauenthron++ vs BM25 (Hit@3)*: {:+.3} | *Δ vs cosine-only*: {:+.3}\n\n",
-        r.b1.delta_vs_bm25_hit3, r.b1.delta_vs_cosine_hit3));
+    s.push_str(&format!("| Beam ETV (QW) | — | {:.3} [{:.3},{:.3}] | — | — | — |\n", be.hit3, be.hit3_lo, be.hit3_hi));
+    s.push_str(&format!("\n*Δ Pfauenthron++ vs BM25 (Hit@3)*: {:+.3} | *Δ vs cosine-only*: {:+.3} | *Δ vs Beam ETV*: {:+.3}\n\n",
+        r.b1.delta_vs_bm25_hit3, r.b1.delta_vs_cosine_hit3, r.b1.delta_vs_beam_hit3));
 
     s.push_str("## B2 — Noise Robustness\n\n");
     s.push_str("Character-level noise is injected at controlled rates. \
@@ -93,12 +98,17 @@ STL z-score and IsoForest operate without warmup and serve as the primary compar
     s.push('\n');
 
     s.push_str("## B6 — Agent Relevance Ranking\n\n");
+    s.push_str("Beam ETV builds a per-scenario ILStore from work items and runs \
+guide_beam on the issue text (beam_width=4, fan_out=3, max_steps=4). \
+Crystals are ranked by amplitude-weighted traversal order and mapped back to work item IDs.\n\n");
     s.push_str("| System | Hit@3 | MRR | False Focus |\n");
     s.push_str("|---|---|---|---|\n");
     s.push_str(&format!("| PSE | {:.3} | {:.3} | {:.3} |\n",
         r.b6.pse_hit3, r.b6.pse_mrr, r.b6.pse_false_focus));
-    s.push_str(&format!("| Keyword baseline | {:.3} | {:.3} | {:.3} |\n\n",
+    s.push_str(&format!("| Keyword baseline | {:.3} | {:.3} | {:.3} |\n",
         r.b6.baseline_hit3, r.b6.baseline_mrr, r.b6.baseline_false_focus));
+    s.push_str(&format!("| Beam ETV (QW) | {:.3} | {:.3} | {:.3} |\n\n",
+        r.b6.beam_etv_hit3, r.b6.beam_etv_mrr, r.b6.beam_etv_false_focus));
 
     s.push_str("## B7 — Scalability\n\n");
     s.push_str("| N Crystals | Mean (µs) | P95 (µs) | P99 (µs) |\n");
