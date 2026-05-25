@@ -38,6 +38,7 @@ LLMs and agent systems.
 │                                │ monitors health, lifecycle, clusters        │
 │                                │ emits an epistemic action agenda            │
 └────────────────────────────────┴─────────────────────────────────────────────┘
+```
 
 ## What PSE gives an AI system
 
