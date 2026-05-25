@@ -89,16 +89,25 @@ pub fn run() -> B1Results {
         cos_h3.push(ir_metrics::hit_at_k(&cos_ranked, &graded_map, 3));
     }
 
+    // Stability-only: per-query Hit@3 using stability rank (same for all queries)
+    let stab_ranked = baselines::stability_only::rank(&store, &all_ids);
+    let stab_h3: Vec<f64> = ds.queries.iter().map(|q| {
+        let graded_map: HashMap<String, u8> = q.relevant.iter().filter_map(|r| {
+            doc_id_map.get(&r.doc_id).map(|cid| (cid.clone(), r.grade))
+        }).collect();
+        ir_metrics::hit_at_k(&stab_ranked, &graded_map, 3)
+    }).collect();
+
     let ci = |v: &[f64], label: &str| stats::bootstrap_ci(v, 2000, stats::label_seed(label));
 
-    let h1ci = ci(&pse_h1, "b1-hit1");
-    let h3ci = ci(&pse_h3, "b1-hit3");
-    let h5ci = ci(&pse_h5, "b1-hit5");
-    let mci  = ci(&pse_mrr, "b1-mrr");
-    let nci  = ci(&pse_ndcg, "b1-ndcg10");
-
-    // Stability-only: rank all docs by stability descending
-    let _stab_ranked = baselines::stability_only::rank(&store, &all_ids);
+    let h1ci  = ci(&pse_h1, "b1-hit1");
+    let h3ci  = ci(&pse_h3, "b1-hit3");
+    let h5ci  = ci(&pse_h5, "b1-hit5");
+    let mci   = ci(&pse_mrr, "b1-mrr");
+    let nci   = ci(&pse_ndcg, "b1-ndcg10");
+    let bm_ci = ci(&bm_h3, "b1-bm25-hit3");
+    let cos_ci= ci(&cos_h3, "b1-cos-hit3");
+    let st_ci = ci(&stab_h3, "b1-stab-hit3");
 
     B1Results {
         pfauenthron: SystemMetrics {
@@ -109,14 +118,17 @@ pub fn run() -> B1Results {
             ndcg10: nci.mean, ndcg10_lo: nci.lo95, ndcg10_hi: nci.hi95,
         },
         bm25: SystemMetrics {
-            hit3: stats::bootstrap_ci(&bm_h3, 2000, stats::label_seed("b1-bm25-hit3")).mean,
+            hit3: bm_ci.mean, hit3_lo: bm_ci.lo95, hit3_hi: bm_ci.hi95,
             ..Default::default()
         },
         cosine_only: SystemMetrics {
-            hit3: stats::bootstrap_ci(&cos_h3, 2000, stats::label_seed("b1-cos-hit3")).mean,
+            hit3: cos_ci.mean, hit3_lo: cos_ci.lo95, hit3_hi: cos_ci.hi95,
             ..Default::default()
         },
-        stability_only: SystemMetrics { ..Default::default() },
+        stability_only: SystemMetrics {
+            hit3: st_ci.mean, hit3_lo: st_ci.lo95, hit3_hi: st_ci.hi95,
+            ..Default::default()
+        },
         delta_vs_bm25_hit3: stats::paired_diff(&bm_h3, &pse_h3),
         delta_vs_cosine_hit3: stats::paired_diff(&cos_h3, &pse_h3),
         n_queries: ds.queries.len(),

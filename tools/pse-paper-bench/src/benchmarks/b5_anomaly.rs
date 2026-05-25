@@ -1,4 +1,5 @@
 use pse_bench_gt::scenarios::{run_seismo_scenario, run_vitals_scenario, run_binance_scenario};
+use pse_bench_gt::{score_detections, scenarios::ScenarioResult};
 use pse_types::Config;
 use serde::Serialize;
 
@@ -8,7 +9,13 @@ pub struct ScenarioBenchmark {
     pub pse_f1: f64,
     pub pse_precision: f64,
     pub pse_recall: f64,
-    pub n_detections: usize,
+    pub stl_f1: f64,
+    pub stl_precision: f64,
+    pub stl_recall: f64,
+    pub isoforest_f1: f64,
+    pub isoforest_precision: f64,
+    pub isoforest_recall: f64,
+    pub n_pse_detections: usize,
     pub n_ground_truth: usize,
 }
 
@@ -19,6 +26,33 @@ pub struct B5Results {
     pub binance: ScenarioBenchmark,
 }
 
+fn benchmark_scenario(result: &ScenarioResult, name: &str) -> ScenarioBenchmark {
+    let tol = result.tolerance_ticks;
+
+    let pse_dets: Vec<_> = result.detections.iter().filter(|d| d.source.starts_with("pse_")).cloned().collect();
+    let stl_dets: Vec<_> = result.detections.iter().filter(|d| d.source == "stl_zscore").cloned().collect();
+    let iso_dets: Vec<_> = result.detections.iter().filter(|d| d.source == "isoforest").cloned().collect();
+
+    let pse_m = score_detections(&result.ground_truth, &pse_dets, tol);
+    let stl_m = score_detections(&result.ground_truth, &stl_dets, tol);
+    let iso_m = score_detections(&result.ground_truth, &iso_dets, tol);
+
+    ScenarioBenchmark {
+        name: name.to_string(),
+        pse_f1: pse_m.f1,
+        pse_precision: pse_m.precision,
+        pse_recall: pse_m.recall,
+        stl_f1: stl_m.f1,
+        stl_precision: stl_m.precision,
+        stl_recall: stl_m.recall,
+        isoforest_f1: iso_m.f1,
+        isoforest_precision: iso_m.precision,
+        isoforest_recall: iso_m.recall,
+        n_pse_detections: pse_dets.len(),
+        n_ground_truth: result.ground_truth.len(),
+    }
+}
+
 pub fn run() -> B5Results {
     let config = Config::preset_streaming();
 
@@ -27,29 +61,8 @@ pub fn run() -> B5Results {
     let binance = run_binance_scenario(&config, 3);
 
     B5Results {
-        seismo: ScenarioBenchmark {
-            name: seismo.scenario,
-            pse_f1: seismo.metrics.f1,
-            pse_precision: seismo.metrics.precision,
-            pse_recall: seismo.metrics.recall,
-            n_detections: seismo.detections.len(),
-            n_ground_truth: seismo.ground_truth.len(),
-        },
-        vitals: ScenarioBenchmark {
-            name: vitals.scenario,
-            pse_f1: vitals.metrics.f1,
-            pse_precision: vitals.metrics.precision,
-            pse_recall: vitals.metrics.recall,
-            n_detections: vitals.detections.len(),
-            n_ground_truth: vitals.ground_truth.len(),
-        },
-        binance: ScenarioBenchmark {
-            name: binance.scenario,
-            pse_f1: binance.metrics.f1,
-            pse_precision: binance.metrics.precision,
-            pse_recall: binance.metrics.recall,
-            n_detections: binance.detections.len(),
-            n_ground_truth: binance.ground_truth.len(),
-        },
+        seismo:  benchmark_scenario(&seismo,  &seismo.scenario),
+        vitals:  benchmark_scenario(&vitals,  &vitals.scenario),
+        binance: benchmark_scenario(&binance, &binance.scenario),
     }
 }

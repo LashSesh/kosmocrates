@@ -5,7 +5,7 @@ use serde::Serialize;
 #[derive(Serialize, Clone, Default)]
 pub struct B4Results {
     pub pse_mean_d: f64, pub pse_peak_d: f64, pub pse_avg_length: f64, pub pse_diversity: f64,
-    pub greedy_mean_d: f64, pub greedy_peak_d: f64, pub greedy_avg_length: f64,
+    pub greedy_mean_d: f64, pub greedy_peak_d: f64, pub greedy_avg_length: f64, pub greedy_diversity: f64,
     pub random_mean_d: f64, pub random_avg_length: f64,
     pub n_queries: usize,
 }
@@ -31,6 +31,7 @@ pub fn run() -> B4Results {
     let mut greedy_mean_ds = vec![];
     let mut greedy_peak_ds = vec![];
     let mut greedy_lengths = vec![];
+    let mut greedy_diversities = vec![];
     let mut rnd_mean_ds = vec![];
     let mut rnd_lengths = vec![];
 
@@ -68,6 +69,7 @@ pub fn run() -> B4Results {
         greedy_mean_ds.push(gcm.mean_d);
         greedy_peak_ds.push(gcm.peak_d);
         greedy_lengths.push(gcm.chain_length as f64);
+        greedy_diversities.push(gcm.crystal_diversity as f64);
 
         // Random walk
         let seed = stats::label_seed(&format!("b4-rnd-{qi}"));
@@ -83,7 +85,7 @@ pub fn run() -> B4Results {
         pse_mean_d: mean_of(&pse_mean_ds), pse_peak_d: mean_of(&pse_peak_ds),
         pse_avg_length: mean_of(&pse_lengths), pse_diversity: mean_of(&pse_diversities),
         greedy_mean_d: mean_of(&greedy_mean_ds), greedy_peak_d: mean_of(&greedy_peak_ds),
-        greedy_avg_length: mean_of(&greedy_lengths),
+        greedy_avg_length: mean_of(&greedy_lengths), greedy_diversity: mean_of(&greedy_diversities),
         random_mean_d: mean_of(&rnd_mean_ds), random_avg_length: mean_of(&rnd_lengths),
         n_queries: ds.queries.len(),
     }
