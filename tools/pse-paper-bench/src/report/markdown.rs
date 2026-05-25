@@ -62,8 +62,9 @@ while BM25 degrades 77pp — a 23× advantage in robustness.\n\n");
     s.push_str(&format!("| Keyword filter | — | — | — | {:.3} |\n\n", r.b3.keyword_macro_f1));
 
     s.push_str("## B4 — ETV Reasoning Chain Quality\n\n");
-    s.push_str("ETV D-scores = ψ·ρ·ω ∈ [0,1]; Beam amplitude = ∏D_k (joint trajectory energy); \
-greedy scores are raw cosine (different scale). Compare chain_length and QTIC diversity across systems. \
+    s.push_str("ETV D-scores = ψ·ρ·ω ∈ [0,1]; Beam amplitude = normalized ∏D_k ∈ [0,1] \
+(Σ|aᵢ|²=1 enforced after each interference step — quantum-walk convention); \
+greedy scores are raw cosine (different scale). \
 Beam ETV uses beam_width=4, fan_out=3, QTIC phase encoding Q_k→k·π/3.\n\n");
     s.push_str("| System | score/amplitude (mean) | avg_length | QTIC diversity | interference/query |\n");
     s.push_str("|---|---|---|---|---|\n");

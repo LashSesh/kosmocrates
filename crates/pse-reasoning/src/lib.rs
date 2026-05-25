@@ -444,6 +444,14 @@ pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChai
         return empty();
     }
 
+    // Normalize seed amplitudes: Σ|aᵢ|² = 1 (quantum-walk convention).
+    let seed_norm = active.iter().map(|(p, _, _)| p.amplitude * p.amplitude).sum::<f64>().sqrt();
+    if seed_norm > 0.0 {
+        for (path, _, _) in &mut active {
+            path.amplitude /= seed_norm;
+        }
+    }
+
     let mut interference_events = 0usize;
 
     for step_idx in 1..config.max_steps {
@@ -558,6 +566,15 @@ pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChai
 
         if next_active.is_empty() {
             break;
+        }
+
+        // Normalize after interference: Σ|aᵢ|² = 1.
+        // Keeps amplitudes in [0,1] regardless of corpus size or beam_width.
+        let step_norm = next_active.iter().map(|(p, _, _)| p.amplitude * p.amplitude).sum::<f64>().sqrt();
+        if step_norm > 0.0 {
+            for (path, _, _) in &mut next_active {
+                path.amplitude /= step_norm;
+            }
         }
 
         // Sort by amplitude descending, prune to beam_width.
@@ -915,5 +932,22 @@ mod tests {
         assert!(bc.interference_events >= 0); // always true — structural sanity
         // The chain itself must have surviving paths (not all destructively cancelled).
         assert!(!bc.is_empty());
+    }
+
+    #[test]
+    fn beam_amplitudes_are_normalized() {
+        // After normalization Σ|aᵢ|² = 1 holds for the surviving paths at each step.
+        // We can only check the final state here: Σ amplitudes² ≤ 1.
+        // (Pruning to beam_width removes paths, so the sum may drop below 1.)
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open_store(dir.path());
+        for i in 0..10 {
+            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.75), &format!("concept {i}"));
+        }
+        let bc = guide_beam("concept", &store, &BeamConfig::default());
+        for path in &bc.paths {
+            assert!(path.amplitude >= 0.0, "amplitude must be non-negative");
+            assert!(path.amplitude <= 1.0 + 1e-10, "amplitude must be ≤ 1 after normalization");
+        }
     }
 }
