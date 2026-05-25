@@ -17,8 +17,10 @@ pub struct B1Results {
     pub bm25: SystemMetrics,
     pub cosine_only: SystemMetrics,
     pub stability_only: SystemMetrics,
+    pub beam_etv: SystemMetrics,
     pub delta_vs_bm25_hit3: f64,
     pub delta_vs_cosine_hit3: f64,
+    pub delta_vs_beam_hit3: f64,
     pub n_queries: usize,
     pub n_docs: usize,
 }
@@ -48,6 +50,17 @@ pub fn run() -> B1Results {
     }
     let all_ids: Vec<String> = doc_id_map.values().cloned().collect();
 
+    use pse_adapter_il::text_to_vector8;
+    use pse_reasoning::{guide_beam, BeamConfig};
+
+    let beam_retrieval_cfg = BeamConfig {
+        beam_width: 4,
+        fan_out: 3,
+        max_steps: 3,
+        min_amplitude: 1e-9,
+        top_k_per_step: 32,
+    };
+
     // Run per-query evaluation
     let mut pse_h1 = vec![];
     let mut pse_h3 = vec![];
@@ -57,8 +70,7 @@ pub fn run() -> B1Results {
 
     let mut bm_h3 = vec![];
     let mut cos_h3 = vec![];
-
-    use pse_adapter_il::text_to_vector8;
+    let mut beam_h3 = vec![];
 
     for query in &ds.queries {
         let graded_map: HashMap<String, u8> = query.relevant.iter().filter_map(|r| {
@@ -87,6 +99,20 @@ pub fn run() -> B1Results {
         // Cosine-only
         let cos_ranked = baselines::cosine_only::rank(&store, &qvec, all_ids.len());
         cos_h3.push(ir_metrics::hit_at_k(&cos_ranked, &graded_map, 3));
+
+        // Beam ETV — multi-hop ranking by amplitude; paths sorted by amplitude,
+        // crystals collected depth-first (path[0] step[0], step[1], …, path[1] step[0], …)
+        let bc = guide_beam(&query.text, &store, &beam_retrieval_cfg);
+        let mut beam_ranked: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for path in &bc.paths {
+            for step in &path.steps {
+                if seen.insert(step.crystal_id_hex.clone()) {
+                    beam_ranked.push(step.crystal_id_hex.clone());
+                }
+            }
+        }
+        beam_h3.push(ir_metrics::hit_at_k(&beam_ranked, &graded_map, 3));
     }
 
     // Stability-only: per-query Hit@3 using stability rank (same for all queries)
@@ -100,14 +126,15 @@ pub fn run() -> B1Results {
 
     let ci = |v: &[f64], label: &str| stats::bootstrap_ci(v, 2000, stats::label_seed(label));
 
-    let h1ci  = ci(&pse_h1, "b1-hit1");
-    let h3ci  = ci(&pse_h3, "b1-hit3");
-    let h5ci  = ci(&pse_h5, "b1-hit5");
-    let mci   = ci(&pse_mrr, "b1-mrr");
-    let nci   = ci(&pse_ndcg, "b1-ndcg10");
-    let bm_ci = ci(&bm_h3, "b1-bm25-hit3");
-    let cos_ci= ci(&cos_h3, "b1-cos-hit3");
-    let st_ci = ci(&stab_h3, "b1-stab-hit3");
+    let h1ci   = ci(&pse_h1,   "b1-hit1");
+    let h3ci   = ci(&pse_h3,   "b1-hit3");
+    let h5ci   = ci(&pse_h5,   "b1-hit5");
+    let mci    = ci(&pse_mrr,  "b1-mrr");
+    let nci    = ci(&pse_ndcg, "b1-ndcg10");
+    let bm_ci  = ci(&bm_h3,    "b1-bm25-hit3");
+    let cos_ci = ci(&cos_h3,   "b1-cos-hit3");
+    let st_ci  = ci(&stab_h3,  "b1-stab-hit3");
+    let bm_etv_ci = ci(&beam_h3, "b1-beam-etv-hit3");
 
     B1Results {
         pfauenthron: SystemMetrics {
@@ -129,8 +156,13 @@ pub fn run() -> B1Results {
             hit3: st_ci.mean, hit3_lo: st_ci.lo95, hit3_hi: st_ci.hi95,
             ..Default::default()
         },
+        beam_etv: SystemMetrics {
+            hit3: bm_etv_ci.mean, hit3_lo: bm_etv_ci.lo95, hit3_hi: bm_etv_ci.hi95,
+            ..Default::default()
+        },
         delta_vs_bm25_hit3: stats::paired_diff(&bm_h3, &pse_h3),
         delta_vs_cosine_hit3: stats::paired_diff(&cos_h3, &pse_h3),
+        delta_vs_beam_hit3: stats::paired_diff(&beam_h3, &pse_h3),
         n_queries: ds.queries.len(),
         n_docs: ds.documents.len(),
     }

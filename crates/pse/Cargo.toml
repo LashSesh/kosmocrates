@@ -29,4 +29,6 @@ pse-manifest = { path = "../pse-manifest" }
 pse-pmhd = { path = "../pse-pmhd" }
 pse-memory = { path = "../pse-memory" }
 pse-metatron = { path = "../pse-metatron" }
+pse-reasoning = { path = "../pse-reasoning" }
+pse-adapter-il = { path = "../../adapters/pse-adapter-il" }
 serde_json = { workspace = true }

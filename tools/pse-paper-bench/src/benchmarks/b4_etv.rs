@@ -1,5 +1,5 @@
 use crate::{datasets, fixtures, baselines, metrics::chain_metrics, stats};
-use pse_reasoning::{guide, ThunderboltConfig};
+use pse_reasoning::{guide, guide_beam, BeamConfig, ThunderboltConfig};
 use serde::Serialize;
 
 #[derive(Serialize, Clone, Default)]
@@ -7,6 +7,12 @@ pub struct B4Results {
     pub pse_mean_d: f64, pub pse_peak_d: f64, pub pse_avg_length: f64, pub pse_diversity: f64,
     pub greedy_mean_d: f64, pub greedy_peak_d: f64, pub greedy_avg_length: f64, pub greedy_diversity: f64,
     pub random_mean_d: f64, pub random_avg_length: f64,
+    // Beam ETV (Quantum-Walk extension)
+    pub beam_best_amplitude: f64,
+    pub beam_mean_amplitude: f64,
+    pub beam_avg_length: f64,
+    pub beam_diversity: f64,
+    pub beam_interference_per_query: f64,
     pub n_queries: usize,
 }
 
@@ -34,6 +40,20 @@ pub fn run() -> B4Results {
     let mut greedy_diversities = vec![];
     let mut rnd_mean_ds = vec![];
     let mut rnd_lengths = vec![];
+
+    let mut beam_best_amps = vec![];
+    let mut beam_mean_amps = vec![];
+    let mut beam_lengths = vec![];
+    let mut beam_diversities = vec![];
+    let mut beam_interferences = vec![];
+
+    let beam_config = BeamConfig {
+        beam_width: 4,
+        fan_out: 3,
+        max_steps: config.max_steps,
+        min_amplitude: 1e-9,
+        top_k_per_step: config.top_k_per_step,
+    };
 
     use pse_adapter_il::text_to_vector8;
 
@@ -71,6 +91,17 @@ pub fn run() -> B4Results {
         greedy_lengths.push(gcm.chain_length as f64);
         greedy_diversities.push(gcm.crystal_diversity as f64);
 
+        // Beam ETV (Quantum-Walk)
+        let bc = guide_beam(&query.text, &store, &beam_config);
+        beam_best_amps.push(bc.best_amplitude);
+        beam_mean_amps.push(bc.mean_amplitude());
+        let avg_len = if bc.paths.is_empty() { 0.0 } else {
+            bc.paths.iter().map(|p| p.length() as f64).sum::<f64>() / bc.paths.len() as f64
+        };
+        beam_lengths.push(avg_len);
+        beam_diversities.push(bc.mean_diversity());
+        beam_interferences.push(bc.interference_events as f64);
+
         // Random walk
         let seed = stats::label_seed(&format!("b4-rnd-{qi}"));
         let rnd = baselines::random_walk::random_chain(&store, &all_ids, config.max_steps, seed);
@@ -87,6 +118,11 @@ pub fn run() -> B4Results {
         greedy_mean_d: mean_of(&greedy_mean_ds), greedy_peak_d: mean_of(&greedy_peak_ds),
         greedy_avg_length: mean_of(&greedy_lengths), greedy_diversity: mean_of(&greedy_diversities),
         random_mean_d: mean_of(&rnd_mean_ds), random_avg_length: mean_of(&rnd_lengths),
+        beam_best_amplitude: mean_of(&beam_best_amps),
+        beam_mean_amplitude: mean_of(&beam_mean_amps),
+        beam_avg_length: mean_of(&beam_lengths),
+        beam_diversity: mean_of(&beam_diversities),
+        beam_interference_per_query: mean_of(&beam_interferences),
         n_queries: ds.queries.len(),
     }
 }

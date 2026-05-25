@@ -155,6 +155,15 @@ impl CrystalAdapter {
     }
 
     /// Extended conversion that also embeds session + question provenance.
+    ///
+    /// The stored vector8 is a weighted blend of the text embedding derived
+    /// from `question` (semantic content, weight = SEMANTIC_WEIGHT) and the
+    /// topology-derived vector (structural fixpoint, weight = 1-SEMANTIC_WEIGHT).
+    /// This ensures ψ = cosine(text_to_vector8(query), crystal.vector8) is
+    /// semantically meaningful: both vectors live in the same text-semantic space,
+    /// anchored by the crystal's topological identity.
+    ///
+    /// Falls back to pure topology when the question is too short for 4-grams (<4 chars).
     pub fn convert_with_provenance(
         &self,
         crystal: &SemanticCrystal,
@@ -163,6 +172,25 @@ impl CrystalAdapter {
         question: &str,
     ) -> Result<ILPayload, String> {
         let mut payload = self.convert(crystal, source_chunks)?;
+
+        // Blend text semantics into the stored vector8 when the question is rich enough.
+        if question.chars().count() >= 4 {
+            let text_vec = text_to_vector8(question);
+            let topo_vec = &payload.vector8;
+            let mut blended: Vec<f64> = text_vec
+                .iter()
+                .zip(topo_vec.iter())
+                .map(|(t, p)| SEMANTIC_WEIGHT * t + (1.0 - SEMANTIC_WEIGHT) * p)
+                .collect();
+            let norm: f64 = blended.iter().map(|x| x * x).sum::<f64>().sqrt();
+            if norm > 1e-10 {
+                for x in &mut blended {
+                    *x /= norm;
+                }
+                payload.vector8 = blended;
+            }
+        }
+
         if let Some(snap) = payload.snapshot_json.as_object_mut() {
             snap.insert("session".into(), serde_json::json!(session));
             snap.insert("question".into(), serde_json::json!(question));
@@ -170,6 +198,11 @@ impl CrystalAdapter {
         Ok(payload)
     }
 }
+
+/// Fraction of the stored vector8 contributed by the text embedding of the
+/// committed question.  The remainder (1 - SEMANTIC_WEIGHT) comes from the
+/// crystal's topological fixpoint, preserving ρ and ω signal.
+const SEMANTIC_WEIGHT: f64 = 0.7;
 
 /// Build a normalised 8D vector from a 5D fixpoint + 3 spectral scalars.
 pub fn build_vector8(x5: &[f64], psi: f64, rho: f64, omega: f64) -> Option<Vec<f64>> {

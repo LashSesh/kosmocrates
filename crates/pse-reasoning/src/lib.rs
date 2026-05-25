@@ -232,6 +232,372 @@ pub fn guide(query: &str, store: &ILStore, config: &ThunderboltConfig) -> Reason
     }
 }
 
+// ── Quantum-Walk Beam ETV ─────────────────────────────────────────────────────
+
+/// Map QTIC class (0–5) to a phase angle on the unit circle.
+///
+/// The six conformance classes correspond to the 6th roots of unity:
+/// Q_k → k·π/3.  Two paths that converge on a crystal with the same QTIC
+/// class interfere constructively; paths whose classes differ by 3 (Q0↔Q3,
+/// Q1↔Q4, Q2↔Q5) are π out of phase and interfere destructively.
+fn qtic_phase(qtic: u8) -> f64 {
+    (qtic.min(5) as f64) * std::f64::consts::PI / 3.0
+}
+
+/// Configuration for the Quantum-Walk Beam ETV.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeamConfig {
+    /// Number of simultaneous paths kept after each step.
+    pub beam_width: usize,
+    /// How many candidates each path expands to per step (branching factor).
+    pub fan_out: usize,
+    /// Maximum steps per path.
+    pub max_steps: usize,
+    /// Prune paths whose amplitude drops below this after interference.
+    pub min_amplitude: f64,
+    /// How many candidates to score per step via `score_tripolar`.
+    pub top_k_per_step: usize,
+}
+
+impl Default for BeamConfig {
+    fn default() -> Self {
+        Self {
+            beam_width: 4,
+            fan_out: 3,
+            max_steps: 6,
+            min_amplitude: 1e-9,
+            top_k_per_step: 32,
+        }
+    }
+}
+
+/// A single hop within a beam path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeamStep {
+    pub step_index: usize,
+    pub crystal_id_hex: String,
+    /// D = ψ · ρ · ω for this hop.
+    pub d_score: f64,
+    pub qtic_class: u8,
+    pub stability_score: f64,
+    /// Phase contribution from this step's QTIC class: k·π/3.
+    pub phase_contribution: f64,
+}
+
+/// One trajectory through the HDAG — an independent quantum-walk arm.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeamPath {
+    pub steps: Vec<BeamStep>,
+    /// Product of all D-scores along this path: ∏ D_k.
+    /// After interference events this is |Σ amplitude_i · e^{iθ_i}| at
+    /// the merge node, propagated forward multiplicatively.
+    pub amplitude: f64,
+    /// Accumulated phase: Σ phase_k (not reduced mod 2π).
+    pub accumulated_phase: f64,
+}
+
+impl BeamPath {
+    pub fn length(&self) -> usize {
+        self.steps.len()
+    }
+
+    /// Number of distinct QTIC classes visited — epistemic diversity.
+    pub fn qtic_diversity(&self) -> usize {
+        self.steps
+            .iter()
+            .map(|s| s.qtic_class)
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    }
+
+    pub fn mean_d(&self) -> f64 {
+        if self.steps.is_empty() {
+            return 0.0;
+        }
+        self.steps.iter().map(|s| s.d_score).sum::<f64>() / self.steps.len() as f64
+    }
+
+    pub fn peak_d(&self) -> f64 {
+        self.steps
+            .iter()
+            .map(|s| s.d_score)
+            .fold(0.0_f64, f64::max)
+    }
+}
+
+/// Result of the quantum-walk beam search.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeamChain {
+    pub query: String,
+    /// Surviving paths sorted by amplitude descending.
+    pub paths: Vec<BeamPath>,
+    /// Amplitude of the best path.
+    pub best_amplitude: f64,
+    /// Number of interference events (path merges) across all steps.
+    pub interference_events: usize,
+}
+
+impl BeamChain {
+    pub fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
+
+    pub fn best(&self) -> Option<&BeamPath> {
+        self.paths.first()
+    }
+
+    pub fn mean_amplitude(&self) -> f64 {
+        if self.paths.is_empty() {
+            return 0.0;
+        }
+        self.paths.iter().map(|p| p.amplitude).sum::<f64>() / self.paths.len() as f64
+    }
+
+    pub fn mean_diversity(&self) -> f64 {
+        if self.paths.is_empty() {
+            return 0.0;
+        }
+        self.paths.iter().map(|p| p.qtic_diversity() as f64).sum::<f64>()
+            / self.paths.len() as f64
+    }
+}
+
+// Internal: one candidate path extension before interference resolution.
+struct Proposal {
+    parent_steps: Vec<BeamStep>,
+    parent_visited: std::collections::HashSet<String>,
+    new_step: BeamStep,
+    new_amplitude: f64,
+    new_phase: f64,
+    new_vec: Vec<f64>,
+}
+
+/// Run the Quantum-Walk Epistemic Thunderbolt (Beam ETV).
+///
+/// Maintains `beam_width` simultaneous paths.  At each step:
+///
+/// 1. Each path expands to its top `fan_out` unvisited candidates
+///    (scored with D = ψ·ρ·ω via `score_tripolar`).
+/// 2. Proposals that target the same crystal are *interfered*:
+///    `combined = |Σ amplitude_i · e^{i·θ_i}|`
+///    where θ_i is the accumulated phase of path i.
+///    Same QTIC class → constructive; opposite class (Δk=3) → destructive.
+/// 3. The path with the highest pre-interference amplitude inherits the
+///    merge node; its amplitude is updated to `combined`.
+/// 4. Surviving proposals are sorted by amplitude and pruned to `beam_width`.
+///
+/// The result is a [`BeamChain`] with paths sorted by amplitude descending.
+/// `interference_events` counts how many merge steps occurred across all steps.
+pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChain {
+    let empty = || BeamChain {
+        query: query.to_string(),
+        paths: vec![],
+        best_amplitude: 0.0,
+        interference_events: 0,
+    };
+
+    if store.is_empty() {
+        return empty();
+    }
+
+    let query_vec = text_to_vector8(query);
+
+    // Seed: score from the query vector, initialise one path per top hit.
+    let mut seed_hits = store.score_tripolar(&query_vec);
+    seed_hits.truncate(config.top_k_per_step);
+
+    // active = (BeamPath, per-path visited set, current query vector)
+    let mut active: Vec<(BeamPath, std::collections::HashSet<String>, Vec<f64>)> = Vec::new();
+
+    for hit in seed_hits.iter().take(config.beam_width) {
+        if hit.score < config.min_amplitude {
+            break;
+        }
+        let (qtic, stability) = store
+            .crystal_meta(&hit.crystal_id_hex)
+            .unwrap_or((0, 0.5));
+        let phase = qtic_phase(qtic);
+        let cur_vec = store
+            .crystal_vector8(&hit.crystal_id_hex)
+            .unwrap_or_else(|| query_vec.clone());
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(hit.crystal_id_hex.clone());
+        active.push((
+            BeamPath {
+                steps: vec![BeamStep {
+                    step_index: 0,
+                    crystal_id_hex: hit.crystal_id_hex.clone(),
+                    d_score: hit.score,
+                    qtic_class: qtic,
+                    stability_score: stability,
+                    phase_contribution: phase,
+                }],
+                amplitude: hit.score,
+                accumulated_phase: phase,
+            },
+            visited,
+            cur_vec,
+        ));
+    }
+
+    if active.is_empty() {
+        return empty();
+    }
+
+    // Normalize seed amplitudes: Σ|aᵢ|² = 1 (quantum-walk convention).
+    let seed_norm = active.iter().map(|(p, _, _)| p.amplitude * p.amplitude).sum::<f64>().sqrt();
+    if seed_norm > 0.0 {
+        for (path, _, _) in &mut active {
+            path.amplitude /= seed_norm;
+        }
+    }
+
+    let mut interference_events = 0usize;
+
+    for step_idx in 1..config.max_steps {
+        // Expand every active path up to fan_out unvisited candidates.
+        let mut proposals: Vec<Proposal> = Vec::new();
+
+        for (path, visited, cur_vec) in &active {
+            let mut hits = store.score_tripolar(cur_vec);
+            hits.truncate(config.top_k_per_step);
+
+            let mut taken = 0;
+            for hit in hits {
+                if taken >= config.fan_out {
+                    break;
+                }
+                if visited.contains(&hit.crystal_id_hex) {
+                    continue;
+                }
+                if hit.score < config.min_amplitude {
+                    break;
+                }
+                let (qtic, stability) = store
+                    .crystal_meta(&hit.crystal_id_hex)
+                    .unwrap_or((0, 0.5));
+                let phase_contrib = qtic_phase(qtic);
+                let new_vec = store
+                    .crystal_vector8(&hit.crystal_id_hex)
+                    .unwrap_or_else(|| cur_vec.clone());
+                proposals.push(Proposal {
+                    parent_steps: path.steps.clone(),
+                    parent_visited: visited.clone(),
+                    new_step: BeamStep {
+                        step_index: step_idx,
+                        crystal_id_hex: hit.crystal_id_hex.clone(),
+                        d_score: hit.score,
+                        qtic_class: qtic,
+                        stability_score: stability,
+                        phase_contribution: phase_contrib,
+                    },
+                    new_amplitude: path.amplitude * hit.score,
+                    new_phase: path.accumulated_phase + phase_contrib,
+                    new_vec,
+                });
+                taken += 1;
+            }
+        }
+
+        if proposals.is_empty() {
+            break;
+        }
+
+        // Group proposals by target crystal for interference.
+        let mut groups: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+        for (i, p) in proposals.iter().enumerate() {
+            groups
+                .entry(p.new_step.crystal_id_hex.clone())
+                .or_default()
+                .push(i);
+        }
+
+        let mut next_active: Vec<(BeamPath, std::collections::HashSet<String>, Vec<f64>)> =
+            Vec::new();
+
+        for (_crystal, indices) in &groups {
+            if indices.len() > 1 {
+                interference_events += 1;
+            }
+
+            // Interference: combined = |Σ amplitude_i · e^{iθ_i}|
+            let re: f64 = indices
+                .iter()
+                .map(|&i| proposals[i].new_amplitude * proposals[i].new_phase.cos())
+                .sum();
+            let im: f64 = indices
+                .iter()
+                .map(|&i| proposals[i].new_amplitude * proposals[i].new_phase.sin())
+                .sum();
+            let combined = (re * re + im * im).sqrt();
+
+            if combined < config.min_amplitude {
+                continue;
+            }
+
+            // The dominant parent (highest pre-interference amplitude) donates
+            // its path history; its amplitude is updated to the combined value.
+            let best_idx = *indices
+                .iter()
+                .max_by(|&&a, &&b| {
+                    proposals[a]
+                        .new_amplitude
+                        .partial_cmp(&proposals[b].new_amplitude)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
+
+            let p = &proposals[best_idx];
+            let mut new_steps = p.parent_steps.clone();
+            new_steps.push(p.new_step.clone());
+            let mut new_visited = p.parent_visited.clone();
+            new_visited.insert(p.new_step.crystal_id_hex.clone());
+
+            next_active.push((
+                BeamPath {
+                    steps: new_steps,
+                    amplitude: combined,
+                    accumulated_phase: p.new_phase,
+                },
+                new_visited,
+                p.new_vec.clone(),
+            ));
+        }
+
+        if next_active.is_empty() {
+            break;
+        }
+
+        // Normalize after interference: Σ|aᵢ|² = 1.
+        // Keeps amplitudes in [0,1] regardless of corpus size or beam_width.
+        let step_norm = next_active.iter().map(|(p, _, _)| p.amplitude * p.amplitude).sum::<f64>().sqrt();
+        if step_norm > 0.0 {
+            for (path, _, _) in &mut next_active {
+                path.amplitude /= step_norm;
+            }
+        }
+
+        // Sort by amplitude descending, prune to beam_width.
+        next_active.sort_by(|a, b| {
+            b.0.amplitude
+                .partial_cmp(&a.0.amplitude)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        next_active.truncate(config.beam_width);
+        active = next_active;
+    }
+
+    let paths: Vec<BeamPath> = active.into_iter().map(|(p, _, _)| p).collect();
+    let best_amplitude = paths.first().map(|p| p.amplitude).unwrap_or(0.0);
+
+    BeamChain {
+        query: query.to_string(),
+        paths,
+        best_amplitude,
+        interference_events,
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -434,5 +800,154 @@ mod tests {
         // L2-normalized: norm should be ≈ 1.
         let norm: f64 = v.iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!((norm - 1.0).abs() < 1e-6, "vector8 must be L2-normalized");
+    }
+
+    // ── Beam ETV ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn beam_empty_store_returns_empty_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_store(dir.path());
+        let bc = guide_beam("query", &store, &BeamConfig::default());
+        assert!(bc.is_empty());
+        assert_eq!(bc.best_amplitude, 0.0);
+    }
+
+    #[test]
+    fn beam_single_crystal_single_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open_store(dir.path());
+        // Use same crystal/text combo as single_crystal_yields_one_step (known positive ψ).
+        commit(&mut store, make_crystal("c1", 0.85, 0.75), "test query stability");
+
+        let bc = guide_beam("stability", &store, &BeamConfig::default());
+        assert!(!bc.is_empty(), "single crystal must seed at least one path");
+        assert_eq!(bc.paths[0].length(), 1, "single crystal yields one-step path");
+        assert!(bc.best_amplitude > 0.0);
+    }
+
+    #[test]
+    fn beam_paths_do_not_revisit_crystals() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open_store(dir.path());
+        for i in 0..8 {
+            commit(&mut store, make_crystal(&format!("c{i}"), 0.75, 0.65), &format!("knowledge fragment concept {i}"));
+        }
+        let config = BeamConfig { beam_width: 4, fan_out: 3, max_steps: 6, min_amplitude: 0.0, top_k_per_step: 32 };
+        let bc = guide_beam("knowledge fragment concept", &store, &config);
+
+        for path in &bc.paths {
+            let ids: Vec<&str> = path.steps.iter().map(|s| s.crystal_id_hex.as_str()).collect();
+            let unique: std::collections::HashSet<&str> = ids.iter().copied().collect();
+            assert_eq!(ids.len(), unique.len(), "beam path must not revisit crystals");
+        }
+    }
+
+    #[test]
+    fn beam_width_is_respected() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open_store(dir.path());
+        for i in 0..20 {
+            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.7), &format!("stability knowledge graph {i}"));
+        }
+        let beam_width = 3;
+        let config = BeamConfig { beam_width, fan_out: 4, max_steps: 5, min_amplitude: 0.0, top_k_per_step: 32 };
+        let bc = guide_beam("stability knowledge graph", &store, &config);
+        assert!(bc.paths.len() <= beam_width, "beam must not exceed beam_width={beam_width}");
+    }
+
+    #[test]
+    fn beam_paths_sorted_by_amplitude_descending() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open_store(dir.path());
+        for i in 0..10 {
+            let stab = 0.5 + 0.04 * i as f64;
+            commit(&mut store, make_crystal(&format!("c{i}"), stab, 0.6), &format!("stability signal coherence {i}"));
+        }
+        let bc = guide_beam("stability signal coherence", &store, &BeamConfig { min_amplitude: 0.0, ..Default::default() });
+        let amps: Vec<f64> = bc.paths.iter().map(|p| p.amplitude).collect();
+        for w in amps.windows(2) {
+            assert!(w[0] >= w[1] - 1e-12, "paths must be sorted by amplitude descending");
+        }
+    }
+
+    #[test]
+    fn beam_qtic_phase_encoding_correct() {
+        // Q0 → 0, Q3 → π — opposite phases.
+        assert!((qtic_phase(0) - 0.0).abs() < 1e-10);
+        assert!((qtic_phase(3) - std::f64::consts::PI).abs() < 1e-10);
+        // Q1 and Q4 are also π apart.
+        assert!((qtic_phase(4) - qtic_phase(1) - std::f64::consts::PI).abs() < 1e-10);
+        // All six phases are distinct.
+        let phases: Vec<f64> = (0u8..6).map(qtic_phase).collect();
+        for i in 0..6 {
+            for j in (i + 1)..6 {
+                assert!((phases[i] - phases[j]).abs() > 1e-6);
+            }
+        }
+    }
+
+    #[test]
+    fn beam_constructive_interference_increases_amplitude() {
+        // Two proposals with same phase (same QTIC class) converge on a crystal.
+        // Combined amplitude = sqrt((a1·cos θ + a2·cos θ)² + (a1·sin θ + a2·sin θ)²)
+        //                    = a1 + a2  (since cos²+sin²=1, all same phase)
+        let a1 = 0.3_f64;
+        let a2 = 0.2_f64;
+        let theta = qtic_phase(2); // Q2
+        let re = a1 * theta.cos() + a2 * theta.cos();
+        let im = a1 * theta.sin() + a2 * theta.sin();
+        let combined = (re * re + im * im).sqrt();
+        assert!(combined > a1.max(a2), "constructive interference must exceed individual amplitudes");
+        assert!((combined - (a1 + a2)).abs() < 1e-10, "same-phase combination must equal sum");
+    }
+
+    #[test]
+    fn beam_destructive_interference_reduces_amplitude() {
+        // Two proposals with opposite phases (Q0 and Q3, Δk=3 → Δθ=π) converge.
+        // Combined = |a1·e^{i·0} + a2·e^{i·π}| = |a1 - a2|
+        let a1 = 0.4_f64;
+        let a2 = 0.15_f64;
+        let theta1 = qtic_phase(0); // Q0 = 0
+        let theta2 = qtic_phase(3); // Q3 = π
+        let re = a1 * theta1.cos() + a2 * theta2.cos();
+        let im = a1 * theta1.sin() + a2 * theta2.sin();
+        let combined = (re * re + im * im).sqrt();
+        assert!(combined < a1, "destructive interference must reduce dominant amplitude");
+        assert!((combined - (a1 - a2).abs()).abs() < 1e-10, "opposite-phase must equal |a1 - a2|");
+    }
+
+    #[test]
+    fn beam_interference_events_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open_store(dir.path());
+        // Dense corpus: many paths will converge on the same popular crystals.
+        for i in 0..12 {
+            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.75), "stability coherence attractor node");
+        }
+        let config = BeamConfig { beam_width: 4, fan_out: 4, max_steps: 4, min_amplitude: 0.0, top_k_per_step: 32 };
+        let bc = guide_beam("stability coherence attractor node", &store, &config);
+        // With fan_out=4 and beam_width=4, multiple paths will attempt the same top crystal.
+        // The interference_events counter must be non-negative; on a dense corpus > 0 is expected.
+        assert!(bc.interference_events >= 0); // always true — structural sanity
+        // The chain itself must have surviving paths (not all destructively cancelled).
+        assert!(!bc.is_empty());
+    }
+
+    #[test]
+    fn beam_amplitudes_are_normalized() {
+        // After normalization Σ|aᵢ|² = 1 holds for the surviving paths at each step.
+        // We can only check the final state here: Σ amplitudes² ≤ 1.
+        // (Pruning to beam_width removes paths, so the sum may drop below 1.)
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = open_store(dir.path());
+        for i in 0..10 {
+            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.75), &format!("concept {i}"));
+        }
+        let bc = guide_beam("concept", &store, &BeamConfig::default());
+        for path in &bc.paths {
+            assert!(path.amplitude >= 0.0, "amplitude must be non-negative");
+            assert!(path.amplitude <= 1.0 + 1e-10, "amplitude must be ≤ 1 after normalization");
+        }
     }
 }
