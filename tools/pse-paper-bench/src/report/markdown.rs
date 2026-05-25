@@ -89,11 +89,17 @@ Beam ETV uses beam_width=4, fan_out=3, QTIC phase encoding Q_k→k·π/3.\n\n");
     s.push_str("## B5 — Anomaly Detection (preset_anomaly_detection config)\n\n");
     s.push_str("PSE uses `Config::preset_anomaly_detection` (adaptive Kairos gate, \
 target_pass_rate=2%, warmup=50 ticks). STL z-score and IsoForest serve as classical baselines.\n\n\
-**Stream length note:** The adaptive gate requires sufficient post-warmup observations to lower \
-its thresholds from the fail-closed static defaults. Seismo (200 obs), vitals (600 obs), and \
-binance (100 obs) are short relative to PSE's calibration window (1000 ticks). \
-`n_pse_detections=0` across all scenarios reflects this calibration limitation, \
-not a detector failure — production deployments with O(10³+) ticks will see the gate fire. \
+**Structural encoding note:** The Kairos gate fires on the top 2% of ticks by resonance — but the \
+topological d-metric (graph vertex churn) decays as O(1/n_obs) as the persistent HDAG grows, reaching \
+~0.037 by tick 180 vs. ~0.81 at tick 3. The adaptive calibrator sets d-threshold at the 98th \
+percentile of warmup-phase observations (~0.5), which late-stream ticks can never reach. Additionally, \
+four cascade operators (DK·SW·PI·WT) each multiply the stability score by their test score; with \
+random observation phases (no Strand-I domain adapter), the product falls below the consensus threshold. \
+The post-gate seam check has been corrected to use the same adaptive thresholds as the Kairos gate \
+(previously it used static defaults, creating a threshold mismatch). \
+Production deployment path: inject domain signal via `phase_hint` (Strand-I adapter) to make \
+coherence metrics anomaly-sensitive; with magnitude-weighted phase encoding the d-metric issue \
+is bypassed by high q-coherence and k-crystal spikes at anomaly time. \
 STL z-score and IsoForest operate without warmup and serve as the primary comparison here.\n\n");
     s.push_str("| Scenario | Detector | F1 | Precision | Recall | Detections |\n");
     s.push_str("|---|---|---|---|---|---|\n");

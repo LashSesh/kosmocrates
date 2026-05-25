@@ -563,16 +563,21 @@ pub fn macro_step(
     // EU-AI-Act compliance proofs, and crystal verifiability are
     // unaffected. The non-adaptive path performs exactly one gate_snapshot
     // call, preserving the pre-adaptive throughput.
-    let gate = if let Some(cal) = state.adaptive.as_mut() {
+    //
+    // effective_thresholds is stored so that post-gate checks (seam) use
+    // the same cut points as the gate itself — avoiding a situation where
+    // the gate passes on adaptive thresholds but a later static check rejects.
+    let (gate, effective_thresholds) = if let Some(cal) = state.adaptive.as_mut() {
         let raw_gate = metrics.gate_snapshot(&config.thresholds);
-        let effective_thresholds = cal.calibrate(&config.thresholds);
-        let gate = metrics.gate_snapshot(&effective_thresholds);
+        let effective = cal.calibrate(&config.thresholds);
+        let gate = metrics.gate_snapshot(&effective);
         // Record the *raw* snapshot so calibration is not self-referential;
         // future quantiles see the unmodified metrics.
         cal.record(&raw_gate);
-        gate
+        (gate, effective)
     } else {
-        metrics.gate_snapshot(&config.thresholds)
+        let gate = metrics.gate_snapshot(&config.thresholds);
+        (gate, config.thresholds.clone())
     };
     state.last_gate_passed = gate.kairos;
     state.last_gate = Some(gate.clone());
@@ -670,9 +675,10 @@ pub fn macro_step(
         stability_score,
     };
 
-    // Stitching (seam check)
+    // Stitching (seam check) — use the same effective thresholds as the Kairos gate
+    // so that adaptive calibration is not bypassed by a static fallback here.
     state.engine_state = EngineState::Stitching;
-    if metrics.n_seam < config.thresholds.n {
+    if metrics.n_seam < effective_thresholds.n {
         state.engine_state = EngineState::Rejected("seam failed".into());
         return Ok(None);
     }
