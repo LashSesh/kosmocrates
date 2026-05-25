@@ -2349,17 +2349,19 @@ mod tests {
         let mut store = ILStore::open(dir.path(), "TEST").unwrap();
 
         let crystal = dummy_crystal(0.8);
+        let question = "What is ACT-R?";
         let hash = store
-            .commit(&crystal, &["cognitive arch".into()], 1, "What is ACT-R?")
+            .commit(&crystal, &["cognitive arch".into()], 1, question)
             .unwrap();
         assert!(!hash.is_empty());
         assert_eq!(store.len(), 1);
 
-        let adapter = CrystalAdapter::new("TEST");
-        let payload = adapter.convert(&crystal, &[]).unwrap();
-        let hits = store.search(&payload.vector8, 5);
+        // The stored vector8 is now a semantic blend (text 70% + topology 30%).
+        // Searching with the same question text must surface the crystal at the top.
+        let qvec = crate::adapter::text_to_vector8(question);
+        let hits = store.search(&qvec, 5);
         assert!(!hits.is_empty());
-        assert!(hits[0].score > 0.99);
+        assert!(hits[0].score > 0.5, "semantic query must match committed question");
     }
 
     #[test]
