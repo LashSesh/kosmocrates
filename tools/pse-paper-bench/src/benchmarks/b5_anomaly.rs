@@ -54,7 +54,7 @@ fn benchmark_scenario(result: &ScenarioResult, name: &str) -> ScenarioBenchmark 
 }
 
 pub fn run() -> B5Results {
-    let config = Config::preset_streaming();
+    let config = Config::preset_anomaly_detection();
 
     let seismo = run_seismo_scenario(&config, 5);
     let vitals  = run_vitals_scenario(&config, 20);
