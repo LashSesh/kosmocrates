@@ -69,6 +69,7 @@ members = [
     "crates/pse-exploratory",
     "crates/pse-reasoning",
     "tools/nxalien-cli",
+    "tools/pse-paper-bench",
 ]
 
 [workspace.package]

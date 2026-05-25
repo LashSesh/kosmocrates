@@ -1,0 +1,26 @@
+[package]
+name         = "pse-paper-bench"
+version.workspace   = true
+edition.workspace   = true
+authors.workspace   = true
+license.workspace   = true
+description  = "Comprehensive benchmark suite for the Post-Symbolic Engine — produces a Zenodo-ready paper artifact"
+
+[[bin]]
+name = "pse-paper-bench"
+path = "src/main.rs"
+
+[dependencies]
+pse-adapter-il                 = { path = "../../adapters/pse-adapter-il" }
+pse-constitutional-interceptor = { path = "../../crates/pse-constitutional-interceptor" }
+pse-reasoning                  = { path = "../../crates/pse-reasoning" }
+pse-nxalien-types              = { path = "../../crates/pse-nxalien-types" }
+pse-types                      = { path = "../../crates/pse-types" }
+pse-bench-gt                   = { path = "../pse-bench-gt" }
+pse-eval-matrix                = { path = "../../crates/pse-eval-matrix" }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+serde_jcs      = { workspace = true }
+sha2           = { workspace = true }
+rand           = { workspace = true }
+tempfile       = "3"
