@@ -592,8 +592,13 @@ impl ILStore {
                     None => 0.5, // HDAG disabled: neutral weight
                 };
 
-                // D = ψ · ρ · ω  (Pfauenthron++ score)
-                let score = psi_sem * rho_pse * omega_hdag;
+                // D = ψ · ρ̂ · ω̂  (Pfauenthron++ score)
+                // ρ̂ = 0.9 + 0.1·ρ  and  ω̂ = 0.9 + 0.1·ω compress topology weights
+                // to [0.9, 1.0]: crystal quality modulates retrieval by at most ~11%
+                // so that semantic ψ remains the primary ranking signal.
+                let rho_hat = 0.9 + 0.1 * rho_pse;
+                let omega_hat = 0.9 + 0.1 * omega_hdag;
+                let score = psi_sem * rho_hat * omega_hat;
                 if score > 0.0 {
                     Some(ILMatch {
                         crystal_id_hex: entry.crystal_id_hex.clone(),
