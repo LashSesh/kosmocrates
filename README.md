@@ -1,4 +1,30 @@
-# PSE — Post-Symbolic Engine
+# Kosmocrates
+
+**Kosmocrates is a multi-layer epistemic operating system for AI agents and autonomous systems.**
+
+Like Socrates, who questioned the structure of what is known, Kosmocrates questions
+the structure of knowledge itself — crystallizing only what is stable, auditable,
+and causally coherent. The name reflects both the cosmic scope of the system and
+the plurality of its crates: no single layer, but a constellation of fail-closed
+subsystems that together constitute an epistemic substrate for AI.
+
+## Architecture
+
+| Layer | Crates | Role |
+|-------|--------|------|
+| **PSE** — Post-Symbolic Engine | `pse-core`, `pse-cascade`, `pse-graph`, … | Crystallization engine: observation → fail-closed gate → `SemanticCrystal` |
+| **Traversal Agent Stack** | `pse-traverse`, `pse-metatron`, `phase-matrix`, … | Eight deterministic cognitive layers above the core engine |
+| **Infinity Ledger + HDAG + QTIC** | `pse-adapter-il` (via `vendors/infinityledger`) | Persistent ledger, 5D resonance graph, Q0–Q5 conformance certificates |
+| **PSE+IL Intelligence Layer** | directions 1–10 in `pse-adapter-il` | Active epistemic system: health, lifecycle, agenda, retrieval |
+| **NxAlien** | `pse-nxalien-*`, `nxalien-cli` | Agent-context exoskeleton: governance rules → HDAG → epistemic signal |
+| **Adapters** | `pse-adapter-*` | Domain adapters: seismo, vitals, binance, ENTSOE, syslog, … |
+
+All layers are **fail-closed**: `SemanticCrystal` records flow only through the PSE-Bridge.
+No subsystem constructs or commits crystals on its own.
+
+---
+
+## PSE — Post-Symbolic Engine
 
 **PSE is a deterministic epistemic substrate for AI systems.**
 
@@ -273,13 +299,69 @@ next query, tracing the path of highest epistemic energy through the knowledge f
 Returns a `ReasoningChain` with per-step D scores, QTIC class, and stability; terminates
 on `MaxSteps | MinThreshold | NoNewMatches | EmptyStore`.
 
+**Pfad E (ext) — Quantum-Walk Beam ETV** (`guide_beam` in `pse-reasoning`): Extends the
+classic ETV with a multi-path quantum-walk beam search. `beam_width` simultaneous paths
+expand in parallel; when two paths converge on the same crystal they *interfere*:
+
+```
+combined_amplitude = |Σ amplitude_i · e^{i·θ_i}|
+```
+
+where θ_i is the accumulated QTIC-class phase along path i. Each QTIC class k maps to
+the k-th 6th root of unity (Q_k → k·π/3). Paths of equal class interfere constructively;
+paths differing by Δk = 3 (Q0↔Q3, Q1↔Q4, Q2↔Q5) interfere destructively. Seed
+amplitudes are initialised with Σ|a_i|² = 1 (quantum-walk normalisation). Returns a
+`BeamChain` with surviving paths sorted by amplitude and an interference event count.
+
+```rust
+use pse_reasoning::{guide_beam, BeamConfig};
+
+let cfg = BeamConfig {
+    beam_width: 4,       // simultaneous paths kept after each step
+    fan_out:    3,       // candidates expanded per path per step
+    max_steps:  6,
+    min_amplitude: 1e-9,
+    top_k_per_step: 32,
+};
+let chain = guide_beam("epistemic stability under Drifting signal", &store, &cfg);
+println!("best amplitude : {:.4}", chain.best_amplitude);
+println!("interference   : {}", chain.interference_events);
+for path in &chain.paths {
+    println!("  amplitude={:.4} qtic_diversity={}", path.amplitude, path.qtic_diversity());
+}
+```
+
+---
+
+## pse-paper-bench — Empirical Evaluation Suite
+
+`tools/pse-paper-bench` is a self-contained, reproducible 7-benchmark suite covering the
+full Kosmocrates stack. All benchmarks use synthetic datasets (no external data required),
+run deterministically, and emit `report.md`, `tables.tex`, `manifest.json`, and a
+`zenodo/` directory ready for academic deposit.
+
+```bash
+# Run the full suite (~2 min, release mode recommended)
+cargo run --release -p pse-paper-bench -- --out ./bench-output
+```
+
+| Benchmark | What it measures |
+|---|---|
+| **B1** Retrieval quality | Pfauenthron++ vs BM25 vs cosine-only vs stability-only vs Beam ETV; Hit@1/3/5, MRR, NDCG@10 with 95% CI |
+| **B2** Noise robustness | Retrieval quality under 0–75% character noise; PSE degrades ~23× more slowly than BM25 at 50% noise |
+| **B3** Constitutional precision/recall | `ConstitutionalEvaluator` macro-F1 on Allow / Block / Warn action classification |
+| **B4** ETV chain coherence | Classic ETV vs Quantum-Walk Beam ETV vs greedy cosine vs random walk; mean-D, peak-D, QTIC diversity |
+| **B5** Anomaly detection | Wraps `pse-bench-gt`; documents calibration limitation — PSE's adaptive Kairos gate requires O(10³) observations to stabilise; short streams (100–600 obs) produce zero detections |
+| **B6** Agent relevance ranking | Wraps `pse-eval-matrix` agent exoskeleton; adds Beam ETV as third candidate alongside PSE field and keyword baseline |
+| **B7** Scalability | Retrieval latency sweep at 10 / 100 / 1K / 5K crystals |
+
 ## Current status
 
-PSE is implemented as a Rust workspace with the core engine, traversal stack,
-Infinity Ledger adapter, HDAG, QTIC conformance engine, PSE+IL Intelligence Layer,
-nxalien governance exoskeleton, constitutional interceptor, exploratory ledger,
-Epistemic Thunderbolt Vector reasoning, server routes, validation tooling, and
-governance layers.
+Kosmocrates is implemented as a Rust workspace with the PSE core engine, traversal
+stack, Infinity Ledger adapter, HDAG, QTIC conformance engine, PSE+IL Intelligence
+Layer, nxalien governance exoskeleton, constitutional interceptor, exploratory ledger,
+Epistemic Thunderbolt Vector reasoning (classic + Quantum-Walk Beam ETV), server routes,
+validation tooling, governance layers, and the pse-paper-bench empirical evaluation suite.
 
 Current validation status:
 
@@ -293,6 +375,8 @@ Current validation status:
 - Metatron holistic eigenmode closure: **shipped**
 - Phase Matrix and Dual-Fabric Stitch: **shipped**
 - TPT-MTL topology layer: **shipped**
+- Quantum-Walk Beam ETV (`guide_beam`, QTIC-phase interference): **shipped**
+- pse-paper-bench B1–B7 empirical suite: **shipped**
 
 PSE remains pre-1.0. The public Rust API may still evolve, but replay,
 content-addressing, and report-byte contracts are treated as core invariants unless
@@ -903,6 +987,9 @@ domains is documented in §Productive-task validation below.
 | **Causal retrieval** (`retrieval.rs`: `CausalRole`, `CausallyGroundedEntry`, `CausalRetrievalResult`, BFS causal expansion) | **Shipped** |
 | **Knowledge clustering** (`cluster.rs`: `KnowledgeCluster`, `BridgeCrystal`, `ClusteringReport`, Union-Find) | **Shipped** |
 | **Epistemic agenda** (`agenda.rs`: `EpistemicAgenda`, `AgendaAction`, `[AGENDA]` context block, four fixpoint conditions) | **Shipped** |
+| **Epistemic Thunderbolt Vector** (`pse-reasoning`, `POST /reasoning/guide`) | **Shipped** |
+| **Quantum-Walk Beam ETV** (`guide_beam`, `BeamConfig`, QTIC-phase interference model) | **Shipped** |
+| **pse-paper-bench** (B1–B7 empirical suite, `report.md` + `tables.tex` + Zenodo export) | **Shipped** |
 | **Replay invariance** (`ReplayIdentity = 1`, Invariant I4) | **Verified** — bit-identical output across independent runs |
 | **Safety improvement** (`ΔU_safety ≥ 0`) | **Verified** — B6 false-commit rate < B0 on real LLM output (Cerebras) |
 | **Agent relevance ranking** (PSE-EVAL-MATRIX-01 § exoskeleton) | **Verified** — see table below |
@@ -1633,6 +1720,12 @@ adapters/
                           conditions)
 
 tools/
+  pse-paper-bench     7-benchmark empirical evaluation suite (B1–B7): retrieval quality,
+                      noise robustness, constitutional precision/recall, ETV chain coherence
+                      (classic ETV + Quantum-Walk Beam ETV), anomaly detection, agent
+                      relevance ranking, scalability. Outputs report.md + tables.tex +
+                      manifest.json + zenodo/ for academic deposit.
+                      Usage: cargo run --release -p pse-paper-bench -- --out ./bench-output
   pse-bench-gt        Ground-truth precision/recall (PSE vs STL-z-score vs IsoForest)
   pse-bench-bbo       TRITON spiral vs Random vs Halton on BBO test functions
   pse-audit           Determinism / replay auditor

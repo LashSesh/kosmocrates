@@ -77,11 +77,11 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Sebastian Klemm"]
 license = "MIT"
-description = "Post-Symbolic Engine — universal computation through topology, physics, and geometry"
+description = "Kosmocrates — multi-layer epistemic operating system: PSE crystallization, NxAlien governance, Infinity Ledger, HDAG, QTIC"
 repository = "https://github.com/lashsesh/pse"
 homepage = "https://github.com/lashsesh/pse"
 readme = "README.md"
-keywords = ["streaming", "topology", "deterministic", "audit", "post-symbolic"]
+keywords = ["kosmocrates", "topology", "deterministic", "epistemic", "post-symbolic"]
 categories = ["science", "algorithms", "data-structures"]
 rust-version = "1.82"
 

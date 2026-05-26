@@ -104,6 +104,63 @@ pub struct ConsensusState {
     pub last_result: Option<pse_types::ConsensusResult>,
 }
 
+// ─── Background Gate Model ───────────────────────────────────────────────────
+
+fn gate_to_arr(g: &GateSnapshot) -> [f64; 8] {
+    [g.d, g.q, g.r, g.g, g.j, g.p, g.n, g.k]
+}
+
+/// Per-metric mean and std of gate snapshots collected during the startup phase.
+/// Used to compute z-scores for detection-phase crystals.
+#[derive(Debug, Clone)]
+pub struct GateBackground {
+    mean: [f64; 8],
+    std: [f64; 8],
+}
+
+impl GateBackground {
+    fn from_gates(gates: &[GateSnapshot]) -> Option<Self> {
+        if gates.is_empty() {
+            return None;
+        }
+        let n = gates.len() as f64;
+        let mut sums = [0f64; 8];
+        for g in gates {
+            for (i, v) in gate_to_arr(g).iter().enumerate() {
+                sums[i] += v;
+            }
+        }
+        let mean = sums.map(|s| s / n);
+        let mut var_sums = [0f64; 8];
+        for g in gates {
+            for (i, v) in gate_to_arr(g).iter().enumerate() {
+                var_sums[i] += (v - mean[i]).powi(2);
+            }
+        }
+        let std = var_sums.map(|s| (s / n).sqrt().max(1e-9));
+        Some(GateBackground { mean, std })
+    }
+
+    /// Maximum z-score of `gate` vs the startup distribution across all 8 metrics.
+    pub fn max_z_score(&self, gate: &GateSnapshot) -> f64 {
+        gate_to_arr(gate)
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v - self.mean[i]) / self.std[i])
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    /// Per-metric z-scores for diagnostics (same order as GateSnapshot fields: d,q,r,g,j,p,n,k).
+    pub fn z_scores(&self, gate: &GateSnapshot) -> [f64; 8] {
+        let arr = gate_to_arr(gate);
+        let mut out = [0f64; 8];
+        for (i, v) in arr.iter().enumerate() {
+            out[i] = (v - self.mean[i]) / self.std[i];
+        }
+        out
+    }
+}
+
 // ─── Global State (PSE Def 17.1) ────────────────────────────────────────────
 
 pub struct GlobalState {
@@ -152,6 +209,24 @@ pub struct GlobalState {
     /// Optional swarm node for distributed crystal propagation (requires `swarm` feature).
     #[cfg(feature = "swarm")]
     pub swarm_node: Option<pse_net::SwarmNode>,
+    /// Tick index of the most recent committed crystal.  Used by the
+    /// crystal_cooldown_ticks gate to suppress burst false positives.
+    pub last_crystal_commit: Option<u64>,
+    /// Running count of crystals committed in this session.  The first
+    /// `config.consensus.startup_crystal_count` crystals are labelled
+    /// "pse_crystal_startup" by the runner; subsequent ones are "pse_crystal".
+    pub crystals_committed: u64,
+    /// Gate snapshots from all startup crystals.  Populated during the startup
+    /// phase; used to build `background_model` when the last startup crystal commits.
+    pub startup_gate_samples: Vec<GateSnapshot>,
+    /// Per-metric mean/std of startup gate snapshots.  `None` until the startup
+    /// phase completes (i.e., until `startup_crystal_count` crystals have committed).
+    /// Runners may use this to compute per-crystal z-scores for background gating.
+    pub background_model: Option<GateBackground>,
+    /// Gate snapshot captured at the last crystal commit.  Set alongside
+    /// `last_crystal_commit` so runners can compute background z-scores for the
+    /// most recently committed crystal without requiring per-crystal storage.
+    pub last_crystal_gate: Option<GateSnapshot>,
 }
 
 impl GlobalState {
@@ -195,11 +270,19 @@ impl GlobalState {
             adaptive,
             scale_state: pse_scale::MultiScaleState::default(),
             pattern_hits: 0,
-            memory: PatternMemory::new(MemoryConfig::default()),
+            memory: PatternMemory::new(MemoryConfig {
+                similarity_threshold: config.consensus.memory_similarity_threshold,
+                ..MemoryConfig::default()
+            }),
             last_data_helix: None,
             navigator_state: None,
             #[cfg(feature = "swarm")]
             swarm_node: None,
+            last_crystal_commit: None,
+            crystals_committed: 0,
+            startup_gate_samples: Vec::new(),
+            background_model: None,
+            last_crystal_gate: None,
         }
     }
 
@@ -556,6 +639,41 @@ pub fn macro_step(
         attempt_carrier_migration(state, &metrics, config);
     }
 
+    // Early-burst suppression: skip crystallisation until the stream has
+    // accumulated enough history for the graph metrics to be meaningful.
+    // The expanding-window phase (ticks 1..window_size) produces a dense
+    // small graph where all metrics are artificially high, leading to a
+    // burst of false-positive crystals.  A scenario-specific min_crystal_tick
+    // (0 = disabled) gates this out without touching the metric computation.
+    if config.consensus.min_crystal_tick > 0
+        && state.commit_index < config.consensus.min_crystal_tick
+    {
+        state.engine_state = EngineState::Idle;
+        return Ok(None);
+    }
+
+    // Post-crystal cooldown: after a crystal commits at tick T, suppress
+    // further crystallisation for crystal_cooldown_ticks ticks.  Prevents
+    // multi-tick burst FPs caused by the Kairos gate staying open across
+    // consecutive ticks after a morphogenic update (each update changes
+    // topology enough to bypass the pattern-memory cosine filter, so
+    // without cooldown an entire burst window crystallises as FP).
+    //
+    // The cooldown is intentionally skipped during the startup phase so the
+    // early morphogenic burst (which is needed for graph expansion) fires at
+    // its natural rate.  Spacing the burst crystals with cooldown would
+    // stretch the startup across hundreds of ticks, delaying detection.
+    let past_startup = config.consensus.startup_crystal_count == 0
+        || state.crystals_committed >= config.consensus.startup_crystal_count;
+    if past_startup && config.consensus.crystal_cooldown_ticks > 0 {
+        if let Some(last) = state.last_crystal_commit {
+            if state.commit_index <= last + config.consensus.crystal_cooldown_ticks {
+                state.engine_state = EngineState::Idle;
+                return Ok(None);
+            }
+        }
+    }
+
     // Kairos gate check (Inv I9, Inv I18). When an adaptive calibrator is
     // wired in, it derives the thresholds from rolling history; otherwise
     // we use the static `Config::thresholds`. The 8-fold AND composition
@@ -649,13 +767,14 @@ pub fn macro_step(
             return Ok(None);
         }
         // Fallback: check archive region overlap (within-session)
+        let dom_threshold = config.consensus.archive_dominance;
         let dominated = state.archive.crystals().iter().any(|c| {
             if c.region.is_empty() {
                 return false;
             }
             let overlap = region.iter().filter(|v| c.region.contains(v)).count();
             let coverage = overlap as f64 / region.len().max(1) as f64;
-            coverage >= 0.7
+            coverage >= dom_threshold
         });
         if dominated {
             state.pattern_hits += 1;
@@ -870,6 +989,21 @@ pub fn macro_step(
     state.engine_state = EngineState::Committed;
     // commit_index is already incremented unconditionally at the top of
     // macro_step; do not increment again here.
+    state.last_crystal_commit = Some(state.commit_index);
+    state.last_crystal_gate = Some(gate.clone());
+    state.crystals_committed += 1;
+
+    // Startup background model: collect gate snapshots from startup crystals.
+    // When the last startup crystal commits, finalise the per-metric mean/std
+    // that later detection-phase crystals are compared against.
+    if config.consensus.startup_crystal_count > 0 {
+        if state.crystals_committed <= config.consensus.startup_crystal_count {
+            state.startup_gate_samples.push(gate.clone());
+        }
+        if state.crystals_committed == config.consensus.startup_crystal_count {
+            state.background_model = GateBackground::from_gates(&state.startup_gate_samples);
+        }
+    }
 
     // L4: Morphogenic update (Inv I11: non-retroactive)
     morphogenic_update(

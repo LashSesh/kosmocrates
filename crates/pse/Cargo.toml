@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Post-Symbolic Engine — universal computation through topology, physics, and geometry"
-keywords = ["post-symbolic", "topology", "kuramoto", "crystallization", "analytics"]
+description = "Kosmocrates / PSE — Post-Symbolic Engine crystallization layer: observation → fail-closed gate → SemanticCrystal"
+keywords = ["kosmocrates", "post-symbolic", "topology", "crystallization", "deterministic"]
 categories = ["science", "algorithms", "data-structures"]
 
 [dependencies]
