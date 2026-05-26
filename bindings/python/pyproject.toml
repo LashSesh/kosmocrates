@@ -8,17 +8,40 @@ description = "PSE — Kosmocrates: thermodynamic cognitive substrate for LLMs"
 version = "0.1.0"
 requires-python = ">=3.8"
 license = { text = "MIT" }
-keywords = ["pse", "llm", "memory", "thermodynamics", "topology", "cognitive-substrate"]
+authors = [{ name = "Sebastian Klemm" }]
+readme = "README.md"
+keywords = ["pse", "kosmocrates", "llm", "memory", "thermodynamics", "topology", "cognitive-substrate"]
+# Project is pre-1.0; mirror the Cargo workspace pre-stable contract.
+# Bump to "5 - Production/Stable" alongside the 1.0.0 cut.
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+[project.urls]
+Homepage = "https://github.com/lashsesh/pse"
+Repository = "https://github.com/lashsesh/pse"
+Issues = "https://github.com/lashsesh/pse/issues"
+Changelog = "https://github.com/lashsesh/pse/blob/main/CHANGELOG.md"
+
 [tool.maturin]
+# `abi3-py38` in Cargo.toml means the produced wheel is a single
+# `pse_core-<ver>-cp38-abi3-<platform>.whl` that runs on every
+# CPython >= 3.8. maturin builds it as such automatically when the
+# corresponding pyo3 feature is enabled.
 features = ["pyo3/extension-module"]
 module-name = "pse_core"

@@ -1,0 +1,142 @@
+name: Python bindings
+
+# Build wheels for the `pse-core` Python package (bindings/python/) on
+# every PR that touches the binding or its build inputs, and on every
+# push to main. Tagged releases additionally publish to PyPI — gated
+# behind environment protection (`pypi` environment must be configured
+# with the trusted-publishing or token credentials).
+#
+# The binding is `pyo3 abi3-py38`, so a single wheel per platform
+# covers every CPython >= 3.8.
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  pull_request:
+    paths:
+      - 'bindings/python/**'
+      - 'crates/pse-core/**'
+      - 'crates/pse-types/**'
+      - 'crates/pse-graph/**'
+      - '.github/workflows/python.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    working-directory: bindings/python
+
+jobs:
+  build-wheels:
+    name: wheels (${{ matrix.platform.runner }} / ${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            target: x86_64
+          - runner: ubuntu-latest
+            target: aarch64
+          - runner: macos-13
+            target: x86_64
+          - runner: macos-latest
+            target: aarch64
+          - runner: windows-latest
+            target: x64
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bindings/python -> target
+          key: ${{ matrix.platform.runner }}-${{ matrix.platform.target }}
+
+      # maturin-action handles cross-compilation via manylinux containers
+      # for Linux targets, native build for macOS/Windows.
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: bindings/python
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --interpreter "3.8 3.9 3.10 3.11 3.12 3.13"
+          # manylinux2014 is the broadest baseline that still supports
+          # the GCC versions we need; downgrade to manylinux_2_28 only
+          # if a dependency requires it.
+          manylinux: ${{ matrix.platform.runner == 'ubuntu-latest' && 'auto' || '' }}
+          sccache: 'true'
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.runner }}-${{ matrix.platform.target }}
+          path: bindings/python/dist
+          if-no-files-found: error
+
+  build-sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: bindings/python
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: bindings/python/dist
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # Publish to PyPI on version tags. Gated by the `pypi` GitHub
+  # environment so a maintainer must approve the publish step.
+  #
+  # Recommended setup: trusted publishing (OIDC). No PyPI token in
+  # repo secrets — PyPI verifies the GitHub Actions identity. Set up
+  # via https://pypi.org/manage/account/publishing/ for the
+  # `pse-core` project.
+  # ---------------------------------------------------------------------
+  publish:
+    name: Publish to PyPI
+    needs: [build-wheels, build-sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pse-core
+    permissions:
+      id-token: write   # required for OIDC trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-merged
+          pattern: 'wheels-*'
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist-merged
+      - name: List artifacts to publish
+        run: ls -la dist-merged
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-merged
