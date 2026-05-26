@@ -17,7 +17,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/pse-server
+  # GHCR rejects uppercase characters in image names, and
+  # ${{ github.repository }} preserves the owner's case (LashSesh).
+  # Hardcoding the lowercase form sidesteps the validation failure.
+  IMAGE_NAME: lashsesh/kosmocrates/pse-server
 
 jobs:
   build-and-push:
