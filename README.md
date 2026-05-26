@@ -1,4 +1,30 @@
-# PSE — Post-Symbolic Engine
+# Kosmocrates
+
+**Kosmocrates is a multi-layer epistemic operating system for AI agents and autonomous systems.**
+
+Like Socrates, who questioned the structure of what is known, Kosmocrates questions
+the structure of knowledge itself — crystallizing only what is stable, auditable,
+and causally coherent. The name reflects both the cosmic scope of the system and
+the plurality of its crates: no single layer, but a constellation of fail-closed
+subsystems that together constitute an epistemic substrate for AI.
+
+## Architecture
+
+| Layer | Crates | Role |
+|-------|--------|------|
+| **PSE** — Post-Symbolic Engine | `pse-core`, `pse-cascade`, `pse-graph`, … | Crystallization engine: observation → fail-closed gate → `SemanticCrystal` |
+| **Traversal Agent Stack** | `pse-traverse`, `pse-metatron`, `phase-matrix`, … | Eight deterministic cognitive layers above the core engine |
+| **Infinity Ledger + HDAG + QTIC** | `pse-adapter-il` (via `vendors/infinityledger`) | Persistent ledger, 5D resonance graph, Q0–Q5 conformance certificates |
+| **PSE+IL Intelligence Layer** | directions 1–10 in `pse-adapter-il` | Active epistemic system: health, lifecycle, agenda, retrieval |
+| **NxAlien** | `pse-nxalien-*`, `nxalien-cli` | Agent-context exoskeleton: governance rules → HDAG → epistemic signal |
+| **Adapters** | `pse-adapter-*` | Domain adapters: seismo, vitals, binance, ENTSOE, syslog, … |
+
+All layers are **fail-closed**: `SemanticCrystal` records flow only through the PSE-Bridge.
+No subsystem constructs or commits crystals on its own.
+
+---
+
+## PSE — Post-Symbolic Engine
 
 **PSE is a deterministic epistemic substrate for AI systems.**
 
