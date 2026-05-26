@@ -1,0 +1,42 @@
+# Local development stack for Kosmocrates.
+#
+# Brings up `pse-server` on http://localhost:8765 with a persistent data
+# volume. Designed for "clone → docker compose up" onboarding.
+#
+# For production deployment, treat this as a starting point, not a
+# finished spec — at minimum you will want a reverse proxy in front
+# with TLS termination, an authentication layer (none is bundled),
+# and resource limits scoped to the host.
+
+services:
+  pse-server:
+    # Use the published image by default. To build from source instead,
+    # comment `image:` and uncomment the `build:` block.
+    image: ghcr.io/lashsesh/kosmocrates/pse-server:edge
+    # build:
+    #   context: .
+    #   dockerfile: docker/Dockerfile
+
+    container_name: kosmocrates-pse-server
+    restart: unless-stopped
+
+    ports:
+      - "8765:8765"
+
+    environment:
+      PSE_SERVER_HOST: "0.0.0.0"
+      PSE_SERVER_PORT: "8765"
+      # Persist Infinity Ledger and NxAlien state into the named volume
+      # so they survive container restarts.
+      PSE_IL_STORE: "/var/lib/kosmocrates/il_store"
+      PSE_NXALIEN_STATE: "/var/lib/kosmocrates/nxalien_state.json"
+      RUST_LOG: "${RUST_LOG:-info}"
+
+    volumes:
+      - kosmocrates-data:/var/lib/kosmocrates
+
+    # Image-level HEALTHCHECK (curl /health) is defined in docker/Dockerfile;
+    # docker-compose will surface it as the service health status.
+
+volumes:
+  kosmocrates-data:
