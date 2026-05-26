@@ -2,12 +2,6 @@
 
 **Kosmocrates is a multi-layer epistemic operating system for AI agents and autonomous systems.**
 
-Like Socrates, who questioned the structure of what is known, Kosmocrates questions
-the structure of knowledge itself — crystallizing only what is stable, auditable,
-and causally coherent. The name reflects both the cosmic scope of the system and
-the plurality of its crates: no single layer, but a constellation of fail-closed
-subsystems that together constitute an epistemic substrate for AI.
-
 ## Architecture
 
 | Layer | Crates | Role |
