@@ -18,10 +18,6 @@ No subsystem constructs or commits crystals on its own.
 
 ---
 
-## Kosmocrates
-
-**Kosmocrates is a deterministic epistemic substrate for AI systems.**
-
 It turns stateless LLM interactions into persistent, verifiable, topology-aware
 knowledge structures: content-addressed crystals, ledgered evidence, causal
 retrieval paths, QTIC conformance certificates, and self-maintaining epistemic
