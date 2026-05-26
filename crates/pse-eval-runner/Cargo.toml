@@ -5,6 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Real TrialExecutor that drives run_cognition() for agent-relevant workload families"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "pse_eval_runner"
@@ -16,8 +22,8 @@ path = "src/lib.rs"
 llm-agent = ["dep:reqwest"]
 
 [dependencies]
-pse-eval-matrix = { path = "../pse-eval-matrix" }
-pse-traverse = { path = "../pse-traverse", features = [
+pse-eval-matrix = { path = "../pse-eval-matrix", version = "0.1.0" }
+pse-traverse = { path = "../pse-traverse", version = "0.1.0", features = [
     "cognition",
     "cognition-spiral-memory",
     "cognition-hypercube",
@@ -28,3 +34,7 @@ pse-traverse = { path = "../pse-traverse", features = [
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true, optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

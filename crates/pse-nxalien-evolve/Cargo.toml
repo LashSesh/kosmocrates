@@ -5,18 +5,28 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Attractor-constrained rule evolution: closes the PSE→nxalien feedback loop"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-nxalien-types = { path = "../pse-nxalien-types" }
-pse-nxalien-core  = { path = "../pse-nxalien-core" }
-pse-nxalien-pse   = { path = "../pse-nxalien-pse" }
-pse-types         = { path = "../pse-types" }
-pse-graph         = { path = "../pse-graph" }
-pse-constraint    = { path = "../pse-constraint" }
-pse-adapter-il    = { path = "../../adapters/pse-adapter-il" }
+pse-nxalien-types = { path = "../pse-nxalien-types", version = "0.1.0" }
+pse-nxalien-core  = { path = "../pse-nxalien-core", version = "0.1.0" }
+pse-nxalien-pse   = { path = "../pse-nxalien-pse", version = "0.1.0" }
+pse-types         = { path = "../pse-types", version = "0.1.0" }
+pse-graph         = { path = "../pse-graph", version = "0.1.0" }
+pse-constraint    = { path = "../pse-constraint", version = "0.1.0" }
+pse-adapter-il    = { path = "../../adapters/pse-adapter-il", version = "0.1.0" }
 serde             = { workspace = true }
 serde_json        = { workspace = true }
 anyhow            = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

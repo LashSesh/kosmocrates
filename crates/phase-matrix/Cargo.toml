@@ -5,11 +5,17 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "PHASEMATRIX-HIVEMIND-03 — morphodynamic resonance cell substrate (PhaseCells, ResonanceClusters, FunnelGraphs, ConvergenceFields, ADAMANT-conformant fail-closed gates, trace-preserving dissolution)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 # Reuse Hash256 / CanonicalNumber / canonical helpers from pse-traverse so
 # the workspace shares one float-free addressing and numeric domain.
-pse-traverse = { path = "../pse-traverse", default-features = false }
+pse-traverse = { path = "../pse-traverse", version = "0.1.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }
@@ -35,3 +41,7 @@ cell-morphodynamics = ["cell-substrate"]
 cell-convergence = ["cell-substrate"]
 cell-handoff = ["cell-substrate"]
 cell-stitch = ["cell-substrate", "cell-funnel-graph", "cell-morphodynamics", "cell-convergence"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

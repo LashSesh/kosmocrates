@@ -5,12 +5,19 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "30-second showcase: streaming workload, crystal formation rate, gate diagnostics"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-pse-core = { path = "../../crates/pse-core" }
-pse-types = { path = "../../crates/pse-types" }
-pse-graph = { path = "../../crates/pse-graph" }
-pse-bench-gt = { path = "../pse-bench-gt" }
+pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
+pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
+pse-graph = { path = "../../crates/pse-graph", version = "0.1.0" }
+pse-bench-gt = { path = "../pse-bench-gt", version = "0.1.0" }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

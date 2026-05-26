@@ -5,6 +5,12 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Persistence layer for crystals, traces, and metrics"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [features]
 default = ["sqlite"]
@@ -12,10 +18,14 @@ sqlite = ["rusqlite"]
 memory-only = []
 
 [dependencies]
-pse-types = { path = "../pse-types" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

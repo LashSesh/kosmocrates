@@ -5,9 +5,16 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI for PSE-EVAL-MATRIX-01 — init / validate / plan / run / replay / score / ablate / compare / report (binary: pse-eval-matrix)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-pse-eval-matrix = { path = "../../crates/pse-eval-matrix", default-features = false, features = ["eval-matrix", "eval-cli", "eval-agent", "eval-cognition", "eval-streams", "eval-statistics", "eval-reports"] }
+pse-eval-matrix = { path = "../../crates/pse-eval-matrix", version = "0.1.0", default-features = false, features = ["eval-matrix", "eval-cli", "eval-agent", "eval-cognition", "eval-streams", "eval-statistics", "eval-reports"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }

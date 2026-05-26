@@ -5,10 +5,17 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI for PSE-VALIDATION-RUNNER-01 — one-button validation singularity (binary: pse-validate)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-pse-validation-runner = { path = "../../crates/pse-validation-runner", features = ["validation-runner"] }
-pse-traverse = { path = "../../crates/pse-traverse", default-features = false }
+pse-validation-runner = { path = "../../crates/pse-validation-runner", version = "0.1.0", features = ["validation-runner"] }
+pse-traverse = { path = "../../crates/pse-traverse", version = "0.1.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

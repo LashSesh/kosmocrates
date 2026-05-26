@@ -5,6 +5,16 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Tick-based scheduling and macro-step orchestration for PSE"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -5,12 +5,22 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Manifest construction and verification for PSE"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
-pse-evidence = { path = "../pse-evidence" }
-pse-registry = { path = "../pse-registry" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
+pse-evidence = { path = "../pse-evidence", version = "0.1.0" }
+pse-registry = { path = "../pse-registry", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

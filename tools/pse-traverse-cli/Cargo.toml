@@ -5,12 +5,19 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI for the PSE Traversal Agent — inspect / plan / run / replay"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-pse-traverse = { path = "../../crates/pse-traverse" }
-pse-types = { path = "../../crates/pse-types" }
-pse-graph = { path = "../../crates/pse-graph" }
-pse-core = { path = "../../crates/pse-core" }
+pse-traverse = { path = "../../crates/pse-traverse", version = "0.1.0" }
+pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
+pse-graph = { path = "../../crates/pse-graph", version = "0.1.0" }
+pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }
