@@ -1,6 +1,6 @@
-# Getting Started with PSE (Post-Symbolic Engine)
+# Getting Started with Kosmocrates
 
-PSE is a two-tier cognitive substrate for structured stream analysis and constraint-driven planning.
+Kosmocrates is a two-tier cognitive substrate for structured stream analysis and constraint-driven planning.
 
 - **Tier 1 (pse-core)**: Observation streams → 5D graph embedding → 8-metric Kairos gate → SemanticCrystal
 - **Tier 2 (pse-traverse)**: ProblemSpec JSON → FieldCube → DoFGraph → CollapsePlan → Candidate

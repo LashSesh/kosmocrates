@@ -1,6 +1,6 @@
 # pse-core — Python Bindings
 
-Python bindings for **PSE (Post-Symbolic Engine)** — a thermodynamic cognitive
+Python bindings for **PSE (Kosmocrates)** — a thermodynamic cognitive
 substrate that accumulates structured memory across LLM sessions.
 
 Built with [PyO3](https://pyo3.rs) and [maturin](https://maturin.rs).

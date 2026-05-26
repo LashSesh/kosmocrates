@@ -9,7 +9,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Sebastian Klemm"]
 license = "MIT"
-description = "Python bindings for PSE — Post-Symbolic Engine"
+description = "Python bindings for PSE — Kosmocrates"
 
 [lib]
 name = "pse_core"

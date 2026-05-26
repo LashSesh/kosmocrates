@@ -4,7 +4,7 @@ version.workspace   = true
 edition.workspace   = true
 authors.workspace   = true
 license.workspace   = true
-description  = "PSE REST API server — exposes the Post-Symbolic Engine over HTTP/JSON"
+description  = "PSE REST API server — exposes the Kosmocrates over HTTP/JSON"
 
 [[bin]]
 name = "pse-server"

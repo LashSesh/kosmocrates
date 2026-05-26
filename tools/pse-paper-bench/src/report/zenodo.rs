@@ -21,7 +21,7 @@ pub fn write_zenodo_dir(out_dir: &Path, _results: &AllResults, mf: &RunManifest)
         "upload_type": "dataset",
         "title": format!("PSE Benchmark Suite v{} — Pfauenthron++, ETV, Constitutional, Anomaly, Agent", env!("CARGO_PKG_VERSION")),
         "creators": [{"name": "Klemm, Sebastian", "affiliation": ""}],
-        "description": "Reproducible benchmark suite for the Post-Symbolic Engine (PSE). \
+        "description": "Reproducible benchmark suite for Kosmocrates. \
     Covers retrieval quality (Pfauenthron++ D=ψ·ρ·ω vs BM25 vs cosine-only), \
     noise robustness, constitutional governance precision/recall, \
     Epistemic Thunderbolt Vector reasoning chain coherence, anomaly detection F1, \

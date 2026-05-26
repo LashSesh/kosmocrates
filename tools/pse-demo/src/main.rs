@@ -1,5 +1,5 @@
 #![allow(clippy::needless_range_loop)]
-//! `pse-demo` — 30-second runnable showcase of the Post-Symbolic Engine.
+//! `pse-demo` — 30-second runnable showcase of the Kosmocrates.
 //!
 //! Drives a synthetic structured stream (a damped oscillator with a
 //! mid-stream regime shift) through PSE's full pipeline using a sliding

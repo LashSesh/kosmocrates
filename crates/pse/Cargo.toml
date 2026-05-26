@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Kosmocrates / PSE — Post-Symbolic Engine crystallization layer: observation → fail-closed gate → SemanticCrystal"
+description = "Kosmocrates / PSE — Kosmocrates crystallization layer: observation → fail-closed gate → SemanticCrystal"
 keywords = ["kosmocrates", "post-symbolic", "topology", "crystallization", "deterministic"]
 categories = ["science", "algorithms", "data-structures"]
 

@@ -1,11 +1,11 @@
-//! PSE CLI — Command line interface for the Post-Symbolic Engine.
+//! PSE CLI — Command line interface for the Kosmocrates.
 
 use pse_core::{macro_step, GlobalState};
 use pse_graph::PassthroughAdapter;
 use pse_types::Config;
 
 fn print_usage() {
-    eprintln!("PSE — Post-Symbolic Engine v0.2.0");
+    eprintln!("PSE — Kosmocrates v0.2.0");
     eprintln!();
     eprintln!("USAGE: pse <COMMAND>");
     eprintln!();

@@ -1,6 +1,6 @@
 //! PSE REST API server.
 //!
-//! Exposes the Post-Symbolic Engine over HTTP/JSON so any language can use
+//! Exposes the Kosmocrates over HTTP/JSON so any language can use
 //! it without a Rust or Python toolchain.
 //!
 //! **Design:** mostly stateless — the client carries state between calls via

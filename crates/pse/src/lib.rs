@@ -1,4 +1,4 @@
-//! # PSE — Post-Symbolic Engine
+//! # PSE — Kosmocrates
 //!
 //! A universal computation engine that processes information through
 //! topology, physics, and geometry rather than through symbols or statistics.

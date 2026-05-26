@@ -1,5 +1,5 @@
 #![allow(clippy::field_reassign_with_default)]
-//! Canonical data model for PSE (Post-Symbolic Engine).
+//! Canonical data model for PSE (Kosmocrates).
 //!
 //! Defines the shared types, temporal primitives, 5D state representations,
 //! and content-addressed hashing used by all other PSE crates.
