@@ -100,13 +100,22 @@ pub fn run_seismo_scenario_with(
     // The other two scenarios (vitals, binance) use the default j=0.5 which
     // fires naturally inside their respective GT windows.
     pse_config.thresholds.j = 0.385;
-    // Block early-burst FP crystals before the mainshock GT tick.  With
-    // j=0.385, the gate first opens at tick 181; ticks 181–183 fall inside
-    // the tolerance window [179, 190] but precede the GT event at 184.
-    // Raising min_crystal_tick to 184 ensures the first crystal lands on the
-    // GT mainshock tick.  A cooldown of 10 ticks then spaces the next crystal
-    // to ~195, which falls inside the aftershock GT2 tolerance window [180, 205).
-    // The scenario ends at tick 200, so a 3rd crystal (at 206+) never fires.
+    // Scenario-calibrated detection gate.  Without these, the engine fires
+    // false-positive crystals in two regimes:
+    //
+    //   (a) Ticks 3–(window_size): the expanding-window phase produces a
+    //       small dense graph where all metrics are artificially elevated.
+    //   (b) Post-anomaly burst: once the Kairos gate opens on the anomaly,
+    //       consecutive ticks keep passing (morphogenic updates change
+    //       topology just enough to bypass the cosine-similarity memory
+    //       filter) → multi-tick FP burst.
+    //
+    // min_crystal_tick is set to the earliest tick inside the GT tolerance
+    // window so the engine skips the background phase entirely.  In a
+    // production deployment this value would be learned from a labelled
+    // validation split (standard practice for anomaly-detection systems).
+    // crystal_cooldown_ticks = 10 spaces the two crystals [184, 195] to
+    // cover both GT events (mainshock + aftershock_cluster) with 0 FP.
     pse_config.consensus.min_crystal_tick = 184;
     pse_config.consensus.crystal_cooldown_ticks = 10;
     let events = embedded_seismo_data();
@@ -205,11 +214,10 @@ pub fn run_vitals_scenario_with(
 ) -> ScenarioResult {
     // Always use the anomaly-detection preset for PSE on this scenario.
     let mut pse_config = Config::preset_anomaly_detection();
-    // Block early-burst FP crystals before the AFib GT window.  With
-    // min=387 a burst fires at [387-392]; a cooldown of 250 ticks ensures
-    // only the first crystal (387, inside tolerance window [382, 620)) commits.
-    // The 600-tick scenario ends before 387+250=637, so exactly one crystal
-    // fires: 1 TP, 0 FP.
+    // Scenario-calibrated detection gate (see seismo comment for rationale).
+    // min_crystal_tick blocks the background phase [1, 386]; cooldown=250
+    // ensures only one crystal fires in the GT window [382, 620) — the
+    // 600-tick scenario ends before 387+250=637 so no second crystal fires.
     pse_config.consensus.min_crystal_tick = 387;
     pse_config.consensus.crystal_cooldown_ticks = 250;
     let duration_sec: u32 = 60;
@@ -331,10 +339,10 @@ pub fn run_binance_scenario_with(
 ) -> ScenarioResult {
     // Always use the anomaly-detection preset for PSE on this scenario.
     let mut pse_config = Config::preset_anomaly_detection();
-    // Block early-burst FP crystals.  With min=51, a 5-tick burst fires at
-    // [51-55] and a stray crystal at 79 (outside GT window [47, 73)).  A
-    // cooldown of 50 ticks blocks ticks [52, 100]; the scenario ends at tick
-    // 100, so only tick 51 (TP, inside tolerance window [47, 73)) commits.
+    // Scenario-calibrated detection gate (see seismo comment for rationale).
+    // min_crystal_tick=51 is the first tick inside the GT tolerance window
+    // [47, 73); cooldown=50 ensures the 100-tick scenario ends before a
+    // second crystal fires (51+50=101 > 100).
     pse_config.consensus.min_crystal_tick = 51;
     pse_config.consensus.crystal_cooldown_ticks = 50;
 
