@@ -861,6 +861,22 @@ pub struct ConsensusConfig {
     /// Default 0 (all crystals are counted as detections).
     #[serde(default)]
     pub startup_crystal_count: u64,
+    /// Background-model z-score threshold for detection-phase crystals.
+    ///
+    /// After the startup phase completes, the engine computes per-metric mean
+    /// and standard deviation from the gate snapshots of all startup crystals.
+    /// Each subsequent (detection-phase) crystal is scored by its maximum
+    /// z-score across all 8 Kairos metrics relative to this baseline.
+    ///
+    /// A crystal is suppressed (returned as `None`) when its max z-score is
+    /// strictly below `background_z_threshold`.  This filters out background
+    /// crystals whose metric profile is indistinguishable from startup (e.g.,
+    /// periodic j-recovery false positives), retaining only crystals that show
+    /// a statistically elevated signal on at least one metric.
+    ///
+    /// Default 0.0 (disabled — all crystals that pass the Kairos gate are emitted).
+    #[serde(default)]
+    pub background_z_threshold: f64,
 }
 
 fn default_archive_dominance() -> f64 {
@@ -885,6 +901,7 @@ impl Default for ConsensusConfig {
             min_crystal_tick: 0,
             crystal_cooldown_ticks: 0,
             startup_crystal_count: 0,
+            background_z_threshold: 0.0,
         }
     }
 }

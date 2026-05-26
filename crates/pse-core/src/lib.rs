@@ -104,6 +104,63 @@ pub struct ConsensusState {
     pub last_result: Option<pse_types::ConsensusResult>,
 }
 
+// ─── Background Gate Model ───────────────────────────────────────────────────
+
+fn gate_to_arr(g: &GateSnapshot) -> [f64; 8] {
+    [g.d, g.q, g.r, g.g, g.j, g.p, g.n, g.k]
+}
+
+/// Per-metric mean and std of gate snapshots collected during the startup phase.
+/// Used to compute z-scores for detection-phase crystals.
+#[derive(Debug, Clone)]
+pub struct GateBackground {
+    mean: [f64; 8],
+    std: [f64; 8],
+}
+
+impl GateBackground {
+    fn from_gates(gates: &[GateSnapshot]) -> Option<Self> {
+        if gates.is_empty() {
+            return None;
+        }
+        let n = gates.len() as f64;
+        let mut sums = [0f64; 8];
+        for g in gates {
+            for (i, v) in gate_to_arr(g).iter().enumerate() {
+                sums[i] += v;
+            }
+        }
+        let mean = sums.map(|s| s / n);
+        let mut var_sums = [0f64; 8];
+        for g in gates {
+            for (i, v) in gate_to_arr(g).iter().enumerate() {
+                var_sums[i] += (v - mean[i]).powi(2);
+            }
+        }
+        let std = var_sums.map(|s| (s / n).sqrt().max(1e-9));
+        Some(GateBackground { mean, std })
+    }
+
+    /// Maximum z-score of `gate` vs the startup distribution across all 8 metrics.
+    pub fn max_z_score(&self, gate: &GateSnapshot) -> f64 {
+        gate_to_arr(gate)
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v - self.mean[i]) / self.std[i])
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    /// Per-metric z-scores for diagnostics (same order as GateSnapshot fields: d,q,r,g,j,p,n,k).
+    pub fn z_scores(&self, gate: &GateSnapshot) -> [f64; 8] {
+        let arr = gate_to_arr(gate);
+        let mut out = [0f64; 8];
+        for (i, v) in arr.iter().enumerate() {
+            out[i] = (v - self.mean[i]) / self.std[i];
+        }
+        out
+    }
+}
+
 // ─── Global State (PSE Def 17.1) ────────────────────────────────────────────
 
 pub struct GlobalState {
@@ -159,6 +216,17 @@ pub struct GlobalState {
     /// `config.consensus.startup_crystal_count` crystals are labelled
     /// "pse_crystal_startup" by the runner; subsequent ones are "pse_crystal".
     pub crystals_committed: u64,
+    /// Gate snapshots from all startup crystals.  Populated during the startup
+    /// phase; used to build `background_model` when the last startup crystal commits.
+    pub startup_gate_samples: Vec<GateSnapshot>,
+    /// Per-metric mean/std of startup gate snapshots.  `None` until the startup
+    /// phase completes (i.e., until `startup_crystal_count` crystals have committed).
+    /// Runners may use this to compute per-crystal z-scores for background gating.
+    pub background_model: Option<GateBackground>,
+    /// Gate snapshot captured at the last crystal commit.  Set alongside
+    /// `last_crystal_commit` so runners can compute background z-scores for the
+    /// most recently committed crystal without requiring per-crystal storage.
+    pub last_crystal_gate: Option<GateSnapshot>,
 }
 
 impl GlobalState {
@@ -212,6 +280,9 @@ impl GlobalState {
             swarm_node: None,
             last_crystal_commit: None,
             crystals_committed: 0,
+            startup_gate_samples: Vec::new(),
+            background_model: None,
+            last_crystal_gate: None,
         }
     }
 
@@ -919,7 +990,20 @@ pub fn macro_step(
     // commit_index is already incremented unconditionally at the top of
     // macro_step; do not increment again here.
     state.last_crystal_commit = Some(state.commit_index);
+    state.last_crystal_gate = Some(gate.clone());
     state.crystals_committed += 1;
+
+    // Startup background model: collect gate snapshots from startup crystals.
+    // When the last startup crystal commits, finalise the per-metric mean/std
+    // that later detection-phase crystals are compared against.
+    if config.consensus.startup_crystal_count > 0 {
+        if state.crystals_committed <= config.consensus.startup_crystal_count {
+            state.startup_gate_samples.push(gate.clone());
+        }
+        if state.crystals_committed == config.consensus.startup_crystal_count {
+            state.background_model = GateBackground::from_gates(&state.startup_gate_samples);
+        }
+    }
 
     // L4: Morphogenic update (Inv I11: non-retroactive)
     morphogenic_update(

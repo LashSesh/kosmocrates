@@ -518,3 +518,110 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+mod tests_bg_diag {
+    use super::*;
+    use pse_core::{macro_step, GlobalState};
+    use crate::runner::EventScopedAdapter;
+
+    fn run_z_diag(name: &str, payloads: Vec<Vec<u8>>, config: Config, window_size: usize,
+                  adapter: EventScopedAdapter) {
+        let mut state = GlobalState::new(&config);
+        for k in 0..payloads.len() {
+            let lo = (k + 1).saturating_sub(window_size);
+            let batch: Vec<Vec<u8>> = payloads[lo..=k].to_vec();
+            if let Ok(Some(_)) = macro_step(&mut state, &batch, &config, &adapter) {
+                let is_startup = config.consensus.startup_crystal_count > 0
+                    && state.crystals_committed <= config.consensus.startup_crystal_count;
+                let (max_z, zs) = match (&state.background_model, &state.last_crystal_gate) {
+                    (Some(bg), Some(g)) => (bg.max_z_score(g), Some(bg.z_scores(g))),
+                    _ => (f64::NAN, None),
+                };
+                let g = state.last_crystal_gate.as_ref();
+                eprintln!(
+                    "{} tick={:3} {:7} max_z={:5.2} | raw=[d:{:.3} q:{:.3} r:{:.3} g:{:.3} j:{:.3} p:{:.3} n:{:.3} k:{:.3}] | z=[d:{:.2} q:{:.2} r:{:.2} g:{:.2} j:{:.2} p:{:.2} n:{:.2} k:{:.2}]",
+                    name, state.commit_index,
+                    if is_startup { "STARTUP" } else { "DETECT" },
+                    max_z,
+                    g.map_or(f64::NAN, |g| g.d),
+                    g.map_or(f64::NAN, |g| g.q),
+                    g.map_or(f64::NAN, |g| g.r),
+                    g.map_or(f64::NAN, |g| g.g),
+                    g.map_or(f64::NAN, |g| g.j),
+                    g.map_or(f64::NAN, |g| g.p),
+                    g.map_or(f64::NAN, |g| g.n),
+                    g.map_or(f64::NAN, |g| g.k),
+                    zs.map_or(f64::NAN, |z| z[0]),
+                    zs.map_or(f64::NAN, |z| z[1]),
+                    zs.map_or(f64::NAN, |z| z[2]),
+                    zs.map_or(f64::NAN, |z| z[3]),
+                    zs.map_or(f64::NAN, |z| z[4]),
+                    zs.map_or(f64::NAN, |z| z[5]),
+                    zs.map_or(f64::NAN, |z| z[6]),
+                    zs.map_or(f64::NAN, |z| z[7]),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tmp_z_score_diag() {
+        // seismo
+        {
+            let events = embedded_seismo_data();
+            let payloads: Vec<Vec<u8>> = events.iter()
+                .map(|e| serde_json::to_vec(e).unwrap()).collect();
+            let mut cfg = Config::preset_anomaly_detection();
+            let ws = 16usize;
+            cfg.thresholds.j = 0.385;
+            cfg.consensus.startup_crystal_count = ws as u64;
+            cfg.consensus.crystal_cooldown_ticks = ws as u64;
+            let adapter = EventScopedAdapter::new("seismo")
+                .with_phase_fn(|raw: &[u8]| {
+                    let e: pse_adapter_seismo::SeismoEvent = serde_json::from_slice(raw).ok()?;
+                    Some(((e.magnitude - 1.5) / 4.5 * std::f64::consts::TAU).rem_euclid(std::f64::consts::TAU))
+                });
+            run_z_diag("seismo", payloads, cfg, ws, adapter);
+        }
+        // vitals
+        {
+            let raw = generate_embedded_data(42, 60u32);
+            let patient_b: Vec<_> = raw.iter()
+                .filter(|r| r.patient_id == "patient_B")
+                .cloned()
+                .collect();
+            let payloads: Vec<Vec<u8>> = patient_b.iter()
+                .map(|r| serde_json::to_vec(r).unwrap()).collect();
+            let mut cfg = Config::preset_anomaly_detection();
+            let ws = 12usize;
+            cfg.consensus.startup_crystal_count = ws as u64;
+            cfg.consensus.crystal_cooldown_ticks = ws as u64;
+            let adapter = EventScopedAdapter::new("vitals")
+                .with_phase_fn(|raw: &[u8]| {
+                    let r: pse_adapter_vitals::VitalReading = serde_json::from_slice(raw).ok()?;
+                    Some(((r.value + 1.5) / 3.0 * std::f64::consts::TAU).rem_euclid(std::f64::consts::TAU))
+                });
+            run_z_diag("vitals", payloads, cfg, ws, adapter);
+        }
+        // binance
+        {
+            let ticks = embedded_btc_klines_with_regime_shift();
+            let payloads: Vec<Vec<u8>> = ticks.iter()
+                .map(|t| serde_json::to_vec(t).unwrap()).collect();
+            let mut cfg = Config::preset_anomaly_detection();
+            let ws = 8usize;
+            cfg.consensus.startup_crystal_count = ws as u64;
+            cfg.consensus.crystal_cooldown_ticks = ws as u64;
+            let adapter = EventScopedAdapter::new("binance")
+                .with_phase_fn(|raw: &[u8]| {
+                    let t: pse_adapter_binance::BinanceTick = serde_json::from_slice(raw).ok()?;
+                    if t.open > 0.0 && t.close > 0.0 {
+                        let lr = (t.close / t.open).ln();
+                        Some((lr * 50.0 + 0.5).rem_euclid(1.0) * std::f64::consts::TAU)
+                    } else { None }
+                });
+            run_z_diag("binance", payloads, cfg, ws, adapter);
+        }
+    }
+}

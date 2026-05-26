@@ -39,6 +39,29 @@ use pse_types::{
 
 use crate::Detection;
 
+/// Classify a committed crystal into its detection source label.
+///
+/// Returns:
+/// - `"pse_crystal_startup"` if still within the startup budget.
+/// - `"pse_crystal_background"` if a background model exists and the crystal's
+///   max z-score (vs startup distribution) is below `background_z_threshold`.
+/// - `"pse_crystal"` otherwise (genuine detection candidate).
+fn crystal_source(state: &GlobalState, config: &pse_types::Config) -> &'static str {
+    let sc = config.consensus.startup_crystal_count;
+    if sc > 0 && state.crystals_committed <= sc {
+        return "pse_crystal_startup";
+    }
+    let z_thr = config.consensus.background_z_threshold;
+    if z_thr > 0.0 {
+        if let (Some(bg), Some(gate)) = (&state.background_model, &state.last_crystal_gate) {
+            if bg.max_z_score(gate) < z_thr {
+                return "pse_crystal_background";
+            }
+        }
+    }
+    "pse_crystal"
+}
+
 /// Drive PSE over a stream of raw payloads, **one payload per macro_step**.
 ///
 /// Backward-compatible mode preserved for prior scenarios. See module
@@ -57,17 +80,10 @@ pub fn run_pse(
 
         match macro_step(state, &batch, config, adapter) {
             Ok(Some(crystal)) => {
-                let source = if config.consensus.startup_crystal_count > 0
-                    && state.crystals_committed <= config.consensus.startup_crystal_count
-                {
-                    "pse_crystal_startup"
-                } else {
-                    "pse_crystal"
-                };
                 detections.push(Detection::new(
                     state.commit_index,
                     crystal.stability_score.clamp(0.0, 1.0),
-                    source,
+                    crystal_source(state, config),
                 ));
             }
             Ok(None) => {
@@ -351,17 +367,10 @@ fn run_pse_windowed_inner(
                     .or_insert(0) += 1;
                 diag.candidate_count += 1;
                 diag.gate_pass_count += 1;
-                let source = if config.consensus.startup_crystal_count > 0
-                    && state.crystals_committed <= config.consensus.startup_crystal_count
-                {
-                    "pse_crystal_startup"
-                } else {
-                    "pse_crystal"
-                };
                 detections.push(Detection::new(
                     state.commit_index,
                     crystal.stability_score.clamp(0.0, 1.0),
-                    source,
+                    crystal_source(state, config),
                 ));
             }
             Ok(None) => {
