@@ -8,7 +8,7 @@
 )]
 //! # pse-net — Distributed Swarm Networking for PSE
 //!
-//! Provides TCP peer-to-peer crystal propagation for the Post-Symbolic Engine.
+//! Provides TCP peer-to-peer crystal propagation for the Kosmocrates.
 //! Multiple PSE instances can share crystals over the network using gossip-based
 //! propagation with Kuramoto-inspired acceptance criteria.
 //!

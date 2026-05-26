@@ -1,4 +1,4 @@
-//! Python bindings for PSE — Post-Symbolic Engine.
+//! Python bindings for PSE — Kosmocrates.
 //!
 //! Build with maturin:
 //!   maturin develop --release   # editable install into current venv

@@ -3,7 +3,7 @@
     clippy::field_reassign_with_default,
     clippy::type_complexity
 )]
-//! Ground-truth precision/recall benchmark suite for the Post-Symbolic Engine.
+//! Ground-truth precision/recall benchmark suite for the Kosmocrates.
 //!
 //! This crate provides the *measurement apparatus* for Research Strand A.
 //! It is independent of any domain adapter or detector: a detector produces

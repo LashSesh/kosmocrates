@@ -6,7 +6,7 @@
 
 | Layer | Crates | Role |
 |-------|--------|------|
-| **PSE** — Post-Symbolic Engine | `pse-core`, `pse-cascade`, `pse-graph`, … | Crystallization engine: observation → fail-closed gate → `SemanticCrystal` |
+| **Kosmocrates** | `pse-core`, `pse-cascade`, `pse-graph`, … | Crystallization engine: observation → fail-closed gate → `SemanticCrystal` |
 | **Traversal Agent Stack** | `pse-traverse`, `pse-metatron`, `phase-matrix`, … | Eight deterministic cognitive layers above the core engine |
 | **Infinity Ledger + HDAG + QTIC** | `pse-adapter-il` (via `vendors/infinityledger`) | Persistent ledger, 5D resonance graph, Q0–Q5 conformance certificates |
 | **PSE+IL Intelligence Layer** | directions 1–10 in `pse-adapter-il` | Active epistemic system: health, lifecycle, agenda, retrieval |
@@ -18,22 +18,22 @@ No subsystem constructs or commits crystals on its own.
 
 ---
 
-## PSE — Post-Symbolic Engine
+## Kosmocrates
 
-**PSE is a deterministic epistemic substrate for AI systems.**
+**Kosmocrates is a deterministic epistemic substrate for AI systems.**
 
 It turns stateless LLM interactions into persistent, verifiable, topology-aware
 knowledge structures: content-addressed crystals, ledgered evidence, causal
 retrieval paths, QTIC conformance certificates, and self-maintaining epistemic
 health signals.
 
-PSE is not another vector memory, prompt wrapper, or RAG convenience layer.
+Kosmocrates is not another vector memory, prompt wrapper, or RAG convenience layer.
 It is an execution substrate for deciding **what may become memory**, **why it
 was allowed to persist**, **how it can be replayed**, **where it sits in a causal
 knowledge graph**, and **what must be repaired before the knowledge base can move
 toward closure**.
 
-At the core, PSE ingests observation streams from any model or application,
+At the core, Kosmocrates ingests observation streams from any model or application,
 tests them through fail-closed topological gates, and crystallizes only stable
 patterns into SHA-256 content-addressed records. With Infinity Ledger, HDAG,
 QTIC, Pfauenthron++ retrieval with **Epistemic Thunderbolt Vector (ETV)**, and the PSE+IL Intelligence Layer, those records
@@ -44,7 +44,7 @@ LLMs and agent systems.
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                              Your Application                               │
 ├────────────────────────────────┬─────────────────────────────────────────────┤
-│           LLM / Agent           │                PSE Substrate                │
+│           LLM / Agent           │               Kosmocrates                   │
 │ GPT / Claude / Gemini / Llama   │ deterministic, auditable, fail-closed       │
 │ local models / tool agents      │                                             │
 ├────────────────────────────────┼─────────────────────────────────────────────┤
@@ -60,9 +60,9 @@ LLMs and agent systems.
 └────────────────────────────────┴─────────────────────────────────────────────┘
 ```
 
-## What PSE gives an AI system
+## What Kosmocrates gives an AI system
 
-PSE gives an LLM or agent what the model itself does not structurally possess:
+Kosmocrates gives an LLM or agent what the model itself does not structurally possess:
 
 - **Persistent memory** across sessions, runs, and model versions.
 - **Content-addressed evidence** for what was processed and committed.
@@ -78,20 +78,20 @@ PSE gives an LLM or agent what the model itself does not structurally possess:
 - **Epistemic agenda generation**: concrete actions to refresh, reinforce,
   consolidate, guard, or explore knowledge toward fixpoint closure.
 
-PSE does not make an LLM omniscient, sentient, or automatically correct.
+Kosmocrates does not make an LLM omniscient, sentient, or automatically correct.
 It makes the surrounding cognitive process **auditable, replayable, structurally
 filtered, and self-maintaining**.
 
-## What PSE is and is not
+## What Kosmocrates is and is not
 
-PSE alone is a **topological pattern-memory engine**. It crystallizes structurally
+Kosmocrates alone is a **topological pattern-memory engine**. It crystallizes structurally
 stable observation sequences into content-addressed records and recognizes them
 deterministically when the same sequence is replayed.
 
-PSE alone is **not** fuzzy semantic memory. Exact replay and structural stability
+Kosmocrates alone is **not** fuzzy semantic memory. Exact replay and structural stability
 are its base guarantees.
 
-**PSE + Infinity Ledger** extends the core with semantic and causal retrieval:
+**Kosmocrates + Infinity Ledger** extends the core with semantic and causal retrieval:
 
 D = ψ · ρ · ω
 
@@ -108,18 +108,18 @@ This means retrieval is not ranked by similarity alone. A candidate must be
 semantically relevant, structurally stable, and temporally/topologically coherent.
 If one axis collapses, the whole score collapses.
 
-## Why PSE exists
+## Why Kosmocrates exists
 
 LLMs are powerful plausibility engines. They can generate useful answers, but they
 do not natively provide persistent proof of what was processed, why something was
 stored, whether a memory is stale, which prior state caused a later state, or what
 must be repaired before the system can safely continue.
 
-PSE addresses that missing substrate.
+Kosmocrates addresses that missing substrate.
 
 The difference is:
 
-| Without PSE | With PSE |
+| Without Kosmocrates | With Kosmocrates |
 |---|---|
 | “This looks right.” | “This passed structural gates and can be replayed.” |
 | Context window only | Persistent content-addressed memory |
@@ -131,7 +131,7 @@ The difference is:
 
 ## Core architecture
 
-PSE is organized into three tiers.
+Kosmocrates is organized into three tiers.
 
 ### Tier 1 — Core Engine
 
@@ -372,7 +372,7 @@ Current validation status:
 - Quantum-Walk Beam ETV (`guide_beam`, QTIC-phase interference): **shipped**
 - pse-paper-bench B1–B7 empirical suite: **shipped**
 
-PSE remains pre-1.0. The public Rust API may still evolve, but replay,
+Kosmocrates remains pre-1.0. The public Rust API may still evolve, but replay,
 content-addressing, and report-byte contracts are treated as core invariants unless
 a release note explicitly declares a breaking change.
 
@@ -424,9 +424,9 @@ if let Ok(Some(replay_crystal)) = macro_step(&mut state, &[prior_response], &con
 }
 ```
 
-### What PSE gives the LLM
+### What Kosmocrates gives the LLM
 
-| Without PSE | With PSE |
+| Without Kosmocrates | With Kosmocrates |
 |---|---|
 | Stateless — each call starts fresh | Persistent structured memory across sessions |
 | No proof of what was processed | Cryptographic audit trail per interaction |
@@ -438,7 +438,7 @@ if let Ok(Some(replay_crystal)) = macro_step(&mut state, &[prior_response], &con
 
 ### Key properties for LLM integration
 
-- **Model-agnostic**: PSE ingests byte streams. The LLM can be anything.
+- **Model-agnostic**: Kosmocrates ingests byte streams. The LLM can be anything.
 - **Cross-session**: `PatternMemory` persists canonical-class crystal IDs across runs via `load_from_crystals`.
 - **Deterministic recall**: The same observation sequence always produces the same crystal ID (content-addressed via SHA-256).  `PatternMemory` detects exact replays across sessions — bit-identical input → guaranteed hit.  Semantic generalisation (recognising *similar* but not identical content) is outside PSE's scope in the current release.
 - **Auditable**: Every crystallized interaction has a SHA-256 ID, evidence chain, and `CommitProof`. You can prove what the LLM processed and when.
@@ -885,7 +885,7 @@ left to perform. This is the IL analogue of QTIC Q5 at the knowledge-base level.
 
 ## Architecture
 
-PSE is organised into three tiers:
+Kosmocrates is organised into three tiers:
 
 ### Tier 1 — Core Engine
 
@@ -1129,7 +1129,7 @@ engine assigns to it.  Two sentences with similar phases land in the same
 window of the sliding-window batching, which creates graph edges between
 them and allows the Kairos gate to measure their co-occurrence.
 
-PSE uses the best available phase signal, in order:
+Kosmocrates uses the best available phase signal, in order:
 
 **Tier 2 (char-4gram) is the production default** — it requires no external files and
 works out of the box.  Tier 1 is optional and requires downloading external word
@@ -1837,7 +1837,7 @@ release log.
 
 ## Contributing
 
-PSE is open infrastructure. The design is intentionally general — the cognitive stack
+Kosmocrates is open infrastructure. The design is intentionally general — the cognitive stack
 applies to any domain where verifiable, replayable pattern detection matters.
 
 **Highest-leverage contributions:**
