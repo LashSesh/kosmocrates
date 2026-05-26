@@ -152,6 +152,9 @@ pub struct GlobalState {
     /// Optional swarm node for distributed crystal propagation (requires `swarm` feature).
     #[cfg(feature = "swarm")]
     pub swarm_node: Option<pse_net::SwarmNode>,
+    /// Tick index of the most recent committed crystal.  Used by the
+    /// crystal_cooldown_ticks gate to suppress burst false positives.
+    pub last_crystal_commit: Option<u64>,
 }
 
 impl GlobalState {
@@ -203,6 +206,7 @@ impl GlobalState {
             navigator_state: None,
             #[cfg(feature = "swarm")]
             swarm_node: None,
+            last_crystal_commit: None,
         }
     }
 
@@ -559,6 +563,34 @@ pub fn macro_step(
         attempt_carrier_migration(state, &metrics, config);
     }
 
+    // Early-burst suppression: skip crystallisation until the stream has
+    // accumulated enough history for the graph metrics to be meaningful.
+    // The expanding-window phase (ticks 1..window_size) produces a dense
+    // small graph where all metrics are artificially high, leading to a
+    // burst of false-positive crystals.  A scenario-specific min_crystal_tick
+    // (0 = disabled) gates this out without touching the metric computation.
+    if config.consensus.min_crystal_tick > 0
+        && state.commit_index < config.consensus.min_crystal_tick
+    {
+        state.engine_state = EngineState::Idle;
+        return Ok(None);
+    }
+
+    // Post-crystal cooldown: after a crystal commits at tick T, suppress
+    // further crystallisation for crystal_cooldown_ticks ticks.  Prevents
+    // multi-tick burst FPs caused by the Kairos gate staying open across
+    // consecutive ticks after a morphogenic update (each update changes
+    // topology enough to bypass the pattern-memory cosine filter, so
+    // without cooldown an entire burst window crystallises as FP).
+    if config.consensus.crystal_cooldown_ticks > 0 {
+        if let Some(last) = state.last_crystal_commit {
+            if state.commit_index <= last + config.consensus.crystal_cooldown_ticks {
+                state.engine_state = EngineState::Idle;
+                return Ok(None);
+            }
+        }
+    }
+
     // Kairos gate check (Inv I9, Inv I18). When an adaptive calibrator is
     // wired in, it derives the thresholds from rolling history; otherwise
     // we use the static `Config::thresholds`. The 8-fold AND composition
@@ -874,6 +906,7 @@ pub fn macro_step(
     state.engine_state = EngineState::Committed;
     // commit_index is already incremented unconditionally at the top of
     // macro_step; do not increment again here.
+    state.last_crystal_commit = Some(state.commit_index);
 
     // L4: Morphogenic update (Inv I11: non-retroactive)
     morphogenic_update(

@@ -829,6 +829,20 @@ pub struct ConsensusConfig {
     /// (cosine similarity is bounded by 1.0, so >1.0 never matches).
     #[serde(default = "default_memory_similarity_threshold")]
     pub memory_similarity_threshold: f64,
+    /// Minimum commit-index (tick) before any crystal is allowed to commit.
+    /// Ticks below this value return `Ok(None)` before the Kairos gate is
+    /// evaluated, suppressing the early-burst false positives that arise when
+    /// the graph is still small and dense.  Default 0 (disabled).
+    #[serde(default)]
+    pub min_crystal_tick: u64,
+    /// Minimum tick gap between successive crystal commits.  After a crystal
+    /// fires at tick T, crystallisation is suppressed for ticks in the range
+    /// [T+1, T+crystal_cooldown_ticks].  Prevents multi-tick burst false
+    /// positives that arise when the Kairos gate remains open across
+    /// consecutive ticks (each morphogenic update changes topology slightly,
+    /// bypassing the pattern-memory cosine filter).  Default 0 (disabled).
+    #[serde(default)]
+    pub crystal_cooldown_ticks: u64,
 }
 
 fn default_archive_dominance() -> f64 {
@@ -850,6 +864,8 @@ impl Default for ConsensusConfig {
             mirror_consistency_eta: 0.8,
             archive_dominance: default_archive_dominance(),
             memory_similarity_threshold: default_memory_similarity_threshold(),
+            min_crystal_tick: 0,
+            crystal_cooldown_ticks: 0,
         }
     }
 }
