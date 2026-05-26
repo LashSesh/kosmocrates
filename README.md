@@ -1,6 +1,6 @@
 # Kosmocrates
 
-**Kosmocrates is a multi-layer epistemic operating system for AI agents and autonomous systems.**
+**Kosmocrates is a post-symbolic multi-layer epistemic operating system for AI agents and autonomous systems.**
 
 ## Architecture
 
