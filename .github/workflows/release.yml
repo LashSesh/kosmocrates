@@ -1,0 +1,257 @@
+name: Release
+
+# Triggered when a semver tag is pushed (e.g. `v0.1.0`, `v0.2.0-rc.1`).
+# `workflow_dispatch` allows dry-runs from the Actions UI.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build artifacts but do not publish the GitHub release'
+        type: boolean
+        default: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # End-user binaries shipped in every release. Developer/research CLIs
+  # (eval-matrix, traverse-*, bench_*) stay source-only — they are not
+  # part of the public surface contract.
+  RELEASE_BINS: "pse nxalien pse-server pse-demo pse-llm-demo"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Draft GitHub release. Subsequent jobs upload artifacts into this draft.
+  # The release is left as a draft until a maintainer publishes it.
+  # ---------------------------------------------------------------------
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    outputs:
+      upload_url: ${{ steps.create.outputs.upload_url }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+      - name: Extract changelog section for this tag
+        id: changelog
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          version="${tag#v}"
+          # Best-effort extract: the section from `## [version]` to the
+          # next `## [` heading. If empty, fall back to "see CHANGELOG.md".
+          awk -v ver="$version" '
+            $0 ~ "^## \\["ver"\\]" { capture=1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release_notes.md || true
+          if [ ! -s release_notes.md ]; then
+            echo "See CHANGELOG.md for details." > release_notes.md
+          fi
+      - id: create
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body_path: release_notes.md
+          draft: true
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+
+  # ---------------------------------------------------------------------
+  # Build release binaries for the five end-user CLIs across the
+  # platforms Kosmocrates supports. Linux/aarch64 uses `cross` because
+  # the GitHub-hosted runners are x86_64. Windows uses .zip, all others
+  # use .tar.gz.
+  # ---------------------------------------------------------------------
+  build-binaries:
+    name: Build (${{ matrix.target }})
+    needs: [create-release]
+    if: always() && (needs.create-release.result == 'success' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            use_cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            archive: tar.gz
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+            use_cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+            use_cross: false
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross (linux-aarch64 only)
+        if: matrix.use_cross
+        run: cargo install --locked cross
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${GITHUB_REF#refs/tags/}" ] && [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release binaries
+        shell: bash
+        env:
+          # `RUSTFLAGS=-D warnings` is appropriate for CI but unnecessary
+          # — and occasionally fragile on niche targets — for release
+          # builds. Drop it here.
+          RUSTFLAGS: ""
+        run: |
+          set -euo pipefail
+          bins=( ${RELEASE_BINS} )
+          builder="cargo"
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            builder="cross"
+          fi
+          for bin in "${bins[@]}"; do
+            $builder build --release --locked --target ${{ matrix.target }} --bin "$bin"
+          done
+
+      - name: Stage artifacts
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.tag }}"
+          target="${{ matrix.target }}"
+          stage="kosmocrates-${tag}-${target}"
+          mkdir -p "$stage"
+          cp LICENSE README.md "$stage/"
+          if [ -f CHANGELOG.md ]; then cp CHANGELOG.md "$stage/"; fi
+          ext=""
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then ext=".exe"; fi
+          for bin in ${RELEASE_BINS}; do
+            cp "target/${target}/release/${bin}${ext}" "$stage/"
+          done
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            # `7z` is preinstalled on windows-latest.
+            7z a "${stage}.zip" "$stage" >/dev/null
+            echo "asset=${stage}.zip" >> "$GITHUB_OUTPUT"
+            echo "content_type=application/zip" >> "$GITHUB_OUTPUT"
+          else
+            tar -czf "${stage}.tar.gz" "$stage"
+            echo "asset=${stage}.tar.gz" >> "$GITHUB_OUTPUT"
+            echo "content_type=application/gzip" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate SHA-256 checksum
+        shell: bash
+        run: |
+          asset="${{ steps.stage.outputs.asset }}"
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$asset" > "${asset}.sha256"
+          else
+            shasum -a 256 "$asset" > "${asset}.sha256"
+          fi
+
+      - name: Upload artifacts to release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.create-release.outputs.tag }}
+          files: |
+            ${{ steps.stage.outputs.asset }}
+            ${{ steps.stage.outputs.asset }}.sha256
+          draft: true
+
+      - name: Upload artifacts (workflow_dispatch dry-run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.asset }}
+          path: |
+            ${{ steps.stage.outputs.asset }}
+            ${{ steps.stage.outputs.asset }}.sha256
+          retention-days: 7
+
+  # ---------------------------------------------------------------------
+  # CycloneDX SBOM for the workspace. Attached to the GitHub release so
+  # downstream consumers can audit dependency provenance.
+  # ---------------------------------------------------------------------
+  sbom:
+    name: Generate SBOM
+    needs: [create-release]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-cyclonedx
+        run: cargo install --locked cargo-cyclonedx
+      - name: Generate workspace SBOM
+        run: cargo cyclonedx --format json --override-filename kosmocrates-sbom
+      - name: Collect SBOM files
+        run: |
+          mkdir -p sbom
+          # cargo-cyclonedx writes per-crate SBOMs; collect them all.
+          find . -name 'kosmocrates-sbom.cdx.json' -not -path './sbom/*' -print0 \
+            | xargs -0 -I{} cp {} sbom/ 2>/dev/null || true
+          # Also produce a single top-level SBOM if one was emitted at the root.
+          if [ -f kosmocrates-sbom.cdx.json ]; then
+            cp kosmocrates-sbom.cdx.json sbom/workspace.cdx.json
+          fi
+          (cd sbom && tar -czf ../kosmocrates-sbom.tar.gz .)
+          sha256sum kosmocrates-sbom.tar.gz > kosmocrates-sbom.tar.gz.sha256
+      - name: Upload SBOM to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.create-release.outputs.tag }}
+          files: |
+            kosmocrates-sbom.tar.gz
+            kosmocrates-sbom.tar.gz.sha256
+          draft: true
+
+  # ---------------------------------------------------------------------
+  # crates.io publish — intentionally disabled until every publishable
+  # crate has complete metadata (description, license, repository,
+  # readme) AND every path dependency carries a `version =` field.
+  # See RELEASING.md § "Publishing to crates.io" for the prep checklist.
+  # ---------------------------------------------------------------------
+  publish-crates:
+    name: Publish to crates.io
+    if: false
+    needs: [build-binaries, sbom]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Disabled. See RELEASING.md."
