@@ -1,12 +1,19 @@
-use crate::{datasets, fixtures, baselines, metrics::chain_metrics, stats};
+use crate::{baselines, datasets, fixtures, metrics::chain_metrics, stats};
 use pse_reasoning::{guide, guide_beam, BeamConfig, ThunderboltConfig};
 use serde::Serialize;
 
 #[derive(Serialize, Clone, Default)]
 pub struct B4Results {
-    pub pse_mean_d: f64, pub pse_peak_d: f64, pub pse_avg_length: f64, pub pse_diversity: f64,
-    pub greedy_mean_d: f64, pub greedy_peak_d: f64, pub greedy_avg_length: f64, pub greedy_diversity: f64,
-    pub random_mean_d: f64, pub random_avg_length: f64,
+    pub pse_mean_d: f64,
+    pub pse_peak_d: f64,
+    pub pse_avg_length: f64,
+    pub pse_diversity: f64,
+    pub greedy_mean_d: f64,
+    pub greedy_peak_d: f64,
+    pub greedy_avg_length: f64,
+    pub greedy_diversity: f64,
+    pub random_mean_d: f64,
+    pub random_avg_length: f64,
     // Beam ETV (Quantum-Walk extension)
     pub beam_best_amplitude: f64,
     pub beam_mean_amplitude: f64,
@@ -23,12 +30,17 @@ pub fn run() -> B4Results {
 
     let mut all_ids = vec![];
     for (i, doc) in ds.corpus.iter().enumerate() {
-        let crystal = fixtures::build_crystal(&format!("b4-{}", doc.id), doc.stability, doc.kuramoto);
+        let crystal =
+            fixtures::build_crystal(&format!("b4-{}", doc.id), doc.stability, doc.kuramoto);
         let _ = fixtures::commit_crystal(&mut store, &crystal, &doc.text, i + 1);
         all_ids.push(hex_encode(&crystal.crystal_id));
     }
 
-    let config = ThunderboltConfig { max_steps: 6, min_d_threshold: 0.001, top_k_per_step: 32 };
+    let config = ThunderboltConfig {
+        max_steps: 6,
+        min_d_threshold: 0.001,
+        top_k_per_step: 32,
+    };
 
     let mut pse_mean_ds = vec![];
     let mut pse_peak_ds = vec![];
@@ -60,8 +72,11 @@ pub fn run() -> B4Results {
     for (qi, query) in ds.queries.iter().enumerate() {
         // PSE ETV
         let chain = guide(&query.text, &store, &config);
-        let steps: Vec<(String, f64, u8)> = chain.steps.iter()
-            .map(|s| (s.crystal_id_hex.clone(), s.d_score, s.qtic_class)).collect();
+        let steps: Vec<(String, f64, u8)> = chain
+            .steps
+            .iter()
+            .map(|s| (s.crystal_id_hex.clone(), s.d_score, s.qtic_class))
+            .collect();
         let cm = chain_metrics::compute_chain_metrics(&steps);
         pse_mean_ds.push(cm.mean_d);
         pse_peak_ds.push(cm.peak_d);
@@ -74,16 +89,23 @@ pub fn run() -> B4Results {
         let mut greedy_steps = vec![];
         let mut cur_vec = qvec.clone();
         for _ in 0..config.max_steps {
-            let ranked: Vec<_> = store.search(&cur_vec, 32).into_iter()
+            let ranked: Vec<_> = store
+                .search(&cur_vec, 32)
+                .into_iter()
                 .filter(|m| !visited.contains(&m.crystal_id_hex))
                 .collect();
-            if ranked.is_empty() { break; }
+            if ranked.is_empty() {
+                break;
+            }
             let best = &ranked[0];
             let (qtic, _) = store.crystal_meta(&best.crystal_id_hex).unwrap_or((0, 0.5));
             greedy_steps.push((best.crystal_id_hex.clone(), best.score, qtic));
             visited.insert(best.crystal_id_hex.clone());
-            if let Some(v) = store.crystal_vector8(&best.crystal_id_hex) { cur_vec = v; }
-            else { break; }
+            if let Some(v) = store.crystal_vector8(&best.crystal_id_hex) {
+                cur_vec = v;
+            } else {
+                break;
+            }
         }
         let gcm = chain_metrics::compute_chain_metrics(&greedy_steps);
         greedy_mean_ds.push(gcm.mean_d);
@@ -95,7 +117,9 @@ pub fn run() -> B4Results {
         let bc = guide_beam(&query.text, &store, &beam_config);
         beam_best_amps.push(bc.best_amplitude);
         beam_mean_amps.push(bc.mean_amplitude());
-        let avg_len = if bc.paths.is_empty() { 0.0 } else {
+        let avg_len = if bc.paths.is_empty() {
+            0.0
+        } else {
             bc.paths.iter().map(|p| p.length() as f64).sum::<f64>() / bc.paths.len() as f64
         };
         beam_lengths.push(avg_len);
@@ -110,14 +134,25 @@ pub fn run() -> B4Results {
         rnd_lengths.push(rcm.chain_length as f64);
     }
 
-    let mean_of = |v: &[f64]| if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 };
+    let mean_of = |v: &[f64]| {
+        if v.is_empty() {
+            0.0
+        } else {
+            v.iter().sum::<f64>() / v.len() as f64
+        }
+    };
 
     B4Results {
-        pse_mean_d: mean_of(&pse_mean_ds), pse_peak_d: mean_of(&pse_peak_ds),
-        pse_avg_length: mean_of(&pse_lengths), pse_diversity: mean_of(&pse_diversities),
-        greedy_mean_d: mean_of(&greedy_mean_ds), greedy_peak_d: mean_of(&greedy_peak_ds),
-        greedy_avg_length: mean_of(&greedy_lengths), greedy_diversity: mean_of(&greedy_diversities),
-        random_mean_d: mean_of(&rnd_mean_ds), random_avg_length: mean_of(&rnd_lengths),
+        pse_mean_d: mean_of(&pse_mean_ds),
+        pse_peak_d: mean_of(&pse_peak_ds),
+        pse_avg_length: mean_of(&pse_lengths),
+        pse_diversity: mean_of(&pse_diversities),
+        greedy_mean_d: mean_of(&greedy_mean_ds),
+        greedy_peak_d: mean_of(&greedy_peak_ds),
+        greedy_avg_length: mean_of(&greedy_lengths),
+        greedy_diversity: mean_of(&greedy_diversities),
+        random_mean_d: mean_of(&rnd_mean_ds),
+        random_avg_length: mean_of(&rnd_lengths),
         beam_best_amplitude: mean_of(&beam_best_amps),
         beam_mean_amplitude: mean_of(&beam_mean_amps),
         beam_avg_length: mean_of(&beam_lengths),
@@ -127,4 +162,6 @@ pub fn run() -> B4Results {
     }
 }
 
-fn hex_encode(b: &[u8]) -> String { b.iter().map(|x| format!("{x:02x}")).collect() }
+fn hex_encode(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}

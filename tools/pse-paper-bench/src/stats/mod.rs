@@ -12,11 +12,19 @@ pub struct BootstrapCi {
 pub fn bootstrap_ci(values: &[f64], n_iter: u32, seed: u64) -> BootstrapCi {
     let n = values.len();
     if n == 0 {
-        return BootstrapCi { mean: 0.0, lo95: 0.0, hi95: 0.0 };
+        return BootstrapCi {
+            mean: 0.0,
+            lo95: 0.0,
+            hi95: 0.0,
+        };
     }
     let mean = values.iter().sum::<f64>() / n as f64;
     if n == 1 {
-        return BootstrapCi { mean, lo95: mean, hi95: mean };
+        return BootstrapCi {
+            mean,
+            lo95: mean,
+            hi95: mean,
+        };
     }
 
     // LCG constants matching pse-eval-matrix workspace contract
@@ -38,19 +46,25 @@ pub fn bootstrap_ci(values: &[f64], n_iter: u32, seed: u64) -> BootstrapCi {
 
     let lo_idx = ((0.025 * n_iter as f64) as usize).min(n_iter as usize - 1);
     let hi_idx = ((0.975 * n_iter as f64) as usize).min(n_iter as usize - 1);
-    BootstrapCi { mean, lo95: boot_means[lo_idx], hi95: boot_means[hi_idx] }
+    BootstrapCi {
+        mean,
+        lo95: boot_means[lo_idx],
+        hi95: boot_means[hi_idx],
+    }
 }
 
 /// Paired mean difference: mean(b) − mean(a). Positive = b wins.
 pub fn paired_diff(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len(), "paired_diff: length mismatch");
-    if a.is_empty() { return 0.0; }
+    if a.is_empty() {
+        return 0.0;
+    }
     a.iter().zip(b.iter()).map(|(ai, bi)| bi - ai).sum::<f64>() / a.len() as f64
 }
 
 /// Stable seed from a string label — SHA-256 prefix as u64.
 pub fn label_seed(label: &str) -> u64 {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(label.as_bytes());
     let d = h.finalize();

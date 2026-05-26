@@ -12,8 +12,13 @@ pub struct ChainMetrics {
 pub fn compute_chain_metrics(steps: &[(String, f64, u8)]) -> ChainMetrics {
     // steps: Vec<(crystal_id_hex, d_score, qtic_class)>
     if steps.is_empty() {
-        return ChainMetrics { mean_d: 0.0, peak_d: 0.0, chain_length: 0,
-                              crystal_diversity: 0, grounded_fraction: 0.0 };
+        return ChainMetrics {
+            mean_d: 0.0,
+            peak_d: 0.0,
+            chain_length: 0,
+            crystal_diversity: 0,
+            grounded_fraction: 0.0,
+        };
     }
     let d_scores: Vec<f64> = steps.iter().map(|(_, d, _)| *d).collect();
     let mean_d = d_scores.iter().sum::<f64>() / d_scores.len() as f64;

@@ -1,5 +1,5 @@
-mod benchmarks;
 mod baselines;
+mod benchmarks;
 mod datasets;
 mod fixtures;
 mod manifest;

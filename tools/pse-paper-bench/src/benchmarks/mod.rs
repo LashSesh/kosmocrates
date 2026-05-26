@@ -49,7 +49,15 @@ pub fn run_all(out_dir: &Path) -> AllResults {
     let b7 = b7_scalability::run();
     write_json(out_dir, "b7_scalability.json", &b7);
 
-    AllResults { b1, b2, b3, b4, b5, b6, b7 }
+    AllResults {
+        b1,
+        b2,
+        b3,
+        b4,
+        b5,
+        b6,
+        b7,
+    }
 }
 
 fn write_json<T: Serialize>(out_dir: &Path, name: &str, val: &T) {

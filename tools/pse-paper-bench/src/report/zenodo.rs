@@ -22,11 +22,11 @@ pub fn write_zenodo_dir(out_dir: &Path, _results: &AllResults, mf: &RunManifest)
         "title": format!("PSE Benchmark Suite v{} — Pfauenthron++, ETV, Constitutional, Anomaly, Agent", env!("CARGO_PKG_VERSION")),
         "creators": [{"name": "Klemm, Sebastian", "affiliation": ""}],
         "description": "Reproducible benchmark suite for the Post-Symbolic Engine (PSE). \
-Covers retrieval quality (Pfauenthron++ D=ψ·ρ·ω vs BM25 vs cosine-only), \
-noise robustness, constitutional governance precision/recall, \
-Epistemic Thunderbolt Vector reasoning chain coherence, anomaly detection F1, \
-agent relevance ranking, and retrieval scalability. \
-All benchmarks run with a single cargo command. No external API calls required.",
+    Covers retrieval quality (Pfauenthron++ D=ψ·ρ·ω vs BM25 vs cosine-only), \
+    noise robustness, constitutional governance precision/recall, \
+    Epistemic Thunderbolt Vector reasoning chain coherence, anomaly detection F1, \
+    agent relevance ranking, and retrieval scalability. \
+    All benchmarks run with a single cargo command. No external API calls required.",
         "access_right": "open",
         "license": "MIT",
         "keywords": ["post-symbolic", "retrieval", "constitutional AI", "anomaly detection", "Rust", "epistemic AI"],
@@ -43,7 +43,8 @@ All benchmarks run with a single cargo command. No external API calls required."
     std::fs::write(zenodo_dir.join("metadata.json"), &meta_str).expect("write metadata.json");
 
     // README.md
-    let readme = format!("# PSE Benchmark Suite v{}\n\n\
+    let readme = format!(
+        "# PSE Benchmark Suite v{}\n\n\
 ## How to reproduce\n\n\
 ```bash\ngit clone https://github.com/lashsesh/pse\ncd pse\n\
 cargo run --release -p pse-paper-bench -- --out ./bench-output\n```\n\n\
@@ -51,7 +52,12 @@ cargo run --release -p pse-paper-bench -- --out ./bench-output\n```\n\n\
 {}\n\n\
 ## Manifest hash\n\n`{}`\n",
         env!("CARGO_PKG_VERSION"),
-        mf.artifacts.iter().map(|a| format!("- `{}` (SHA-256: `{}`)", a.name, a.sha256)).collect::<Vec<_>>().join("\n"),
-        mf.self_hash);
+        mf.artifacts
+            .iter()
+            .map(|a| format!("- `{}` (SHA-256: `{}`)", a.name, a.sha256))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        mf.self_hash
+    );
     std::fs::write(zenodo_dir.join("README.md"), &readme).expect("write zenodo README.md");
 }

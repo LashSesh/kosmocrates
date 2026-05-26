@@ -170,7 +170,9 @@ pub fn guide(query: &str, store: &ILStore, config: &ThunderboltConfig) -> Reason
         hits.truncate(config.top_k_per_step);
 
         // Select the first unvisited hit.
-        let candidate = hits.into_iter().find(|h| !visited.contains(&h.crystal_id_hex));
+        let candidate = hits
+            .into_iter()
+            .find(|h| !visited.contains(&h.crystal_id_hex));
 
         let Some(hit) = candidate else {
             terminated_by = TerminationReason::NoNewMatches;
@@ -184,9 +186,8 @@ pub fn guide(query: &str, store: &ILStore, config: &ThunderboltConfig) -> Reason
 
         visited.insert(hit.crystal_id_hex.clone());
 
-        let (qtic_class, stability_score) = store
-            .crystal_meta(&hit.crystal_id_hex)
-            .unwrap_or((0, 0.5));
+        let (qtic_class, stability_score) =
+            store.crystal_meta(&hit.crystal_id_hex).unwrap_or((0, 0.5));
 
         // Exploratory proxy: low QTIC (Q0 or Q1) signals ungrounded crystal.
         let is_exploratory = qtic_class <= 1;
@@ -318,10 +319,7 @@ impl BeamPath {
     }
 
     pub fn peak_d(&self) -> f64 {
-        self.steps
-            .iter()
-            .map(|s| s.d_score)
-            .fold(0.0_f64, f64::max)
+        self.steps.iter().map(|s| s.d_score).fold(0.0_f64, f64::max)
     }
 }
 
@@ -357,7 +355,10 @@ impl BeamChain {
         if self.paths.is_empty() {
             return 0.0;
         }
-        self.paths.iter().map(|p| p.qtic_diversity() as f64).sum::<f64>()
+        self.paths
+            .iter()
+            .map(|p| p.qtic_diversity() as f64)
+            .sum::<f64>()
             / self.paths.len() as f64
     }
 }
@@ -413,9 +414,7 @@ pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChai
         if hit.score < config.min_amplitude {
             break;
         }
-        let (qtic, stability) = store
-            .crystal_meta(&hit.crystal_id_hex)
-            .unwrap_or((0, 0.5));
+        let (qtic, stability) = store.crystal_meta(&hit.crystal_id_hex).unwrap_or((0, 0.5));
         let phase = qtic_phase(qtic);
         let cur_vec = store
             .crystal_vector8(&hit.crystal_id_hex)
@@ -445,7 +444,11 @@ pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChai
     }
 
     // Normalize seed amplitudes: Σ|aᵢ|² = 1 (quantum-walk convention).
-    let seed_norm = active.iter().map(|(p, _, _)| p.amplitude * p.amplitude).sum::<f64>().sqrt();
+    let seed_norm = active
+        .iter()
+        .map(|(p, _, _)| p.amplitude * p.amplitude)
+        .sum::<f64>()
+        .sqrt();
     if seed_norm > 0.0 {
         for (path, _, _) in &mut active {
             path.amplitude /= seed_norm;
@@ -473,9 +476,7 @@ pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChai
                 if hit.score < config.min_amplitude {
                     break;
                 }
-                let (qtic, stability) = store
-                    .crystal_meta(&hit.crystal_id_hex)
-                    .unwrap_or((0, 0.5));
+                let (qtic, stability) = store.crystal_meta(&hit.crystal_id_hex).unwrap_or((0, 0.5));
                 let phase_contrib = qtic_phase(qtic);
                 let new_vec = store
                     .crystal_vector8(&hit.crystal_id_hex)
@@ -570,7 +571,11 @@ pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChai
 
         // Normalize after interference: Σ|aᵢ|² = 1.
         // Keeps amplitudes in [0,1] regardless of corpus size or beam_width.
-        let step_norm = next_active.iter().map(|(p, _, _)| p.amplitude * p.amplitude).sum::<f64>().sqrt();
+        let step_norm = next_active
+            .iter()
+            .map(|(p, _, _)| p.amplitude * p.amplitude)
+            .sum::<f64>()
+            .sqrt();
         if step_norm > 0.0 {
             for (path, _, _) in &mut next_active {
                 path.amplitude /= step_norm;
@@ -612,7 +617,9 @@ mod tests {
     fn make_crystal(id: &str, stability: f64, kuramoto: f64) -> SemanticCrystal {
         use pse_types::Hash256;
         let mut hash: Hash256 = [0u8; 32];
-        for (i, b) in id.bytes().enumerate().take(32) { hash[i] = b; }
+        for (i, b) in id.bytes().enumerate().take(32) {
+            hash[i] = b;
+        }
         SemanticCrystal {
             crystal_id: hash,
             region: vec![],
@@ -666,9 +673,16 @@ mod tests {
     fn single_crystal_yields_one_step() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
-        commit(&mut store, make_crystal("c1", 0.85, 0.75), "test query stability");
+        commit(
+            &mut store,
+            make_crystal("c1", 0.85, 0.75),
+            "test query stability",
+        );
 
-        let config = ThunderboltConfig { max_steps: 3, ..Default::default() };
+        let config = ThunderboltConfig {
+            max_steps: 3,
+            ..Default::default()
+        };
         let chain = guide("stability", &store, &config);
 
         // With one crystal the chain exhausts after one step.
@@ -682,17 +696,41 @@ mod tests {
     fn multi_crystal_traversal_no_repeats() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
-        commit(&mut store, make_crystal("c1", 0.9, 0.8), "epistemic coherence");
-        commit(&mut store, make_crystal("c2", 0.7, 0.6), "stability attractor");
-        commit(&mut store, make_crystal("c3", 0.5, 0.4), "free energy gradient");
+        commit(
+            &mut store,
+            make_crystal("c1", 0.9, 0.8),
+            "epistemic coherence",
+        );
+        commit(
+            &mut store,
+            make_crystal("c2", 0.7, 0.6),
+            "stability attractor",
+        );
+        commit(
+            &mut store,
+            make_crystal("c3", 0.5, 0.4),
+            "free energy gradient",
+        );
 
-        let config = ThunderboltConfig { max_steps: 10, min_d_threshold: 1e-6, ..Default::default() };
+        let config = ThunderboltConfig {
+            max_steps: 10,
+            min_d_threshold: 1e-6,
+            ..Default::default()
+        };
         let chain = guide("coherence", &store, &config);
 
         // No crystal should appear twice.
-        let ids: Vec<&str> = chain.steps.iter().map(|s| s.crystal_id_hex.as_str()).collect();
+        let ids: Vec<&str> = chain
+            .steps
+            .iter()
+            .map(|s| s.crystal_id_hex.as_str())
+            .collect();
         let unique: std::collections::HashSet<&str> = ids.iter().copied().collect();
-        assert_eq!(ids.len(), unique.len(), "reasoning chain must not revisit crystals");
+        assert_eq!(
+            ids.len(),
+            unique.len(),
+            "reasoning chain must not revisit crystals"
+        );
     }
 
     // ── Termination ────────────────────────────────────────────────────────
@@ -702,9 +740,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
         for i in 0..10 {
-            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.7), &format!("concept {i}"));
+            commit(
+                &mut store,
+                make_crystal(&format!("c{i}"), 0.8, 0.7),
+                &format!("concept {i}"),
+            );
         }
-        let config = ThunderboltConfig { max_steps: 3, min_d_threshold: 0.0, ..Default::default() };
+        let config = ThunderboltConfig {
+            max_steps: 3,
+            min_d_threshold: 0.0,
+            ..Default::default()
+        };
         let chain = guide("concept", &store, &config);
         assert!(chain.steps.len() <= 3);
         if chain.steps.len() == 3 {
@@ -717,11 +763,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
         // Low stability + low kuramoto → low D.
-        commit(&mut store, make_crystal("c1", 0.1, 0.1), "very weak signal here");
+        commit(
+            &mut store,
+            make_crystal("c1", 0.1, 0.1),
+            "very weak signal here",
+        );
 
         let config = ThunderboltConfig {
             max_steps: 10,
-            min_d_threshold: 0.99,  // impossibly high
+            min_d_threshold: 0.99, // impossibly high
             ..Default::default()
         };
         let chain = guide("unrelated topic", &store, &config);
@@ -751,7 +801,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
         for i in 0..5 {
-            commit(&mut store, make_crystal(&format!("c{i}"), 0.7, 0.6), "knowledge");
+            commit(
+                &mut store,
+                make_crystal(&format!("c{i}"), 0.7, 0.6),
+                "knowledge",
+            );
         }
         let chain = guide("knowledge", &store, &ThunderboltConfig::default());
         let cumulative: Vec<f64> = chain.steps.iter().map(|s| s.cumulative_d).collect();
@@ -769,7 +823,11 @@ mod tests {
 
         let chain = guide("signal", &store, &ThunderboltConfig::default());
         if !chain.is_empty() {
-            let max = chain.steps.iter().map(|s| s.d_score).fold(0.0_f64, f64::max);
+            let max = chain
+                .steps
+                .iter()
+                .map(|s| s.d_score)
+                .fold(0.0_f64, f64::max);
             assert!((chain.peak_d() - max).abs() < 1e-10);
         }
     }
@@ -818,11 +876,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
         // Use same crystal/text combo as single_crystal_yields_one_step (known positive ψ).
-        commit(&mut store, make_crystal("c1", 0.85, 0.75), "test query stability");
+        commit(
+            &mut store,
+            make_crystal("c1", 0.85, 0.75),
+            "test query stability",
+        );
 
         let bc = guide_beam("stability", &store, &BeamConfig::default());
         assert!(!bc.is_empty(), "single crystal must seed at least one path");
-        assert_eq!(bc.paths[0].length(), 1, "single crystal yields one-step path");
+        assert_eq!(
+            bc.paths[0].length(),
+            1,
+            "single crystal yields one-step path"
+        );
         assert!(bc.best_amplitude > 0.0);
     }
 
@@ -831,15 +897,33 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
         for i in 0..8 {
-            commit(&mut store, make_crystal(&format!("c{i}"), 0.75, 0.65), &format!("knowledge fragment concept {i}"));
+            commit(
+                &mut store,
+                make_crystal(&format!("c{i}"), 0.75, 0.65),
+                &format!("knowledge fragment concept {i}"),
+            );
         }
-        let config = BeamConfig { beam_width: 4, fan_out: 3, max_steps: 6, min_amplitude: 0.0, top_k_per_step: 32 };
+        let config = BeamConfig {
+            beam_width: 4,
+            fan_out: 3,
+            max_steps: 6,
+            min_amplitude: 0.0,
+            top_k_per_step: 32,
+        };
         let bc = guide_beam("knowledge fragment concept", &store, &config);
 
         for path in &bc.paths {
-            let ids: Vec<&str> = path.steps.iter().map(|s| s.crystal_id_hex.as_str()).collect();
+            let ids: Vec<&str> = path
+                .steps
+                .iter()
+                .map(|s| s.crystal_id_hex.as_str())
+                .collect();
             let unique: std::collections::HashSet<&str> = ids.iter().copied().collect();
-            assert_eq!(ids.len(), unique.len(), "beam path must not revisit crystals");
+            assert_eq!(
+                ids.len(),
+                unique.len(),
+                "beam path must not revisit crystals"
+            );
         }
     }
 
@@ -848,12 +932,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
         for i in 0..20 {
-            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.7), &format!("stability knowledge graph {i}"));
+            commit(
+                &mut store,
+                make_crystal(&format!("c{i}"), 0.8, 0.7),
+                &format!("stability knowledge graph {i}"),
+            );
         }
         let beam_width = 3;
-        let config = BeamConfig { beam_width, fan_out: 4, max_steps: 5, min_amplitude: 0.0, top_k_per_step: 32 };
+        let config = BeamConfig {
+            beam_width,
+            fan_out: 4,
+            max_steps: 5,
+            min_amplitude: 0.0,
+            top_k_per_step: 32,
+        };
         let bc = guide_beam("stability knowledge graph", &store, &config);
-        assert!(bc.paths.len() <= beam_width, "beam must not exceed beam_width={beam_width}");
+        assert!(
+            bc.paths.len() <= beam_width,
+            "beam must not exceed beam_width={beam_width}"
+        );
     }
 
     #[test]
@@ -862,12 +959,26 @@ mod tests {
         let mut store = open_store(dir.path());
         for i in 0..10 {
             let stab = 0.5 + 0.04 * i as f64;
-            commit(&mut store, make_crystal(&format!("c{i}"), stab, 0.6), &format!("stability signal coherence {i}"));
+            commit(
+                &mut store,
+                make_crystal(&format!("c{i}"), stab, 0.6),
+                &format!("stability signal coherence {i}"),
+            );
         }
-        let bc = guide_beam("stability signal coherence", &store, &BeamConfig { min_amplitude: 0.0, ..Default::default() });
+        let bc = guide_beam(
+            "stability signal coherence",
+            &store,
+            &BeamConfig {
+                min_amplitude: 0.0,
+                ..Default::default()
+            },
+        );
         let amps: Vec<f64> = bc.paths.iter().map(|p| p.amplitude).collect();
         for w in amps.windows(2) {
-            assert!(w[0] >= w[1] - 1e-12, "paths must be sorted by amplitude descending");
+            assert!(
+                w[0] >= w[1] - 1e-12,
+                "paths must be sorted by amplitude descending"
+            );
         }
     }
 
@@ -898,8 +1009,14 @@ mod tests {
         let re = a1 * theta.cos() + a2 * theta.cos();
         let im = a1 * theta.sin() + a2 * theta.sin();
         let combined = (re * re + im * im).sqrt();
-        assert!(combined > a1.max(a2), "constructive interference must exceed individual amplitudes");
-        assert!((combined - (a1 + a2)).abs() < 1e-10, "same-phase combination must equal sum");
+        assert!(
+            combined > a1.max(a2),
+            "constructive interference must exceed individual amplitudes"
+        );
+        assert!(
+            (combined - (a1 + a2)).abs() < 1e-10,
+            "same-phase combination must equal sum"
+        );
     }
 
     #[test]
@@ -913,8 +1030,14 @@ mod tests {
         let re = a1 * theta1.cos() + a2 * theta2.cos();
         let im = a1 * theta1.sin() + a2 * theta2.sin();
         let combined = (re * re + im * im).sqrt();
-        assert!(combined < a1, "destructive interference must reduce dominant amplitude");
-        assert!((combined - (a1 - a2).abs()).abs() < 1e-10, "opposite-phase must equal |a1 - a2|");
+        assert!(
+            combined < a1,
+            "destructive interference must reduce dominant amplitude"
+        );
+        assert!(
+            (combined - (a1 - a2).abs()).abs() < 1e-10,
+            "opposite-phase must equal |a1 - a2|"
+        );
     }
 
     #[test]
@@ -923,14 +1046,24 @@ mod tests {
         let mut store = open_store(dir.path());
         // Dense corpus: many paths will converge on the same popular crystals.
         for i in 0..12 {
-            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.75), "stability coherence attractor node");
+            commit(
+                &mut store,
+                make_crystal(&format!("c{i}"), 0.8, 0.75),
+                "stability coherence attractor node",
+            );
         }
-        let config = BeamConfig { beam_width: 4, fan_out: 4, max_steps: 4, min_amplitude: 0.0, top_k_per_step: 32 };
+        let config = BeamConfig {
+            beam_width: 4,
+            fan_out: 4,
+            max_steps: 4,
+            min_amplitude: 0.0,
+            top_k_per_step: 32,
+        };
         let bc = guide_beam("stability coherence attractor node", &store, &config);
         // With fan_out=4 and beam_width=4, multiple paths will attempt the same top crystal.
         // The interference_events counter must be non-negative; on a dense corpus > 0 is expected.
         assert!(bc.interference_events >= 0); // always true — structural sanity
-        // The chain itself must have surviving paths (not all destructively cancelled).
+                                              // The chain itself must have surviving paths (not all destructively cancelled).
         assert!(!bc.is_empty());
     }
 
@@ -942,12 +1075,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = open_store(dir.path());
         for i in 0..10 {
-            commit(&mut store, make_crystal(&format!("c{i}"), 0.8, 0.75), &format!("concept {i}"));
+            commit(
+                &mut store,
+                make_crystal(&format!("c{i}"), 0.8, 0.75),
+                &format!("concept {i}"),
+            );
         }
         let bc = guide_beam("concept", &store, &BeamConfig::default());
         for path in &bc.paths {
             assert!(path.amplitude >= 0.0, "amplitude must be non-negative");
-            assert!(path.amplitude <= 1.0 + 1e-10, "amplitude must be ≤ 1 after normalization");
+            assert!(
+                path.amplitude <= 1.0 + 1e-10,
+                "amplitude must be ≤ 1 after normalization"
+            );
         }
     }
 }

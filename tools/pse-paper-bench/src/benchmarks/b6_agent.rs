@@ -86,7 +86,9 @@ fn run_beam_baseline() -> (f64, f64, f64) {
         }
 
         let gt = &scenario.ground_truth;
-        let causal: HashSet<String> = gt.causal_files.iter()
+        let causal: HashSet<String> = gt
+            .causal_files
+            .iter()
             .chain(gt.causal_logs.iter())
             .cloned()
             .collect();
@@ -97,12 +99,22 @@ fn run_beam_baseline() -> (f64, f64, f64) {
         ffs.push(false_focus_at_k(&ranked_items, &irrelevant, 3));
     }
 
-    let mean = |v: &[f64]| if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 };
+    let mean = |v: &[f64]| {
+        if v.is_empty() {
+            0.0
+        } else {
+            v.iter().sum::<f64>() / v.len() as f64
+        }
+    };
     (mean(&hits), mean(&mrrs), mean(&ffs))
 }
 
 fn hit_at_k(ranked: &[String], causal: &HashSet<String>, k: usize) -> f64 {
-    if ranked.iter().take(k).any(|id| causal.contains(id)) { 1.0 } else { 0.0 }
+    if ranked.iter().take(k).any(|id| causal.contains(id)) {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 fn mrr(ranked: &[String], causal: &HashSet<String>) -> f64 {
@@ -116,7 +128,9 @@ fn mrr(ranked: &[String], causal: &HashSet<String>) -> f64 {
 
 fn false_focus_at_k(ranked: &[String], irrelevant: &HashSet<String>, k: usize) -> f64 {
     let top: Vec<_> = ranked.iter().take(k).collect();
-    if top.is_empty() { return 0.0; }
+    if top.is_empty() {
+        return 0.0;
+    }
     top.iter().filter(|&&id| irrelevant.contains(id)).count() as f64 / top.len() as f64
 }
 

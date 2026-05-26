@@ -9,17 +9,34 @@ pub struct PrfMetrics {
 
 impl PrfMetrics {
     pub fn from_counts(tp: usize, fp: usize, fn_: usize) -> Self {
-        let precision = if tp + fp == 0 { 0.0 } else { tp as f64 / (tp + fp) as f64 };
-        let recall = if tp + fn_ == 0 { 0.0 } else { tp as f64 / (tp + fn_) as f64 };
-        let f1 = if precision + recall < 1e-12 { 0.0 }
-                 else { 2.0 * precision * recall / (precision + recall) };
-        Self { precision, recall, f1 }
+        let precision = if tp + fp == 0 {
+            0.0
+        } else {
+            tp as f64 / (tp + fp) as f64
+        };
+        let recall = if tp + fn_ == 0 {
+            0.0
+        } else {
+            tp as f64 / (tp + fn_) as f64
+        };
+        let f1 = if precision + recall < 1e-12 {
+            0.0
+        } else {
+            2.0 * precision * recall / (precision + recall)
+        };
+        Self {
+            precision,
+            recall,
+            f1,
+        }
     }
 }
 
 /// Macro-averaged F1 over multiple classes.
 pub fn macro_f1(per_class: &[PrfMetrics]) -> f64 {
-    if per_class.is_empty() { return 0.0; }
+    if per_class.is_empty() {
+        return 0.0;
+    }
     per_class.iter().map(|m| m.f1).sum::<f64>() / per_class.len() as f64
 }
 

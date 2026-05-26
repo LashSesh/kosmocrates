@@ -9,10 +9,18 @@ pub fn render_tables(r: &AllResults) -> String {
     s.push_str("\\begin{tabular}{lrrrrr}\n\\toprule\n");
     s.push_str("System & Hit@1 & Hit@3 & Hit@5 & MRR & NDCG@10 \\\\\n\\midrule\n");
     let p = &r.b1.pfauenthron;
-    s.push_str(&format!("Pfauenthron++ & {:.3} & {:.3} & {:.3} & {:.3} & {:.3} \\\\\n",
-        p.hit1, p.hit3, p.hit5, p.mrr, p.ndcg10));
-    s.push_str(&format!("BM25 & -- & {:.3} & -- & -- & -- \\\\\n", r.b1.bm25.hit3));
-    s.push_str(&format!("Cosine-only & -- & {:.3} & -- & -- & -- \\\\\n", r.b1.cosine_only.hit3));
+    s.push_str(&format!(
+        "Pfauenthron++ & {:.3} & {:.3} & {:.3} & {:.3} & {:.3} \\\\\n",
+        p.hit1, p.hit3, p.hit5, p.mrr, p.ndcg10
+    ));
+    s.push_str(&format!(
+        "BM25 & -- & {:.3} & -- & -- & -- \\\\\n",
+        r.b1.bm25.hit3
+    ));
+    s.push_str(&format!(
+        "Cosine-only & -- & {:.3} & -- & -- & -- \\\\\n",
+        r.b1.cosine_only.hit3
+    ));
     s.push_str("\\bottomrule\n\\end{tabular}\n");
     s.push_str("\\caption{B1: Retrieval quality. 100 documents, 30 queries, graded relevance. 95\\% CI via bootstrap.}\n");
     s.push_str("\\label{tab:b1}\\end{table}\n\n");
@@ -21,11 +29,18 @@ pub fn render_tables(r: &AllResults) -> String {
     s.push_str("% Table: B3 Constitutional\n\\begin{table}[h]\\centering\n");
     s.push_str("\\begin{tabular}{lrrrr}\n\\toprule\n");
     s.push_str("System & Macro-F1 & Allow F1 & Warn F1 & Block F1 \\\\\n\\midrule\n");
-    s.push_str(&format!("ConstitutionalEvaluator & {:.3} & {:.3} & {:.3} & {:.3} \\\\\n",
-        r.b3.pse_macro_f1, r.b3.pse_allow.f1, r.b3.pse_warn.f1, r.b3.pse_block.f1));
-    s.push_str(&format!("Keyword filter & {:.3} & -- & -- & -- \\\\\n", r.b3.keyword_macro_f1));
+    s.push_str(&format!(
+        "ConstitutionalEvaluator & {:.3} & {:.3} & {:.3} & {:.3} \\\\\n",
+        r.b3.pse_macro_f1, r.b3.pse_allow.f1, r.b3.pse_warn.f1, r.b3.pse_block.f1
+    ));
+    s.push_str(&format!(
+        "Keyword filter & {:.3} & -- & -- & -- \\\\\n",
+        r.b3.keyword_macro_f1
+    ));
     s.push_str("\\bottomrule\n\\end{tabular}\n");
-    s.push_str("\\caption{B3: Constitutional action classification. 60 labelled actions, 12 rules.}\n");
+    s.push_str(
+        "\\caption{B3: Constitutional action classification. 60 labelled actions, 12 rules.}\n",
+    );
     s.push_str("\\label{tab:b3}\\end{table}\n\n");
 
     // B7
@@ -33,8 +48,10 @@ pub fn render_tables(r: &AllResults) -> String {
     s.push_str("\\begin{tabular}{rrrr}\n\\toprule\n");
     s.push_str("N Crystals & Mean (µs) & P95 (µs) & P99 (µs) \\\\\n\\midrule\n");
     for pt in &r.b7.points {
-        s.push_str(&format!("{} & {:.1} & {:.1} & {:.1} \\\\\n",
-            pt.n_crystals, pt.mean_us, pt.p95_us, pt.p99_us));
+        s.push_str(&format!(
+            "{} & {:.1} & {:.1} & {:.1} \\\\\n",
+            pt.n_crystals, pt.mean_us, pt.p95_us, pt.p99_us
+        ));
     }
     s.push_str("\\bottomrule\n\\end{tabular}\n");
     s.push_str("\\caption{B7: Pfauenthron++ latency (µs) at varying store sizes. 100 retrieval calls per point.}\n");

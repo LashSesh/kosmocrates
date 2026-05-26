@@ -121,7 +121,11 @@ pub fn run_seismo_scenario_with(
         })
         .map(|(i, _)| i)
         .collect();
-    let aftershock_start = aftershock_indices.iter().copied().min().unwrap_or(mainshock_idx + 1);
+    let aftershock_start = aftershock_indices
+        .iter()
+        .copied()
+        .min()
+        .unwrap_or(mainshock_idx + 1);
     let aftershock_end = aftershock_indices
         .iter()
         .copied()
@@ -151,13 +155,15 @@ pub fn run_seismo_scenario_with(
         for (payload, event) in payloads.iter().zip(events.iter()) {
             // (magnitude - 1.5) / 4.5 maps [1.5, 6.0) → [0, 1) → [0, 2π).
             let phase = ((event.magnitude - 1.5) / 4.5) * std::f64::consts::TAU;
-            map.insert(content_address_raw(payload), phase.rem_euclid(std::f64::consts::TAU));
+            map.insert(
+                content_address_raw(payload),
+                phase.rem_euclid(std::f64::consts::TAU),
+            );
         }
         map
     };
-    let phase_fn = move |raw: &[u8]| -> Option<f64> {
-        mag_phase_map.get(&content_address_raw(raw)).copied()
-    };
+    let phase_fn =
+        move |raw: &[u8]| -> Option<f64> { mag_phase_map.get(&content_address_raw(raw)).copied() };
 
     let gt_windows: Vec<(u64, u64)> = vec![
         (mainshock_idx as u64, (mainshock_idx + 1) as u64),
@@ -178,9 +184,15 @@ pub fn run_seismo_scenario_with(
     );
 
     let features = extract_seismo_features(&events);
-    detections.extend(stl_zscore::detect(&features, &stl_zscore::StlZscoreConfig::default()));
+    detections.extend(stl_zscore::detect(
+        &features,
+        &stl_zscore::StlZscoreConfig::default(),
+    ));
     let if_samples: Vec<Vec<f64>> = features.iter().map(|m| vec![*m]).collect();
-    detections.extend(isoforest::detect(&if_samples, &isoforest::IsoForestConfig::default()));
+    detections.extend(isoforest::detect(
+        &if_samples,
+        &isoforest::IsoForestConfig::default(),
+    ));
 
     let ground_truth = vec![
         GroundTruthEvent {
@@ -301,9 +313,8 @@ pub fn run_vitals_scenario_with(
         }
         map
     };
-    let phase_fn = move |raw: &[u8]| -> Option<f64> {
-        rr_phase_map.get(&content_address_raw(raw)).copied()
-    };
+    let phase_fn =
+        move |raw: &[u8]| -> Option<f64> { rr_phase_map.get(&content_address_raw(raw)).copied() };
     let (mut detections, runner_diagnostics) = crate::runner::run_pse_windowed_with_phase(
         &mut state,
         &payloads,
@@ -575,6 +586,4 @@ mod tests {
             extremes
         );
     }
-
 }
-

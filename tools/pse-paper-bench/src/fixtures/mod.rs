@@ -1,5 +1,5 @@
 use pse_adapter_il::ILStore;
-use pse_types::{SemanticCrystal, Hash256, TopologySignature};
+use pse_types::{Hash256, SemanticCrystal, TopologySignature};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -61,7 +61,10 @@ pub fn noise_inject(text: &str, rate: f64, seed: u64) -> String {
     const A: u64 = 6364136223846793005;
     const C: u64 = 1442695040888963407;
     let mut state = seed;
-    let mut next = || { state = state.wrapping_mul(A).wrapping_add(C); state };
+    let mut next = || {
+        state = state.wrapping_mul(A).wrapping_add(C);
+        state
+    };
 
     let chars: Vec<char> = text.chars().collect();
     let n = chars.len();

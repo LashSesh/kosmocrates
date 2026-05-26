@@ -156,10 +156,7 @@ fn propose_for_rule(
 
     let rationale = format!(
         "Signal stability {:?} (distance={:.3}, trend={:.4}); attractor alignment={:.3}",
-        signal.stability,
-        signal.distance_to_attractor,
-        signal.free_energy_trend,
-        alignment,
+        signal.stability, signal.distance_to_attractor, signal.free_energy_trend, alignment,
     );
 
     Some(RuleEvolutionProposal {
@@ -196,7 +193,8 @@ fn guard_accepts(guard: &EvolutionGuard, proposal: &RuleEvolutionProposal) -> bo
     }
 
     // Reject if the proposal is a downgrade beyond the allowed level.
-    let downgrade_steps = severity_downgrade_steps(&proposal.current_severity, &proposal.proposed_severity);
+    let downgrade_steps =
+        severity_downgrade_steps(&proposal.current_severity, &proposal.proposed_severity);
     if downgrade_steps > guard.max_severity_downgrade as i32 {
         return false;
     }

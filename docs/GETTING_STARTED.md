@@ -30,43 +30,58 @@ reports throughput, crystal formation rate, and the SHA-256 of the first crystal
 cargo run --release -p pse-demo
 ```
 
-Expected output (values are illustrative):
+Expected output (exact values vary by hardware; crystal count is deterministic):
 
 ```
 PSE Demo — synthetic damped oscillator with regime shift
 =========================================================
 
 Ticks: 600, sliding window: 8
-Mode: adaptive Kairos (target_pass_rate=0.3, window=150, warmup=50)
+Mode: adaptive Kairos (target_pass_rate=0.30, window=150, warmup=50)
 
 Results
 -------
-Wall time:          0.021s
-Observations:       4786 (across 600 macro_steps)
-Throughput:         228000 obs/sec
-Kairos passes:      47 / 600
-Crystals formed:    12
-Crystal rate:       571.43 /sec
-First crystal SHA:  3fa2e1c0…
+Wall time:          0.766s
+Observations:       4772 (across 600 macro_steps)
+Throughput:         6229 obs/sec
+Kairos passes:      41 / 600
+Crystals formed:    7
+Crystal rate:       3.36 /sec
+First crystal SHA:  53e550d2d1344128…
+
+Gate diagnostics (600 ticks observed)
+------------------------------------
+metric       mean  threshold    fails
+d          0.0478     0.0000        0
+q          0.6755     0.5000       84
+r          0.8792     0.5000        0
+g          0.5376     0.5000      158
+j          0.8475     0.5000        2
+p          0.8792     0.5000        0
+n          0.7304     0.5000        0
+k          0.6755     0.5000       84
+
+Bottleneck gate:    g (failed 158/600 ticks; …)
 
 Wrote pse-demo.json
 ```
 
-If **Crystals formed: 0**, see the "Why you get 0 crystals by default" section below.
+You will see the SHA of the first crystal and a `pse-demo.json` artifact. The exact
+number of crystals (typically 5–15) depends on how the adaptive calibration converges
+across the four regime shifts in the synthetic oscillator.
 
-### Why you get 0 crystals by default
+### Why metric `d` has threshold 0.0
 
-The Kairos gate is an 8-way AND: all eight metrics (d, q, r, g, j, p, n, k) must
-simultaneously exceed their thresholds. The default threshold is 0.5 for every
-metric. On real or synthetic structured data several metrics are structurally bounded
-below 0.5 — for example the coherence metric q is normalized against the carrier's own
-coherence ceiling, which depends on carrier geometry. A static 0.5 cut is often
-unreachable without per-domain tuning.
+The deformation metric `d` measures graph-structure change from one sliding window to
+the next. In streaming mode this converges to near-zero as the window stabilises, so
+any positive threshold would permanently silence the gate. The demo sets `d = 0.0`
+(always pass) and lets the other seven metrics — especially `q` (coherence) and `g`
+(gradient) — do the discriminating. This is documented in
+`Config::preset_anomaly_detection()` and applies to all sliding-window workloads.
 
-The demo ships with **adaptive calibration enabled by default**, so it always produces
-crystals. If you disable it (`PSE_DEMO_ADAPTIVE=0 cargo run --release -p pse-demo`)
-you will see 0 crystals and can observe the gate diagnostics showing which metric is
-the bottleneck.
+If you disable adaptive mode (`PSE_DEMO_ADAPTIVE=0 cargo run --release -p pse-demo`)
+you will see 0 crystals with all static thresholds at 0.5 — useful for observing which
+metrics are closest to their cut points without the adaptive calibrator adjusting them.
 
 ---
 

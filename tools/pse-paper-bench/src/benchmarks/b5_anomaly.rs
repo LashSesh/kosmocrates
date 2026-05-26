@@ -1,5 +1,5 @@
-use pse_bench_gt::scenarios::{run_seismo_scenario, run_vitals_scenario, run_binance_scenario};
-use pse_bench_gt::{score_detections, scenarios::ScenarioResult};
+use pse_bench_gt::scenarios::{run_binance_scenario, run_seismo_scenario, run_vitals_scenario};
+use pse_bench_gt::{scenarios::ScenarioResult, score_detections};
 use pse_types::Config;
 use serde::Serialize;
 
@@ -29,9 +29,24 @@ pub struct B5Results {
 fn benchmark_scenario(result: &ScenarioResult, name: &str) -> ScenarioBenchmark {
     let tol = result.tolerance_ticks;
 
-    let pse_dets: Vec<_> = result.detections.iter().filter(|d| d.source.starts_with("pse_")).cloned().collect();
-    let stl_dets: Vec<_> = result.detections.iter().filter(|d| d.source == "stl_zscore").cloned().collect();
-    let iso_dets: Vec<_> = result.detections.iter().filter(|d| d.source == "isoforest").cloned().collect();
+    let pse_dets: Vec<_> = result
+        .detections
+        .iter()
+        .filter(|d| d.source.starts_with("pse_"))
+        .cloned()
+        .collect();
+    let stl_dets: Vec<_> = result
+        .detections
+        .iter()
+        .filter(|d| d.source == "stl_zscore")
+        .cloned()
+        .collect();
+    let iso_dets: Vec<_> = result
+        .detections
+        .iter()
+        .filter(|d| d.source == "isoforest")
+        .cloned()
+        .collect();
 
     let pse_m = score_detections(&result.ground_truth, &pse_dets, tol);
     let stl_m = score_detections(&result.ground_truth, &stl_dets, tol);
@@ -57,12 +72,12 @@ pub fn run() -> B5Results {
     let config = Config::preset_anomaly_detection();
 
     let seismo = run_seismo_scenario(&config, 5);
-    let vitals  = run_vitals_scenario(&config, 20);
+    let vitals = run_vitals_scenario(&config, 20);
     let binance = run_binance_scenario(&config, 3);
 
     B5Results {
-        seismo:  benchmark_scenario(&seismo,  &seismo.scenario),
-        vitals:  benchmark_scenario(&vitals,  &vitals.scenario),
+        seismo: benchmark_scenario(&seismo, &seismo.scenario),
+        vitals: benchmark_scenario(&vitals, &vitals.scenario),
         binance: benchmark_scenario(&binance, &binance.scenario),
     }
 }

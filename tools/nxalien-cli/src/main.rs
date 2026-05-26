@@ -14,7 +14,6 @@
 
 use anyhow::{bail, Context, Result};
 use pse_exploratory::{ExploratoryLedger, DEFAULT_DECAY_AFTER_RUNS, EXPLORATORY_PSI_THRESHOLD};
-use serde::Deserialize;
 use pse_nxalien_agent::ContextProjector;
 use pse_nxalien_core::{
     canon::{compute_replay_hash, sha256_jcs},
@@ -30,6 +29,7 @@ use pse_nxalien_evolve::{
 };
 use pse_nxalien_pse::{artifact_digest as nxa_artifact_digest, build_handoff_candidate};
 use pse_nxalien_types::{NxAlienBundle, NxAlienManifest, NxAlienPolicy, NxAlienRunDescriptor};
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 const VERSION: &str = "0.1.0";
@@ -277,14 +277,25 @@ fn cmd_compile(args: &[String]) -> Result<()> {
         bundle.rules.len(),
         il_summary.mean_qtic_class,
         il_summary.mean_coherence_potential,
-        if il_summary.gate_passed_all { "✓" } else { "✗ partial" },
+        if il_summary.gate_passed_all {
+            "✓"
+        } else {
+            "✗ partial"
+        },
     );
     for entry in &il_summary.entries {
-        let marker = if entry.coherence_potential < EXPLORATORY_PSI_THRESHOLD { " ◈" } else { "" };
+        let marker = if entry.coherence_potential < EXPLORATORY_PSI_THRESHOLD {
+            " ◈"
+        } else {
+            ""
+        };
         println!(
             "    {:20}  Q{}  ψ={:.3}  {}{}",
-            entry.rule_id, entry.qtic_class, entry.coherence_potential,
-            entry.block_hash_prefix, marker,
+            entry.rule_id,
+            entry.qtic_class,
+            entry.coherence_potential,
+            entry.block_hash_prefix,
+            marker,
         );
     }
     write_json(&nxa_dir.join("il_summary.json"), &il_summary)?;
@@ -294,7 +305,8 @@ fn cmd_compile(args: &[String]) -> Result<()> {
     let mut exp_ledger = ExploratoryLedger::open(&nxa_dir);
 
     // Landing check: rules that now have ψ ≥ 0 may ground a pending hypothesis.
-    let grounded_pairs: Vec<(&str, f64)> = il_summary.entries
+    let grounded_pairs: Vec<(&str, f64)> = il_summary
+        .entries
         .iter()
         .filter(|e| e.coherence_potential >= EXPLORATORY_PSI_THRESHOLD)
         .map(|e| (e.rule_id.as_str(), e.coherence_potential))
@@ -317,7 +329,11 @@ fn cmd_compile(args: &[String]) -> Result<()> {
     }
 
     // Ingest new exploratory entries (ψ < 0).
-    for entry in il_summary.entries.iter().filter(|e| e.coherence_potential < EXPLORATORY_PSI_THRESHOLD) {
+    for entry in il_summary
+        .entries
+        .iter()
+        .filter(|e| e.coherence_potential < EXPLORATORY_PSI_THRESHOLD)
+    {
         exp_ledger.ingest(
             &entry.rule_id,
             entry.coherence_potential,
@@ -332,7 +348,9 @@ fn cmd_compile(args: &[String]) -> Result<()> {
     if exp_summary.total > 0 {
         println!(
             "  Exploratory   : {} pending  {} landed  {} decayed  ψ̄={:.3}",
-            exp_summary.pending, exp_summary.landed, exp_summary.decayed,
+            exp_summary.pending,
+            exp_summary.landed,
+            exp_summary.decayed,
             exp_summary.mean_pending_psi,
         );
     }
@@ -348,26 +366,38 @@ fn cmd_compile(args: &[String]) -> Result<()> {
     // Propose and apply validated rule evolutions.
     let proposals = propose_rule_evolution(&signal, &bundle.rules, &policy);
     if !proposals.is_empty() {
-        println!("  Evolution     : {} proposal(s) from signal", proposals.len());
+        println!(
+            "  Evolution     : {} proposal(s) from signal",
+            proposals.len()
+        );
         let guard = EvolutionGuard::default();
         let mut evolved_rules = bundle.rules.clone();
         let new_unknowns = apply_validated_proposals(&mut evolved_rules, &proposals, &guard);
         if !new_unknowns.is_empty() {
-            println!("  Unknowns+     : {} rejected proposal(s) surfaced as unknowns", new_unknowns.len());
+            println!(
+                "  Unknowns+     : {} rejected proposal(s) surfaced as unknowns",
+                new_unknowns.len()
+            );
         }
         // Write evolved rule set for the next compile cycle.
         let evolved_path = root.join("nxalien.evolved-rules.json");
         write_json(&evolved_path, &evolved_rules)?;
         println!("               : nxalien.evolved-rules.json");
     } else {
-        println!("  Evolution     : no proposals (signal {:?})", signal.stability);
+        println!(
+            "  Evolution     : no proposals (signal {:?})",
+            signal.stability
+        );
     }
 
     // IL agenda → UnknownSlots (surface at-risk crystals to the agent).
     if let Some(ref health) = signal.il_health {
         let agenda_unknowns = agenda_to_unknowns(&health.agenda_items, 0.50);
         if !agenda_unknowns.is_empty() {
-            println!("  IL agenda     : {} item(s) → unknowns", agenda_unknowns.len());
+            println!(
+                "  IL agenda     : {} item(s) → unknowns",
+                agenda_unknowns.len()
+            );
             for u in &agenda_unknowns {
                 println!("    [p≥0.5] {}", u.name);
             }

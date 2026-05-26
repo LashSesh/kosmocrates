@@ -48,9 +48,6 @@ fn main() {
         .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
         .unwrap_or(true);
     let mut config = if adaptive {
-        // target_pass_rate=0.30 per metric: with eight gates AND-ed and
-        // metric correlations on this workload the joint rate lands in
-        // the few-percent range — exactly the novelty-detection contract.
         let mut c = Config::preset_streaming();
         c.calibration = KairosCalibrationConfig {
             enabled: true,
@@ -58,6 +55,18 @@ fn main() {
             window: 150,
             warmup_ticks: 50,
         };
+        // Metric d (deformation) decays structurally to near-zero in
+        // sliding-window mode (it measures change from one window to the next,
+        // which converges as the window stabilises). Setting threshold=0.0
+        // makes d always pass; the other seven gates do the discriminating.
+        // This is the same fix applied in Config::preset_anomaly_detection().
+        c.thresholds.d = 0.0;
+        // The cascade PI operator produces a near-zero primal_score on this
+        // synthetic stream. consensus_threshold=0.6 (default) would block every
+        // crystal even when the Kairos gate passes. Lower to 0.0 so the
+        // 8-metric gate is the sole discriminant.
+        c.consensus.consensus_threshold = 0.0;
+        c.consensus.mirror_consistency_eta = 0.0;
         c
     } else {
         Config::default()
