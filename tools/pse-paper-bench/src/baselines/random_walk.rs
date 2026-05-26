@@ -12,13 +12,18 @@ pub fn random_chain(
     const A: u64 = 6364136223846793005;
     const C: u64 = 1442695040888963407;
     let mut state = seed;
-    let mut next_rand = || { state = state.wrapping_mul(A).wrapping_add(C); state };
+    let mut next_rand = || {
+        state = state.wrapping_mul(A).wrapping_add(C);
+        state
+    };
 
     let mut visited: HashSet<String> = HashSet::new();
     let mut steps = Vec::new();
     for _ in 0..max_steps {
         let candidates: Vec<&String> = all_ids.iter().filter(|id| !visited.contains(*id)).collect();
-        if candidates.is_empty() { break; }
+        if candidates.is_empty() {
+            break;
+        }
         let idx = (next_rand() as usize) % candidates.len();
         let id = candidates[idx].clone();
         let (qtic, _stab) = store.crystal_meta(&id).unwrap_or((0, 0.5));

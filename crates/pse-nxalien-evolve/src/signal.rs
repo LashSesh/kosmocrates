@@ -103,12 +103,18 @@ impl EpistemicSignal {
 
     /// True if the signal indicates that rules should be reviewed.
     pub fn needs_rule_review(&self) -> bool {
-        matches!(self.stability, SignalStability::Drifting | SignalStability::Diverging)
+        matches!(
+            self.stability,
+            SignalStability::Drifting | SignalStability::Diverging
+        )
     }
 
     /// True if the signal confirms rules are attractor-aligned.
     pub fn is_confirmed(&self) -> bool {
-        matches!(self.stability, SignalStability::Stable | SignalStability::Converging)
+        matches!(
+            self.stability,
+            SignalStability::Stable | SignalStability::Converging
+        )
     }
 
     /// Compact one-line summary for logging.
@@ -198,8 +204,14 @@ mod tests {
 
     #[test]
     fn initialising_when_few_runs() {
-        assert_eq!(classify_stability(0, 0.0, 0.0), SignalStability::Initialising);
-        assert_eq!(classify_stability(1, 0.0, 0.0), SignalStability::Initialising);
+        assert_eq!(
+            classify_stability(0, 0.0, 0.0),
+            SignalStability::Initialising
+        );
+        assert_eq!(
+            classify_stability(1, 0.0, 0.0),
+            SignalStability::Initialising
+        );
     }
 
     #[test]
@@ -209,7 +221,10 @@ mod tests {
 
     #[test]
     fn converging_when_trend_negative() {
-        assert_eq!(classify_stability(3, 0.2, -0.01), SignalStability::Converging);
+        assert_eq!(
+            classify_stability(3, 0.2, -0.01),
+            SignalStability::Converging
+        );
     }
 
     #[test]

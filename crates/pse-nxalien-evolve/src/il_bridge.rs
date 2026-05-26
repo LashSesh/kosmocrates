@@ -12,11 +12,11 @@ use pse_adapter_il::store::ILStore;
 use pse_graph::derive_vertex_id;
 use pse_nxalien_types::{RuleAtom, Severity};
 use pse_types::{
-    content_address, CommitProof, ConstraintProgram, EvidenceChain,
-    SemanticCrystal, TopologySignature,
+    content_address, CommitProof, ConstraintProgram, EvidenceChain, SemanticCrystal,
+    TopologySignature,
 };
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Summary of an IL commit batch — returned after each compile run.
@@ -117,11 +117,7 @@ pub fn rule_to_crystal(rule: &RuleAtom, run_count: u64) -> SemanticCrystal {
 ///
 /// The IL store is opened (or created) at `.nxalien/il/`.
 /// Each rule becomes a crystal; idempotent commits are counted as skipped.
-pub fn commit_rules_to_il(
-    rules: &[RuleAtom],
-    il_path: &Path,
-    run_count: u64,
-) -> ILCommitSummary {
+pub fn commit_rules_to_il(rules: &[RuleAtom], il_path: &Path, run_count: u64) -> ILCommitSummary {
     let mut store = match ILStore::open(il_path, "nxalien-v1") {
         Ok(s) => s,
         Err(e) => {
@@ -259,11 +255,7 @@ pub fn agenda_to_unknowns(
         .filter(|item| item.priority >= min_priority)
         .enumerate()
         .map(|(idx, item)| UnknownSlot {
-            name: format!(
-                "il-agenda-{}-{:03}",
-                item.verb.to_lowercase(),
-                idx,
-            ),
+            name: format!("il-agenda-{}-{:03}", item.verb.to_lowercase(), idx,),
             domain: vec!["il-health".to_string(), item.verb.to_lowercase()],
             status: UnknownStatus::Unknown,
             candidates: vec![item.rationale.clone()],
@@ -291,7 +283,11 @@ mod tests {
             .collect();
         RuleAtom {
             id: id.to_string(),
-            scope: ScopeRef { files: vec![], modules: vec![], commands: vec![] },
+            scope: ScopeRef {
+                files: vec![],
+                modules: vec![],
+                commands: vec![],
+            },
             trigger: vec!["test".to_string()],
             prescription: format!("Ensure {id} is satisfied."),
             severity,
@@ -307,7 +303,10 @@ mod tests {
         let rule = make_rule("r-block", Severity::Blocking, 3);
         let crystal = rule_to_crystal(&rule, 1);
         // Blocking + 3 evidence: stability = 1.0 * (0.5 + 0.5*0.6) = 0.80
-        assert!(crystal.stability_score > 0.75, "blocking rule should be stable");
+        assert!(
+            crystal.stability_score > 0.75,
+            "blocking rule should be stable"
+        );
         assert!(crystal.topology_signature.kuramoto_coherence > 0.6);
     }
 
@@ -315,17 +314,23 @@ mod tests {
     fn advisory_no_evidence_has_low_stability() {
         let rule = make_rule("r-adv", Severity::Advisory, 0);
         let crystal = rule_to_crystal(&rule, 1);
-        assert!(crystal.stability_score <= 0.5, "advisory without evidence should be low");
+        assert!(
+            crystal.stability_score <= 0.5,
+            "advisory without evidence should be low"
+        );
         assert!(crystal.topology_signature.kuramoto_coherence < 0.5);
     }
 
     #[test]
     fn free_energy_inversely_proportional_to_stability() {
         let block = make_rule("r1", Severity::Blocking, 5);
-        let adv   = make_rule("r2", Severity::Advisory, 0);
+        let adv = make_rule("r2", Severity::Advisory, 0);
         let c1 = rule_to_crystal(&block, 1);
-        let c2 = rule_to_crystal(&adv,   1);
-        assert!(c1.free_energy < c2.free_energy, "blocking should have lower free energy");
+        let c2 = rule_to_crystal(&adv, 1);
+        assert!(
+            c1.free_energy < c2.free_energy,
+            "blocking should have lower free energy"
+        );
     }
 
     #[test]
@@ -355,8 +360,16 @@ mod tests {
         assert_eq!(summary.committed, 2);
         assert_eq!(summary.entries.len(), 2);
         // Blocking rule should have higher or equal QTIC class than Advisory
-        let blocking_entry = summary.entries.iter().find(|e| e.rule_id == "rust-test").unwrap();
-        let fmt_entry = summary.entries.iter().find(|e| e.rule_id == "rust-fmt").unwrap();
+        let blocking_entry = summary
+            .entries
+            .iter()
+            .find(|e| e.rule_id == "rust-test")
+            .unwrap();
+        let fmt_entry = summary
+            .entries
+            .iter()
+            .find(|e| e.rule_id == "rust-fmt")
+            .unwrap();
         assert!(blocking_entry.coherence_potential >= fmt_entry.coherence_potential);
     }
 

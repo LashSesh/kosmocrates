@@ -87,16 +87,10 @@ pub enum Decision {
     Allow,
     /// A Blocking (or Required-in-strict-mode) rule was triggered.
     /// The action must be rejected.
-    Block {
-        rule_id: String,
-        reason: String,
-    },
+    Block { rule_id: String, reason: String },
     /// A Required rule triggered in non-strict mode.
     /// Action is allowed but the violation is surfaced to the caller.
-    Warn {
-        rule_id: String,
-        reason: String,
-    },
+    Warn { rule_id: String, reason: String },
 }
 
 impl Decision {
@@ -158,7 +152,10 @@ impl ConstitutionalEvaluator {
     /// Build an evaluator from a rule set.  Call `with_strict_mode(true)` to
     /// escalate Required rules to Block.
     pub fn new(rules: Vec<RuleAtom>) -> Self {
-        Self { rules, strict_mode: false }
+        Self {
+            rules,
+            strict_mode: false,
+        }
     }
 
     /// Enable or disable strict mode.  Typically set to `true` when the
@@ -204,7 +201,11 @@ impl ConstitutionalEvaluator {
     fn derive_decision(&self, triggered: &[TriggeredRule]) -> Decision {
         // Pass 1: Blocking rules always win regardless of order in the rule list.
         for t in triggered {
-            let sev = self.rules.iter().find(|r| r.id == t.rule_id).map(|r| &r.severity);
+            let sev = self
+                .rules
+                .iter()
+                .find(|r| r.id == t.rule_id)
+                .map(|r| &r.severity);
             if matches!(sev, Some(Severity::Blocking)) {
                 return Decision::Block {
                     rule_id: t.rule_id.clone(),
@@ -215,7 +216,11 @@ impl ConstitutionalEvaluator {
 
         // Pass 2: Required rules — Block in strict mode, Warn otherwise.
         for t in triggered {
-            let sev = self.rules.iter().find(|r| r.id == t.rule_id).map(|r| &r.severity);
+            let sev = self
+                .rules
+                .iter()
+                .find(|r| r.id == t.rule_id)
+                .map(|r| &r.severity);
             if matches!(sev, Some(Severity::Required)) {
                 return if self.strict_mode {
                     Decision::Block {
@@ -249,12 +254,16 @@ fn first_trigger_match(rule: &RuleAtom, fingerprint: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pse_nxalien_types::{ScopeRef};
+    use pse_nxalien_types::ScopeRef;
 
     fn rule(id: &str, sev: Severity, triggers: &[&str]) -> RuleAtom {
         RuleAtom {
             id: id.to_string(),
-            scope: ScopeRef { files: vec![], modules: vec![], commands: vec![] },
+            scope: ScopeRef {
+                files: vec![],
+                modules: vec![],
+                commands: vec![],
+            },
             trigger: triggers.iter().map(|s| s.to_string()).collect(),
             prescription: format!("Ensure {id} is satisfied."),
             severity: sev,
@@ -285,24 +294,33 @@ mod tests {
         let e = ev(vec![rule("no-drop", Severity::Blocking, &["drop table"])]);
         let a = ActionContext::new("sql", "DROP TABLE users", "remove table");
         let r = e.evaluate(&a);
-        assert!(r.decision.is_block(), "trigger matching must be case-insensitive");
+        assert!(
+            r.decision.is_block(),
+            "trigger matching must be case-insensitive"
+        );
     }
 
     // ── Required ──────────────────────────────────────────────────────────────
 
     #[test]
     fn required_warns_in_normal_mode() {
-        let e = ev(vec![rule("run-tests-before-push", Severity::Required, &["push"])]);
+        let e = ev(vec![rule(
+            "run-tests-before-push",
+            Severity::Required,
+            &["push"],
+        )]);
         let a = ActionContext::new("run_command", "git push origin main", "deploy");
         let r = e.evaluate(&a);
-        assert!(r.decision.is_warn(), "required must warn, not block, in normal mode");
+        assert!(
+            r.decision.is_warn(),
+            "required must warn, not block, in normal mode"
+        );
         assert!(!r.decision.is_block());
     }
 
     #[test]
     fn required_blocks_in_strict_mode() {
-        let e = ev(vec![rule("run-tests", Severity::Required, &["push"])])
-            .with_strict_mode(true);
+        let e = ev(vec![rule("run-tests", Severity::Required, &["push"])]).with_strict_mode(true);
         let a = ActionContext::new("run_command", "git push", "ship it");
         let r = e.evaluate(&a);
         assert!(r.decision.is_block(), "required in strict mode must block");
@@ -312,8 +330,12 @@ mod tests {
 
     #[test]
     fn advisory_always_allows_even_in_strict_mode() {
-        let e = ev(vec![rule("prefer-fmt", Severity::Advisory, &["fmt", "format"])])
-            .with_strict_mode(true);
+        let e = ev(vec![rule(
+            "prefer-fmt",
+            Severity::Advisory,
+            &["fmt", "format"],
+        )])
+        .with_strict_mode(true);
         let a = ActionContext::new("edit_file", "src/lib.rs", "reformat without cargo fmt");
         let r = e.evaluate(&a);
         assert_eq!(r.decision, Decision::Allow);
@@ -323,7 +345,11 @@ mod tests {
 
     #[test]
     fn no_trigger_match_allows() {
-        let e = ev(vec![rule("no-secrets", Severity::Blocking, &["password", "secret"])]);
+        let e = ev(vec![rule(
+            "no-secrets",
+            Severity::Blocking,
+            &["password", "secret"],
+        )]);
         let a = ActionContext::new("edit_file", "src/config.rs", "update timeout values");
         let r = e.evaluate(&a);
         assert_eq!(r.decision, Decision::Allow);
@@ -344,7 +370,7 @@ mod tests {
     #[test]
     fn first_blocking_rule_wins_over_required() {
         let e = ev(vec![
-            rule("r-req",   Severity::Required, &["sensitive"]),
+            rule("r-req", Severity::Required, &["sensitive"]),
             rule("r-block", Severity::Blocking, &["sensitive"]),
         ]);
         let a = ActionContext::new("read_file", ".env", "read sensitive config");
@@ -371,7 +397,7 @@ mod tests {
     #[test]
     fn strict_mode_escalation_is_reversible() {
         let rules = vec![rule("run-tests", Severity::Required, &["deploy"])];
-        let lax    = ConstitutionalEvaluator::new(rules.clone()).with_strict_mode(false);
+        let lax = ConstitutionalEvaluator::new(rules.clone()).with_strict_mode(false);
         let strict = ConstitutionalEvaluator::new(rules).with_strict_mode(true);
         let a = ActionContext::new("run_command", "deploy to prod", "");
 

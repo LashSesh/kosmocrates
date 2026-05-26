@@ -15,6 +15,8 @@
 //! // let result = macro_step(&mut state, &observations, &config, &adapter);
 //! ```
 
+/// IL adapter: ILStore, text_to_vector8 — char-4-gram HDAG knowledge store.
+pub use pse_adapter_il as il;
 /// AES-256-GCM capsule encryption with policy-gated seal/open.
 pub use pse_capsule as capsule;
 /// Adversarial validation cascade: MetricSet, dual_consensus, PoRFsm.
@@ -35,6 +37,8 @@ pub use pse_manifest as manifest;
 pub use pse_navigator as navigator;
 /// Polycentric multi-hypothesis drill engine.
 pub use pse_pmhd as pmhd;
+/// ETV reasoning: guide (single-path) and guide_beam (Quantum-Walk) over ILStore.
+pub use pse_reasoning as reasoning;
 /// Digest-bound operator registry.
 pub use pse_registry as registry;
 /// Deterministic replay and verification.
@@ -51,10 +55,6 @@ pub use pse_swarm as swarm;
 pub use pse_topology as topology;
 /// Core types: SemanticCrystal, Observation, VertexId, Hash256, EvidenceChain, Config.
 pub use pse_types as types;
-/// IL adapter: ILStore, text_to_vector8 — char-4-gram HDAG knowledge store.
-pub use pse_adapter_il as il;
-/// ETV reasoning: guide (single-path) and guide_beam (Quantum-Walk) over ILStore.
-pub use pse_reasoning as reasoning;
 
 /// Prelude — import everything you need for a typical PSE application.
 pub mod prelude {

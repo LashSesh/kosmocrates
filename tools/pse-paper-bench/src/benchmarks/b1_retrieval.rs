@@ -1,14 +1,24 @@
-use crate::{datasets, fixtures, metrics::ir_metrics, baselines, stats};
-use std::collections::HashMap;
+use crate::{baselines, datasets, fixtures, metrics::ir_metrics, stats};
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Serialize, Clone, Default)]
 pub struct SystemMetrics {
-    pub hit1: f64, pub hit1_lo: f64, pub hit1_hi: f64,
-    pub hit3: f64, pub hit3_lo: f64, pub hit3_hi: f64,
-    pub hit5: f64, pub hit5_lo: f64, pub hit5_hi: f64,
-    pub mrr: f64,  pub mrr_lo: f64,  pub mrr_hi: f64,
-    pub ndcg10: f64, pub ndcg10_lo: f64, pub ndcg10_hi: f64,
+    pub hit1: f64,
+    pub hit1_lo: f64,
+    pub hit1_hi: f64,
+    pub hit3: f64,
+    pub hit3_lo: f64,
+    pub hit3_hi: f64,
+    pub hit5: f64,
+    pub hit5_lo: f64,
+    pub hit5_hi: f64,
+    pub mrr: f64,
+    pub mrr_lo: f64,
+    pub mrr_hi: f64,
+    pub ndcg10: f64,
+    pub ndcg10_lo: f64,
+    pub ndcg10_hi: f64,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -31,17 +41,18 @@ pub fn run() -> B1Results {
     let mut store = fixtures::open_store(dir.path());
 
     // Build BM25 index over document bodies
-    let doc_texts: Vec<String> = ds.documents.iter().map(|d| format!("{} {}", d.title, d.body)).collect();
+    let doc_texts: Vec<String> = ds
+        .documents
+        .iter()
+        .map(|d| format!("{} {}", d.title, d.body))
+        .collect();
     let bm25 = baselines::bm25::Bm25Index::build(&doc_texts);
 
     // Commit all documents to ILStore
     let mut doc_id_map: HashMap<String, String> = HashMap::new(); // dataset doc_id → crystal_id_hex
     for (i, doc) in ds.documents.iter().enumerate() {
-        let crystal = fixtures::build_crystal(
-            &format!("b1-doc-{}", doc.id),
-            doc.stability,
-            doc.kuramoto,
-        );
+        let crystal =
+            fixtures::build_crystal(&format!("b1-doc-{}", doc.id), doc.stability, doc.kuramoto);
         let question = format!("{} {}", doc.title, doc.body);
         let _hash = fixtures::commit_crystal(&mut store, &crystal, &question, i + 1);
         // Recover the hex ID from the crystal_id bytes
@@ -73,14 +84,20 @@ pub fn run() -> B1Results {
     let mut beam_h3 = vec![];
 
     for query in &ds.queries {
-        let graded_map: HashMap<String, u8> = query.relevant.iter().filter_map(|r| {
-            doc_id_map.get(&r.doc_id).map(|cid| (cid.clone(), r.grade))
-        }).collect();
+        let graded_map: HashMap<String, u8> = query
+            .relevant
+            .iter()
+            .filter_map(|r| doc_id_map.get(&r.doc_id).map(|cid| (cid.clone(), r.grade)))
+            .collect();
 
         let qvec = text_to_vector8(&query.text);
 
         // Pfauenthron++
-        let pse_ranked: Vec<String> = store.score_tripolar(&qvec).into_iter().map(|m| m.crystal_id_hex).collect();
+        let pse_ranked: Vec<String> = store
+            .score_tripolar(&qvec)
+            .into_iter()
+            .map(|m| m.crystal_id_hex)
+            .collect();
         pse_h1.push(ir_metrics::hit_at_k(&pse_ranked, &graded_map, 1));
         pse_h3.push(ir_metrics::hit_at_k(&pse_ranked, &graded_map, 3));
         pse_h5.push(ir_metrics::hit_at_k(&pse_ranked, &graded_map, 5));
@@ -91,9 +108,15 @@ pub fn run() -> B1Results {
         let bm_scores = bm25.score(&query.text);
         let mut bm_ranked: Vec<(usize, f64)> = bm_scores.iter().copied().enumerate().collect();
         bm_ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let bm_ranked_ids: Vec<String> = bm_ranked.iter().map(|(i, _)| {
-            doc_id_map.get(&ds.documents[*i].id).cloned().unwrap_or_default()
-        }).collect();
+        let bm_ranked_ids: Vec<String> = bm_ranked
+            .iter()
+            .map(|(i, _)| {
+                doc_id_map
+                    .get(&ds.documents[*i].id)
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect();
         bm_h3.push(ir_metrics::hit_at_k(&bm_ranked_ids, &graded_map, 3));
 
         // Cosine-only
@@ -117,47 +140,71 @@ pub fn run() -> B1Results {
 
     // Stability-only: per-query Hit@3 using stability rank (same for all queries)
     let stab_ranked = baselines::stability_only::rank(&store, &all_ids);
-    let stab_h3: Vec<f64> = ds.queries.iter().map(|q| {
-        let graded_map: HashMap<String, u8> = q.relevant.iter().filter_map(|r| {
-            doc_id_map.get(&r.doc_id).map(|cid| (cid.clone(), r.grade))
-        }).collect();
-        ir_metrics::hit_at_k(&stab_ranked, &graded_map, 3)
-    }).collect();
+    let stab_h3: Vec<f64> = ds
+        .queries
+        .iter()
+        .map(|q| {
+            let graded_map: HashMap<String, u8> = q
+                .relevant
+                .iter()
+                .filter_map(|r| doc_id_map.get(&r.doc_id).map(|cid| (cid.clone(), r.grade)))
+                .collect();
+            ir_metrics::hit_at_k(&stab_ranked, &graded_map, 3)
+        })
+        .collect();
 
     let ci = |v: &[f64], label: &str| stats::bootstrap_ci(v, 2000, stats::label_seed(label));
 
-    let h1ci   = ci(&pse_h1,   "b1-hit1");
-    let h3ci   = ci(&pse_h3,   "b1-hit3");
-    let h5ci   = ci(&pse_h5,   "b1-hit5");
-    let mci    = ci(&pse_mrr,  "b1-mrr");
-    let nci    = ci(&pse_ndcg, "b1-ndcg10");
-    let bm_ci  = ci(&bm_h3,    "b1-bm25-hit3");
-    let cos_ci = ci(&cos_h3,   "b1-cos-hit3");
-    let st_ci  = ci(&stab_h3,  "b1-stab-hit3");
+    let h1ci = ci(&pse_h1, "b1-hit1");
+    let h3ci = ci(&pse_h3, "b1-hit3");
+    let h5ci = ci(&pse_h5, "b1-hit5");
+    let mci = ci(&pse_mrr, "b1-mrr");
+    let nci = ci(&pse_ndcg, "b1-ndcg10");
+    let bm_ci = ci(&bm_h3, "b1-bm25-hit3");
+    let cos_ci = ci(&cos_h3, "b1-cos-hit3");
+    let st_ci = ci(&stab_h3, "b1-stab-hit3");
     let bm_etv_ci = ci(&beam_h3, "b1-beam-etv-hit3");
 
     B1Results {
         pfauenthron: SystemMetrics {
-            hit1: h1ci.mean, hit1_lo: h1ci.lo95, hit1_hi: h1ci.hi95,
-            hit3: h3ci.mean, hit3_lo: h3ci.lo95, hit3_hi: h3ci.hi95,
-            hit5: h5ci.mean, hit5_lo: h5ci.lo95, hit5_hi: h5ci.hi95,
-            mrr:  mci.mean,  mrr_lo:  mci.lo95,  mrr_hi:  mci.hi95,
-            ndcg10: nci.mean, ndcg10_lo: nci.lo95, ndcg10_hi: nci.hi95,
+            hit1: h1ci.mean,
+            hit1_lo: h1ci.lo95,
+            hit1_hi: h1ci.hi95,
+            hit3: h3ci.mean,
+            hit3_lo: h3ci.lo95,
+            hit3_hi: h3ci.hi95,
+            hit5: h5ci.mean,
+            hit5_lo: h5ci.lo95,
+            hit5_hi: h5ci.hi95,
+            mrr: mci.mean,
+            mrr_lo: mci.lo95,
+            mrr_hi: mci.hi95,
+            ndcg10: nci.mean,
+            ndcg10_lo: nci.lo95,
+            ndcg10_hi: nci.hi95,
         },
         bm25: SystemMetrics {
-            hit3: bm_ci.mean, hit3_lo: bm_ci.lo95, hit3_hi: bm_ci.hi95,
+            hit3: bm_ci.mean,
+            hit3_lo: bm_ci.lo95,
+            hit3_hi: bm_ci.hi95,
             ..Default::default()
         },
         cosine_only: SystemMetrics {
-            hit3: cos_ci.mean, hit3_lo: cos_ci.lo95, hit3_hi: cos_ci.hi95,
+            hit3: cos_ci.mean,
+            hit3_lo: cos_ci.lo95,
+            hit3_hi: cos_ci.hi95,
             ..Default::default()
         },
         stability_only: SystemMetrics {
-            hit3: st_ci.mean, hit3_lo: st_ci.lo95, hit3_hi: st_ci.hi95,
+            hit3: st_ci.mean,
+            hit3_lo: st_ci.lo95,
+            hit3_hi: st_ci.hi95,
             ..Default::default()
         },
         beam_etv: SystemMetrics {
-            hit3: bm_etv_ci.mean, hit3_lo: bm_etv_ci.lo95, hit3_hi: bm_etv_ci.hi95,
+            hit3: bm_etv_ci.mean,
+            hit3_lo: bm_etv_ci.lo95,
+            hit3_hi: bm_etv_ci.hi95,
             ..Default::default()
         },
         delta_vs_bm25_hit3: stats::paired_diff(&bm_h3, &pse_h3),

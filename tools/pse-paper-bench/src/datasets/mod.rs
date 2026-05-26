@@ -8,8 +8,8 @@ pub struct RetrievalDoc {
     pub title: String,
     pub body: String,
     pub domain: String,
-    pub stability: f64,   // used to set crystal stability_score
-    pub kuramoto: f64,    // used to set crystal kuramoto_coherence
+    pub stability: f64, // used to set crystal stability_score
+    pub kuramoto: f64,  // used to set crystal kuramoto_coherence
 }
 
 #[derive(Deserialize, Clone)]

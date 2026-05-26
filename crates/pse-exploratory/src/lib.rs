@@ -173,7 +173,11 @@ impl ExploratoryLedger {
             return;
         }
         let id = rule_id.into();
-        if self.entries.iter().any(|e| e.rule_id == id && e.is_pending()) {
+        if self
+            .entries
+            .iter()
+            .any(|e| e.rule_id == id && e.is_pending())
+        {
             return;
         }
         self.entries.push(ExploratoryEntry {
@@ -237,7 +241,9 @@ impl ExploratoryLedger {
                     initial_psi: entry.initial_psi,
                     runs_pending: entry.decay_after_runs,
                 });
-                entry.status = EntryStatus::Decayed { decayed_at_run: current_run };
+                entry.status = EntryStatus::Decayed {
+                    decayed_at_run: current_run,
+                };
             }
         }
         events
@@ -353,7 +359,11 @@ mod tests {
     fn positive_psi_not_ingested() {
         let mut l = ExploratoryLedger::default();
         l.ingest("r", 0.1, 2, "x", 1, 10);
-        assert_eq!(l.entries.len(), 0, "positive ψ must not enter exploratory ledger");
+        assert_eq!(
+            l.entries.len(),
+            0,
+            "positive ψ must not enter exploratory ledger"
+        );
     }
 
     #[test]
@@ -375,8 +385,12 @@ mod tests {
     fn ingest_is_idempotent_per_rule() {
         let mut l = ExploratoryLedger::default();
         l.ingest("r", -0.3, 1, "a", 1, 10);
-        l.ingest("r", -0.4, 1, "b", 2, 10);  // same rule, different run
-        assert_eq!(l.pending_count(), 1, "second ingest for same pending rule must be ignored");
+        l.ingest("r", -0.4, 1, "b", 2, 10); // same rule, different run
+        assert_eq!(
+            l.pending_count(),
+            1,
+            "second ingest for same pending rule must be ignored"
+        );
     }
 
     // ── Landing ────────────────────────────────────────────────────────────
@@ -417,7 +431,10 @@ mod tests {
         l.check_landings(&[("rule-a", 0.2)], 2);
         assert_eq!(l.landed_count(), 1);
         let events2 = l.check_landings(&[("rule-a", 0.5)], 3);
-        assert!(events2.is_empty(), "already-landed entry must not fire again");
+        assert!(
+            events2.is_empty(),
+            "already-landed entry must not fire again"
+        );
         assert_eq!(l.landed_count(), 1);
     }
 
@@ -426,7 +443,7 @@ mod tests {
     #[test]
     fn decay_fires_after_window() {
         let mut l = ledger_with_entry(-0.35, 1, 5);
-        let decays = l.tick_decay(6);  // run 1 + 5 = 6
+        let decays = l.tick_decay(6); // run 1 + 5 = 6
         assert_eq!(decays.len(), 1);
         assert_eq!(decays[0].rule_id, "rule-a");
         assert_eq!(l.decayed_count(), 1);
@@ -436,7 +453,7 @@ mod tests {
     #[test]
     fn decay_does_not_fire_before_window() {
         let mut l = ledger_with_entry(-0.35, 1, 5);
-        let decays = l.tick_decay(5);  // run 1 + 5 - 1 = 5, not yet
+        let decays = l.tick_decay(5); // run 1 + 5 - 1 = 5, not yet
         assert!(decays.is_empty());
         assert_eq!(l.pending_count(), 1);
     }
@@ -474,7 +491,10 @@ mod tests {
         let mut l = ledger_with_entry(-0.35, 1, 10);
         l.check_landings(&[("rule-a", 0.2)], 2);
         let slots = l.to_unknown_slots();
-        assert!(slots.is_empty(), "landed entries are grounded — no longer unknowns");
+        assert!(
+            slots.is_empty(),
+            "landed entries are grounded — no longer unknowns"
+        );
     }
 
     // ── Confidence proxy ───────────────────────────────────────────────────
@@ -483,8 +503,8 @@ mod tests {
     fn confidence_increases_as_psi_approaches_zero() {
         let mut l1 = ExploratoryLedger::default();
         let mut l2 = ExploratoryLedger::default();
-        l1.ingest("r1", -0.9, 0, "x", 1, 10);   // very negative
-        l2.ingest("r2", -0.1, 0, "x", 1, 10);   // barely negative
+        l1.ingest("r1", -0.9, 0, "x", 1, 10); // very negative
+        l2.ingest("r2", -0.1, 0, "x", 1, 10); // barely negative
         let s1 = l1.to_unknown_slots();
         let s2 = l2.to_unknown_slots();
         assert!(

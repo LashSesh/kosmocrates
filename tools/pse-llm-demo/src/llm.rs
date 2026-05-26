@@ -111,7 +111,9 @@ impl LlmClient {
             if status.as_u16() == 429 {
                 let body_text = resp.text().unwrap_or_default();
                 if attempt == MAX_ATTEMPTS {
-                    return Err(format!("API returned 429 after {MAX_ATTEMPTS} attempts: {body_text}"));
+                    return Err(format!(
+                        "API returned 429 after {MAX_ATTEMPTS} attempts: {body_text}"
+                    ));
                 }
                 eprintln!(
                     "  [429 rate-limited, attempt {attempt}/{MAX_ATTEMPTS}] \

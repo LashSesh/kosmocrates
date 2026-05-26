@@ -82,15 +82,18 @@ use axum::{
 use constitutional::{constitutional_check, ConstitutionalHandle, ConstitutionalLayer};
 use pse_adapter_il::{adapter::text_to_vector8, store::ILStore};
 use pse_constitutional_interceptor::ConstitutionalEvaluator;
-use pse_exploratory::{ExploratoryLedger, ExploratoryLedgerSummary, DEFAULT_DECAY_AFTER_RUNS, EXPLORATORY_PSI_THRESHOLD};
-use pse_reasoning::{guide as thunderbolt_guide, ReasoningChain, ThunderboltConfig};
+use pse_exploratory::{
+    ExploratoryLedger, ExploratoryLedgerSummary, DEFAULT_DECAY_AFTER_RUNS,
+    EXPLORATORY_PSI_THRESHOLD,
+};
 use pse_nxalien_evolve::{
     commit_rules_to_il,
-    evolution::{propose_rule_evolution, apply_validated_proposals, EvolutionGuard},
+    evolution::{apply_validated_proposals, propose_rule_evolution, EvolutionGuard},
     graph_state::GraphState,
     signal::{EpistemicSignal, SignalStability},
 };
 use pse_nxalien_types::{NxAlienBundle, NxAlienPolicy, RuleAtom};
+use pse_reasoning::{guide as thunderbolt_guide, ReasoningChain, ThunderboltConfig};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
@@ -664,7 +667,11 @@ async fn nxalien_bundle(
 
     let accepted: Vec<NxAlienProposalInfo> = proposals
         .iter()
-        .filter(|p| evolved.iter().any(|r| r.id == p.rule_id && r.severity == p.proposed_severity))
+        .filter(|p| {
+            evolved
+                .iter()
+                .any(|r| r.id == p.rule_id && r.severity == p.proposed_severity)
+        })
         .map(|p| NxAlienProposalInfo {
             rule_id: p.rule_id.clone(),
             from: format!("{:?}", p.current_severity),
@@ -685,16 +692,27 @@ async fn nxalien_bundle(
     // Exploratory ledger: park negative-ψ crystals as hypotheses.
     {
         let mut exp = ExploratoryLedger::open(&nxa_path);
-        let grounded: Vec<(&str, f64)> = il_summary.entries
+        let grounded: Vec<(&str, f64)> = il_summary
+            .entries
             .iter()
             .filter(|e| e.coherence_potential >= EXPLORATORY_PSI_THRESHOLD)
             .map(|e| (e.rule_id.as_str(), e.coherence_potential))
             .collect();
         exp.check_landings(&grounded, graph_state.run_count);
         exp.tick_decay(graph_state.run_count);
-        for e in il_summary.entries.iter().filter(|e| e.coherence_potential < EXPLORATORY_PSI_THRESHOLD) {
-            exp.ingest(&e.rule_id, e.coherence_potential, e.qtic_class,
-                &e.block_hash_prefix, graph_state.run_count, DEFAULT_DECAY_AFTER_RUNS);
+        for e in il_summary
+            .entries
+            .iter()
+            .filter(|e| e.coherence_potential < EXPLORATORY_PSI_THRESHOLD)
+        {
+            exp.ingest(
+                &e.rule_id,
+                e.coherence_potential,
+                e.qtic_class,
+                &e.block_hash_prefix,
+                graph_state.run_count,
+                DEFAULT_DECAY_AFTER_RUNS,
+            );
         }
         let _ = exp.save(&nxa_path);
     }
@@ -707,7 +725,10 @@ async fn nxalien_bundle(
         SignalStability::Drifting | SignalStability::Diverging
     );
     {
-        let mut ev = state.constitutional.lock().unwrap_or_else(|p| p.into_inner());
+        let mut ev = state
+            .constitutional
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         *ev = ConstitutionalEvaluator::new(evolved.clone()).with_strict_mode(strict);
     }
 
@@ -939,7 +960,11 @@ async fn reasoning_guide(
     };
 
     let Some(store) = &*guard else {
-        return Json(ReasoningGuideResponse { active: false, chain: None }).into_response();
+        return Json(ReasoningGuideResponse {
+            active: false,
+            chain: None,
+        })
+        .into_response();
     };
 
     let config = ThunderboltConfig {
@@ -1003,7 +1028,10 @@ async fn main() {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     if !initial_rules.is_empty() {
-        println!("  interceptor: {} rule(s) pre-loaded from current_rules.json", initial_rules.len());
+        println!(
+            "  interceptor: {} rule(s) pre-loaded from current_rules.json",
+            initial_rules.len()
+        );
     }
     let constitutional_handle: ConstitutionalHandle =
         Arc::new(Mutex::new(ConstitutionalEvaluator::new(initial_rules)));
@@ -1017,10 +1045,7 @@ async fn main() {
 
     // Constitutional check route uses its own State extractor (ConstitutionalHandle).
     let constitutional_router = Router::new()
-        .route(
-            "/constitutional/check",
-            post(constitutional_check::<()>),
-        )
+        .route("/constitutional/check", post(constitutional_check::<()>))
         .with_state(state.constitutional.clone());
 
     let app = Router::new()

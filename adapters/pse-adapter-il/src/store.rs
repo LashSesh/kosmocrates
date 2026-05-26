@@ -2366,7 +2366,10 @@ mod tests {
         let qvec = crate::adapter::text_to_vector8(question);
         let hits = store.search(&qvec, 5);
         assert!(!hits.is_empty());
-        assert!(hits[0].score > 0.5, "semantic query must match committed question");
+        assert!(
+            hits[0].score > 0.5,
+            "semantic query must match committed question"
+        );
     }
 
     #[test]

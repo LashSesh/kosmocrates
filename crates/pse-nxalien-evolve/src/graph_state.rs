@@ -47,13 +47,25 @@ pub struct SerFiveDState {
 
 impl From<&FiveDState> for SerFiveDState {
     fn from(s: &FiveDState) -> Self {
-        Self { p: s.p, rho: s.rho, omega: s.omega, chi: s.chi, eta: s.eta }
+        Self {
+            p: s.p,
+            rho: s.rho,
+            omega: s.omega,
+            chi: s.chi,
+            eta: s.eta,
+        }
     }
 }
 
 impl From<&SerFiveDState> for FiveDState {
     fn from(s: &SerFiveDState) -> Self {
-        Self { p: s.p, rho: s.rho, omega: s.omega, chi: s.chi, eta: s.eta }
+        Self {
+            p: s.p,
+            rho: s.rho,
+            omega: s.omega,
+            chi: s.chi,
+            eta: s.eta,
+        }
     }
 }
 
@@ -71,11 +83,7 @@ impl GraphState {
     /// Ingest a new bundle into a fresh PersistentGraph seeded with the
     /// stored point cloud, update state, and return the graph for signal
     /// extraction.
-    pub fn ingest_and_update(
-        &mut self,
-        bundle: &NxAlienBundle,
-        timestamp: f64,
-    ) -> PersistentGraph {
+    pub fn ingest_and_update(&mut self, bundle: &NxAlienBundle, timestamp: f64) -> PersistentGraph {
         // Build an in-memory graph seeded from stored embeddings.
         let mut graph = PersistentGraph::new();
         for (vid, emb) in &self.point_cloud {
@@ -143,8 +151,7 @@ impl GraphState {
         // Record free energy for this run.
         let centroid = {
             // Approximate centroid from stored cloud (no live graph needed).
-            let states: Vec<FiveDState> =
-                self.point_cloud.values().map(FiveDState::from).collect();
+            let states: Vec<FiveDState> = self.point_cloud.values().map(FiveDState::from).collect();
             if states.is_empty() {
                 FiveDState::default()
             } else {
