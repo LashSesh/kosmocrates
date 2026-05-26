@@ -1,0 +1,26 @@
+# CODEOWNERS — Kosmocrates
+#
+# GitHub automatically requests review from the listed owners when a
+# pull request modifies the matched path. With a single-maintainer
+# project (see GOVERNANCE.md) the catch-all is the only entry we
+# need today; per-area owners get added as the maintainer pool grows.
+
+* @LashSesh
+
+# Security-sensitive surfaces — explicit owner so the review request
+# is visible even if the catch-all is later relaxed.
+/SECURITY.md                        @LashSesh
+/crates/pse-capsule/                @LashSesh
+/crates/pse-evidence/               @LashSesh
+/crates/pse-replay/                 @LashSesh
+/crates/pse-gateway/                @LashSesh
+/tools/pse-server/                  @LashSesh
+
+# Release & CI infrastructure.
+/.github/workflows/                 @LashSesh
+/RELEASING.md                       @LashSesh
+/docker/                            @LashSesh
+/Cargo.toml                         @LashSesh
+
+# Bindings — release coordination is non-trivial.
+/bindings/                          @LashSesh

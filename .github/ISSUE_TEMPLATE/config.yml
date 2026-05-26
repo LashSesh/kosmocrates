@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question
+    url: https://github.com/lashsesh/pse/discussions
+    about: Ask questions or share ideas in Discussions. Open an issue only if you can name a specific bug or feature request.
+  - name: Security report
+    url: https://github.com/lashsesh/pse/security/advisories/new
+    about: Report a vulnerability privately. Never open a public issue for a security report.

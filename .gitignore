@@ -26,3 +26,12 @@ __pycache__/
 *.pyo
 eval_bundle.json
 .claude/
+
+# nxalien-cli writes per-run output artefacts to the workspace root.
+# Treat them as build output, not source. `nxalien.rules.md` is
+# project rules and stays committed.
+/nxalien.context.json
+/nxalien.handoff.json
+/nxalien.manifest.json
+/nxalien.replay.json
+/nxalien.signal.json
