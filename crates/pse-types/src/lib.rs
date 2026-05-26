@@ -843,6 +843,24 @@ pub struct ConsensusConfig {
     /// bypassing the pattern-memory cosine filter).  Default 0 (disabled).
     #[serde(default)]
     pub crystal_cooldown_ticks: u64,
+    /// Number of "startup" crystals that drive morphogenic graph expansion
+    /// but are excluded from anomaly-detection scoring.
+    ///
+    /// PSE requires an early burst of crystals (during the expanding-window
+    /// phase, roughly the first `window_size` observations) to trigger the
+    /// morphogenic node-splits that grow the graph to its operating size.
+    /// Without those splits the graph stays small, all metrics remain
+    /// artificially high, and background false-positives dominate.
+    ///
+    /// Setting `startup_crystal_count = window_size` absorbs the burst as
+    /// "startup", after which background metric levels naturally normalise
+    /// and only genuine anomaly signals produce detection crystals.  In the
+    /// runner, startup crystals are emitted with source `"pse_crystal_startup"`
+    /// rather than `"pse_crystal"` so the benchmark can filter them out.
+    ///
+    /// Default 0 (all crystals are counted as detections).
+    #[serde(default)]
+    pub startup_crystal_count: u64,
 }
 
 fn default_archive_dominance() -> f64 {
@@ -866,6 +884,7 @@ impl Default for ConsensusConfig {
             memory_similarity_threshold: default_memory_similarity_threshold(),
             min_crystal_tick: 0,
             crystal_cooldown_ticks: 0,
+            startup_crystal_count: 0,
         }
     }
 }

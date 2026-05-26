@@ -57,10 +57,17 @@ pub fn run_pse(
 
         match macro_step(state, &batch, config, adapter) {
             Ok(Some(crystal)) => {
+                let source = if config.consensus.startup_crystal_count > 0
+                    && state.crystals_committed <= config.consensus.startup_crystal_count
+                {
+                    "pse_crystal_startup"
+                } else {
+                    "pse_crystal"
+                };
                 detections.push(Detection::new(
                     state.commit_index,
                     crystal.stability_score.clamp(0.0, 1.0),
-                    "pse_crystal",
+                    source,
                 ));
             }
             Ok(None) => {
@@ -344,10 +351,17 @@ fn run_pse_windowed_inner(
                     .or_insert(0) += 1;
                 diag.candidate_count += 1;
                 diag.gate_pass_count += 1;
+                let source = if config.consensus.startup_crystal_count > 0
+                    && state.crystals_committed <= config.consensus.startup_crystal_count
+                {
+                    "pse_crystal_startup"
+                } else {
+                    "pse_crystal"
+                };
                 detections.push(Detection::new(
                     state.commit_index,
                     crystal.stability_score.clamp(0.0, 1.0),
-                    "pse_crystal",
+                    source,
                 ));
             }
             Ok(None) => {

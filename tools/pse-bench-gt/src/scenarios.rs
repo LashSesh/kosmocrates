@@ -100,24 +100,18 @@ pub fn run_seismo_scenario_with(
     // The other two scenarios (vitals, binance) use the default j=0.5 which
     // fires naturally inside their respective GT windows.
     pse_config.thresholds.j = 0.385;
-    // Scenario-calibrated detection gate.  Without these, the engine fires
-    // false-positive crystals in two regimes:
-    //
-    //   (a) Ticks 3–(window_size): the expanding-window phase produces a
-    //       small dense graph where all metrics are artificially elevated.
-    //   (b) Post-anomaly burst: once the Kairos gate opens on the anomaly,
-    //       consecutive ticks keep passing (morphogenic updates change
-    //       topology just enough to bypass the cosine-similarity memory
-    //       filter) → multi-tick FP burst.
-    //
-    // min_crystal_tick is set to the earliest tick inside the GT tolerance
-    // window so the engine skips the background phase entirely.  In a
-    // production deployment this value would be learned from a labelled
-    // validation split (standard practice for anomaly-detection systems).
-    // crystal_cooldown_ticks = 10 spaces the two crystals [184, 195] to
-    // cover both GT events (mainshock + aftershock_cluster) with 0 FP.
-    pse_config.consensus.min_crystal_tick = 184;
-    pse_config.consensus.crystal_cooldown_ticks = 10;
+    // Startup phase: the first `window_size` crystals drive morphogenic
+    // node-splits that grow the graph to its operating size.  Without this
+    // expansion the graph stays small, all metrics remain artificially high
+    // and background ticks produce FPs throughout the stream.  Startup
+    // crystals are emitted as "pse_crystal_startup" by the runner and
+    // excluded from scoring.
+    pse_config.consensus.startup_crystal_count = window_size as u64;
+    // Post-crystal cooldown = one full window.  After each detection crystal
+    // fires the gate is silenced for window_size ticks to prevent the
+    // multi-tick burst that arises when morphogenic updates keep topology
+    // just different enough to bypass the pattern-memory cosine filter.
+    pse_config.consensus.crystal_cooldown_ticks = window_size as u64;
     let events = embedded_seismo_data();
     // Underscore-prefixed because the windowed runner constructs its
     // own EventScopedAdapter; the SeismoAdapter is preserved in the
@@ -214,12 +208,9 @@ pub fn run_vitals_scenario_with(
 ) -> ScenarioResult {
     // Always use the anomaly-detection preset for PSE on this scenario.
     let mut pse_config = Config::preset_anomaly_detection();
-    // Scenario-calibrated detection gate (see seismo comment for rationale).
-    // min_crystal_tick blocks the background phase [1, 386]; cooldown=250
-    // ensures only one crystal fires in the GT window [382, 620) — the
-    // 600-tick scenario ends before 387+250=637 so no second crystal fires.
-    pse_config.consensus.min_crystal_tick = 387;
-    pse_config.consensus.crystal_cooldown_ticks = 250;
+    // Startup phase + cooldown (see seismo scenario for detailed rationale).
+    pse_config.consensus.startup_crystal_count = window_size as u64;
+    pse_config.consensus.crystal_cooldown_ticks = window_size as u64;
     let duration_sec: u32 = 60;
     let raw = generate_embedded_data(42, duration_sec);
     let patient_b: Vec<&pse_adapter_vitals::VitalReading> =
@@ -339,12 +330,9 @@ pub fn run_binance_scenario_with(
 ) -> ScenarioResult {
     // Always use the anomaly-detection preset for PSE on this scenario.
     let mut pse_config = Config::preset_anomaly_detection();
-    // Scenario-calibrated detection gate (see seismo comment for rationale).
-    // min_crystal_tick=51 is the first tick inside the GT tolerance window
-    // [47, 73); cooldown=50 ensures the 100-tick scenario ends before a
-    // second crystal fires (51+50=101 > 100).
-    pse_config.consensus.min_crystal_tick = 51;
-    pse_config.consensus.crystal_cooldown_ticks = 50;
+    // Startup phase + cooldown (see seismo scenario for detailed rationale).
+    pse_config.consensus.startup_crystal_count = window_size as u64;
+    pse_config.consensus.crystal_cooldown_ticks = window_size as u64;
 
     let ticks = embedded_btc_klines_with_regime_shift();
     let _adapter = BinanceAdapter::new("BTCUSDT");

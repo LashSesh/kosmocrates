@@ -155,6 +155,10 @@ pub struct GlobalState {
     /// Tick index of the most recent committed crystal.  Used by the
     /// crystal_cooldown_ticks gate to suppress burst false positives.
     pub last_crystal_commit: Option<u64>,
+    /// Running count of crystals committed in this session.  The first
+    /// `config.consensus.startup_crystal_count` crystals are labelled
+    /// "pse_crystal_startup" by the runner; subsequent ones are "pse_crystal".
+    pub crystals_committed: u64,
 }
 
 impl GlobalState {
@@ -207,6 +211,7 @@ impl GlobalState {
             #[cfg(feature = "swarm")]
             swarm_node: None,
             last_crystal_commit: None,
+            crystals_committed: 0,
         }
     }
 
@@ -582,7 +587,14 @@ pub fn macro_step(
     // consecutive ticks after a morphogenic update (each update changes
     // topology enough to bypass the pattern-memory cosine filter, so
     // without cooldown an entire burst window crystallises as FP).
-    if config.consensus.crystal_cooldown_ticks > 0 {
+    //
+    // The cooldown is intentionally skipped during the startup phase so the
+    // early morphogenic burst (which is needed for graph expansion) fires at
+    // its natural rate.  Spacing the burst crystals with cooldown would
+    // stretch the startup across hundreds of ticks, delaying detection.
+    let past_startup = config.consensus.startup_crystal_count == 0
+        || state.crystals_committed >= config.consensus.startup_crystal_count;
+    if past_startup && config.consensus.crystal_cooldown_ticks > 0 {
         if let Some(last) = state.last_crystal_commit {
             if state.commit_index <= last + config.consensus.crystal_cooldown_ticks {
                 state.engine_state = EngineState::Idle;
@@ -907,6 +919,7 @@ pub fn macro_step(
     // commit_index is already incremented unconditionally at the top of
     // macro_step; do not increment again here.
     state.last_crystal_commit = Some(state.commit_index);
+    state.crystals_committed += 1;
 
     // L4: Morphogenic update (Inv I11: non-retroactive)
     morphogenic_update(
