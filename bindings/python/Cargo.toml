@@ -10,6 +10,9 @@ edition = "2021"
 authors = ["Sebastian Klemm"]
 license = "MIT"
 description = "Python bindings for PSE — Kosmocrates"
+repository = "https://github.com/lashsesh/pse"
+homepage = "https://github.com/lashsesh/pse"
+readme = "README.md"
 
 [lib]
 name = "pse_core"
@@ -19,7 +22,11 @@ crate-type = ["cdylib"]
 pse-core  = { path = "../../crates/pse-core" }
 pse-types = { path = "../../crates/pse-types" }
 pse-graph = { path = "../../crates/pse-graph" }
-pyo3      = { version = "0.22", features = ["extension-module"] }
+# abi3-py38 binds against the stable Python ABI: a single wheel works
+# on every CPython >= 3.8. This is what makes a sane PyPI distribution
+# matrix (5 platform wheels × 1 ABI) instead of (5 platforms × N python
+# versions). The build path remains `maturin build/develop`.
+pyo3      = { version = "0.22", features = ["extension-module", "abi3-py38"] }
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 
