@@ -1,0 +1,48 @@
+name: Coverage
+
+# Produces a line-coverage report for the workspace using
+# cargo-llvm-cov. Output is uploaded as a workflow artifact (LCOV
+# format) so downstream tooling — codecov, coveralls, internal
+# dashboards — can ingest it without this workflow taking a hard
+# dependency on any specific service.
+#
+# Coverage is informational, not gating. The bar that gates merges
+# stays: clippy clean, all tests pass.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: ''
+
+jobs:
+  llvm-cov:
+    name: cargo llvm-cov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate LCOV report
+        run: |
+          cargo llvm-cov --workspace --locked \
+            --lcov --output-path lcov.info \
+            --ignore-filename-regex 'tools/.*|vendors/.*|.*/tests/.*'
+      - name: Print coverage summary
+        run: cargo llvm-cov report --summary-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          retention-days: 30

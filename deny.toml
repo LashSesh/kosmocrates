@@ -1,0 +1,97 @@
+# cargo-deny configuration for Kosmocrates.
+#
+# Enforces four supply-chain invariants in CI (see
+# .github/workflows/security.yml):
+#
+#   1. advisories  — no known RustSec advisory hits in the dependency
+#                    graph (replaces the non-blocking cargo-audit job).
+#   2. licenses    — every transitive dependency carries a licence on
+#                    our allowlist; unknown / copyleft licences are a
+#                    hard fail.
+#   3. bans        — no banned crates (e.g. multiple versions of a
+#                    foundational crate, deprecated crypto).
+#   4. sources     — only crates.io as an upstream source; vendored
+#                    forks under `vendors/` are excluded via paths.
+#
+# Run locally:   cargo install --locked cargo-deny && cargo deny check
+
+[graph]
+all-features = false
+no-default-features = false
+
+# Linux + macOS + Windows is what we ship binaries for.
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "wasm32-unknown-unknown" },
+]
+
+# ─── advisories ────────────────────────────────────────────────────────────
+[advisories]
+# Use cargo-deny's bundled advisory DB; CI refreshes it on every run.
+version = 2
+yanked = "warn"
+# `ignore` is the escape hatch for upstream advisories we cannot fix
+# (e.g. a dep on a yanked transitive). Document each entry with a
+# tracking issue.
+ignore = []
+
+# ─── licenses ──────────────────────────────────────────────────────────────
+[licenses]
+version = 2
+# Strict allowlist: every transitive dep must use one of these.
+# Unknown licences are treated as a deny.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",         # ICU dataset, latest Unicode crates
+    "Unicode-DFS-2016",    # older unicode-ident
+    "CC0-1.0",             # tiny-keccak, some test fixtures
+    "MPL-2.0",             # webpki-roots
+    "OpenSSL",             # if ever pulled — combo with Apache-2.0 below
+]
+# Workspace own crates default to MIT (see workspace.package.license).
+confidence-threshold = 0.92
+
+# Per-crate exceptions land here. Empty until a real exception is needed.
+exceptions = []
+
+# ─── bans ──────────────────────────────────────────────────────────────────
+[bans]
+multiple-versions = "warn"   # would be "deny" but the workspace is large
+                             # — flip after the metadata sweep stabilises
+                             # the dep graph.
+wildcards = "deny"           # `dep = "*"` is never acceptable
+highlight = "all"
+
+# Crates we explicitly forbid. Add a one-line rationale next to each.
+deny = [
+    # openssl pulls a native build dep + ABI risk. Prefer rustls.
+    # Currently allowed transitively via reqwest's default features;
+    # un-comment once the rustls migration is complete.
+    # { name = "openssl-sys" },
+]
+
+# Crates that may appear at multiple versions without warning. Used
+# sparingly — every entry is a maintenance debt.
+skip = []
+
+# Allow `cargo deny check bans` to ignore the vendored forks: they are
+# not part of the dependency graph that ships to consumers.
+skip-tree = []
+
+# ─── sources ───────────────────────────────────────────────────────────────
+[sources]
+# Only crates.io. Git deps must be added explicitly to `allow-git`.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
