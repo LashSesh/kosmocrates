@@ -63,6 +63,7 @@
 //!   curl http://localhost:8765/nxalien/signal | jq .
 //! ```
 
+mod auth;
 mod constitutional;
 mod pse;
 
@@ -251,8 +252,24 @@ struct ILHdagOrderResponse {
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 async fn health() -> impl IntoResponse {
+    // Liveness: the process is up and the HTTP listener is accepting.
+    // Kept intentionally cheap — no DB/IL/NxAlien check here, so a
+    // slow downstream cannot mark the pod dead.
     Json(HealthResponse {
         status: "ok",
+        version: env!("CARGO_PKG_VERSION"),
+    })
+}
+
+async fn ready() -> impl IntoResponse {
+    // Readiness: the process is willing to serve traffic. For now this
+    // mirrors `/health` — the server's request paths are all
+    // synchronous and become ready the moment startup completes. The
+    // split exists so probes can be wired separately (liveness vs
+    // readiness) per the standard Kubernetes / SRE pattern, and so
+    // future async warm-up paths have a dedicated gate.
+    Json(HealthResponse {
+        status: "ready",
         version: env!("CARGO_PKG_VERSION"),
     })
 }
@@ -986,6 +1003,18 @@ async fn reasoning_guide(
 
 #[tokio::main]
 async fn main() {
+    // Structured logging. Honours the standard RUST_LOG env var
+    // (`RUST_LOG=pse_server=debug,tower_http=info`). Default INFO so a
+    // fresh deployment still emits useful operator logs without
+    // needing extra config.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_target(true)
+        .init();
+
     let host = std::env::var("PSE_SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = std::env::var("PSE_SERVER_PORT")
         .ok()
@@ -1050,6 +1079,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/ready", get(ready))
         .route("/ingest", post(ingest))
         .route("/context", post(context))
         .route("/coverage", post(coverage))
@@ -1064,6 +1094,7 @@ async fn main() {
         .route("/exploratory/status", get(exploratory_status))
         .route("/reasoning/guide", post(reasoning_guide))
         .merge(constitutional_router)
+        .layer(axum::middleware::from_fn(auth::bearer_auth))
         .layer(ConstitutionalLayer::new(state.constitutional.clone()))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -1082,8 +1113,14 @@ async fn main() {
     } else {
         println!("  nxalien   : inactive (set PSE_NXALIEN_STATE to activate)");
     }
+    if auth::is_enabled() {
+        println!("  auth      : bearer token required (PSE_SERVER_TOKEN)");
+    } else {
+        println!("  auth      : DISABLED — set PSE_SERVER_TOKEN to require Bearer auth");
+    }
     println!();
-    println!("  GET  /health");
+    println!("  GET  /health              — liveness probe (always open)");
+    println!("  GET  /ready               — readiness probe (always open)");
     println!("  POST /ingest              — text → crystals + state");
     println!("  POST /context             — records → LLM prompt block");
     println!("  POST /coverage            — text + keywords → hit count");
