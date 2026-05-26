@@ -1,0 +1,144 @@
+name: WASM / npm
+
+# Builds two npm packages from `crates/pse-wasm`:
+#   * `@kosmocrates/pse-wasm-web`     (wasm-pack --target web)
+#   * `@kosmocrates/pse-wasm-node`    (wasm-pack --target nodejs)
+#
+# Both share a single Rust source; the wasm-pack target controls the
+# glue layer (ES module for browsers vs CommonJS for Node).
+#
+# PRs and pushes to main build & validate. Version tags additionally
+# publish to npm — gated behind the `npm` GitHub environment so a
+# maintainer must approve and supply the publish token.
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  pull_request:
+    paths:
+      - 'crates/pse-wasm/**'
+      - 'crates/pse-core/**'
+      - 'crates/pse-types/**'
+      - 'crates/pse-graph/**'
+      - '.github/workflows/npm.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: web
+            pkg_name: '@kosmocrates/pse-wasm-web'
+            out_dir: pkg-web
+          - target: nodejs
+            pkg_name: '@kosmocrates/pse-wasm-node'
+            out_dir: pkg-node
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-${{ matrix.target }}
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build wasm package
+        run: |
+          wasm-pack build crates/pse-wasm \
+            --target ${{ matrix.target }} \
+            --release \
+            --out-dir ${{ matrix.out_dir }} \
+            --scope kosmocrates
+
+      # wasm-pack emits a package.json with `name = "@kosmocrates/pse-wasm"`
+      # (because --scope and the crate name are joined). Rewrite the name
+      # to differentiate the per-target packages and inject repo metadata
+      # that wasm-pack does not synthesize.
+      - name: Patch package.json metadata
+        shell: bash
+        run: |
+          pkg="crates/pse-wasm/${{ matrix.out_dir }}/package.json"
+          python3 - <<PY
+          import json, pathlib
+          p = pathlib.Path("$pkg")
+          data = json.loads(p.read_text())
+          data["name"] = "${{ matrix.pkg_name }}"
+          data["repository"] = {"type": "git", "url": "https://github.com/lashsesh/pse.git"}
+          data["homepage"] = "https://github.com/lashsesh/pse"
+          data["bugs"] = {"url": "https://github.com/lashsesh/pse/issues"}
+          data["keywords"] = sorted(set(
+              data.get("keywords", [])
+              + ["kosmocrates", "pse", "wasm", "topology", "deterministic", "llm-memory"]
+          ))
+          p.write_text(json.dumps(data, indent=2) + "\n")
+          PY
+          cat "$pkg"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.target }}
+          path: crates/pse-wasm/${{ matrix.out_dir }}
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # Publish both packages to npm on a version tag. Requires:
+  #   1. `npm` GitHub environment with required reviewers configured.
+  #   2. `NPM_TOKEN` secret in that environment (npm automation token
+  #      scoped to the `@kosmocrates` org with publish permission).
+  # ---------------------------------------------------------------------
+  publish:
+    name: Publish to npm (${{ matrix.target }})
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [web, nodejs]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-${{ matrix.target }}
+          path: pkg
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Sync package version to git tag
+        working-directory: pkg
+        shell: bash
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          npm version "$tag" --no-git-tag-version --allow-same-version
+      - name: Publish
+        working-directory: pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # Pre-releases (rc/beta/alpha) go to the `next` dist-tag so
+          # `npm install @kosmocrates/...` keeps resolving to the
+          # latest stable release.
+          if [[ "${GITHUB_REF}" == *"-"* ]]; then
+            npm publish --access public --tag next
+          else
+            npm publish --access public
+          fi
