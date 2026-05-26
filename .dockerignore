@@ -1,0 +1,48 @@
+# Keep the build context small. Everything cargo doesn't need to build
+# `pse-server` is excluded — this dramatically speeds up `docker build`
+# and shrinks the BuildKit cache.
+
+target/
+**/target/
+.git/
+.github/
+.idea/
+.vscode/
+
+# Documentation, specs, demo assets — not needed inside the image.
+docs/
+specs/
+DEMO.md
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+RELEASING.md
+*.pdf
+
+# Web/Browser tooling — pse-server is a pure Rust binary.
+web/
+bindings/
+
+# Vendored crates that are not part of the workspace build (they are
+# included only when their respective adapters enable the feature flag).
+vendors/
+
+# Tool/agent context artifacts — never needed inside the image.
+.nxalien/
+nxalien.*.json
+
+# Local environment / secrets.
+.env
+.env.*
+!.env.example
+
+# Generated SBOM / release archives.
+*.cdx.json
+*.spdx.json
+*.tar.gz
+*.zip
+
+# Editor / OS clutter.
+.DS_Store
+Thumbs.db
