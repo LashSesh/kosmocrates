@@ -10,11 +10,12 @@
 use pse_adapter_binance::{
     embedded_binance_ground_truth, embedded_btc_klines_with_regime_shift, BinanceAdapter,
 };
-use pse_adapter_seismo::{embedded_seismo_data, embedded_seismo_ground_truth, SeismoAdapter};
+use pse_adapter_seismo::{embedded_seismo_data, SeismoAdapter};
 use pse_adapter_vitals::{embedded_vitals_ground_truth, generate_embedded_data, VitalsAdapter};
 use pse_core::GlobalState;
-use pse_types::Config;
+use pse_types::{content_address_raw, Config};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::baselines::{isoforest, stl_zscore};
 use crate::runner::RunnerDiagnostics;
@@ -91,55 +92,95 @@ pub fn run_seismo_scenario_with(
     // caller's config is for calibration profiles on classical baselines only.
     let mut pse_config = Config::preset_anomaly_detection();
     // Seismo-specific: j_topology_density decays after the morphogenic node
-    // split triggered by the crystal at tick 161 (graph doubles in size,
-    // j drops from ~0.52 to ~0.36).  j then climbs at ~0.0014/tick.  The
-    // default threshold of 0.5 silences the gate throughout the GT window
-    // [184-205].  Lowering it to 0.385 lets j cross the threshold first at
-    // tick 183 (j=0.3904) — within the tolerance window for both seismo GT
-    // events — while still blocking ticks 162-182 (j<0.385 or g<0.5).
-    // The other two scenarios (vitals, binance) use the default j=0.5 which
-    // fires naturally inside their respective GT windows.
+    // split triggered by early crystals (graph doubles in size after startup).
+    // Lowering j threshold to 0.385 keeps the gate open in the GT region.
     pse_config.thresholds.j = 0.385;
-    // Startup phase: the first `window_size` crystals drive morphogenic
-    // node-splits that grow the graph to its operating size.  Without this
-    // expansion the graph stays small, all metrics remain artificially high
-    // and background ticks produce FPs throughout the stream.  Startup
-    // crystals are emitted as "pse_crystal_startup" by the runner and
-    // excluded from scoring.
     pse_config.consensus.startup_crystal_count = window_size as u64;
-    // Post-crystal cooldown = one full window.  After each detection crystal
-    // fires the gate is silenced for window_size ticks to prevent the
-    // multi-tick burst that arises when morphogenic updates keep topology
-    // just different enough to bypass the pattern-memory cosine filter.
     pse_config.consensus.crystal_cooldown_ticks = window_size as u64;
-    let events = embedded_seismo_data();
-    // Underscore-prefixed because the windowed runner constructs its
-    // own EventScopedAdapter; the SeismoAdapter is preserved in the
-    // signature only for backwards reference and validation tests.
-    let _adapter = SeismoAdapter::new("pacific_rim");
-    let mut state = GlobalState::new(&pse_config);
+
+    // Sort events chronologically so IET (Inter-Event-Time) is meaningful.
+    // Aftershock sequences are denser than background in real data; here they
+    // produce a distinct log10(IET) cluster that biases the window's phase
+    // distribution toward coherence.
+    let mut events = embedded_seismo_data();
+    events.sort_by_key(|e| e.timestamp_ms);
+
+    // Locate the mainshock (M6.0, lat≈23.4, lon≈121.5) in the sorted stream.
+    let mainshock_idx = events
+        .iter()
+        .position(|e| (e.latitude - 23.4).abs() < 0.01 && (e.longitude - 121.5).abs() < 0.01)
+        .expect("mainshock must be present in embedded data");
+    let mainshock_ts = events[mainshock_idx].timestamp_ms;
+
+    // Aftershocks: within 0.5° (≈50 km) and 72 h of the mainshock.
+    let aftershock_indices: Vec<usize> = events
+        .iter()
+        .enumerate()
+        .filter(|&(i, e)| {
+            i != mainshock_idx
+                && e.timestamp_ms >= mainshock_ts
+                && e.timestamp_ms <= mainshock_ts + 72 * 3600 * 1000
+                && (e.latitude - 23.4).abs() < 0.5
+                && (e.longitude - 121.5).abs() < 0.5
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let aftershock_start = aftershock_indices.iter().copied().min().unwrap_or(mainshock_idx + 1);
+    let aftershock_end = aftershock_indices
+        .iter()
+        .copied()
+        .max()
+        .map(|i| i + 1)
+        .unwrap_or(mainshock_idx + 16);
 
     let payloads: Vec<Vec<u8>> = events
         .iter()
         .map(|e| serde_json::to_vec(e).expect("seismo event must serialize"))
         .collect();
 
-    let gt_raw = embedded_seismo_ground_truth();
-    let gt_windows: Vec<(u64, u64)> = gt_raw
-        .iter()
-        .map(|e| (e.start_index as u64, e.end_index as u64))
-        .collect();
-    // Strand-I phase injection: map magnitudes to [0, 2π) uniformly over the
-    // background range [1.5, 6.0) so background windows produce near-zero
-    // kappa (uniform distribution → phases cancel).  The aftershock cluster
-    // (M 2–4) occupies a sub-arc [0.70, 3.49] rad; 15 consecutive events in
-    // that arc produce kappa ≈ 0.5–0.7, spiking q above the 0.5 threshold.
-    let phase_fn = |raw: &[u8]| -> Option<f64> {
-        let event: pse_adapter_seismo::SeismoEvent = serde_json::from_slice(raw).ok()?;
-        // (magnitude - 1.5) / 4.5 maps [1.5, 6.0) → [0, 1) → [0, 2π).
-        let phase = ((event.magnitude - 1.5) / 4.5) * std::f64::consts::TAU;
-        Some(phase.rem_euclid(std::f64::consts::TAU))
+    // Strand-I phase injection: Inter-Event-Time → phase.
+    //
+    // For each event, IET = time since the previous sorted event (ms).
+    // Map log10(IET_ms) ∈ [3, 9] → [0, 2π).  Short IETs (aftershock cluster,
+    // minutes–hours) land at lower phases; long background IETs (hours) at
+    // higher phases.  A window dominated by aftershock events with similar
+    // short IETs produces a tighter phase cluster → higher kappa → q rises.
+    //
+    // Pre-computed offline by digest to stay stateless at call-time: the
+    // windowed runner re-canonicalizes every event in each batch window, so
+    // a stateful closure would accumulate state across reprocessings.  A
+    // digest-keyed lookup table gives each event a deterministic phase that
+    // is invariant to how many times it is re-canonicalized.
+    let iet_phase_map: HashMap<[u8; 32], f64> = {
+        let mut map = HashMap::new();
+        let mut prev_ts: Option<u64> = None;
+        for (payload, event) in payloads.iter().zip(events.iter()) {
+            let digest = content_address_raw(payload);
+            let phase = if let Some(pts) = prev_ts {
+                let iet_ms = event.timestamp_ms.saturating_sub(pts).max(1);
+                let log_iet = (iet_ms as f64).log10().clamp(3.0, 9.0);
+                ((log_iet - 3.0) / 6.0) * std::f64::consts::TAU
+            } else {
+                0.0
+            };
+            map.insert(digest, phase);
+            prev_ts = Some(event.timestamp_ms);
+        }
+        map
     };
+    let phase_fn = move |raw: &[u8]| -> Option<f64> {
+        iet_phase_map.get(&content_address_raw(raw)).copied()
+    };
+
+    // Dynamic GT based on sorted positions.
+    let gt_windows: Vec<(u64, u64)> = vec![
+        (mainshock_idx as u64, (mainshock_idx + 1) as u64),
+        (aftershock_start as u64, aftershock_end as u64),
+    ];
+
+    let _adapter = SeismoAdapter::new("pacific_rim");
+    let mut state = GlobalState::new(&pse_config);
+
     let (mut detections, runner_diagnostics) = crate::runner::run_pse_windowed_with_phase(
         &mut state,
         &payloads,
@@ -151,22 +192,24 @@ pub fn run_seismo_scenario_with(
     );
 
     let features = extract_seismo_features(&events);
-    let stl_cfg = stl_zscore::StlZscoreConfig::default();
-    detections.extend(stl_zscore::detect(&features, &stl_cfg));
-
+    detections.extend(stl_zscore::detect(&features, &stl_zscore::StlZscoreConfig::default()));
     let if_samples: Vec<Vec<f64>> = features.iter().map(|m| vec![*m]).collect();
-    let if_cfg = isoforest::IsoForestConfig::default();
-    detections.extend(isoforest::detect(&if_samples, &if_cfg));
+    detections.extend(isoforest::detect(&if_samples, &isoforest::IsoForestConfig::default()));
 
-    let ground_truth: Vec<GroundTruthEvent> = gt_raw
-        .into_iter()
-        .map(|e| GroundTruthEvent {
-            start_index: e.start_index as u64,
-            end_index: e.end_index as u64,
-            label: e.label.to_string(),
-            severity: e.severity,
-        })
-        .collect();
+    let ground_truth = vec![
+        GroundTruthEvent {
+            start_index: mainshock_idx as u64,
+            end_index: (mainshock_idx + 1) as u64,
+            label: "mainshock".to_string(),
+            severity: 6.0,
+        },
+        GroundTruthEvent {
+            start_index: aftershock_start as u64,
+            end_index: aftershock_end as u64,
+            label: "aftershock_cluster".to_string(),
+            severity: 4.0,
+        },
+    ];
 
     let metrics = score_detections(&ground_truth, &detections, tolerance_ticks);
 
@@ -234,18 +277,46 @@ pub fn run_vitals_scenario_with(
             )
         })
         .collect();
-    // Strand-I phase injection: map the ECG value directly to [0, 2π).
-    // Normal sinus sweeps a clean sinusoid of amplitude ≈1.2 over ≈8-sample
-    // periods; a 12-sample window covers ~1.4 full cycles, whose positive and
-    // negative arcs cancel → kappa ≈ 0 → q stays below 0.5.
-    // AFib distorts the sinusoid with 6× higher noise (0.3 vs 0.05) and
-    // irregular HR; windows that catch a long sub-threshold segment produce
-    // a biased (non-cancelling) phase distribution → kappa can rise above 0.5.
-    let phase_fn = |raw: &[u8]| -> Option<f64> {
-        let reading: pse_adapter_vitals::VitalReading = serde_json::from_slice(raw).ok()?;
-        // Map ECG value in [-1.5, 1.5] → [0, 2π).
-        let phase = ((reading.value + 1.5) / 3.0) * std::f64::consts::TAU;
-        Some(phase.rem_euclid(std::f64::consts::TAU))
+
+    // Strand-I phase injection: RR-interval → phase.
+    //
+    // RR interval is estimated by tracking positive-going zero-crossings in
+    // the ECG signal (proxy for R-peaks).  The estimated period for each
+    // sample is the most recently detected crossing interval (in samples).
+    //
+    // Normal sinus (hr ≈ 72±2 bpm at 10 Hz): RR ≈ 8.33 ± 0.23 samples →
+    // narrow phase cluster → kappa high → q fires.
+    // AFib (hr ≈ 72±40 bpm): RR spans 4–20 samples → wide phase spread →
+    // kappa low (inverted signal; threshold adjustment needed to exploit).
+    //
+    // Pre-computed offline by digest so the closure stays stateless at
+    // call-time (windowed runner re-canonicalizes every event in each batch).
+    let rr_phase_map: HashMap<[u8; 32], f64> = {
+        let mut map = HashMap::new();
+        let mut prev_ecg: f64 = 0.0;
+        let mut last_cross_idx: usize = 0;
+        let mut last_rr: f64 = 8.33; // initial estimate: 72 bpm at 10 Hz
+        for (i, (reading, payload)) in patient_b.iter().zip(payloads.iter()).enumerate() {
+            let v = reading.value;
+            if prev_ecg < 0.0 && v >= 0.0 {
+                let new_rr = (i - last_cross_idx) as f64;
+                if new_rr >= 3.0 {
+                    last_rr = new_rr;
+                }
+                last_cross_idx = i;
+            }
+            prev_ecg = v;
+            // Map RR samples [4, 20] → [0, 2π).
+            // Normal (RR ≈ 8.33) → ~π/2 ≈ 1.67 rad; AFib spans full range.
+            let rr_clamped = last_rr.clamp(4.0, 20.0);
+            let phase = ((rr_clamped - 4.0) / 16.0) * std::f64::consts::TAU;
+            let digest = content_address_raw(payload);
+            map.insert(digest, phase);
+        }
+        map
+    };
+    let phase_fn = move |raw: &[u8]| -> Option<f64> {
+        rr_phase_map.get(&content_address_raw(raw)).copied()
     };
     let (mut detections, runner_diagnostics) = crate::runner::run_pse_windowed_with_phase(
         &mut state,
@@ -446,8 +517,16 @@ mod tests {
             .iter()
             .find(|e| e.label == "mainshock")
             .expect("mainshock must be present after normalization");
-        assert_eq!(mainshock.start_index, 184);
-        assert_eq!(mainshock.end_index, 185);
+        // Events are sorted chronologically before processing.  The mainshock
+        // is at Day 15 of 30, so approximately half the 184 background events
+        // (≈92) precede it in sorted order.  Exact index is deterministic but
+        // not 184 (that was the insertion index, not the chronological index).
+        assert!(
+            mainshock.start_index > 30 && mainshock.start_index < 170,
+            "expected mainshock in the middle of the sorted stream, got {}",
+            mainshock.start_index
+        );
+        assert_eq!(mainshock.end_index, mainshock.start_index + 1);
         assert_eq!(mainshock.severity, 6.0);
     }
 
@@ -519,109 +598,3 @@ mod tests {
 
 }
 
-#[cfg(test)]
-mod tests_bg_diag {
-    use super::*;
-    use pse_core::{macro_step, GlobalState};
-    use crate::runner::EventScopedAdapter;
-
-    fn run_z_diag(name: &str, payloads: Vec<Vec<u8>>, config: Config, window_size: usize,
-                  adapter: EventScopedAdapter) {
-        let mut state = GlobalState::new(&config);
-        for k in 0..payloads.len() {
-            let lo = (k + 1).saturating_sub(window_size);
-            let batch: Vec<Vec<u8>> = payloads[lo..=k].to_vec();
-            if let Ok(Some(_)) = macro_step(&mut state, &batch, &config, &adapter) {
-                let is_startup = config.consensus.startup_crystal_count > 0
-                    && state.crystals_committed <= config.consensus.startup_crystal_count;
-                let (max_z, zs) = match (&state.background_model, &state.last_crystal_gate) {
-                    (Some(bg), Some(g)) => (bg.max_z_score(g), Some(bg.z_scores(g))),
-                    _ => (f64::NAN, None),
-                };
-                let g = state.last_crystal_gate.as_ref();
-                eprintln!(
-                    "{} tick={:3} {:7} max_z={:5.2} | raw=[d:{:.3} q:{:.3} r:{:.3} g:{:.3} j:{:.3} p:{:.3} n:{:.3} k:{:.3}] | z=[d:{:.2} q:{:.2} r:{:.2} g:{:.2} j:{:.2} p:{:.2} n:{:.2} k:{:.2}]",
-                    name, state.commit_index,
-                    if is_startup { "STARTUP" } else { "DETECT" },
-                    max_z,
-                    g.map_or(f64::NAN, |g| g.d),
-                    g.map_or(f64::NAN, |g| g.q),
-                    g.map_or(f64::NAN, |g| g.r),
-                    g.map_or(f64::NAN, |g| g.g),
-                    g.map_or(f64::NAN, |g| g.j),
-                    g.map_or(f64::NAN, |g| g.p),
-                    g.map_or(f64::NAN, |g| g.n),
-                    g.map_or(f64::NAN, |g| g.k),
-                    zs.map_or(f64::NAN, |z| z[0]),
-                    zs.map_or(f64::NAN, |z| z[1]),
-                    zs.map_or(f64::NAN, |z| z[2]),
-                    zs.map_or(f64::NAN, |z| z[3]),
-                    zs.map_or(f64::NAN, |z| z[4]),
-                    zs.map_or(f64::NAN, |z| z[5]),
-                    zs.map_or(f64::NAN, |z| z[6]),
-                    zs.map_or(f64::NAN, |z| z[7]),
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn tmp_z_score_diag() {
-        // seismo
-        {
-            let events = embedded_seismo_data();
-            let payloads: Vec<Vec<u8>> = events.iter()
-                .map(|e| serde_json::to_vec(e).unwrap()).collect();
-            let mut cfg = Config::preset_anomaly_detection();
-            let ws = 16usize;
-            cfg.thresholds.j = 0.385;
-            cfg.consensus.startup_crystal_count = ws as u64;
-            cfg.consensus.crystal_cooldown_ticks = ws as u64;
-            let adapter = EventScopedAdapter::new("seismo")
-                .with_phase_fn(|raw: &[u8]| {
-                    let e: pse_adapter_seismo::SeismoEvent = serde_json::from_slice(raw).ok()?;
-                    Some(((e.magnitude - 1.5) / 4.5 * std::f64::consts::TAU).rem_euclid(std::f64::consts::TAU))
-                });
-            run_z_diag("seismo", payloads, cfg, ws, adapter);
-        }
-        // vitals
-        {
-            let raw = generate_embedded_data(42, 60u32);
-            let patient_b: Vec<_> = raw.iter()
-                .filter(|r| r.patient_id == "patient_B")
-                .cloned()
-                .collect();
-            let payloads: Vec<Vec<u8>> = patient_b.iter()
-                .map(|r| serde_json::to_vec(r).unwrap()).collect();
-            let mut cfg = Config::preset_anomaly_detection();
-            let ws = 12usize;
-            cfg.consensus.startup_crystal_count = ws as u64;
-            cfg.consensus.crystal_cooldown_ticks = ws as u64;
-            let adapter = EventScopedAdapter::new("vitals")
-                .with_phase_fn(|raw: &[u8]| {
-                    let r: pse_adapter_vitals::VitalReading = serde_json::from_slice(raw).ok()?;
-                    Some(((r.value + 1.5) / 3.0 * std::f64::consts::TAU).rem_euclid(std::f64::consts::TAU))
-                });
-            run_z_diag("vitals", payloads, cfg, ws, adapter);
-        }
-        // binance
-        {
-            let ticks = embedded_btc_klines_with_regime_shift();
-            let payloads: Vec<Vec<u8>> = ticks.iter()
-                .map(|t| serde_json::to_vec(t).unwrap()).collect();
-            let mut cfg = Config::preset_anomaly_detection();
-            let ws = 8usize;
-            cfg.consensus.startup_crystal_count = ws as u64;
-            cfg.consensus.crystal_cooldown_ticks = ws as u64;
-            let adapter = EventScopedAdapter::new("binance")
-                .with_phase_fn(|raw: &[u8]| {
-                    let t: pse_adapter_binance::BinanceTick = serde_json::from_slice(raw).ok()?;
-                    if t.open > 0.0 && t.close > 0.0 {
-                        let lr = (t.close / t.open).ln();
-                        Some((lr * 50.0 + 0.5).rem_euclid(1.0) * std::f64::consts::TAU)
-                    } else { None }
-                });
-            run_z_diag("binance", payloads, cfg, ws, adapter);
-        }
-    }
-}
