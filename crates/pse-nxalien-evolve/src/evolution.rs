@@ -81,7 +81,7 @@ pub fn propose_rule_evolution(
 ///
 /// Returns the UnknownSlots produced by rejected proposals.
 pub fn apply_validated_proposals(
-    rules: &mut Vec<RuleAtom>,
+    rules: &mut [RuleAtom],
     proposals: &[RuleEvolutionProposal],
     guard: &EvolutionGuard,
 ) -> Vec<UnknownSlot> {

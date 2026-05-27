@@ -1,3 +1,10 @@
+// These structs are the on-disk schema of the benchmark datasets in
+// `benchmarks/`. Fields that Rust does not read directly are still
+// part of the public data contract — they document what each JSON
+// record carries and let downstream tooling deserialise the same
+// files. Suppress the cosmetic dead-code lint accordingly.
+#![allow(dead_code)]
+
 use serde::Deserialize;
 
 // ── Retrieval dataset (B1/B2) ──────────────────────────────────────────────
