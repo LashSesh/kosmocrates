@@ -50,7 +50,6 @@ pub fn compute_replay_hash(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use pse_nxalien_types::{EvidenceRef, NxAlienPolicy, RuleAtom, ScopeRef, Severity};
 
     fn base_rule(id: &str, severity: Severity, evidence: Vec<EvidenceRef>) -> RuleAtom {

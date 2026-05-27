@@ -34,11 +34,7 @@ pub fn ndcg_at_k(ranked: &[String], graded: &HashMap<String, u8>, k: usize) -> f
         .enumerate()
         .map(|(i, _)| format!("ideal_{i}"))
         .collect();
-    let ideal_graded: HashMap<String, u8> = ideal_ids
-        .iter()
-        .cloned()
-        .zip(ideal_grades.into_iter())
-        .collect();
+    let ideal_graded: HashMap<String, u8> = ideal_ids.iter().cloned().zip(ideal_grades).collect();
     let idcg = compute_dcg(&ideal_ids, &ideal_graded, k);
     if idcg < 1e-12 {
         return 0.0;
@@ -53,8 +49,7 @@ fn compute_dcg(ranked: &[String], graded: &HashMap<String, u8>, k: usize) -> f64
         .enumerate()
         .map(|(i, id)| {
             let rel = graded.get(id).copied().unwrap_or(0) as f64;
-            let gain = (2.0f64.powf(rel) - 1.0) / (i as f64 + 2.0).log2();
-            gain
+            (2.0f64.powf(rel) - 1.0) / (i as f64 + 2.0).log2()
         })
         .sum()
 }

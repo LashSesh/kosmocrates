@@ -1074,7 +1074,7 @@ async fn main() {
 
     // Constitutional check route uses its own State extractor (ConstitutionalHandle).
     let constitutional_router = Router::new()
-        .route("/constitutional/check", post(constitutional_check::<()>))
+        .route("/constitutional/check", post(constitutional_check))
         .with_state(state.constitutional.clone());
 
     let app = Router::new()

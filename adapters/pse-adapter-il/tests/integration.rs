@@ -233,8 +233,10 @@ fn four_fixpoint_degraded_store_has_agenda_items() {
 
     // Agenda must fire Refresh actions (internal lifecycle uses reference_index = len = 3;
     // high uncertainty still triggers Stale → Refresh).
-    let mut cfg = AgendaConfig::default();
-    cfg.decay_model = DecayModel::Exponential { half_life: 10.0 };
+    let cfg = AgendaConfig {
+        decay_model: DecayModel::Exponential { half_life: 10.0 },
+        ..AgendaConfig::default()
+    };
     let agenda = store.epistemic_agenda(&cfg);
     assert!(
         !agenda.is_fixpoint(),
@@ -481,9 +483,11 @@ fn agenda_items_sorted_descending_priority() {
         store.commit(&c, &[], 1, &format!("question {i}")).unwrap();
     }
 
-    let mut cfg = AgendaConfig::default();
-    cfg.at_risk_threshold = 0.1; // very low threshold → more items generated
-    cfg.decay_model = DecayModel::Exponential { half_life: 10.0 };
+    let cfg = AgendaConfig {
+        at_risk_threshold: 0.1, // very low threshold → more items generated
+        decay_model: DecayModel::Exponential { half_life: 10.0 },
+        ..AgendaConfig::default()
+    };
 
     let agenda = store.epistemic_agenda(&cfg);
 

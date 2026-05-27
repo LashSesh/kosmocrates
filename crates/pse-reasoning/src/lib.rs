@@ -516,7 +516,7 @@ pub fn guide_beam(query: &str, store: &ILStore, config: &BeamConfig) -> BeamChai
         let mut next_active: Vec<(BeamPath, std::collections::HashSet<String>, Vec<f64>)> =
             Vec::new();
 
-        for (_crystal, indices) in &groups {
+        for indices in groups.values() {
             if indices.len() > 1 {
                 interference_events += 1;
             }
@@ -1061,9 +1061,8 @@ mod tests {
         };
         let bc = guide_beam("stability coherence attractor node", &store, &config);
         // With fan_out=4 and beam_width=4, multiple paths will attempt the same top crystal.
-        // The interference_events counter must be non-negative; on a dense corpus > 0 is expected.
-        assert!(bc.interference_events >= 0); // always true — structural sanity
-                                              // The chain itself must have surviving paths (not all destructively cancelled).
+        // `interference_events` is unsigned, so non-negativity is structural; the meaningful
+        // post-condition is that the chain itself has surviving paths (not all destructively cancelled).
         assert!(!bc.is_empty());
     }
 

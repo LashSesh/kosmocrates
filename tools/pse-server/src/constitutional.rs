@@ -184,13 +184,10 @@ pub struct ConstitutionalCheckResponse {
 /// Agents call this before taking an action.  The server's rule set is updated
 /// every time `POST /nxalien/bundle` is called, so this always reflects the
 /// current evolved governance state of all connected repos.
-pub async fn constitutional_check<S>(
+pub async fn constitutional_check(
     State(handle): State<ConstitutionalHandle>,
     Json(req): Json<ConstitutionalCheckRequest>,
-) -> impl IntoResponse
-where
-    S: Send + Sync,
-{
+) -> impl IntoResponse {
     let (report, active_rule_count, server_strict_mode) = {
         let ev = handle.lock().unwrap_or_else(|p| p.into_inner());
         let server_strict = ev.is_strict();
