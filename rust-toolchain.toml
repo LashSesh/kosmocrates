@@ -1,0 +1,12 @@
+# Pin the toolchain so a fresh clone gets exactly the components CI
+# uses. `rustup` reads this file automatically — no manual install
+# step needed before `cargo build`.
+#
+# The channel intentionally tracks `stable`, not the MSRV (1.82 in
+# Cargo.toml). MSRV is verified by .github/workflows/msrv.yml; this
+# file controls what developers and CI build *with*.
+
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

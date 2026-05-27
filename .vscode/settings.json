@@ -1,0 +1,30 @@
+{
+  "// rust-analyzer defaults aligned with project CI": "Workspace-scoped settings only. User-scoped preferences (theme, keybindings, etc.) are untouched.",
+
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 4
+  },
+
+  "[toml]": {
+    "editor.tabSize": 2
+  },
+
+  "rust-analyzer.cargo.allTargets": true,
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": [
+    "--workspace",
+    "--all-targets"
+  ],
+  "rust-analyzer.cargo.features": "all",
+
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+
+  "// docs.rs preview locally": "Match the docs.rs build flags so `cargo doc` previews look like the rendered page.",
+  "rust-analyzer.cargo.extraEnv": {
+    "RUSTDOCFLAGS": "--cfg docsrs"
+  }
+}
