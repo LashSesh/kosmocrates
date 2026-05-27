@@ -7,28 +7,36 @@ license.workspace = true
 description = "Kosmocrates / PSE — Kosmocrates crystallization layer: observation → fail-closed gate → SemanticCrystal"
 keywords = ["kosmocrates", "post-symbolic", "topology", "crystallization", "deterministic"]
 categories = ["science", "algorithms", "data-structures"]
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
-pse-core = { path = "../pse-core" }
-pse-graph = { path = "../pse-graph" }
-pse-extract = { path = "../pse-extract" }
-pse-cascade = { path = "../pse-cascade" }
-pse-evidence = { path = "../pse-evidence" }
-pse-registry = { path = "../pse-registry" }
-pse-topology = { path = "../pse-topology" }
-pse-scale = { path = "../pse-scale" }
-pse-navigator = { path = "../pse-navigator" }
-pse-constraint = { path = "../pse-constraint" }
-pse-swarm = { path = "../pse-swarm" }
-pse-store = { path = "../pse-store" }
-pse-capsule = { path = "../pse-capsule" }
-pse-scheduler = { path = "../pse-scheduler" }
-pse-replay = { path = "../pse-replay" }
-pse-manifest = { path = "../pse-manifest" }
-pse-pmhd = { path = "../pse-pmhd" }
-pse-memory = { path = "../pse-memory" }
-pse-metatron = { path = "../pse-metatron" }
-pse-reasoning = { path = "../pse-reasoning" }
-pse-adapter-il = { path = "../../adapters/pse-adapter-il" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
+pse-core = { path = "../pse-core", version = "0.1.0" }
+pse-graph = { path = "../pse-graph", version = "0.1.0" }
+pse-extract = { path = "../pse-extract", version = "0.1.0" }
+pse-cascade = { path = "../pse-cascade", version = "0.1.0" }
+pse-evidence = { path = "../pse-evidence", version = "0.1.0" }
+pse-registry = { path = "../pse-registry", version = "0.1.0" }
+pse-topology = { path = "../pse-topology", version = "0.1.0" }
+pse-scale = { path = "../pse-scale", version = "0.1.0" }
+pse-navigator = { path = "../pse-navigator", version = "0.1.0" }
+pse-constraint = { path = "../pse-constraint", version = "0.1.0" }
+pse-swarm = { path = "../pse-swarm", version = "0.1.0" }
+pse-store = { path = "../pse-store", version = "0.1.0" }
+pse-capsule = { path = "../pse-capsule", version = "0.1.0" }
+pse-scheduler = { path = "../pse-scheduler", version = "0.1.0" }
+pse-replay = { path = "../pse-replay", version = "0.1.0" }
+pse-manifest = { path = "../pse-manifest", version = "0.1.0" }
+pse-pmhd = { path = "../pse-pmhd", version = "0.1.0" }
+pse-memory = { path = "../pse-memory", version = "0.1.0" }
+pse-metatron = { path = "../pse-metatron", version = "0.1.0" }
+pse-reasoning = { path = "../pse-reasoning", version = "0.1.0" }
+pse-adapter-il = { path = "../../adapters/pse-adapter-il", version = "0.1.0" }
 serde_json = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

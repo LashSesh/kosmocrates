@@ -5,19 +5,26 @@ edition.workspace   = true
 authors.workspace   = true
 license.workspace   = true
 description  = "Comprehensive benchmark suite for the Kosmocrates — produces a Zenodo-ready paper artifact"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [[bin]]
 name = "pse-paper-bench"
 path = "src/main.rs"
 
 [dependencies]
-pse-adapter-il                 = { path = "../../adapters/pse-adapter-il" }
-pse-constitutional-interceptor = { path = "../../crates/pse-constitutional-interceptor" }
-pse-reasoning                  = { path = "../../crates/pse-reasoning" }
-pse-nxalien-types              = { path = "../../crates/pse-nxalien-types" }
-pse-types                      = { path = "../../crates/pse-types" }
-pse-bench-gt                   = { path = "../pse-bench-gt" }
-pse-eval-matrix                = { path = "../../crates/pse-eval-matrix" }
+pse-adapter-il                 = { path = "../../adapters/pse-adapter-il", version = "0.1.0" }
+pse-constitutional-interceptor = { path = "../../crates/pse-constitutional-interceptor", version = "0.1.0" }
+pse-reasoning                  = { path = "../../crates/pse-reasoning", version = "0.1.0" }
+pse-nxalien-types              = { path = "../../crates/pse-nxalien-types", version = "0.1.0" }
+pse-types                      = { path = "../../crates/pse-types", version = "0.1.0" }
+pse-bench-gt                   = { path = "../pse-bench-gt", version = "0.1.0" }
+pse-eval-matrix                = { path = "../../crates/pse-eval-matrix", version = "0.1.0" }
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 serde_jcs      = { workspace = true }

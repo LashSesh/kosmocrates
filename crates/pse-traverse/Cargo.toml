@@ -5,9 +5,15 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "PSE Traversal Agent v0.1 — post-symbolic traversal layer over PSE (FieldCube, DoFGraph, CollapsePlan, fail-closed gating)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }
@@ -16,8 +22,8 @@ thiserror = { workspace = true }
 # pse-core / pse-graph are pulled in only when the PSE bridge (`pse-commit`
 # feature) is enabled, so the traversal kernel compiles standalone and stays
 # fast to iterate on.
-pse-core = { path = "../pse-core", optional = true }
-pse-graph = { path = "../pse-graph", optional = true }
+pse-core = { path = "../pse-core", version = "0.1.0", optional = true }
+pse-graph = { path = "../pse-graph", version = "0.1.0", optional = true }
 
 [features]
 default = ["pse-commit", "horizon", "cognition", "topology"]
@@ -89,3 +95,7 @@ topology-handoff = ["topology"]
 # `lpcm-fragment-collapse` — enables the LPCM layer (HierarchicalCollapseReport,
 #                             LocalCondensationBit, SeamPercolationGraph, etc.).
 lpcm-fragment-collapse = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

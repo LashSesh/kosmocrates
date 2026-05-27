@@ -5,12 +5,18 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "PSE-EVAL-MATRIX-01 — empirical benchmark matrix for post-symbolic cognition systems (variants × workloads × domains × metrics × calibration; replay-verified, fail-closed)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 # We reuse Hash256 / CanonicalNumber / canonical-bytes utilities from
 # pse-traverse so the entire workspace shares one float-free, JCS-canonical
 # numeric and addressing domain.
-pse-traverse = { path = "../pse-traverse", default-features = false }
+pse-traverse = { path = "../pse-traverse", version = "0.1.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }
@@ -32,3 +38,7 @@ eval-cognition = ["eval-matrix"]
 eval-streams = ["eval-matrix"]
 eval-statistics = ["eval-matrix"]
 eval-reports = ["eval-matrix"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -5,10 +5,16 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "AES-256-GCM encryption, HKDF key derivation, policy-gated encapsulation for PSE"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
-pse-manifest = { path = "../pse-manifest" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
+pse-manifest = { path = "../pse-manifest", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
@@ -18,5 +24,9 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-pse-evidence = { path = "../pse-evidence" }
-pse-registry = { path = "../pse-registry" }
+pse-evidence = { path = "../pse-evidence", version = "0.1.0" }
+pse-registry = { path = "../pse-registry", version = "0.1.0" }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

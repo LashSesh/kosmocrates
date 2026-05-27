@@ -5,40 +5,47 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "PSE command line interface"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [[bin]]
 name = "pse"
 path = "src/main.rs"
 
 [dependencies]
-pse-types = { path = "../pse-types" }
-pse-core = { path = "../pse-core" }
-pse-evidence = { path = "../pse-evidence" }
-pse-graph = { path = "../pse-graph" }
-pse-registry = { path = "../pse-registry" }
-pse-manifest = { path = "../pse-manifest" }
-pse-capsule = { path = "../pse-capsule" }
-pse-scheduler = { path = "../pse-scheduler" }
-pse-store = { path = "../pse-store" }
-pse-memory = { path = "../pse-memory" }
-pse-topology = { path = "../pse-topology" }
-pse-scale = { path = "../pse-scale" }
-pse-pmhd = { path = "../pse-pmhd" }
-pse-navigator = { path = "../pse-navigator" }
-pse-gateway = { path = "../pse-gateway" }
-pse-constraint = { path = "../pse-constraint" }
-pse-adapter-binance = { path = "../../adapters/pse-adapter-binance" }
-pse-adapter-entsoe = { path = "../../adapters/pse-adapter-entsoe" }
-pse-adapter-seismo = { path = "../../adapters/pse-adapter-seismo" }
-pse-adapter-weather = { path = "../../adapters/pse-adapter-weather" }
-pse-adapter-airquality = { path = "../../adapters/pse-adapter-airquality" }
-pse-adapter-iot = { path = "../../adapters/pse-adapter-iot" }
-pse-adapter-syslog = { path = "../../adapters/pse-adapter-syslog" }
-pse-adapter-vitals = { path = "../../adapters/pse-adapter-vitals" }
-pse-adapter-tabular = { path = "../../adapters/pse-adapter-tabular" }
-pse-adapter-modelmon = { path = "../../adapters/pse-adapter-modelmon" }
-pse-audit = { path = "../../tools/pse-audit" }
-pse-net = { path = "../pse-net" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
+pse-core = { path = "../pse-core", version = "0.1.0" }
+pse-evidence = { path = "../pse-evidence", version = "0.1.0" }
+pse-graph = { path = "../pse-graph", version = "0.1.0" }
+pse-registry = { path = "../pse-registry", version = "0.1.0" }
+pse-manifest = { path = "../pse-manifest", version = "0.1.0" }
+pse-capsule = { path = "../pse-capsule", version = "0.1.0" }
+pse-scheduler = { path = "../pse-scheduler", version = "0.1.0" }
+pse-store = { path = "../pse-store", version = "0.1.0" }
+pse-memory = { path = "../pse-memory", version = "0.1.0" }
+pse-topology = { path = "../pse-topology", version = "0.1.0" }
+pse-scale = { path = "../pse-scale", version = "0.1.0" }
+pse-pmhd = { path = "../pse-pmhd", version = "0.1.0" }
+pse-navigator = { path = "../pse-navigator", version = "0.1.0" }
+pse-gateway = { path = "../pse-gateway", version = "0.1.0" }
+pse-constraint = { path = "../pse-constraint", version = "0.1.0" }
+pse-adapter-binance = { path = "../../adapters/pse-adapter-binance", version = "0.1.0" }
+pse-adapter-entsoe = { path = "../../adapters/pse-adapter-entsoe", version = "0.1.0" }
+pse-adapter-seismo = { path = "../../adapters/pse-adapter-seismo", version = "0.1.0" }
+pse-adapter-weather = { path = "../../adapters/pse-adapter-weather", version = "0.1.0" }
+pse-adapter-airquality = { path = "../../adapters/pse-adapter-airquality", version = "0.1.0" }
+pse-adapter-iot = { path = "../../adapters/pse-adapter-iot", version = "0.1.0" }
+pse-adapter-syslog = { path = "../../adapters/pse-adapter-syslog", version = "0.1.0" }
+pse-adapter-vitals = { path = "../../adapters/pse-adapter-vitals", version = "0.1.0" }
+pse-adapter-tabular = { path = "../../adapters/pse-adapter-tabular", version = "0.1.0" }
+pse-adapter-modelmon = { path = "../../adapters/pse-adapter-modelmon", version = "0.1.0" }
+pse-audit = { path = "../../tools/pse-audit", version = "0.1.0" }
+pse-net = { path = "../pse-net", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

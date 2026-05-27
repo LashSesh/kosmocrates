@@ -5,19 +5,26 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI tool for the nxalien agent-context exoskeleton"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [[bin]]
 name = "nxalien"
 path = "src/main.rs"
 
 [dependencies]
-pse-nxalien-types = { path = "../../crates/pse-nxalien-types" }
-pse-nxalien-core = { path = "../../crates/pse-nxalien-core" }
-pse-nxalien-cube = { path = "../../crates/pse-nxalien-cube" }
-pse-nxalien-agent = { path = "../../crates/pse-nxalien-agent" }
-pse-nxalien-pse = { path = "../../crates/pse-nxalien-pse" }
-pse-nxalien-evolve = { path = "../../crates/pse-nxalien-evolve" }
-pse-exploratory    = { path = "../../crates/pse-exploratory" }
+pse-nxalien-types = { path = "../../crates/pse-nxalien-types", version = "0.1.0" }
+pse-nxalien-core = { path = "../../crates/pse-nxalien-core", version = "0.1.0" }
+pse-nxalien-cube = { path = "../../crates/pse-nxalien-cube", version = "0.1.0" }
+pse-nxalien-agent = { path = "../../crates/pse-nxalien-agent", version = "0.1.0" }
+pse-nxalien-pse = { path = "../../crates/pse-nxalien-pse", version = "0.1.0" }
+pse-nxalien-evolve = { path = "../../crates/pse-nxalien-evolve", version = "0.1.0" }
+pse-exploratory    = { path = "../../crates/pse-exploratory", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }

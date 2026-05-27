@@ -5,20 +5,27 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Ground-truth precision/recall benchmark suite for the Kosmocrates"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 sha2 = { workspace = true }
-pse-core = { path = "../../crates/pse-core" }
-pse-types = { path = "../../crates/pse-types" }
-pse-graph = { path = "../../crates/pse-graph" }
-pse-adapter-seismo = { path = "../../adapters/pse-adapter-seismo" }
-pse-adapter-vitals = { path = "../../adapters/pse-adapter-vitals" }
-pse-adapter-binance = { path = "../../adapters/pse-adapter-binance" }
-pse-cascade = { path = "../../crates/pse-cascade" }
-pse-memory = { path = "../../crates/pse-memory" }
-pse-metatron = { path = "../../crates/pse-metatron" }
+pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
+pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
+pse-graph = { path = "../../crates/pse-graph", version = "0.1.0" }
+pse-adapter-seismo = { path = "../../adapters/pse-adapter-seismo", version = "0.1.0" }
+pse-adapter-vitals = { path = "../../adapters/pse-adapter-vitals", version = "0.1.0" }
+pse-adapter-binance = { path = "../../adapters/pse-adapter-binance", version = "0.1.0" }
+pse-cascade = { path = "../../crates/pse-cascade", version = "0.1.0" }
+pse-memory = { path = "../../crates/pse-memory", version = "0.1.0" }
+pse-metatron = { path = "../../crates/pse-metatron", version = "0.1.0" }
 
 [[bin]]
 name = "bench_gt"

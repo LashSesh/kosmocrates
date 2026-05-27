@@ -5,13 +5,20 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "PSE audit pipeline — evidence chain verification and compliance reporting"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-pse-types = { path = "../../crates/pse-types" }
-pse-core = { path = "../../crates/pse-core" }
-pse-graph = { path = "../../crates/pse-graph" }
-pse-evidence = { path = "../../crates/pse-evidence" }
-pse-store = { path = "../../crates/pse-store" }
+pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
+pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
+pse-graph = { path = "../../crates/pse-graph", version = "0.1.0" }
+pse-evidence = { path = "../../crates/pse-evidence", version = "0.1.0" }
+pse-store = { path = "../../crates/pse-store", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = "1"

@@ -5,9 +5,16 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI for the PSE LPCM Fragmented 51% Condensation Layer — inspect / partition / collapse / replay / verify / ablate"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-pse-traverse = { path = "../../crates/pse-traverse", features = ["lpcm-fragment-collapse"] }
+pse-traverse = { path = "../../crates/pse-traverse", version = "0.1.0", features = ["lpcm-fragment-collapse"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

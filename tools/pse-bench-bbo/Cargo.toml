@@ -5,11 +5,18 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Non-stationary black-box optimization benchmark for the TRITON navigator"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-pse-navigator = { path = "../../crates/pse-navigator" }
+pse-navigator = { path = "../../crates/pse-navigator", version = "0.1.0" }
 
 [[bin]]
 name = "bench_bbo"

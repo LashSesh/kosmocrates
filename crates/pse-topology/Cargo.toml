@@ -5,10 +5,20 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Laplacian computation, spectral decomposition, Fiedler vector, Betti numbers for PSE"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
-pse-graph = { path = "../pse-graph" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
+pse-graph = { path = "../pse-graph", version = "0.1.0" }
 nalgebra = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

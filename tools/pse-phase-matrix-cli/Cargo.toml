@@ -5,9 +5,16 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI for PHASEMATRIX-HIVEMIND-03 — cell-pool / cell-resonate / cluster-form / funnel-build / morph-step / converge / intent / cluster-dissolve / cluster-cycle / cluster-replay / cluster-verify (binary: phase-matrix)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-phase-matrix = { path = "../../crates/phase-matrix", default-features = false, features = ["cell-substrate", "cell-cli", "cell-funnel-graph", "cell-morphodynamics", "cell-convergence", "cell-handoff", "cell-stitch"] }
+phase-matrix = { path = "../../crates/phase-matrix", version = "0.1.0", default-features = false, features = ["cell-substrate", "cell-cli", "cell-funnel-graph", "cell-morphodynamics", "cell-convergence", "cell-handoff", "cell-stitch"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }

@@ -5,12 +5,22 @@ edition.workspace   = true
 authors.workspace   = true
 license.workspace   = true
 description  = "Epistemic Thunderbolt Vector — D=ψ·ρ·ω guided reasoning over the IL knowledge graph"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-adapter-il = { path = "../../adapters/pse-adapter-il" }
+pse-adapter-il = { path = "../../adapters/pse-adapter-il", version = "0.1.0" }
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 
 [dev-dependencies]
-pse-types = { path = "../pse-types" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
 tempfile  = "3"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -5,9 +5,15 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Metatron-scaffold topology scanner and Periodic-Table-of-Graphs library for PSE (vendored from metatron-scan, MIT)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }
@@ -15,3 +21,7 @@ sha2 = { workspace = true }
 nalgebra = { workspace = true }
 thiserror = { workspace = true }
 rayon = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

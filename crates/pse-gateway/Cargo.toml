@@ -5,13 +5,19 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "HTTP API exposing universal PSE endpoints"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-pse-types = { path = "../pse-types" }
-pse-core = { path = "../pse-core" }
-pse-evidence = { path = "../pse-evidence" }
-pse-store = { path = "../pse-store" }
-pse-navigator = { path = "../pse-navigator" }
+pse-types = { path = "../pse-types", version = "0.1.0" }
+pse-core = { path = "../pse-core", version = "0.1.0" }
+pse-evidence = { path = "../pse-evidence", version = "0.1.0" }
+pse-store = { path = "../pse-store", version = "0.1.0" }
+pse-navigator = { path = "../pse-navigator", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
@@ -23,3 +29,7 @@ sha2 = { workspace = true }
 
 [dev-dependencies]
 tower = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -5,9 +5,16 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI for PSE-TRAVERSE-HORIZON-03 — null-centered horizon geometry (inspect / chart / rays / crossing / finalize / replay / verify)"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [dependencies]
-pse-traverse = { path = "../../crates/pse-traverse", default-features = false, features = ["horizon", "horizon-cli"] }
+pse-traverse = { path = "../../crates/pse-traverse", version = "0.1.0", default-features = false, features = ["horizon", "horizon-cli"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }

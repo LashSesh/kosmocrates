@@ -5,13 +5,20 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "CLI for pse-eval-runner — runs the Reasoning-Agent evaluation against Cerebras or in stub mode"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
 
 [[bin]]
 name = "pse_eval_runner"
 path = "src/main.rs"
 
 [dependencies]
-pse-eval-matrix = { path = "../../crates/pse-eval-matrix" }
-pse-eval-runner  = { path = "../../crates/pse-eval-runner", features = ["llm-agent"] }
+pse-eval-matrix = { path = "../../crates/pse-eval-matrix", version = "0.1.0" }
+pse-eval-runner  = { path = "../../crates/pse-eval-runner", version = "0.1.0", features = ["llm-agent"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
