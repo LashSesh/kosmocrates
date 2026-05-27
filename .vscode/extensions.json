@@ -1,0 +1,10 @@
+{
+  "// Recommended extensions": "Surfaced to first-time contributors via the VS Code 'Show Recommended Extensions' panel. Nobody is forced to install them.",
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml",
+    "vadimcn.vscode-lldb",
+    "editorconfig.editorconfig",
+    "redhat.vscode-yaml"
+  ]
+}
