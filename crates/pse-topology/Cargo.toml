@@ -1,4 +1,5 @@
 [package]
+readme = "README.md"
 name = "pse-topology"
 version.workspace = true
 edition.workspace = true
