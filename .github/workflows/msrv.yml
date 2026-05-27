@@ -1,0 +1,52 @@
+name: MSRV
+
+# Verifies the workspace builds on the declared minimum supported Rust
+# version (rust-version = "1.82" in workspace Cargo.toml).
+#
+# Bumping MSRV is a breaking change per RELEASING.md §1 and should
+# update both this workflow's `toolchain` and the workspace
+# `rust-version` in lockstep.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # MSRV builds should not be held to the warning-clean bar that the
+  # default CI enforces — old rustc emits warnings about lints that
+  # only later versions stabilise. Drop RUSTFLAGS=-D warnings here.
+  RUSTFLAGS: ''
+  RUSTDOCFLAGS: ''
+
+jobs:
+  msrv-check:
+    name: cargo check (rust 1.82)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read MSRV from Cargo.toml
+        id: msrv
+        run: |
+          msrv=$(grep -E '^rust-version' Cargo.toml | head -n1 | sed -E 's/.*"([0-9.]+)".*/\1/')
+          if [ -z "$msrv" ]; then
+            echo "Could not extract rust-version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$msrv" >> "$GITHUB_OUTPUT"
+          echo "MSRV is $msrv"
+      - name: Install Rust ${{ steps.msrv.outputs.version }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      # `cargo check` (not `build`) is the standard MSRV verification:
+      # it catches every compile-time error without the cost of a full
+      # codegen pass. Test compilation is deliberately excluded —
+      # dev-dependencies are not part of the MSRV contract.
+      - name: cargo check --workspace
+        run: cargo check --workspace --locked --all-targets

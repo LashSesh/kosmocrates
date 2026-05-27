@@ -1,0 +1,37 @@
+name: Supply chain
+
+# Enforces the cargo-deny invariants documented in deny.toml:
+# advisories, licenses, bans, sources. This complements (and over time
+# will replace) the non-blocking cargo-audit job in ci.yml — cargo-deny
+# is a strict superset.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Re-run weekly so a newly published advisory in the RustSec DB
+    # surfaces against the unchanged dependency graph even if no PR is
+    # in flight.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cargo-deny:
+    name: cargo-deny (${{ matrix.check }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [advisories, licenses, bans, sources]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.check }}
+          # `arguments: --all-features` would broaden the graph; we stay
+          # on default features to match what ships to consumers.
+          rust-version: stable
