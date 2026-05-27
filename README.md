@@ -4,7 +4,6 @@
 > and autonomous systems.** Deterministic, content-addressed, fail-closed
 > by construction.
 
-[![CI](https://github.com/lashsesh/pse/actions/workflows/ci.yml/badge.svg)](https://github.com/lashsesh/pse/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust 1.82+](https://img.shields.io/badge/rust-1.82+-orange.svg)](Cargo.toml)
 
