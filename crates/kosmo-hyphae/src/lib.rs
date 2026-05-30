@@ -11,6 +11,9 @@
 
 pub mod assimilation;
 pub mod code_hdag;
+pub mod collapse;
+pub mod corpus;
+pub mod crystal;
 pub mod cube;
 pub mod deficiency;
 pub mod delta;
@@ -18,6 +21,7 @@ pub mod frontier;
 pub mod gates;
 pub mod host;
 pub mod motif;
+pub mod norm;
 pub mod run;
 pub mod structural_yield;
 pub mod swarm;
@@ -25,6 +29,20 @@ pub mod void_map;
 
 pub use assimilation::{AssimilationDecision, AssimilationOutcome, NegativeEvidenceRecord};
 pub use code_hdag::{CodeHDAG, CodeObservation, HDAGEdge, HDAGEdgeKind, HDAGNode, ObservationKind};
+pub use collapse::{
+    CollapseAction, CollapseStep, CollapsePlanStatus, HostTargetCollapsePlan,
+    MorphogenicCorpusUpdate,
+};
+pub use corpus::{
+    CartographyPrecheck, CorpusCartography, CorpusCartographyUpdate, CorpusEntity,
+    CorpusEntityKind, CorpusRelation, MotifIndex, NegativeEvidenceIndex, RelationKind,
+    ReplayManifest, SourceCubeIndex,
+};
+pub use crystal::{
+    AssimilationCertificate, CertificationStatus, Constraint, ConstraintKind,
+    ConstraintProgram, DualFabricGateCascade, Resonite, ReplayProof,
+    StructuralCrystalCandidate, StructuralCrystalRecord,
+};
 pub use cube::{CubeDimensionProfile, RepositoryCube, SourceCube};
 pub use deficiency::{DeficiencyEntry, DeficiencyKind, DeficiencyVector};
 pub use delta::{DeltaAction, DeltaStatus, HostTargetDelta, VoidFillDelta};
@@ -32,6 +50,7 @@ pub use frontier::{SourceEvidence, SourceFrontierGraph, SourceIntent, SourceInte
 pub use gates::{GateCascade, GateCheckRecord, GateKind, GateTrace};
 pub use host::{HostBinding, HostCube};
 pub use motif::MotifCandidate;
+pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
 pub use run::{passive_run, HyphaeRunResult};
 pub use structural_yield::{StructuralYield, StructuralYieldKind};
 pub use swarm::{CompositeSupportCube, CubeMandorla, CubeSwarm, SourceCubeWorker, WorkerStatus};

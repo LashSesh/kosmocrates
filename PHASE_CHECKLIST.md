@@ -123,30 +123,31 @@ Target: `crates/kosmo-hyphae` (v0.3 modules)
 
 ---
 
-## Phase 5 — HYPHAE v0.4 Persistent Layer ❌ NOT STARTED
+## Phase 5 — HYPHAE v0.4 Persistent Layer ✅ COMPLETE
 
-- [ ] `CorpusCartography` (append-only)
-- [ ] `CorpusEntity` / `CorpusRelation`
-- [ ] `SourceCubeIndex` / `MotifIndex` / `NegativeEvidenceIndex`
-- [ ] `CartographyPrecheck`
-- [ ] `CorpusCartographyUpdate` with before/after digest
-- [ ] `ReplayManifest`
-- [ ] `StructuralCrystalCandidate`
-- [ ] `ConstraintProgram`
-- [ ] `DualFabricGateCascade`
-- [ ] `AssimilationCertificate` with replay/evidence
-- [ ] `ReplayProof`
-- [ ] `StructuralCrystalRecord`
-- [ ] `Resonite`
-- [ ] `NormGeneCandidate` (not trusted)
-- [ ] `NormFitnessTrace`
-- [ ] `HostTargetCollapsePlan` (planning only)
-- [ ] `MorphogenicCorpusUpdate` skeleton
+- [x] `CorpusCartography` (append-only, entity+relation dedup, idempotent)
+- [x] `CorpusEntity` / `CorpusRelation`
+- [x] `SourceCubeIndex` / `MotifIndex` / `NegativeEvidenceIndex`
+- [x] `CartographyPrecheck`
+- [x] `CorpusCartographyUpdate` (before_id/after_id, update_id content-addressed)
+- [x] `ReplayManifest` (artifact_digests sorted, from_run)
+- [x] `StructuralCrystalCandidate` (from_decision, certification_status)
+- [x] `ConstraintProgram` (standard + evaluate, all_satisfied gate)
+- [x] `DualFabricGateCascade` (merges two GateTraces)
+- [x] `AssimilationCertificate` (issued only when program.all_satisfied)
+- [x] `ReplayProof` (replayable flag)
+- [x] `StructuralCrystalRecord` (from_certificate)
+- [x] `Resonite` (symmetric: canonical id order)
+- [x] `NormGeneCandidate` (no is_trusted field — governance path required)
+- [x] `NormFitnessTrace` (integer-averaged Q16, non-mutating observe)
+- [x] `HostTargetCollapsePlan` (from_delta, PlanningOnly)
+- [x] `MorphogenicCorpusUpdate` skeleton
+- [x] `cargo test -p kosmo-hyphae` → 79 passed, 0 failed
 
 **Exit criteria:**
-- v0.3 run updates CorpusCartography append-only
-- StructuralYield can become EvidenceOnly / rejected / certified candidate
-- HostTargetCollapsePlan emitted as planning artifact
+- v0.3 run updates CorpusCartography append-only ✅ (`corpus_update_from_run_adds_entities`)
+- StructuralYield can become EvidenceOnly / rejected / certified candidate ✅ (`StructuralCrystalCandidate::from_decision`)
+- HostTargetCollapsePlan emitted as planning artifact ✅ (`collapse_plan_from_delta_is_planning_only`)
 
 ---
 

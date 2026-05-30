@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 4 — CubeSwarm MVP** — COMPLETE  
-**Next Phase: Phase 5 — HYPHAE v0.4 Persistent Layer**
+**Phase 5 — HYPHAE v0.4 Persistent Layer** — COMPLETE  
+**Next Phase: Phase 6 — Metatron v0.4.1 M1/M2**
 
 ## Completed Steps
 
@@ -112,6 +112,19 @@
 - [x] HostTargetDelta: planning-only, report-only artifact (no host mutation)
 - [x] 53 tests pass (0 failures)
 
+### Phase 5 — HYPHAE v0.4 Persistent Layer (2026-05-30)
+- [x] `corpus.rs`: `CorpusEntity`, `CorpusRelation`, `CorpusCartography` (append-only, entity+relation dedup)
+- [x] `SourceCubeIndex`, `MotifIndex`, `NegativeEvidenceIndex` (filtered views)
+- [x] `CartographyPrecheck`, `CorpusCartographyUpdate`, `ReplayManifest`
+- [x] `crystal.rs`: `StructuralCrystalCandidate`, `ConstraintProgram`, `AssimilationCertificate`
+- [x] `ReplayProof`, `StructuralCrystalRecord`, `Resonite` (symmetric)
+- [x] `DualFabricGateCascade` (merges two GateTraces)
+- [x] `norm.rs`: `NormGeneCandidate` (not trusted — governance path required), `NormFitnessTrace`
+- [x] `collapse.rs`: `CollapseStep`, `HostTargetCollapsePlan` (PlanningOnly status), `MorphogenicCorpusUpdate` skeleton
+- [x] `update_from_run` is idempotent (relation dedup fixed)
+- [x] 79 tests pass (0 failures)
+
 ## Next Action
-Phase 5: HYPHAE v0.4 persistent layer — `CorpusCartography`, `StructuralCrystalCandidate`,
-`AssimilationCertificate`, `NormGeneCandidate`, `HostTargetCollapsePlan`.
+Phase 6: Metatron v0.4.1 M1/M2 microtopology — `TopologyRegionRef`, `MetatronMicrograph`,
+`MetatronRegionFingerprint`, `MicroTopologyDiagnostic`, `TopologyAmbiguityProfile`,
+`ComplementVoidHypothesis`.

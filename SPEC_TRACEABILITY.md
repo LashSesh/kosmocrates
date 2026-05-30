@@ -81,12 +81,18 @@ Target crate: `crates/kosmo-hyphae`
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `CorpusCartography` | HYPHAE v0.4 spec | ❌ |
-| `StructuralCrystalCandidate` | HYPHAE v0.4 spec | ❌ |
-| `AssimilationCertificate` | HYPHAE v0.4 spec | ❌ |
-| `NormGeneCandidate` | HYPHAE v0.4 spec | ❌ |
-| `HostTargetCollapsePlan` | HYPHAE v0.4 spec | ❌ |
-| `MorphogenicCorpusUpdate` | HYPHAE v0.4 spec | ❌ |
+| `CorpusCartography` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
+| `CorpusEntity` / `CorpusRelation` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
+| `CorpusCartographyUpdate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
+| `CartographyPrecheck` / `ReplayManifest` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
+| `StructuralCrystalCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
+| `ConstraintProgram` / `AssimilationCertificate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
+| `StructuralCrystalRecord` / `Resonite` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
+| `DualFabricGateCascade` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
+| `NormGeneCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/norm.rs` |
+| `NormFitnessTrace` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/norm.rs` |
+| `HostTargetCollapsePlan` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/collapse.rs` |
+| `MorphogenicCorpusUpdate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/collapse.rs` |
 
 ## MVP-5 / Phase 6 — Metatron v0.4.1
 
