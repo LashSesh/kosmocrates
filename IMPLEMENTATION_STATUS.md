@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 7 — Metatron Planning-only Surgery** — COMPLETE  
-**Next Phase: Phase 8 — LPCM v0.4.2 Passive Report**
+**Phase 8 — LPCM v0.4.2 Passive Report** — COMPLETE  
+**Next Phase: Phase 9 — SystemCube v0.4.3 Passive Export**
 
 ## Completed Steps
 
@@ -143,7 +143,21 @@
 - [x] `SurgeryTaskStatus` / `SurgeryWorkbenchTask` (PlanningOnly status, from_option)
 - [x] 103 tests pass (0 failures)
 
+### Phase 8 — LPCM v0.4.2 Passive Report (2026-05-30)
+- [x] `lpcm.rs`: `Fragment`, `FragmentKind`, `FragmentField` (sorted by fragment_id, HDAG node backrefs)
+- [x] `SupportMassVector` (Q16-scaled integer masses, `local_majority_candidate()`, no floats)
+- [x] `CandidateDirection` / `CandidateDirectionReason` (LocalMajority = candidate only, not truth)
+- [x] `LocalCondensationCandidate` (derived from CandidateDirection, gate-pending)
+- [x] `SeamGraph` / `SeamEdge` (Q16 compatibility scores, threshold-filtered)
+- [x] `monotone_contractive_filter()` — `MonotoneFilterOutcome` (Contractive / SpuriousExpansion / Insufficient)
+- [x] `DoFContractionReport` (advisory only, content-addressed, `summary()`)
+- [x] `LpcmPassiveReport::build()` — full passive pipeline, no host writes
+- [x] CROSS-010: 51% majority → CandidateDirection only, never gate bypass
+- [x] CROSS-013: LpcmPassiveReport has no host-mutation interface; `allow_host_write = false`
+- [x] `allow_synthetic_sourcecube = false` enforced in default policy
+- [x] 127 tests pass (0 failures, 0 warnings); +24 LPCM tests
+
 ## Next Action
-Phase 8: LPCM v0.4.2 passive report — `FragmentField`, `Fragment`, `CandidateDirection`,
-`SupportMassVector`, `LocalCondensationCandidate`, `SeamGraph`, `DoFContractionReport`,
-`MonotoneContractiveFilter`.
+Phase 9: SystemCube v0.4.3 passive export — new `crates/kosmo-systemcube` crate,
+`SystemCube`, `SystemCubeManifest`, `BlueprintUnit`, D-density report,
+contradiction energy report, `.kcube` dry-run export.
