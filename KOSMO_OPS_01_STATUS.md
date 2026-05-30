@@ -66,7 +66,7 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R1 | Real Foundry MVP | `FoundryExecutionPlan`, `FoundrySandboxSpec`, `FoundryCommandPolicy`, `FoundryTimeoutPolicy`, `FoundryEnvironmentPolicy`, `FoundryExecutionReport`, `FoundryExecutionOutcome` | ✅ COMPLETE (84 kosmo-core tests, +35 new) |
 | R2 | Parse-Back MVP | `ParseBackPlan`, `ParseBackReport`, `ParseBackOutcome`, `ParseBackTopologyDelta`, `TopologyChangeKind` | ✅ COMPLETE (112 kosmo-core tests, +28 new) |
 | R3 | Validation Closure | `ValidationClosureReport`, `ValidationClosureStatus`, `determine_closure_status` | ✅ COMPLETE (142 kosmo-core tests, +30 new) |
-| R4 | Persistent CorpusCartography Store | `CorpusCartographyStore` (trait), `CartographyStorageManifest`, `CartographyStoreCommit`, `CartographyIntegrityReport`, `CorpusScope` | ⏳ PENDING |
+| R4 | Persistent CorpusCartography Store | `CorpusCartographyStore` (trait), `CartographyStorageManifest`, `CartographyStoreCommit`, `CartographyIntegrityReport`, `CorpusScope` | ✅ COMPLETE (168 kosmo-core tests, +26 new) |
 | R5 | Isolated Worktree Materialization | `IsolatedWorktreeSpec`, `MaterializationExecutionPlan`, `WorkbenchTaskApplication`, `MaterializationExecutionReport` | ⏳ PENDING |
 | R6 | SystemCube Disk Export | `KcubePackage`, `KcubeExportPolicy`, `KcubeWriteReport`, `KcubeRoundtripVerification` | ⏳ PENDING |
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ⏳ PENDING |

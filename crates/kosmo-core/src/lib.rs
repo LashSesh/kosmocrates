@@ -7,6 +7,7 @@
 //! substrate and below all HYPHAE, Workbench, and SystemCube layers.
 
 pub mod authority;
+pub mod cartography;
 pub mod digest;
 pub mod evidence;
 pub mod fixed_point;
@@ -17,6 +18,11 @@ pub mod run;
 pub mod validation;
 
 pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
+pub use cartography::{
+    CartographyEntryKind, CartographyIntegrityReport, CartographyIntegrityStatus,
+    CartographyStoreCommit, CartographyStoreError, CartographyStorageManifest,
+    CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
+};
 pub use digest::{canonical_bytes, Digest};
 pub use evidence::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
 pub use fixed_point::Q16;
