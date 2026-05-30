@@ -1,0 +1,18 @@
+[package]
+name = "kosmo-pipeline"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates integration pipeline: unified dry-run command across Workbench, HYPHAE, Metatron, LPCM, SystemCube"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core" }
+kosmo-workbench = { path = "../kosmo-workbench" }
+kosmo-hyphae = { path = "../kosmo-hyphae" }
+kosmo-systemcube = { path = "../kosmo-systemcube" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

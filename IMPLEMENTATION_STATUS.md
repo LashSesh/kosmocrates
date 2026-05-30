@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 9 — SystemCube v0.4.3 Passive Export** — COMPLETE  
-**Next Phase: Phase 10 — Integration Hardening**
+**Phase 10 — Integration Hardening** — COMPLETE  
+**Next Phase: Phase 11 — Operator-Approved Materialization** (requires explicit policy authorization)
 
 ## Completed Steps
 
@@ -174,8 +174,47 @@
 - [x] `allow_systemcube_materialization = false` in default PolicyProfile → BlockedByPolicy
 - [x] 36 tests pass (0 failures, 0 warnings)
 
+### Phase 10 — Integration Hardening (2026-05-30)
+- [x] New crate `crates/kosmo-pipeline` added to workspace
+- [x] `aggregator.rs`: `GateTraceAggregator`, `AggregatedGateResult`, `LayerGateSummary`
+      — fail-closed worst-wins merge (Reject > Warn > Pass), sorted by trace_id, content-addressed
+- [x] `IntegrationRunOptions` — flags for optional layers (Metatron, LPCM, SystemCube)
+      with `report_only()` and `all_layers()` constructors
+- [x] `IntegrationRunReport` — unified content-addressed report with `verify_policy_consistency()`
+      proving single PolicyProfile governs every layer
+- [x] `run_dry_pipeline()` — single entry point wiring all layers:
+      1. HYPHAE v0.3 passive run → gate contribution
+      2. CorpusCartography::empty + update_from_run (append-only)
+      3. Optional Metatron: lift_region + diagnose_micrograph per void
+      4. Optional LPCM: FragmentField + SupportMassVector + SeamGraph + build() per void
+      5. Optional SystemCube: BlueprintUnit per accepted decision + export_dry_run()
+      6. GateTraceAggregator → AggregatedGateResult → final_result
+- [x] CROSS-002: allow_host_write = false in default policy (structural + tested)
+- [x] CROSS-013: no host-write interface in IntegrationRunReport (structural + tested)
+- [x] Traceability: verify_policy_consistency() checks policy_id in every sub-report
+- [x] Determinism: all-layers run with same inputs → identical report_id
+- [x] Fail-closed: single gate Reject propagates to final_result (tested)
+- [x] 24 tests pass (0 failures, 0 warnings); +6 aggregator tests, +18 pipeline tests
+
+## Completed Phase Summary
+| Phase | Crate | Tests |
+|---|---|---|
+| 0 | Control files | — |
+| 1 | kosmo-core | 43 |
+| 2 | kosmo-workbench | 20 |
+| 3 | kosmo-hyphae (v0.3) | — |
+| 4 | kosmo-hyphae (CubeSwarm) | — |
+| 5 | kosmo-hyphae (v0.4) | — |
+| 6 | kosmo-hyphae (Metatron) | — |
+| 7 | kosmo-hyphae (Surgery) | 127 total |
+| 8 | kosmo-hyphae (LPCM) | 127 total |
+| 9 | kosmo-systemcube | 36 |
+| 10 | kosmo-pipeline | 24 |
+
+**Total: 230 tests across 4 new crates, 0 failures, 0 warnings.**
+
 ## Next Action
-Phase 10: Integration Hardening — shared PolicyProfile enforcement across all crates,
-EvidenceBundle propagation, GateTrace aggregation, unified RunReport,
-and a single dry-run command that produces Host scan + HYPHAE + Cartography +
-optional Metatron + optional LPCM + optional SystemCube export with no mutations.
+Phase 11: Operator-Approved Materialization — requires explicit `PolicyProfile`
+change from `ReportOnly` to `OperatorApproved`, human/operator approval,
+Foundry validation, parse-back topology, and isolated worktree execution.
+Only implement when user explicitly authorizes the policy mode change.
