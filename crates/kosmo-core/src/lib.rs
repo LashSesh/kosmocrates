@@ -14,6 +14,7 @@ pub mod foundry;
 pub mod parseback;
 pub mod policy;
 pub mod run;
+pub mod validation;
 
 pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
 pub use digest::{canonical_bytes, Digest};
@@ -29,6 +30,9 @@ pub use parseback::{
     ParseBackTopologyDelta, TopologyChangeKind,
 };
 pub use policy::{ImplementationMode, PolicyProfile, PolicyViolation};
+pub use validation::{
+    determine_closure_status, ValidationClosureReport, ValidationClosureStatus,
+};
 pub use run::{
     FoundryCheckKind, FoundryCheckResult, FoundryOutcome, GateResult, LedgerEvent,
     LedgerEventKind, RunDescriptor,
