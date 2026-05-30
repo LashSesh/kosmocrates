@@ -68,14 +68,14 @@ Target crate: `crates/kosmo-hyphae`
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `RepositoryCube` | HYPHAE v0.3 spec | ❌ |
-| `CubeDimensionProfile` | HYPHAE v0.3 spec | ❌ |
-| `SourceCube` | HYPHAE v0.3 spec | ❌ |
-| `SourceCubeWorker` | HYPHAE v0.3 spec | ❌ |
-| `CubeSwarm` | HYPHAE v0.3 spec | ❌ |
-| `CubeMandorla` | HYPHAE v0.3 spec | ❌ |
-| `CompositeSupportCube` | HYPHAE v0.3 spec | ❌ |
-| `HostTargetDelta` | HYPHAE v0.3 spec | ❌ |
+| `RepositoryCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/cube.rs` |
+| `CubeDimensionProfile` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/cube.rs` |
+| `SourceCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/cube.rs` |
+| `SourceCubeWorker` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
+| `CubeSwarm` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
+| `CubeMandorla` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
+| `CompositeSupportCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
+| `HostTargetDelta` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/delta.rs` |
 
 ## MVP-4 / Phase 5 — HYPHAE v0.4 Persistence
 

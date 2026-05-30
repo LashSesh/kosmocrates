@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 3 — HYPHAE v0.3 Passive Run** — COMPLETE  
-**Next Phase: Phase 4 — CubeSwarm MVP**
+**Phase 4 — CubeSwarm MVP** — COMPLETE  
+**Next Phase: Phase 5 — HYPHAE v0.4 Persistent Layer**
 
 ## Completed Steps
 
@@ -102,7 +102,16 @@
 ## Open Blockers
 - None.
 
+### Phase 4 — CubeSwarm MVP (2026-05-30)
+- [x] `cube.rs`: `CubeDimensionProfile`, `RepositoryCube`, `SourceCube` (content-addressed, BTreeMap dimensions)
+- [x] `swarm.rs`: `SourceCubeWorker`, `CubeMandorla`, `CompositeSupportCube`, `CubeSwarm`
+- [x] `delta.rs`: `DeltaAction`, `VoidFillDelta`, `DeltaStatus`, `HostTargetDelta`
+- [x] CubeSwarm sorts cubes by cube_id at construction (deterministic replay)
+- [x] CubeMandorla detection: cubes targeting the same void form a mandorla
+- [x] CompositeSupportCube: integer-averaged Q16 aggregate support (no floats)
+- [x] HostTargetDelta: planning-only, report-only artifact (no host mutation)
+- [x] 53 tests pass (0 failures)
+
 ## Next Action
-Phase 4: create `crates/kosmo-hyphae` CubeSwarm MVP modules:
-`RepositoryCube`, `CubeDimensionProfile`, `SourceCube`, `SourceCubeWorker`,
-`CubeSwarm`, `CubeMandorla`, `CompositeSupportCube`, `HostTargetDelta`.
+Phase 5: HYPHAE v0.4 persistent layer — `CorpusCartography`, `StructuralCrystalCandidate`,
+`AssimilationCertificate`, `NormGeneCandidate`, `HostTargetCollapsePlan`.

@@ -103,21 +103,23 @@ Target: `crates/kosmo-hyphae` (v0.3 modules)
 
 ---
 
-## Phase 4 — CubeSwarm MVP ❌ NOT STARTED
+## Phase 4 — CubeSwarm MVP ✅ COMPLETE
 
-- [ ] `RepositoryCube`
-- [ ] `CubeDimensionProfile`
-- [ ] `SourceCube`
-- [ ] `SourceCubeWorker`
-- [ ] `CubeSwarm`
-- [ ] `CubeMandorla`
-- [ ] `CompositeSupportCube`
-- [ ] `HostTargetDelta`
-- [ ] Deterministic worker ordering test
+- [x] `RepositoryCube` (`cube.rs`)
+- [x] `CubeDimensionProfile` (BTreeMap<String, Q16>, insertion-order-independent)
+- [x] `SourceCube` (content-addressed, support_score as Q16)
+- [x] `SourceCubeWorker` (content-addressed per cube+policy)
+- [x] `CubeSwarm` (sorts by cube_id for deterministic replay)
+- [x] `CubeMandorla` (sorted cube_ids, mandorla detection for shared void)
+- [x] `CompositeSupportCube` (integer-averaged Q16 aggregate support)
+- [x] `HostTargetDelta` (planning-only, report-only, from_host_and_composite)
+- [x] `fixture_source_cubes_merge_deterministically` test ✅
+- [x] `HostTargetDelta` emitted as report-only artifact ✅
+- [x] `cargo test -p kosmo-hyphae` → 53 passed, 0 failed
 
 **Exit criteria:**
-- Fixture SourceCubes merge deterministically
-- HostTargetDelta emitted as report-only artifact
+- Fixture SourceCubes merge deterministically ✅
+- HostTargetDelta emitted as report-only artifact ✅
 
 ---
 
