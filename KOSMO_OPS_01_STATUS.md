@@ -63,7 +63,7 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | Phase | Title | Key New Types | Status |
 |---|---|---|---|
 | R0 | Baseline Lock | `KOSMO_OPS_01_STATUS.md` | ✅ COMPLETE |
-| R1 | Real Foundry MVP | `FoundryExecutionPlan`, `FoundrySandboxSpec`, `FoundryCommandPolicy`, `FoundryTimeoutPolicy`, `FoundryEnvironmentPolicy`, `FoundryExecutionReport`, `FoundryExecutionOutcome` | ⏳ PENDING |
+| R1 | Real Foundry MVP | `FoundryExecutionPlan`, `FoundrySandboxSpec`, `FoundryCommandPolicy`, `FoundryTimeoutPolicy`, `FoundryEnvironmentPolicy`, `FoundryExecutionReport`, `FoundryExecutionOutcome` | ✅ COMPLETE (84 kosmo-core tests, +35 new) |
 | R2 | Parse-Back MVP | `ParseBackPlan`, `ParseBackReport`, `ParseBackOutcome`, `ParseBackTopologyDelta`, `TopologyChangeKind` | ⏳ PENDING |
 | R3 | Validation Closure | `ValidationClosureReport`, `ValidationClosureStatus`, `ValidationClosureEvidence` | ⏳ PENDING |
 | R4 | Persistent CorpusCartography Store | `CorpusCartographyStore` (trait), `CartographyStorageManifest`, `CartographyStoreCommit`, `CartographyIntegrityReport`, `CorpusScope` | ⏳ PENDING |
