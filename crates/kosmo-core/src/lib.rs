@@ -11,6 +11,7 @@ pub mod digest;
 pub mod evidence;
 pub mod fixed_point;
 pub mod foundry;
+pub mod parseback;
 pub mod policy;
 pub mod run;
 
@@ -22,6 +23,10 @@ pub use foundry::{
     AllowedFoundryCommand, FoundryCheckSpec, FoundryCommandPolicy, FoundryEnvironmentPolicy,
     FoundryExecutionOutcome, FoundryExecutionPlan, FoundryExecutionReport, FoundrySandboxKind,
     FoundrySandboxSpec, FoundryTimeoutPolicy, PathDigest,
+};
+pub use parseback::{
+    ParseBackOutcome, ParseBackPlan, ParseBackReport, ParseBackScanScope, ParseBackSeverity,
+    ParseBackTopologyDelta, TopologyChangeKind,
 };
 pub use policy::{ImplementationMode, PolicyProfile, PolicyViolation};
 pub use run::{
