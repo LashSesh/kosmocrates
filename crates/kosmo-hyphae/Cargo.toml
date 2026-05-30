@@ -1,0 +1,16 @@
+[package]
+name = "kosmo-hyphae"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates HYPHAE: run-local topology assimilation, v0.3 passive run skeleton"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core" }
+kosmo-workbench = { path = "../kosmo-workbench" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

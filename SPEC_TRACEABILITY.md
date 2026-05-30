@@ -37,31 +37,32 @@ Target crate: `crates/kosmo-workbench`
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `WorkspaceIndex` | Handoff §4 MVP-1; Workbench spec v0.1 | ❌ |
-| `TaskSpec` | Handoff §4 MVP-1; Workbench spec v0.1 | ❌ |
-| `ContextPack` | Handoff §4 MVP-1; Workbench spec v0.1 | ❌ |
-| `FoundryRunner` | Handoff §4 MVP-1; Workbench spec v0.1 | ❌ |
-| `DryRunResult` | Handoff §4 MVP-1 | ❌ |
-| `RunReport` | Handoff §4 MVP-1 | ❌ |
+| `WorkspaceIndex` | Handoff §4 MVP-1; Workbench spec v0.1 | ✅ `kosmo-workbench/src/workspace.rs` |
+| `TaskSpec` | Handoff §4 MVP-1; Workbench spec v0.1 | ✅ `kosmo-workbench/src/task_spec.rs` |
+| `ContextPack` | Handoff §4 MVP-1; Workbench spec v0.1 | ✅ `kosmo-workbench/src/context_pack.rs` |
+| `FoundryRunner` | Handoff §4 MVP-1; Workbench spec v0.1 | ✅ `kosmo-workbench/src/foundry.rs` |
+| `RunReport` | Handoff §4 MVP-1 | ✅ `kosmo-workbench/src/report.rs` |
 
 ## MVP-2 / Phase 3 — HYPHAE v0.3 Passive Run
 Target crate: `crates/kosmo-hyphae`
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `HostBinding` | HYPHAE v0.3 spec | ❌ |
-| `HostCube` | HYPHAE v0.3 spec | ❌ |
-| `TopologicalVoidMap` | HYPHAE v0.3 spec | ❌ |
-| `DeficiencyVector` | HYPHAE v0.3 spec | ❌ |
-| `SourceIntent` | HYPHAE v0.3 spec | ❌ |
-| `SourceFrontierGraph` | HYPHAE v0.3 spec | ❌ |
-| `SourceEvidence` | HYPHAE v0.3 spec | ❌ |
-| `CodeObservation` | HYPHAE v0.3 spec | ❌ |
-| `CodeHDAG` | HYPHAE v0.3 spec | ❌ |
-| `MotifCandidate` | HYPHAE v0.3 spec | ❌ |
-| `StructuralYield` | HYPHAE v0.3 spec | ❌ |
-| `GateCascade` | HYPHAE v0.3 spec | ❌ |
-| `AssimilationDecision` | HYPHAE v0.3 spec | ❌ |
+| `HostBinding` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/host.rs` |
+| `HostCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/host.rs` |
+| `TopologicalVoidMap` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/void_map.rs` |
+| `DeficiencyVector` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/deficiency.rs` |
+| `SourceIntent` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
+| `SourceFrontierGraph` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
+| `SourceEvidence` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
+| `CodeObservation` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/code_hdag.rs` |
+| `CodeHDAG` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/code_hdag.rs` |
+| `MotifCandidate` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/motif.rs` |
+| `StructuralYield` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/structural_yield.rs` |
+| `GateCascade` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/gates.rs` |
+| `AssimilationDecision` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/assimilation.rs` |
+| `NegativeEvidenceRecord` | HYPHAE v0.3 spec; CROSS-012 | ✅ `kosmo-hyphae/src/assimilation.rs` |
+| `HyphaeRunResult` / `passive_run` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/run.rs` |
 
 ## MVP-3 / Phase 4 — CubeSwarm MVP
 
@@ -122,14 +123,14 @@ Target crate: `crates/kosmo-hyphae`
 | CROSS-002 | Host mutation impossible without PolicyProfile | ✅ `policy::tests::cross_002_host_mutation_blocked_by_default` |
 | CROSS-003 | External acquisition without capability blocked | 🔶 PolicyViolation type exists; enforcement in Phase 2+ |
 | CROSS-004 | Acquired source never executes by default | 🔶 Policy flag exists; enforcement in Phase 3+ |
-| CROSS-005 | Raw external code never enters default ContextPack | 🔶 ContextPack in Phase 2 |
+| CROSS-005 | Raw external code never enters default ContextPack | ✅ `context_pack::tests::cross_005_external_taint_rejected` |
 | CROSS-006 | Every durable object has digest, evidence, policy, replay status | ✅ `evidence::tests::cross_006_bundle_has_digest_evidence_policy_replay` |
 | CROSS-007 | Gate-relevant numerics use fixed-point / rational | ✅ `fixed_point::tests::q16_comparison_is_integer_only` |
 | CROSS-008 | Every materialization path declares Foundry checks | ❌ |
 | CROSS-009 | Topology-changing materialization declares parse-back | ❌ |
-| CROSS-010 | No numeric score bypasses gates | ❌ |
-| CROSS-011 | Synthetic artifacts are low-authority and tainted | ❌ |
-| CROSS-012 | Negative evidence persisted and affects ranking | ❌ |
-| CROSS-013 | Report-only produces diagnostics without host writes | ❌ |
-| CROSS-014 | Implementation can replay from content-addressed artifacts | ❌ |
-| CROSS-015 | Non-replayable objects marked replay-incomplete | ❌ |
+| CROSS-010 | No numeric score bypasses gates | ✅ `motif::tests::cross_010_high_support_does_not_bypass_gates` |
+| CROSS-011 | Synthetic artifacts are low-authority and tainted | 🔶 `TaintLabel::Synthetic` enforced in passive_run yields |
+| CROSS-012 | Negative evidence persisted and affects ranking | ✅ `assimilation::tests::cross_012_negative_evidence_representable` |
+| CROSS-013 | Report-only produces diagnostics without host writes | ✅ `report::tests::cross_013_report_only_produces_text_without_writes` |
+| CROSS-014 | Implementation can replay from content-addressed artifacts | 🔶 All artifacts content-addressed; replay path Phase 5+ |
+| CROSS-015 | Non-replayable objects marked replay-incomplete | 🔶 `ReplayStatus::ReplayIncomplete` default in EvidenceBundle |

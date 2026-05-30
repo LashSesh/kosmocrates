@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 2 — Workbench MVP Skeleton** — COMPLETE  
-**Next Phase: Phase 3 — HYPHAE v0.3 Passive Run**
+**Phase 3 — HYPHAE v0.3 Passive Run** — COMPLETE  
+**Next Phase: Phase 4 — CubeSwarm MVP**
 
 ## Completed Steps
 
@@ -83,10 +83,26 @@
 - [x] 20 tests pass (0 failures), 2 `#[ignore]` integration tests
 - [x] CROSS-005 and CROSS-013 verified by named tests
 
+### Phase 3 — HYPHAE v0.3 Passive Run (2026-05-30)
+- [x] Created `crates/kosmo-hyphae` crate with 10 modules
+- [x] `void_map.rs`: `HostVoid`, `HostVoidKind`, `TopologicalVoidMap` (content-addressed, sorted)
+- [x] `deficiency.rs`: `DeficiencyEntry`, `DeficiencyKind`, `DeficiencyVector` (from_void_map, integer Q16 severity)
+- [x] `frontier.rs`: `SourceIntent`, `SourceIntentKind`, `SourceEvidence`, `SourceFrontierGraph`
+- [x] `code_hdag.rs`: `CodeObservation`, `HDAGNode`, `HDAGEdge`, `CodeHDAG` (skeleton, source backref)
+- [x] `motif.rs`: `MotifCandidate` (Q16 support score, CROSS-010 test)
+- [x] `structural_yield.rs`: `StructuralYield` (workbench-usability gate, void-ref requirement)
+- [x] `gates.rs`: `GateKind`, `GateCascade`, `GateTrace` (TaintGate, EvidenceGate, VoidRefGate, AuthorityGate, PolicyGate)
+- [x] `assimilation.rs`: `AssimilationDecision`, `AssimilationOutcome`, `NegativeEvidenceRecord` (CROSS-012)
+- [x] `host.rs`: `HostBinding`, `HostCube` (from_workspace_index, structural void analysis)
+- [x] `run.rs`: `HyphaeRunResult`, `passive_run()` (full pipeline, no host writes)
+- [x] 36 tests pass (0 failures)
+- [x] CROSS-005, CROSS-010, CROSS-012 verified by named tests
+- [x] Added `crates/kosmo-hyphae` to workspace members
+
 ## Open Blockers
 - None.
 
 ## Next Action
-Phase 3: create `crates/kosmo-hyphae` with HYPHAE v0.3 passive run modules:
-`HostBinding`, `HostCube`, `TopologicalVoidMap`, `DeficiencyVector`,
-`SourceFrontierGraph`, `StructuralYield`, `GateCascade`, `AssimilationDecision`.
+Phase 4: create `crates/kosmo-hyphae` CubeSwarm MVP modules:
+`RepositoryCube`, `CubeDimensionProfile`, `SourceCube`, `SourceCubeWorker`,
+`CubeSwarm`, `CubeMandorla`, `CompositeSupportCube`, `HostTargetDelta`.

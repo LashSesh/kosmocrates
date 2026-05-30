@@ -1,0 +1,190 @@
+use crate::deficiency::DeficiencyKind;
+use crate::void_map::TopologicalVoidMap;
+use kosmo_core::{AuthorityLabel, Digest, LicenseStatus, TaintLabel};
+use serde::{Deserialize, Serialize};
+
+/// What a source candidate is intended to provide.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SourceIntentKind {
+    FillVoid { void_id: Digest },
+    ReduceDeficiency { deficiency_kind: DeficiencyKind },
+    SuggestPattern { pattern_name: String },
+    Custom { description: String },
+}
+
+/// Serialize-only for content-addressing.
+#[derive(Serialize)]
+struct IntentContent {
+    kind: String,   // stable JSON of SourceIntentKind
+    target_void_id: Option<Digest>,
+    taint_label: String,
+    authority_label: String,
+}
+
+/// A declared intent to acquire or propose a source candidate.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SourceIntent {
+    pub intent_id: Digest,
+    pub kind: SourceIntentKind,
+    pub target_void_id: Option<Digest>,
+    pub taint: TaintLabel,
+    pub authority: AuthorityLabel,
+}
+
+impl SourceIntent {
+    pub fn new(
+        kind: SourceIntentKind,
+        target_void_id: Option<Digest>,
+        taint: TaintLabel,
+        authority: AuthorityLabel,
+    ) -> Self {
+        let intent_id = Digest::of(&IntentContent {
+            kind: format!("{:?}", kind),
+            target_void_id,
+            taint_label: format!("{:?}", taint),
+            authority_label: format!("{:?}", authority),
+        });
+        Self { intent_id, kind, target_void_id, taint, authority }
+    }
+}
+
+/// Bounded evidence about a local source candidate.
+///
+/// Source candidates are local only in Phase 3 (no network acquisition).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SourceEvidence {
+    pub evidence_id: Digest,
+    pub source_path: String,
+    pub content_digest: Digest,
+    pub taint: TaintLabel,
+    pub license: LicenseStatus,
+    pub observation_ids: Vec<Digest>,
+}
+
+impl SourceEvidence {
+    pub fn new(
+        source_path: String,
+        content_digest: Digest,
+        taint: TaintLabel,
+        license: LicenseStatus,
+    ) -> Self {
+        let evidence_id = Digest::of_bytes(
+            &[source_path.as_bytes(), content_digest.as_bytes()].concat(),
+        );
+        Self {
+            evidence_id,
+            source_path,
+            content_digest,
+            taint,
+            license,
+            observation_ids: vec![],
+        }
+    }
+}
+
+/// Serialize-only for content-addressing SourceFrontierGraph.
+#[derive(Serialize)]
+struct FrontierContent {
+    intent_ids: Vec<Digest>,
+    evidence_ids: Vec<Digest>,
+    policy_id: Digest,
+}
+
+/// The graph of candidate source intents for a HYPHAE run.
+///
+/// All intents are sorted by intent_id for determinism.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SourceFrontierGraph {
+    pub graph_id: Digest,
+    pub intents: Vec<SourceIntent>,
+    pub evidence: Vec<SourceEvidence>,
+    pub policy_id: Digest,
+}
+
+impl SourceFrontierGraph {
+    pub fn empty(policy_id: Digest) -> Self {
+        let graph_id = Digest::of(&FrontierContent {
+            intent_ids: vec![],
+            evidence_ids: vec![],
+            policy_id,
+        });
+        Self { graph_id, intents: vec![], evidence: vec![], policy_id }
+    }
+
+    pub fn from_intents(mut intents: Vec<SourceIntent>, policy_id: Digest) -> Self {
+        intents.sort_by_key(|i| i.intent_id);
+        let graph_id = Digest::of(&FrontierContent {
+            intent_ids: intents.iter().map(|i| i.intent_id).collect(),
+            evidence_ids: vec![],
+            policy_id,
+        });
+        Self { graph_id, intents, evidence: vec![], policy_id }
+    }
+
+    /// Build a frontier from a void map: one FillVoid intent per void.
+    pub fn from_void_map(void_map: &TopologicalVoidMap, policy_id: Digest) -> Self {
+        let intents: Vec<SourceIntent> = void_map
+            .voids
+            .iter()
+            .map(|v| {
+                SourceIntent::new(
+                    SourceIntentKind::FillVoid { void_id: v.void_id },
+                    Some(v.void_id),
+                    TaintLabel::Unverified,
+                    AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+                )
+            })
+            .collect();
+        Self::from_intents(intents, policy_id)
+    }
+
+    pub fn verify_id(&self) -> bool {
+        let expected = Digest::of(&FrontierContent {
+            intent_ids: self.intents.iter().map(|i| i.intent_id).collect(),
+            evidence_ids: self.evidence.iter().map(|e| e.evidence_id).collect(),
+            policy_id: self.policy_id,
+        });
+        self.graph_id == expected
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
+    use kosmo_core::{Digest, Q16};
+
+    #[test]
+    fn source_intent_id_deterministic() {
+        let vid = Digest::of_bytes(b"void");
+        let i1 = SourceIntent::new(
+            SourceIntentKind::FillVoid { void_id: vid },
+            Some(vid),
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae".into() },
+        );
+        let i2 = SourceIntent::new(
+            SourceIntentKind::FillVoid { void_id: vid },
+            Some(vid),
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae".into() },
+        );
+        assert_eq!(i1.intent_id, i2.intent_id);
+    }
+
+    #[test]
+    fn frontier_from_void_map() {
+        let pid = Digest::of_bytes(b"p");
+        let voids = vec![
+            HostVoid::new(
+                HostVoidKind::MissingTestFiber { for_module: "src/lib.rs".into() },
+                Q16::HALF,
+                "src/lib.rs".into(),
+            ),
+        ];
+        let vm = TopologicalVoidMap::from_voids(voids, pid);
+        let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
+        assert_eq!(frontier.intents.len(), 1);
+        assert!(frontier.verify_id());
+    }
+}

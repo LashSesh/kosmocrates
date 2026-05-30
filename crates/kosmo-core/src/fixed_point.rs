@@ -59,6 +59,34 @@ impl Q16 {
         Self(self.0.saturating_abs())
     }
 
+    /// Construct from an already-scaled raw integer (value × 65536).
+    /// Use for accumulations: e.g. `Q16::from_raw(sum_raw / count)`.
+    pub fn from_raw(raw: i64) -> Self {
+        Self(raw)
+    }
+
+    /// Compute the ratio `numerator / denominator` as Q16 using integer
+    /// arithmetic only. Returns `None` if `denominator == 0`.
+    ///
+    /// `Q16::ratio(1, 2)` → `Q16::HALF` (0.5)
+    pub fn ratio(numerator: u64, denominator: u64) -> Option<Self> {
+        if denominator == 0 {
+            return None;
+        }
+        let raw = (numerator as i128 * Q16_SCALE as i128) / denominator as i128;
+        i64::try_from(raw).ok().map(Self)
+    }
+
+    /// Integer division of two Q16 values. Returns `None` on overflow or
+    /// divide-by-zero.
+    pub fn checked_div(self, rhs: Self) -> Option<Self> {
+        if rhs.0 == 0 {
+            return None;
+        }
+        let num = (self.0 as i128) << 16;
+        i64::try_from(num / rhs.0 as i128).ok().map(Self)
+    }
+
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
         self.0.checked_add(rhs.0).map(Self)
     }
@@ -181,5 +209,43 @@ mod tests {
         let q = Q16::from_i64(2);
         let json = serde_json::to_string(&q).unwrap();
         assert_eq!(json, (2 * 65536i64).to_string());
+    }
+
+    #[test]
+    fn q16_from_raw() {
+        assert_eq!(Q16::from_raw(65536), Q16::ONE);
+        assert_eq!(Q16::from_raw(0), Q16::ZERO);
+        assert_eq!(Q16::from_raw(32768), Q16::HALF);
+    }
+
+    #[test]
+    fn q16_ratio_half() {
+        assert_eq!(Q16::ratio(1, 2).unwrap(), Q16::HALF);
+    }
+
+    #[test]
+    fn q16_ratio_full() {
+        assert_eq!(Q16::ratio(3, 3).unwrap(), Q16::ONE);
+    }
+
+    #[test]
+    fn q16_ratio_zero_denominator() {
+        assert!(Q16::ratio(1, 0).is_none());
+    }
+
+    #[test]
+    fn q16_checked_div() {
+        let one = Q16::ONE;
+        let two = Q16::from_i64(2);
+        assert_eq!(one.checked_div(two).unwrap(), Q16::HALF);
+    }
+
+    #[test]
+    fn q16_accumulate_average() {
+        // sum 3 half-values, divide by 3 → should still be HALF
+        let half = Q16::HALF;
+        let sum_raw: i64 = (0..3).map(|_| half.raw()).sum();
+        let avg = Q16::from_raw(sum_raw / 3);
+        assert_eq!(avg, Q16::HALF);
     }
 }

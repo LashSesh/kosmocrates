@@ -75,30 +75,31 @@ Target: `crates/kosmo-workbench`
 
 ---
 
-## Phase 3 — HYPHAE v0.3 Passive Run ❌ NOT STARTED
+## Phase 3 — HYPHAE v0.3 Passive Run ✅ COMPLETE
 
 Target: `crates/kosmo-hyphae` (v0.3 modules)
 
-- [ ] `HostBinding`
-- [ ] `HostCube` skeleton
-- [ ] `TopologicalVoidMap`
-- [ ] `DeficiencyVector`
-- [ ] `SourceIntent`
-- [ ] `SourceFrontierGraph`
-- [ ] `SourceEvidence`
-- [ ] `CodeObservation`
-- [ ] `CodeHDAG` lowering skeleton
-- [ ] `MotifCandidate`
-- [ ] `StructuralYield`
-- [ ] `GateCascade`
-- [ ] `AssimilationDecision`
-- [ ] Run report output
-- [ ] `cargo test -p kosmo-hyphae` passes
+- [x] `HostBinding`
+- [x] `HostCube` skeleton (from_workspace_index, structural void analysis)
+- [x] `TopologicalVoidMap` (content-addressed, sorted voids)
+- [x] `DeficiencyVector` (from_void_map, Q16 severity, integer arithmetic)
+- [x] `SourceIntent` / `SourceIntentKind`
+- [x] `SourceFrontierGraph` (from_void_map, sorted by intent_id)
+- [x] `SourceEvidence` (local only, no network acquisition)
+- [x] `CodeObservation` (with source_evidence_id backref for Metatron Phase 6)
+- [x] `CodeHDAG` lowering skeleton (skeleton_for_source, single-node, no real parser)
+- [x] `MotifCandidate` (Q16 support score, CROSS-010)
+- [x] `StructuralYield` (void-ref requirement, gate_trace_id gating)
+- [x] `GateCascade` (TaintGate, EvidenceGate, VoidRefGate, AuthorityGate, PolicyGate, no short-circuit)
+- [x] `AssimilationDecision` (content-addressed, evidence-bound, CROSS-012)
+- [x] `NegativeEvidenceRecord` (persisted rejected yields — CROSS-012)
+- [x] `HyphaeRunResult` + `passive_run()` (full pipeline, no host writes)
+- [x] `cargo test -p kosmo-hyphae` → 36 passed, 0 failed
 
 **Exit criteria:**
-- Local host scan produces VoidMap / DeficiencyVector / report
-- GateCascade can reject/downgrade/pass mocked StructuralYields
-- Negative evidence representable
+- Local host scan produces VoidMap / DeficiencyVector / report ✅
+- GateCascade can reject/downgrade/pass mocked StructuralYields ✅
+- Negative evidence representable ✅
 
 ---
 
