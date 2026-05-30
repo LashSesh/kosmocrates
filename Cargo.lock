@@ -1232,6 +1232,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-systemcube"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "kosmo-workbench"
 version = "0.1.0"
 dependencies = [

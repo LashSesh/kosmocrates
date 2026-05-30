@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 8 — LPCM v0.4.2 Passive Report** — COMPLETE  
-**Next Phase: Phase 9 — SystemCube v0.4.3 Passive Export**
+**Phase 9 — SystemCube v0.4.3 Passive Export** — COMPLETE  
+**Next Phase: Phase 10 — Integration Hardening**
 
 ## Completed Steps
 
@@ -157,7 +157,25 @@
 - [x] `allow_synthetic_sourcecube = false` enforced in default policy
 - [x] 127 tests pass (0 failures, 0 warnings); +24 LPCM tests
 
+### Phase 9 — SystemCube v0.4.3 Passive Export (2026-05-30)
+- [x] New crate `crates/kosmo-systemcube` added to workspace
+- [x] `blueprint_unit.rs`: `BlueprintUnit` / `BlueprintUnitKind` / `BlueprintUnitStatus`
+      (evidence-bound; opaque units → `RejectedOpaque`; tainted units → `AcceptedWithTaint`)
+- [x] `manifest.rs`: `SystemCubeManifest` (accepted-only, sorted IDs, JSON round-trip stable)
+- [x] `energy.rs`: `ContradictionEnergyReport` / `ContradictionRecord` / `EnergyStatus`
+      (Q16 weight sum, sorted by (unit_a_id, unit_b_id), advisory only)
+- [x] `compatibility.rs`: `CompatibilityProfileReport` / `CompatibilityGap` / `CompatibilityStatus`
+      (Q16 score, gaps sorted by unit_id, no-host-snapshot stub)
+- [x] `lib.rs`: `DDensityReport` (Q16::ratio, Available/Unavailable), `SystemCube`,
+      `KcubeExportReport` / `KcubeExportMode` (DryRun / BlockedByPolicy)
+- [x] `SystemCube::export_dry_run()` — full passive pipeline, no disk I/O
+- [x] CROSS-010: D-density=1.0 does NOT authorise materialization; mode=BlockedByPolicy
+- [x] CROSS-013: no host-write interface; `allow_host_write = false`
+- [x] `allow_systemcube_materialization = false` in default PolicyProfile → BlockedByPolicy
+- [x] 36 tests pass (0 failures, 0 warnings)
+
 ## Next Action
-Phase 9: SystemCube v0.4.3 passive export — new `crates/kosmo-systemcube` crate,
-`SystemCube`, `SystemCubeManifest`, `BlueprintUnit`, D-density report,
-contradiction energy report, `.kcube` dry-run export.
+Phase 10: Integration Hardening — shared PolicyProfile enforcement across all crates,
+EvidenceBundle propagation, GateTrace aggregation, unified RunReport,
+and a single dry-run command that produces Host scan + HYPHAE + Cartography +
+optional Metatron + optional LPCM + optional SystemCube export with no mutations.

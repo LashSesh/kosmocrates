@@ -1,0 +1,15 @@
+[package]
+name = "kosmo-systemcube"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates SystemCube v0.4.3: exportable topological blueprint, D-density, dry-run .kcube export"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
