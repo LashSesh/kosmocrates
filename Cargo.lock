@@ -1245,6 +1245,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-pse-bridge"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "kosmo-systemcube"
 version = "0.1.0"
 dependencies = [
