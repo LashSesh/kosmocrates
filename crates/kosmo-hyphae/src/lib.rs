@@ -6,6 +6,8 @@
 //! Phase 4 CubeSwarm MVP: source cubes → swarm workers → composite support
 //! cube → host target delta (planning only).
 //!
+//! Phase 6 Metatron v0.4.1 M1/M2: region lift → fingerprint → diagnose.
+//!
 //! No host file writes. All outputs are observations and decisions only.
 //! Default mode: `PolicyProfile::default_report_only()`.
 
@@ -20,6 +22,7 @@ pub mod delta;
 pub mod frontier;
 pub mod gates;
 pub mod host;
+pub mod metatron;
 pub mod motif;
 pub mod norm;
 pub mod run;
@@ -49,6 +52,13 @@ pub use delta::{DeltaAction, DeltaStatus, HostTargetDelta, VoidFillDelta};
 pub use frontier::{SourceEvidence, SourceFrontierGraph, SourceIntent, SourceIntentKind};
 pub use gates::{GateCascade, GateCheckRecord, GateKind, GateTrace};
 pub use host::{HostBinding, HostCube};
+pub use metatron::{
+    AmbiguityKind, AnomalyKind, AnomalyRecord, ComplementVoidHypothesis, ExtractionMethod,
+    MicrographLiftReport, MetatronMicrograph, MetatronRegionFingerprint, MicroTopologyDiagnostic,
+    MicroTopologyIndex, ProjectionKind, ProjectionProfile, RegionExtractionProfile,
+    SemanticLossRecord, TopologyAmbiguityProfile, TopologyRegionRef,
+    diagnose_micrograph, lift_region,
+};
 pub use motif::MotifCandidate;
 pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
 pub use run::{passive_run, HyphaeRunResult};

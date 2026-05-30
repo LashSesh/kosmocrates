@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 5 — HYPHAE v0.4 Persistent Layer** — COMPLETE  
-**Next Phase: Phase 6 — Metatron v0.4.1 M1/M2**
+**Phase 6 — Metatron v0.4.1 M1/M2** — COMPLETE  
+**Next Phase: Phase 7 — Metatron Planning-only Surgery**
 
 ## Completed Steps
 
@@ -124,7 +124,19 @@
 - [x] `update_from_run` is idempotent (relation dedup fixed)
 - [x] 79 tests pass (0 failures)
 
+### Phase 6 — Metatron v0.4.1 M1/M2 (2026-05-30)
+- [x] `metatron.rs`: `TopologyRegionRef`, `RegionExtractionProfile`, `ProjectionProfile`
+- [x] `SemanticLossRecord` (Q16 loss_ratio, integer arithmetic — CROSS-007)
+- [x] `MetatronMicrograph` (source_evidence_id backref — CROSS-006)
+- [x] `MicrographLiftReport`, `MetatronRegionFingerprint` (structural hash, not semantic)
+- [x] `AnomalyRecord`, `TopologyAmbiguityProfile`, `ComplementVoidHypothesis`
+- [x] `MicroTopologyDiagnostic` (sorted anomalies/ambiguities/hypotheses)
+- [x] `MicroTopologyIndex` (idempotent add)
+- [x] `lift_region()` M1 pipeline, `diagnose_micrograph()` M2 pipeline
+- [x] Fingerprint equality ≠ semantic equivalence documented as invariant
+- [x] 92 tests pass (0 failures)
+
 ## Next Action
-Phase 6: Metatron v0.4.1 M1/M2 microtopology — `TopologyRegionRef`, `MetatronMicrograph`,
-`MetatronRegionFingerprint`, `MicroTopologyDiagnostic`, `TopologyAmbiguityProfile`,
-`ComplementVoidHypothesis`.
+Phase 7: Metatron planning-only surgery — `TopologicalSurgeryOption`, `TopologicalSurgeryKind`,
+`SurgeryEffect`, `SurgeryRisk`, `SurgeryPrecondition`, `SurgeryBackedCollapseStep`,
+`SurgeryWorkbenchTask`.

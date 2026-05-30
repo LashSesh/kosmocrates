@@ -151,23 +151,26 @@ Target: `crates/kosmo-hyphae` (v0.3 modules)
 
 ---
 
-## Phase 6 — Metatron v0.4.1 M1/M2 ❌ NOT STARTED
+## Phase 6 — Metatron v0.4.1 M1/M2 ✅ COMPLETE
 
-- [ ] `TopologyRegionRef`
-- [ ] `RegionExtractionProfile`
-- [ ] `ProjectionProfile`
-- [ ] `SemanticLossRecord`
-- [ ] `MetatronMicrograph`
-- [ ] `MicrographLiftReport`
-- [ ] `MetatronRegionFingerprint`
-- [ ] `MicroTopologyDiagnostic`
-- [ ] `TopologyAmbiguityProfile`
-- [ ] `ComplementVoidHypothesis`
-- [ ] `MicroTopologyIndex`
+- [x] `TopologyRegionRef`
+- [x] `RegionExtractionProfile`
+- [x] `ProjectionProfile`
+- [x] `SemanticLossRecord`
+- [x] `MetatronMicrograph`
+- [x] `MicrographLiftReport`
+- [x] `MetatronRegionFingerprint`
+- [x] `MicroTopologyDiagnostic`
+- [x] `TopologyAmbiguityProfile`
+- [x] `ComplementVoidHypothesis`
+- [x] `MicroTopologyIndex`
+- [x] `lift_region()` M1 pipeline function
+- [x] `diagnose_micrograph()` M2 pipeline function
+- [x] `cargo test -p kosmo-hyphae` → 92 passed, 0 failed
 
 **Exit criteria:**
-- Small HostVoidRegion can be lifted, fingerprinted, diagnosed, stored
-- Ambiguity and semantic loss represented
+- Small HostVoidRegion can be lifted, fingerprinted, diagnosed, stored ✅
+- Ambiguity and semantic loss represented ✅
 
 ---
 

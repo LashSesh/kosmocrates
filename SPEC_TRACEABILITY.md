@@ -98,10 +98,19 @@ Target crate: `crates/kosmo-hyphae`
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `MetatronScanKernel` | Metatron v0.4.1 spec | ❌ |
-| `MetatronMicrograph` | Metatron v0.4.1 spec | ❌ |
-| `MicroTopologyDiagnostic` | Metatron v0.4.1 spec | ❌ |
-| `SemanticLossRecord` | Metatron v0.4.1 spec | ❌ |
+| `TopologyRegionRef` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `RegionExtractionProfile` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `ProjectionProfile` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `SemanticLossRecord` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `MetatronMicrograph` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `MicrographLiftReport` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `MetatronRegionFingerprint` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `MicroTopologyDiagnostic` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `TopologyAmbiguityProfile` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `ComplementVoidHypothesis` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `MicroTopologyIndex` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `lift_region()` M1 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `diagnose_micrograph()` M2 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 
 ## MVP-6 / Phase 8 — LPCM v0.4.2
 
