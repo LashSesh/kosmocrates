@@ -55,24 +55,23 @@ Target: `crates/kosmo-core`
 
 ---
 
-## Phase 2 — Workbench MVP Skeleton ❌ NOT STARTED
+## Phase 2 — Workbench MVP Skeleton ✅ COMPLETE
 
 Target: `crates/kosmo-workbench`
 
-- [ ] `WorkspaceIndex` scan skeleton
-- [ ] `TaskSpec`
-- [ ] `ContextPack` with permitted-use labels
-- [ ] Isolated dry-run worktree concept / placeholder
-- [ ] `FoundryRunner` command/check interface skeleton
-- [ ] `EvidenceBundle` emission for Workbench operations
-- [ ] `RunReport` (dry-run output)
-- [ ] `cargo test -p kosmo-workbench` passes
+- [x] `WorkspaceIndex` — scan_path + from_entries, deterministic sort, content-addressed
+- [x] `TaskSpec` / `TaskKind` — content-addressed task declaration
+- [x] `ContextPack` with permitted-use labels — CROSS-005 enforced
+- [x] Isolated dry-run — FoundryRunner respects ReportOnly (Skipped) / DryRun (executes)
+- [x] `FoundryRunner` — standard_checks, run_check, run_all, EvidenceBundle emission
+- [x] `RunReport` — content-addressed, to_text() human-readable output
+- [x] `cargo test -p kosmo-workbench` → 20 passed, 0 failed
 
 **Exit criteria:**
-- Workbench can produce a dry-run report
-- Foundry check skeleton can execute or report unavailable
-- EvidenceBundle is emitted
-- ContextPack rejects raw untrusted external code by default
+- Workbench can produce a dry-run report ✅
+- Foundry check skeleton returns Skipped in ReportOnly, Unavailable if command missing ✅
+- EvidenceBundle is emitted with check result refs ✅
+- ContextPack rejects external-tainted content by default (CROSS-005) ✅
 
 ---
 

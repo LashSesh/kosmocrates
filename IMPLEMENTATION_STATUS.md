@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 1 — Core Substrate Types** — COMPLETE  
-**Next Phase: Phase 2 — Workbench MVP Skeleton**
+**Phase 2 — Workbench MVP Skeleton** — COMPLETE  
+**Next Phase: Phase 3 — HYPHAE v0.3 Passive Run**
 
 ## Completed Steps
 
@@ -73,10 +73,20 @@
 - [x] Fixed pre-existing duplicate `readme` key in 68 workspace crate Cargo.toml files
 - [x] Added `crates/kosmo-core` to workspace members
 
+### Phase 2 — Workbench MVP Skeleton (2026-05-30)
+- [x] Created `crates/kosmo-workbench` crate with 5 modules
+- [x] `workspace.rs`: `WorkspaceIndex` (scan_path + from_entries, content-addressed, sorted)
+- [x] `task_spec.rs`: `TaskSpec` / `TaskKind` (content-addressed, label-keyed)
+- [x] `context_pack.rs`: `ContextPack` with CROSS-005 enforcement (ExternalContentDenied), taint propagation
+- [x] `foundry.rs`: `FoundryRunner` (ReportOnly → Skipped, DryRun → executes), `FoundryRunOutput` with EvidenceBundle
+- [x] `report.rs`: `RunReport` (content-addressed, human-readable `to_text()`)
+- [x] 20 tests pass (0 failures), 2 `#[ignore]` integration tests
+- [x] CROSS-005 and CROSS-013 verified by named tests
+
 ## Open Blockers
 - None.
 
 ## Next Action
-Phase 2: create `crates/kosmo-workbench` with:
-`WorkspaceIndex`, `TaskSpec`, `ContextPack`, `FoundryRunner`,
-`DryRunResult`, `RunReport`, EvidenceBundle emission.
+Phase 3: create `crates/kosmo-hyphae` with HYPHAE v0.3 passive run modules:
+`HostBinding`, `HostCube`, `TopologicalVoidMap`, `DeficiencyVector`,
+`SourceFrontierGraph`, `StructuralYield`, `GateCascade`, `AssimilationDecision`.

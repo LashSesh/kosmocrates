@@ -1221,6 +1221,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-workbench"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
