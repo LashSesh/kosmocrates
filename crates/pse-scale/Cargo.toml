@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name = "pse-scale"
 version.workspace = true
 edition.workspace = true

@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name = "pse-nxalien-cube"
 version.workspace = true
 edition.workspace = true

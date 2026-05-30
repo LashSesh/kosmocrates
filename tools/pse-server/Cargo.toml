@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name         = "pse-server"
 version.workspace   = true
 edition.workspace   = true

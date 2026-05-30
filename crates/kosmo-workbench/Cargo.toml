@@ -1,0 +1,15 @@
+[package]
+name = "kosmo-workbench"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates Workbench: workspace scan, TaskSpec, ContextPack, FoundryRunner, RunReport"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
