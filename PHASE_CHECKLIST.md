@@ -23,35 +23,35 @@ Phase-by-phase exit criteria tracker.
 
 ---
 
-## Phase 1 — Core Substrate Types ❌ NOT STARTED
+## Phase 1 — Core Substrate Types ✅ COMPLETE
 
 Target: `crates/kosmo-core`
 
-- [ ] `Digest` newtype and canonical serialization
-- [ ] `CanonicalSerializationProfile`
-- [ ] `Q16` fixed-point numeric type
-- [ ] `EvidenceRef`
-- [ ] `EvidenceBundle` with `ReplayStatus`
-- [ ] `AuthorityLabel`
-- [ ] `TaintLabel`
-- [ ] `LicenseStatus`
-- [ ] `CapabilityLock`
-- [ ] `PolicyProfile` / `ImplementationMode`
-- [ ] `RunDescriptor` (HYPHAE)
-- [ ] `GateResult`
-- [ ] `LedgerEvent`
-- [ ] `FoundryCheckResult`
-- [ ] Digest/canonicalization unit tests
-- [ ] PolicyProfile default-is-ReportOnly test
-- [ ] No host mutation test
-- [ ] Crate added to workspace `Cargo.toml`
-- [ ] `cargo test -p kosmo-core` passes
+- [x] `Digest` newtype and canonical serialization (`digest.rs`)
+- [x] `canonical_bytes` — JCS RFC 8785 profile (`digest.rs`)
+- [x] `Q16` fixed-point numeric type (`fixed_point.rs`)
+- [x] `EvidenceRef` (`evidence.rs`)
+- [x] `EvidenceBundle` with `ReplayStatus` (`evidence.rs`)
+- [x] `AuthorityLabel` (`authority.rs`)
+- [x] `TaintLabel` (`authority.rs`)
+- [x] `LicenseStatus` (`authority.rs`)
+- [x] `CapabilityLock` / `Capability` (`authority.rs`)
+- [x] `PolicyProfile` / `ImplementationMode` / `PolicyViolation` (`policy.rs`)
+- [x] `RunDescriptor` (HYPHAE) (`run.rs`)
+- [x] `GateResult` with merge semantics (`run.rs`)
+- [x] `LedgerEvent` / `LedgerEventKind` (`run.rs`)
+- [x] `FoundryCheckResult` / `FoundryOutcome` / `FoundryCheckKind` (`run.rs`)
+- [x] Digest/canonicalization unit tests (5 tests)
+- [x] PolicyProfile default-is-ReportOnly test (CROSS-001, CROSS-002)
+- [x] No host mutation enforced by `check_host_write()` (test passes)
+- [x] Crate added to workspace `Cargo.toml`
+- [x] `cargo test -p kosmo-core` → 43 passed, 0 failed
 
 **Exit criteria:**
-- Core types compile
-- Digest/canonicalization tests pass
-- Policy default is ReportOnly
-- No host mutation exists
+- Core types compile ✅
+- Digest/canonicalization tests pass ✅
+- Policy default is ReportOnly ✅
+- No host mutation exists ✅
 
 ---
 

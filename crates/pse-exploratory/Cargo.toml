@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name         = "pse-exploratory"
 version.workspace   = true
 edition.workspace   = true

@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name = "nxalien-cli"
 version.workspace = true
 edition.workspace = true

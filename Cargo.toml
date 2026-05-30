@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/kosmo-core",
     "crates/pse-types",
     "crates/pse-core",
     "crates/pse-graph",

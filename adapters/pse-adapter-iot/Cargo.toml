@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name = "pse-adapter-iot"
 version.workspace = true
 edition.workspace = true

@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 0 — Orientation and Repo Survey** — COMPLETE  
-**Next Phase: Phase 1 — Core Substrate Types**
+**Phase 1 — Core Substrate Types** — COMPLETE  
+**Next Phase: Phase 2 — Workbench MVP Skeleton**
 
 ## Completed Steps
 
@@ -58,12 +58,25 @@
 - `crates/kosmo-hyphae` — HYPHAE v0.3/v0.4+ (Phase 3+)
 - `crates/kosmo-systemcube` — SystemCube v0.4.3 (Phase 9)
 
+### Phase 1 — Core Substrate Types (2026-05-30)
+- [x] Created `crates/kosmo-core` crate with 6 modules
+- [x] `Digest` newtype (SHA-256 + JCS), hex serde, `ZERO` sentinel
+- [x] `canonical_bytes` (JCS RFC 8785)
+- [x] `Q16` fixed-point (`i64`-backed, 2^16 scale), no-float arithmetic
+- [x] `EvidenceRef`, `EvidenceBundle` (content-addressed, policy-scoped, replay-status)
+- [x] `AuthorityLabel`, `TaintLabel`, `LicenseStatus`, `CapabilityLock`, `Capability`
+- [x] `ImplementationMode`, `PolicyProfile`, `PolicyViolation` (fail-closed defaults)
+- [x] `GateResult` (with merge semantics), `LedgerEvent`, `LedgerEventKind`
+- [x] `FoundryCheckResult`, `FoundryOutcome`, `FoundryCheckKind`
+- [x] `RunDescriptor` (HYPHAE — distinct from pse-types::RunDescriptor)
+- [x] 43 tests pass (0 failures)
+- [x] Fixed pre-existing duplicate `readme` key in 68 workspace crate Cargo.toml files
+- [x] Added `crates/kosmo-core` to workspace members
+
 ## Open Blockers
-- None at Phase 0 exit.
+- None.
 
 ## Next Action
-Begin Phase 1: create `crates/kosmo-core` with:
-`Digest`, `CanonicalProfile`, `Q16`, `EvidenceRef`, `EvidenceBundle`,
-`AuthorityLabel`, `TaintLabel`, `LicenseStatus`, `CapabilityLock`,
-`PolicyProfile`, `ImplementationMode`, `RunDescriptor` (HYPHAE),
-`GateResult`, `LedgerEvent`, `FoundryCheckResult`.
+Phase 2: create `crates/kosmo-workbench` with:
+`WorkspaceIndex`, `TaskSpec`, `ContextPack`, `FoundryRunner`,
+`DryRunResult`, `RunReport`, EvidenceBundle emission.

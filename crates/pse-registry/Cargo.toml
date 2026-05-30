@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name = "pse-registry"
 version.workspace = true
 edition.workspace = true

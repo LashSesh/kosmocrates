@@ -15,20 +15,22 @@ Target crate: `crates/kosmo-core`
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `Digest` | Handoff §4 MVP-0; Handoff §7 PolicyProfile.id type | ❌ |
-| `CanonicalSerializationProfile` | Handoff §4 MVP-0 | ❌ |
-| `Q16` fixed-point | Handoff §4 MVP-0; CROSS-007 | ❌ |
-| `EvidenceRef` | Handoff §4 MVP-0 | ❌ |
-| `EvidenceBundle` | Handoff §4 MVP-0; CROSS-006 | ❌ |
-| `AuthorityLabel` | Handoff §4 MVP-0 | ❌ |
-| `TaintLabel` | Handoff §4 MVP-0; CROSS-011 | ❌ |
-| `LicenseStatus` | Handoff §4 MVP-0 | ❌ |
-| `CapabilityLock` | Handoff §4 MVP-0 | ❌ |
-| `PolicyProfile` / `ImplementationMode` | Handoff §3, §7 | ❌ |
-| `RunDescriptor` (HYPHAE) | Handoff §4 MVP-0 | ❌ |
-| `GateResult` | Handoff §4 MVP-0 | ❌ |
-| `LedgerEvent` | Handoff §4 MVP-0 | ❌ |
-| `FoundryCheckResult` | Handoff §4 MVP-0 | ❌ |
+| `Digest` | Handoff §4 MVP-0; Handoff §7 PolicyProfile.id type | ✅ `kosmo-core/src/digest.rs` |
+| `canonical_bytes` (JCS RFC 8785) | Handoff §4 MVP-0 | ✅ `kosmo-core/src/digest.rs` |
+| `Q16` fixed-point | Handoff §4 MVP-0; CROSS-007 | ✅ `kosmo-core/src/fixed_point.rs` |
+| `EvidenceRef` | Handoff §4 MVP-0 | ✅ `kosmo-core/src/evidence.rs` |
+| `EvidenceBundle` | Handoff §4 MVP-0; CROSS-006 | ✅ `kosmo-core/src/evidence.rs` |
+| `ReplayStatus` | Handoff §4 MVP-0; CROSS-015 | ✅ `kosmo-core/src/evidence.rs` |
+| `AuthorityLabel` | Handoff §4 MVP-0 | ✅ `kosmo-core/src/authority.rs` |
+| `TaintLabel` | Handoff §4 MVP-0; CROSS-011 | ✅ `kosmo-core/src/authority.rs` |
+| `LicenseStatus` | Handoff §4 MVP-0 | ✅ `kosmo-core/src/authority.rs` |
+| `CapabilityLock` / `Capability` | Handoff §4 MVP-0 | ✅ `kosmo-core/src/authority.rs` |
+| `PolicyProfile` / `ImplementationMode` | Handoff §3, §7 | ✅ `kosmo-core/src/policy.rs` |
+| `PolicyViolation` | Handoff §2 Hard Boundaries | ✅ `kosmo-core/src/policy.rs` |
+| `RunDescriptor` (HYPHAE) | Handoff §4 MVP-0 | ✅ `kosmo-core/src/run.rs` |
+| `GateResult` | Handoff §4 MVP-0 | ✅ `kosmo-core/src/run.rs` |
+| `LedgerEvent` / `LedgerEventKind` | Handoff §4 MVP-0 | ✅ `kosmo-core/src/run.rs` |
+| `FoundryCheckResult` / `FoundryOutcome` | Handoff §4 MVP-0 | ✅ `kosmo-core/src/run.rs` |
 
 ## MVP-1 / Phase 2 — Workbench Dry-Run Substrate
 Target crate: `crates/kosmo-workbench`
@@ -116,13 +118,13 @@ Target crate: `crates/kosmo-hyphae`
 
 | ID | Description | Status |
 |---|---|---|
-| CROSS-001 | Default mode is ReportOnly | ❌ |
-| CROSS-002 | Host mutation impossible without PolicyProfile | ❌ |
-| CROSS-003 | External acquisition without capability blocked | ❌ |
-| CROSS-004 | Acquired source never executes by default | ❌ |
-| CROSS-005 | Raw external code never enters default ContextPack | ❌ |
-| CROSS-006 | Every durable object has digest, evidence, policy, replay status | ❌ |
-| CROSS-007 | Gate-relevant numerics use fixed-point / rational | ❌ |
+| CROSS-001 | Default mode is ReportOnly | ✅ `policy::tests::cross_001_default_is_report_only` |
+| CROSS-002 | Host mutation impossible without PolicyProfile | ✅ `policy::tests::cross_002_host_mutation_blocked_by_default` |
+| CROSS-003 | External acquisition without capability blocked | 🔶 PolicyViolation type exists; enforcement in Phase 2+ |
+| CROSS-004 | Acquired source never executes by default | 🔶 Policy flag exists; enforcement in Phase 3+ |
+| CROSS-005 | Raw external code never enters default ContextPack | 🔶 ContextPack in Phase 2 |
+| CROSS-006 | Every durable object has digest, evidence, policy, replay status | ✅ `evidence::tests::cross_006_bundle_has_digest_evidence_policy_replay` |
+| CROSS-007 | Gate-relevant numerics use fixed-point / rational | ✅ `fixed_point::tests::q16_comparison_is_integer_only` |
 | CROSS-008 | Every materialization path declares Foundry checks | ❌ |
 | CROSS-009 | Topology-changing materialization declares parse-back | ❌ |
 | CROSS-010 | No numeric score bypasses gates | ❌ |

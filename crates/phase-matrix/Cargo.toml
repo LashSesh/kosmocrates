@@ -1,5 +1,4 @@
 [package]
-readme = "README.md"
 name = "phase-matrix"
 version.workspace = true
 edition.workspace = true
