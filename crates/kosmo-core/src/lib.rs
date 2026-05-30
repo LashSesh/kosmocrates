@@ -12,6 +12,7 @@ pub mod digest;
 pub mod evidence;
 pub mod fixed_point;
 pub mod foundry;
+pub mod materialization;
 pub mod parseback;
 pub mod policy;
 pub mod run;
@@ -30,6 +31,11 @@ pub use foundry::{
     AllowedFoundryCommand, FoundryCheckSpec, FoundryCommandPolicy, FoundryEnvironmentPolicy,
     FoundryExecutionOutcome, FoundryExecutionPlan, FoundryExecutionReport, FoundrySandboxKind,
     FoundrySandboxSpec, FoundryTimeoutPolicy, PathDigest,
+};
+pub use materialization::{
+    IsolatedWorktreeSpec, MaterializationExecutionPlan, MaterializationExecutionReport,
+    MaterializationOutcome, TaskApplicationOutcome, TaskApplicationResult,
+    WorkbenchTaskApplication, WorkbenchTaskKind, WorktreeCleanupPolicy, WorktreeCreationMethod,
 };
 pub use parseback::{
     ParseBackOutcome, ParseBackPlan, ParseBackReport, ParseBackScanScope, ParseBackSeverity,
