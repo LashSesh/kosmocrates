@@ -7,6 +7,21 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust 1.82+](https://img.shields.io/badge/rust-1.82+-orange.svg)](Cargo.toml)
 
+> **Two-layer architecture notice.**
+> This repository contains two distinct layers that are documented
+> separately until the production substrate has been empirically validated.
+>
+> | Layer | Crates | Documentation |
+> |---|---|---|
+> | **PSE base system** | `pse-*` | This file + [`docs/OVERVIEW.md`](docs/OVERVIEW.md) |
+> | **Kosmocrates production substrate** | `kosmo-*` | [`SUBSTRATE.md`](SUBSTRATE.md) |
+>
+> The `kosmo-*` crates (HYPHAE, Metatron, LPCM, SystemCube, Pipeline)
+> implement the policy-governed topology assimilation layer described
+> in `specs/kosmocrates_spec_corpus_implementation_handoff.md`.
+> They have no compile-time dependency on the `pse-*` crates and are
+> tested independently (278 tests, 0 failures as of 2026-05-30).
+
 Kosmocrates turns stateless LLM and agent interactions into persistent,
 verifiable, topology-aware knowledge structures: content-addressed
 **crystals**, ledgered evidence, causal retrieval paths, QTIC

@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 7 — Metatron Planning-only Surgery** — COMPLETE  
-**Next Phase: Phase 8 — LPCM v0.4.2 Passive Report**
+**Phase 11 — Operator-Approved Materialization** — COMPLETE  
+**All planned phases complete. Corpus fully implemented.**
 
 ## Completed Steps
 
@@ -143,7 +143,108 @@
 - [x] `SurgeryTaskStatus` / `SurgeryWorkbenchTask` (PlanningOnly status, from_option)
 - [x] 103 tests pass (0 failures)
 
-## Next Action
-Phase 8: LPCM v0.4.2 passive report — `FragmentField`, `Fragment`, `CandidateDirection`,
-`SupportMassVector`, `LocalCondensationCandidate`, `SeamGraph`, `DoFContractionReport`,
-`MonotoneContractiveFilter`.
+### Phase 8 — LPCM v0.4.2 Passive Report (2026-05-30)
+- [x] `lpcm.rs`: `Fragment`, `FragmentKind`, `FragmentField` (sorted by fragment_id, HDAG node backrefs)
+- [x] `SupportMassVector` (Q16-scaled integer masses, `local_majority_candidate()`, no floats)
+- [x] `CandidateDirection` / `CandidateDirectionReason` (LocalMajority = candidate only, not truth)
+- [x] `LocalCondensationCandidate` (derived from CandidateDirection, gate-pending)
+- [x] `SeamGraph` / `SeamEdge` (Q16 compatibility scores, threshold-filtered)
+- [x] `monotone_contractive_filter()` — `MonotoneFilterOutcome` (Contractive / SpuriousExpansion / Insufficient)
+- [x] `DoFContractionReport` (advisory only, content-addressed, `summary()`)
+- [x] `LpcmPassiveReport::build()` — full passive pipeline, no host writes
+- [x] CROSS-010: 51% majority → CandidateDirection only, never gate bypass
+- [x] CROSS-013: LpcmPassiveReport has no host-mutation interface; `allow_host_write = false`
+- [x] `allow_synthetic_sourcecube = false` enforced in default policy
+- [x] 127 tests pass (0 failures, 0 warnings); +24 LPCM tests
+
+### Phase 9 — SystemCube v0.4.3 Passive Export (2026-05-30)
+- [x] New crate `crates/kosmo-systemcube` added to workspace
+- [x] `blueprint_unit.rs`: `BlueprintUnit` / `BlueprintUnitKind` / `BlueprintUnitStatus`
+      (evidence-bound; opaque units → `RejectedOpaque`; tainted units → `AcceptedWithTaint`)
+- [x] `manifest.rs`: `SystemCubeManifest` (accepted-only, sorted IDs, JSON round-trip stable)
+- [x] `energy.rs`: `ContradictionEnergyReport` / `ContradictionRecord` / `EnergyStatus`
+      (Q16 weight sum, sorted by (unit_a_id, unit_b_id), advisory only)
+- [x] `compatibility.rs`: `CompatibilityProfileReport` / `CompatibilityGap` / `CompatibilityStatus`
+      (Q16 score, gaps sorted by unit_id, no-host-snapshot stub)
+- [x] `lib.rs`: `DDensityReport` (Q16::ratio, Available/Unavailable), `SystemCube`,
+      `KcubeExportReport` / `KcubeExportMode` (DryRun / BlockedByPolicy)
+- [x] `SystemCube::export_dry_run()` — full passive pipeline, no disk I/O
+- [x] CROSS-010: D-density=1.0 does NOT authorise materialization; mode=BlockedByPolicy
+- [x] CROSS-013: no host-write interface; `allow_host_write = false`
+- [x] `allow_systemcube_materialization = false` in default PolicyProfile → BlockedByPolicy
+- [x] 36 tests pass (0 failures, 0 warnings)
+
+### Phase 10 — Integration Hardening (2026-05-30)
+- [x] New crate `crates/kosmo-pipeline` added to workspace
+- [x] `aggregator.rs`: `GateTraceAggregator`, `AggregatedGateResult`, `LayerGateSummary`
+      — fail-closed worst-wins merge (Reject > Warn > Pass), sorted by trace_id, content-addressed
+- [x] `IntegrationRunOptions` — flags for optional layers (Metatron, LPCM, SystemCube)
+      with `report_only()` and `all_layers()` constructors
+- [x] `IntegrationRunReport` — unified content-addressed report with `verify_policy_consistency()`
+      proving single PolicyProfile governs every layer
+- [x] `run_dry_pipeline()` — single entry point wiring all layers:
+      1. HYPHAE v0.3 passive run → gate contribution
+      2. CorpusCartography::empty + update_from_run (append-only)
+      3. Optional Metatron: lift_region + diagnose_micrograph per void
+      4. Optional LPCM: FragmentField + SupportMassVector + SeamGraph + build() per void
+      5. Optional SystemCube: BlueprintUnit per accepted decision + export_dry_run()
+      6. GateTraceAggregator → AggregatedGateResult → final_result
+- [x] CROSS-002: allow_host_write = false in default policy (structural + tested)
+- [x] CROSS-013: no host-write interface in IntegrationRunReport (structural + tested)
+- [x] Traceability: verify_policy_consistency() checks policy_id in every sub-report
+- [x] Determinism: all-layers run with same inputs → identical report_id
+- [x] Fail-closed: single gate Reject propagates to final_result (tested)
+- [x] 24 tests pass (0 failures, 0 warnings); +6 aggregator tests, +18 pipeline tests
+
+## Completed Phase Summary
+| Phase | Crate | Tests |
+|---|---|---|
+| 0 | Control files | — |
+| 1 | kosmo-core | 43 |
+| 2 | kosmo-workbench | 20 |
+| 3 | kosmo-hyphae (v0.3) | — |
+| 4 | kosmo-hyphae (CubeSwarm) | — |
+| 5 | kosmo-hyphae (v0.4) | — |
+| 6 | kosmo-hyphae (Metatron) | — |
+| 7 | kosmo-hyphae (Surgery) | 127 total |
+| 8 | kosmo-hyphae (LPCM) | 127 total |
+| 9 | kosmo-systemcube | 36 |
+| 10 | kosmo-pipeline | 24 |
+
+**Total: 230 tests across 4 new crates, 0 failures, 0 warnings.**
+
+### Phase 11 — Operator-Approved Materialization (2026-05-30)
+- [x] `PolicyProfile::operator_approved()` added to `kosmo-core`
+      (allow_host_write=true, all require_* guards retained, no network/memory-promotion/synthetic)
+- [x] `materialization.rs` in `kosmo-pipeline`:
+  - `OperatorApprovalToken` (covers specific plan_id, Human/Operator authority required, content-addressed)
+  - `ParseBackExpectation` (topology before/after declaration per step, content-addressed)
+  - `WorkbenchMaterializationTask` (step + token + foundry_checks + parse_back, content-addressed)
+  - `MaterializationOutcome` (Blocked / FoundryRequired)
+  - `MaterializationPlan::evaluate()` — full governance chain:
+    - Blocked: no token / wrong plan / agent authority / wrong mode / allow_host_write=false
+    - FoundryRequired: valid token + OperatorApproved + allow_host_write=true
+  - `simulate_foundry_check()` — Passed in OperatorApproved, Skipped in ReportOnly
+- [x] Blocked invariants tested: 4 distinct block cases
+- [x] FoundryRequired invariants: parse-back declared per step, ≥1 Foundry check per task
+- [x] Token authority: Operator/Human sufficient; Agent insufficient
+- [x] OperatorApproved policy: allow_host_write=true, require_foundry=true, require_parseback=true
+- [x] 46 tests pass in kosmo-pipeline (0 failures, 0 warnings); +22 materialization tests
+
+## Final Status — All Phases Complete
+
+| Phase | Crate | Key Artifact |
+|---|---|---|
+| 0 | Control files | Repo survey + control docs |
+| 1 | kosmo-core | Digest, Q16, PolicyProfile, EvidenceBundle |
+| 2 | kosmo-workbench | WorkspaceIndex, TaskSpec, FoundryRunner |
+| 3-7 | kosmo-hyphae | HYPHAE v0.3+v0.4, Metatron, Surgery (127 tests) |
+| 8 | kosmo-hyphae | LPCM v0.4.2 (127 tests incl.) |
+| 9 | kosmo-systemcube | SystemCube, BlueprintUnit, KcubeExportReport (36 tests) |
+| 10 | kosmo-pipeline | run_dry_pipeline, GateTraceAggregator (46 tests) |
+| 11 | kosmo-pipeline | OperatorApprovalToken, MaterializationPlan (46 tests incl.) |
+
+**Total: ~254 tests across 5 new production crates. 0 failures. 0 warnings.**
+
+## Open Blockers
+None. Entire spec corpus (Phases 0–11) is implemented.

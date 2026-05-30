@@ -112,6 +112,30 @@ impl PolicyProfile {
         })
     }
 
+    /// Construct an `OperatorApproved` profile for Phase 11 materialization.
+    ///
+    /// Enables `allow_host_write` but keeps all `require_*` guards active.
+    /// Foundry validation and parse-back topology are still mandatory.
+    /// No network access, no memory promotion, no synthetic source cubes.
+    pub fn operator_approved() -> Self {
+        Self::from_content(PolicyContent {
+            mode: ImplementationMode::OperatorApproved,
+            allow_network: false,
+            allow_external_acquisition: false,
+            allow_acquired_repo_execution: false,
+            allow_host_write: true,
+            allow_context_injection_from_external: false,
+            allow_synthetic_sourcecube: false,
+            allow_metatron_surgery_planning: true,
+            allow_lpcm_materialization: false,
+            allow_systemcube_materialization: false,
+            allow_memory_promotion: false,
+            require_foundry_for_executable_effects: true,
+            require_parseback_for_topology_changes: true,
+            require_operator_approval_for_materialization: true,
+        })
+    }
+
     fn from_content(c: PolicyContent) -> Self {
         let id = Digest::of(&c);
         Self {

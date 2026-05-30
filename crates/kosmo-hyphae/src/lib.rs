@@ -8,6 +8,9 @@
 //!
 //! Phase 6 Metatron v0.4.1 M1/M2: region lift → fingerprint → diagnose.
 //!
+//! Phase 8 LPCM v0.4.2: fragment field → support mass → seam graph →
+//! monotone contractive filter → passive DoF contraction report.
+//!
 //! No host file writes. All outputs are observations and decisions only.
 //! Default mode: `PolicyProfile::default_report_only()`.
 
@@ -22,6 +25,7 @@ pub mod delta;
 pub mod frontier;
 pub mod gates;
 pub mod host;
+pub mod lpcm;
 pub mod metatron;
 pub mod motif;
 pub mod norm;
@@ -69,4 +73,9 @@ pub use surgery::{
     SurgeryTaskStatus, SurgeryWorkbenchTask, TopologicalSurgeryKind, TopologicalSurgeryOption,
 };
 pub use swarm::{CompositeSupportCube, CubeMandorla, CubeSwarm, SourceCubeWorker, WorkerStatus};
+pub use lpcm::{
+    CandidateDirection, CandidateDirectionReason, DoFContractionReport, Fragment, FragmentField,
+    FragmentKind, LocalCondensationCandidate, LpcmPassiveReport, MonotoneFilterOutcome,
+    SeamEdge, SeamGraph, SupportMassVector, monotone_contractive_filter,
+};
 pub use void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
