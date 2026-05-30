@@ -68,7 +68,7 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R3 | Validation Closure | `ValidationClosureReport`, `ValidationClosureStatus`, `determine_closure_status` | ✅ COMPLETE (142 kosmo-core tests, +30 new) |
 | R4 | Persistent CorpusCartography Store | `CorpusCartographyStore` (trait), `CartographyStorageManifest`, `CartographyStoreCommit`, `CartographyIntegrityReport`, `CorpusScope` | ✅ COMPLETE (168 kosmo-core tests, +26 new) |
 | R5 | Isolated Worktree Materialization | `IsolatedWorktreeSpec`, `MaterializationExecutionPlan`, `WorkbenchTaskApplication`, `MaterializationExecutionReport` | ✅ COMPLETE (201 kosmo-core tests, +33 new) |
-| R6 | SystemCube Disk Export | `KcubePackage`, `KcubeExportPolicy`, `KcubeWriteReport`, `KcubeRoundtripVerification` | ⏳ PENDING |
+| R6 | SystemCube Disk Export | `KcubePackage`, `KcubeExportPolicy`, `KcubeWriteReport`, `KcubeRoundtripVerification` | ✅ COMPLETE (237 kosmo-core tests, +36 new) |
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ⏳ PENDING |
 | R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ⏳ PENDING |
 | R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ⏳ PENDING |
