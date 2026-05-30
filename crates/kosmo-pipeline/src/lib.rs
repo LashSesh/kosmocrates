@@ -17,8 +17,13 @@
 //! - Default mode: `PolicyProfile::default_report_only()`.
 
 pub mod aggregator;
+pub mod materialization;
 
 pub use aggregator::{AggregatedGateResult, GateTraceAggregator, LayerGateSummary};
+pub use materialization::{
+    MaterializationOutcome, MaterializationPlan, OperatorApprovalToken,
+    ParseBackExpectation, WorkbenchMaterializationTask, simulate_foundry_check,
+};
 
 use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
 use kosmo_core::TaintLabel;
