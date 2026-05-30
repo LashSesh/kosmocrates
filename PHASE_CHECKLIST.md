@@ -174,18 +174,21 @@ Target: `crates/kosmo-hyphae` (v0.3 modules)
 
 ---
 
-## Phase 7 — Metatron Planning-only Surgery ❌ NOT STARTED
+## Phase 7 — Metatron Planning-only Surgery ✅ COMPLETE
 
-- [ ] `TopologicalSurgeryOption`
-- [ ] `TopologicalSurgeryKind`
-- [ ] `SurgeryEffect` / `SurgeryRisk` / `SurgeryPrecondition`
-- [ ] `SurgeryBackedCollapseStep`
-- [ ] `SurgeryWorkbenchTask`
+- [x] `TopologicalSurgeryKind`
+- [x] `SurgeryPrecondition`
+- [x] `SurgeryEffect`
+- [x] `SurgeryRisk`
+- [x] `TopologicalSurgeryOption` (from_diagnostic, sorted by option_id)
+- [x] `SurgeryBackedCollapseStep`
+- [x] `SurgeryTaskStatus` / `SurgeryWorkbenchTask`
+- [x] `cargo test -p kosmo-hyphae` → 103 passed, 0 failed
 
 **Exit criteria:**
-- Diagnostic produces planning-only surgery option
-- CollapsePlan can include SurgeryBackedCollapseStep
-- No host files modified
+- Diagnostic produces planning-only surgery option ✅
+- CollapsePlan can include SurgeryBackedCollapseStep ✅
+- No host files modified ✅
 
 ---
 

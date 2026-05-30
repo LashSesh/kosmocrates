@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 6 — Metatron v0.4.1 M1/M2** — COMPLETE  
-**Next Phase: Phase 7 — Metatron Planning-only Surgery**
+**Phase 7 — Metatron Planning-only Surgery** — COMPLETE  
+**Next Phase: Phase 8 — LPCM v0.4.2 Passive Report**
 
 ## Completed Steps
 
@@ -136,7 +136,14 @@
 - [x] Fingerprint equality ≠ semantic equivalence documented as invariant
 - [x] 92 tests pass (0 failures)
 
+### Phase 7 — Metatron Planning-only Surgery (2026-05-30)
+- [x] `surgery.rs`: `TopologicalSurgeryKind`, `SurgeryPrecondition`, `SurgeryEffect`, `SurgeryRisk`
+- [x] `TopologicalSurgeryOption` (from_diagnostic, sorted by option_id, source_id disambiguator)
+- [x] `SurgeryBackedCollapseStep` (CollapseStep + surgery option provenance)
+- [x] `SurgeryTaskStatus` / `SurgeryWorkbenchTask` (PlanningOnly status, from_option)
+- [x] 103 tests pass (0 failures)
+
 ## Next Action
-Phase 7: Metatron planning-only surgery — `TopologicalSurgeryOption`, `TopologicalSurgeryKind`,
-`SurgeryEffect`, `SurgeryRisk`, `SurgeryPrecondition`, `SurgeryBackedCollapseStep`,
-`SurgeryWorkbenchTask`.
+Phase 8: LPCM v0.4.2 passive report — `FragmentField`, `Fragment`, `CandidateDirection`,
+`SupportMassVector`, `LocalCondensationCandidate`, `SeamGraph`, `DoFContractionReport`,
+`MonotoneContractiveFilter`.

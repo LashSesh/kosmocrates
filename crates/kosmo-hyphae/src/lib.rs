@@ -27,6 +27,7 @@ pub mod motif;
 pub mod norm;
 pub mod run;
 pub mod structural_yield;
+pub mod surgery;
 pub mod swarm;
 pub mod void_map;
 
@@ -63,5 +64,9 @@ pub use motif::MotifCandidate;
 pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
 pub use run::{passive_run, HyphaeRunResult};
 pub use structural_yield::{StructuralYield, StructuralYieldKind};
+pub use surgery::{
+    SurgeryBackedCollapseStep, SurgeryEffect, SurgeryPrecondition, SurgeryRisk,
+    SurgeryTaskStatus, SurgeryWorkbenchTask, TopologicalSurgeryKind, TopologicalSurgeryOption,
+};
 pub use swarm::{CompositeSupportCube, CubeMandorla, CubeSwarm, SourceCubeWorker, WorkerStatus};
 pub use void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};

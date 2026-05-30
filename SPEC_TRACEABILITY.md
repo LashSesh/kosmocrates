@@ -112,6 +112,18 @@ Target crate: `crates/kosmo-hyphae`
 | `lift_region()` M1 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `diagnose_micrograph()` M2 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 
+## Phase 7 — Metatron Planning-only Surgery
+
+| Type / Module | Spec Source | Status |
+|---|---|---|
+| `TopologicalSurgeryKind` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `SurgeryPrecondition` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `SurgeryEffect` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `SurgeryRisk` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `TopologicalSurgeryOption` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `SurgeryBackedCollapseStep` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `SurgeryWorkbenchTask` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+
 ## MVP-6 / Phase 8 — LPCM v0.4.2
 
 | Type / Module | Spec Source | Status |
