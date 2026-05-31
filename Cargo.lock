@@ -1221,6 +1221,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-eval"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-pse-bridge",
+ "reqwest",
+ "serde_json",
+]
+
+[[package]]
 name = "kosmo-hyphae"
 version = "0.1.0"
 dependencies = [
@@ -1242,6 +1252,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kosmo-pse-bridge"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]

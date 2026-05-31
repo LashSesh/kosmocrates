@@ -1,0 +1,24 @@
+[package]
+name = "kosmo-eval"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "KOSMO-OPS-01 empirical validation benchmark — exercises R1–R9 invariants"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+
+[[bin]]
+name = "kosmo-eval"
+path = "src/main.rs"
