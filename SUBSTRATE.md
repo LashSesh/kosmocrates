@@ -405,13 +405,16 @@ planning artifacts only — they have no live execution path:
 
 | Capability | Status |
 |---|---|
-| Host file writes | Blocked until `OperatorApproved` policy + token |
-| Foundry execution (real) | `simulate_foundry_check()` only; no real process spawn |
+| Host file writes | `OperatorApproved` + `allow_host_write=true`; `DryRun` and `ReportOnly` cannot persist |
+| Foundry execution (real) | ✅ `kosmo-foundry`: real `std::process::Command` spawn, allowlist-checked |
 | Network acquisition | `allow_network = false` in all shipped profiles |
 | NormGene promotion to trusted | Requires governance path not yet specified |
 | AutonomousBounded mode | `ImplementationMode` variant exists; no issuing logic |
 | `.kcube` disk export | `KcubeExportMode::DryRun` — no actual file I/O |
-| Cross-session corpus persistence | `CorpusCartography` in memory; no storage backend |
+| Cross-session corpus persistence | ✅ `kosmo-store`: JSONL append-only store, `verify_integrity()` |
+| ParseBack topology scan | ✅ `kosmo-parseback`: `cargo metadata`, `CrateFingerprint`, INVARIANT-007 |
+| R1→R2→R3 operator pipeline | ✅ `kosmo-operator`: `OperatorExecutor::execute()`, closure synthesis |
+| Empirical validation (52-scenario benchmark) | ✅ `tools/kosmo-eval`: EXIT 0, all 52 scenarios pass |
 
 These are deliberate boundary conditions, not omissions. The weld
 seam between planning and execution is where the governance model
@@ -449,6 +452,11 @@ that the substrate's output quality warrants it.
 | `crates/kosmo-pipeline/src/lib.rs` | `run_dry_pipeline()`, `IntegrationRunReport` |
 | `crates/kosmo-pipeline/src/materialization.rs` | `MaterializationPlan`, `OperatorApprovalToken` |
 | `crates/kosmo-systemcube/src/lib.rs` | `SystemCube::export_dry_run()`, `KcubeExportReport` |
+| `crates/kosmo-foundry/src/lib.rs` | `FoundryExecutor`, `standard_cargo_plan()`, `map_kind_to_subcommand()` |
+| `crates/kosmo-store/src/lib.rs` | `JsonlCartographyStore`, `verify_integrity()` |
+| `crates/kosmo-parseback/src/lib.rs` | `ParseBackExecutor`, `TopologySnapshot`, `CrateFingerprint`, `diff_snapshots()` |
+| `crates/kosmo-operator/src/lib.rs` | `OperatorExecutor`, `OperationPlan`, `OperationReport`, `standard_plan()` |
+| `tools/kosmo-eval/src/main.rs` | 52-scenario benchmark; EXIT 0 = all pass |
 | `SPEC_TRACEABILITY.md` | Full type-to-spec-section mapping |
 | `PHASE_CHECKLIST.md` | Phase-by-phase exit criteria and test counts |
 | `SAFETY_POLICY.md` | Hard boundaries and safety doctrine |

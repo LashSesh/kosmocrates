@@ -1,4 +1,5 @@
 use std::io::{self, Write as IoWrite};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use kosmo_core::{
@@ -33,6 +34,9 @@ use kosmo_pse_bridge::{
     PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
     PromotionOutcome, validate_candidate,
 };
+
+use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
+use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
 
 fn d(seed: &[u8]) -> Digest {
     Digest::of_bytes(seed)
@@ -787,7 +791,450 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: Real Foundry Executor ─────────────────────────────────────────────
+    // These exercise the live executor's governance layer (cross-platform,
+    // no compilation). The real process spawn/capture/timeout paths are covered
+    // by `cargo test -p kosmo-foundry`.
+
+    v.push(run_check("rx-foundry-report-only-spawns-nothing", "RX:FoundryExec", || {
+        let plan = kosmo_foundry::standard_cargo_plan(
+            d(b"pol"), d(b"ws"), d(b"task"), d(b"root"), 30_000,
+        );
+        let exec = kosmo_foundry::FoundryExecutor::new(".");
+        let report = exec.execute(&plan, &PolicyProfile::default_report_only(), d(b"bundle"));
+        if !report.outcome.is_skipped_report_only() {
+            return Err(format!("expected SkippedByReportOnly, got {:?}", report.outcome));
+        }
+        if !report.check_results.is_empty() {
+            return Err("ReportOnly must spawn nothing — no check results allowed".into());
+        }
+        if !report.verify_id() {
+            return Err("FoundryExecutionReport id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-foundry-command-denied-not-executed", "RX:FoundryExec", || {
+        // Default cargo policy allows only `cargo`; invoke a different program.
+        let plan = kosmo_foundry::standard_cargo_plan(
+            d(b"pol"), d(b"ws"), d(b"task"), d(b"root"), 30_000,
+        );
+        let exec = kosmo_foundry::FoundryExecutor::new(".").with_program("definitely-not-cargo");
+        let report = exec.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));
+        if report.outcome != kosmo_core::FoundryExecutionOutcome::CommandDeniedByPolicy {
+            return Err(format!("expected CommandDeniedByPolicy, got {:?}", report.outcome));
+        }
+        if !report.verify_id() {
+            return Err("FoundryExecutionReport id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-foundry-kind-mapping-read-only", "RX:FoundryExec", || {
+        use kosmo_core::FoundryCheckKind as K;
+        use kosmo_foundry::map_kind_to_subcommand as m;
+        // Only read-only verification subcommands are reachable.
+        if m(&K::Build) != Some("check") { return Err("Build must map to check".into()); }
+        if m(&K::Test) != Some("test") { return Err("Test must map to test".into()); }
+        if m(&K::Lint) != Some("clippy") { return Err("Lint must map to clippy".into()); }
+        // No mapping exposes a mutating command.
+        if m(&K::Security).is_some() { return Err("Security must not map to cargo".into()); }
+        if m(&K::Custom("x".into())).is_some() { return Err("Custom must not map".into()); }
+        Ok(())
+    }));
+
+    // ── RX: Persistent CorpusCartography Store (disk) ─────────────────────────
+    // Demonstrates the emergent host-write invariant: a durable append is a
+    // host write, so DryRun (allow_host_write == false) cannot persist — only
+    // OperatorApproved can. Uses a temp file that is cleaned up.
+
+    v.push(run_check("rx-store-dryrun-cannot-persist", "RX:PersistStore", || {
+        use kosmo_core::{CartographyEntryKind, CartographyStoreCommit, CorpusCartographyStore,
+            CorpusScope, CartographyStoreError};
+        let path = temp_store_path("eval-dryrun");
+        let mut store = kosmo_store::JsonlCartographyStore::open(
+            &path, CorpusScope::LocalHostProject, d(b"pol"),
+        ).map_err(|e| format!("open failed: {e}"))?;
+        let commit = CartographyStoreCommit::new(
+            CorpusScope::LocalHostProject, 1, d(b"payload"),
+            CartographyEntryKind::EvidenceSummary, d(b"bundle"), d(b"pol"),
+        );
+        let res = store.append(commit, &PolicyProfile::dry_run());
+        let denied = matches!(res, Err(CartographyStoreError::PolicyDenied { .. }));
+        let no_file = !path.exists();
+        let _ = std::fs::remove_file(&path);
+        if !denied {
+            return Err("DryRun must be denied: a durable append is a host write".into());
+        }
+        if !no_file {
+            return Err("no file may be created when persist is denied".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-store-operator-approved-persists-reloads", "RX:PersistStore", || {
+        use kosmo_core::{CartographyEntryKind, CartographyStoreCommit, CorpusCartographyStore,
+            CorpusScope};
+        let path = temp_store_path("eval-persist");
+        let _ = std::fs::remove_file(&path);
+        let scope = CorpusScope::LocalHostProject;
+        // Write two commits under OperatorApproved (allow_host_write == true).
+        {
+            let mut store = kosmo_store::JsonlCartographyStore::open(&path, scope.clone(), d(b"pol"))
+                .map_err(|e| format!("open failed: {e}"))?;
+            for seq in 1..=2u64 {
+                let commit = CartographyStoreCommit::new(
+                    scope.clone(), seq, d(format!("p{seq}").as_bytes()),
+                    CartographyEntryKind::EvidenceSummary, d(b"bundle"), d(b"pol"),
+                );
+                store.append(commit, &PolicyProfile::operator_approved())
+                    .map_err(|e| format!("append {seq} failed: {e}"))?;
+            }
+        }
+        // Reopen from disk and verify integrity of the durable copy.
+        let reopened = kosmo_store::JsonlCartographyStore::open(&path, scope, d(b"pol"))
+            .map_err(|e| format!("reopen failed: {e}"))?;
+        let report = reopened.verify_integrity(d(b"bundle"))
+            .map_err(|e| format!("integrity failed: {e}"))?;
+        let intact = report.status.is_intact() && report.checked_count == 2;
+        let _ = std::fs::remove_file(&path);
+        if !intact {
+            return Err(format!("expected Intact/2, got {:?}/{}", report.status, report.checked_count));
+        }
+        Ok(())
+    }));
+
+    // ── RX: Real ParseBack Executor ───────────────────────────────────────────
+    // Validates the real ParseBack executor: governance, baseline integrity,
+    // deterministic snapshotting, and structural diff logic.
+
+    v.push(run_check("rx-parseback-report-only-skips-scan", "RX:ParseBackExec", || {
+        use kosmo_core::{ParseBackPlan, ParseBackScanScope};
+        let executor = ParseBackExecutor::new(PathBuf::from("/nonexistent"));
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            Default::default(),
+            Default::default(),
+        );
+        let plan = ParseBackPlan::new(
+            d(b"pol"), d(b"mat-plan"),
+            ParseBackScanScope::FullWorkspace,
+            pre.snapshot_id,
+        );
+        let policy = PolicyProfile::default_report_only();
+        let report = executor.execute(&plan, &pre, &policy, d(b"bundle"));
+        if !report.outcome.is_skipped_report_only() {
+            return Err(format!("expected SkippedByReportOnly, got {:?}", report.outcome));
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-baseline-mismatch-inconclusive", "RX:ParseBackExec", || {
+        use kosmo_core::{ParseBackPlan, ParseBackScanScope};
+        let executor = ParseBackExecutor::new(PathBuf::from("/nonexistent"));
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            Default::default(),
+            Default::default(),
+        );
+        let wrong_baseline = d(b"wrong-baseline");
+        let plan = ParseBackPlan::new(
+            d(b"pol"), d(b"mat-plan"),
+            ParseBackScanScope::FullWorkspace,
+            wrong_baseline, // does not match pre.snapshot_id
+        );
+        let policy = PolicyProfile::dry_run();
+        let report = executor.execute(&plan, &pre, &policy, d(b"bundle"));
+        if !report.outcome.is_failure_class() {
+            return Err(format!("expected Inconclusive, got {:?}", report.outcome));
+        }
+        if report.diagnostics.iter().all(|s| !s.contains("mismatch")) {
+            return Err("diagnostic must mention mismatch".into());
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-diff-node-added-warning", "RX:ParseBackExec", || {
+        use kosmo_core::ParseBackScanScope;
+        use std::collections::{BTreeMap, BTreeSet};
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            BTreeMap::new(),
+            BTreeSet::new(),
+        );
+        let fp = CrateFingerprint::new("new-crate".into(), vec!["lib.rs".into()], vec![]);
+        let mut nodes = BTreeMap::new();
+        nodes.insert("new-crate".to_string(), fp.clone());
+        let post = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            nodes,
+            BTreeSet::new(),
+        );
+        let deltas = diff_snapshots(&pre, &post);
+        if deltas.len() != 1 {
+            return Err(format!("expected 1 delta, got {}", deltas.len()));
+        }
+        use kosmo_core::TopologyChangeKind;
+        if !matches!(deltas[0].change_kind, TopologyChangeKind::NodeAdded) {
+            return Err(format!("expected NodeAdded, got {:?}", deltas[0].change_kind));
+        }
+        use kosmo_core::ParseBackSeverity;
+        if deltas[0].severity != ParseBackSeverity::Warning {
+            return Err(format!("expected Warning severity, got {:?}", deltas[0].severity));
+        }
+        if !deltas[0].verify_id() {
+            return Err("delta id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-diff-node-removed-critical", "RX:ParseBackExec", || {
+        use kosmo_core::ParseBackScanScope;
+        use std::collections::{BTreeMap, BTreeSet};
+        let fp = CrateFingerprint::new("gone-crate".into(), vec!["lib.rs".into()], vec![]);
+        let mut nodes = BTreeMap::new();
+        nodes.insert("gone-crate".to_string(), fp);
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            nodes,
+            BTreeSet::new(),
+        );
+        let post = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            BTreeMap::new(),
+            BTreeSet::new(),
+        );
+        let deltas = diff_snapshots(&pre, &post);
+        if deltas.len() != 1 {
+            return Err(format!("expected 1 delta, got {}", deltas.len()));
+        }
+        use kosmo_core::TopologyChangeKind;
+        if !matches!(deltas[0].change_kind, TopologyChangeKind::NodeRemoved) {
+            return Err(format!("expected NodeRemoved, got {:?}", deltas[0].change_kind));
+        }
+        use kosmo_core::ParseBackSeverity;
+        if deltas[0].severity != ParseBackSeverity::Critical {
+            return Err(format!("expected Critical severity, got {:?}", deltas[0].severity));
+        }
+        if !deltas[0].verify_id() {
+            return Err("delta id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-snapshot-deterministic", "RX:ParseBackExec", || {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        let executor = ParseBackExecutor::new(workspace_root);
+        use kosmo_core::ParseBackScanScope;
+        let s1 = match executor.snapshot(&ParseBackScanScope::FullWorkspace) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("snapshot failed: {}", e)),
+        };
+        let s2 = match executor.snapshot(&ParseBackScanScope::FullWorkspace) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("snapshot (2nd) failed: {}", e)),
+        };
+        if s1.snapshot_id != s2.snapshot_id {
+            return Err("snapshots are not deterministic".into());
+        }
+        if s1.crate_count() < 10 {
+            return Err(format!("expected ≥10 crates, got {}", s1.crate_count()));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-unchanged-workspace-passes", "RX:ParseBackExec", || {
+        use kosmo_core::{ParseBackPlan, ParseBackScanScope};
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        let executor = ParseBackExecutor::new(workspace_root);
+        let pre = match executor.snapshot(&ParseBackScanScope::AffectedCratesOnly) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("pre-snapshot failed: {}", e)),
+        };
+        let plan = ParseBackPlan::new(
+            d(b"pol"), d(b"mat-plan"),
+            ParseBackScanScope::AffectedCratesOnly,
+            pre.snapshot_id,
+        );
+        let policy = PolicyProfile::dry_run();
+        let report = executor.execute(&plan, &pre, &policy, d(b"bundle"));
+        if !report.outcome.is_passed() {
+            return Err(format!("unchanged workspace must pass, got {:?}", report.outcome));
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        if report.pre_topology_id != report.post_topology_id {
+            return Err("pre/post topology ids must be equal when unchanged".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX: Operator (R1→R2→R3 full pipeline) ────────────────────────────────
+    // Validates the operator orchestration: policy governance and the full
+    // validation-closure pipeline producing a real content-addressed report.
+
+    v.push(run_check("rx-operator-report-only-inconclusive", "RX:Operator", || {
+        use kosmo_core::{ParseBackScanScope, ValidationClosureStatus};
+        let plan = standard_plan(
+            &PathBuf::from("/nonexistent"),
+            ParseBackScanScope::FullWorkspace,
+            d(b"pol"),
+            5_000,
+        );
+        let executor = OperatorExecutor::new(PathBuf::from("/nonexistent"));
+        let report = executor.execute(&plan, &PolicyProfile::default_report_only(), d(b"bundle"));
+        if !matches!(report.closure_report.final_validation_status, ValidationClosureStatus::Inconclusive) {
+            return Err(format!("ReportOnly must be Inconclusive, got {:?}", report.closure_report.final_validation_status));
+        }
+        if report.persisted {
+            return Err("ReportOnly must never persist".into());
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-operator-report-is-content-addressed", "RX:Operator", || {
+        use kosmo_core::ParseBackScanScope;
+        let plan = standard_plan(
+            &PathBuf::from("/nonexistent"),
+            ParseBackScanScope::FullWorkspace,
+            d(b"pol"),
+            5_000,
+        );
+        let executor = OperatorExecutor::new(PathBuf::from("/nonexistent"));
+        let bid = d(b"bundle");
+        let r1 = executor.execute(&plan, &PolicyProfile::default_report_only(), bid);
+        let r2 = executor.execute(&plan, &PolicyProfile::default_report_only(), bid);
+        if r1.report_id != r2.report_id {
+            return Err("INVARIANT-007: identical inputs must produce identical report_id".into());
+        }
+        if r1.report_id == d(b"") {
+            return Err("report_id must not be zero/empty".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-operator-full-cycle-dry-run", "RX:Operator", || {
+        use kosmo_core::{FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
+            FoundryEnvironmentPolicy, FoundryExecutionPlan, FoundrySandboxKind,
+            FoundrySandboxSpec, FoundryTimeoutPolicy, ParseBackScanScope,
+            ValidationClosureStatus};
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        // Use a targeted check-only plan on a single already-compiled crate for speed.
+        let check_spec = FoundryCheckSpec::new(FoundryCheckKind::Build, "kosmo-parseback", true)
+            .with_args(vec!["-p".into(), "kosmo-parseback".into()]);
+        let foundry_plan = FoundryExecutionPlan::new(
+            d(b"pol"),
+            d(b"widx"),
+            d(b"task"),
+            FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, d(b"root")),
+            vec![check_spec],
+            FoundryCommandPolicy::default_cargo_policy(),
+            FoundryTimeoutPolicy::new(60_000, 120_000),
+            FoundryEnvironmentPolicy::locked(),
+        );
+        let plan = OperationPlan::new(foundry_plan, ParseBackScanScope::AffectedCratesOnly, d(b"pol"));
+        let executor = OperatorExecutor::new(&workspace_root);
+        let report = executor.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));
+        let ok = matches!(
+            report.closure_report.final_validation_status,
+            ValidationClosureStatus::Passed | ValidationClosureStatus::PassedWithWarnings
+        );
+        if !ok {
+            return Err(format!(
+                "DryRun on clean workspace expected Passed/PassedWithWarnings, got {:?} (foundry: {:?}, parseback: {:?})",
+                report.closure_report.final_validation_status,
+                report.foundry_report.outcome,
+                report.parseback_report.outcome,
+            ));
+        }
+        if report.persisted {
+            return Err("DryRun must not persist".into());
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-operator-approved-persists-closure", "RX:Operator", || {
+        use kosmo_core::{FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
+            FoundryEnvironmentPolicy, FoundryExecutionPlan, FoundrySandboxKind,
+            FoundrySandboxSpec, FoundryTimeoutPolicy, ParseBackScanScope,
+            ValidationClosureStatus};
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        let store_path = {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos()).unwrap_or(0);
+            std::env::temp_dir().join(format!("kosmo-op-eval-{nanos}.jsonl"))
+        };
+        let check_spec = FoundryCheckSpec::new(FoundryCheckKind::Build, "kosmo-parseback", true)
+            .with_args(vec!["-p".into(), "kosmo-parseback".into()]);
+        let foundry_plan = FoundryExecutionPlan::new(
+            d(b"pol"),
+            d(b"widx"),
+            d(b"task"),
+            FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, d(b"root")),
+            vec![check_spec],
+            FoundryCommandPolicy::default_cargo_policy(),
+            FoundryTimeoutPolicy::new(60_000, 120_000),
+            FoundryEnvironmentPolicy::locked(),
+        );
+        let plan = OperationPlan::new(foundry_plan, ParseBackScanScope::AffectedCratesOnly, d(b"pol"));
+        let executor = OperatorExecutor::new(&workspace_root)
+            .with_store(&store_path);
+        let report = executor.execute(&plan, &PolicyProfile::operator_approved(), d(b"bundle"));
+        let file_created = store_path.exists();
+        let _ = std::fs::remove_file(&store_path);
+
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        if matches!(
+            report.closure_report.final_validation_status,
+            ValidationClosureStatus::Passed | ValidationClosureStatus::PassedWithWarnings
+        ) {
+            if !report.persisted {
+                return Err("OperatorApproved + Passed must persist closure".into());
+            }
+            if !file_created {
+                return Err("store file must be created when closure is persisted".into());
+            }
+        } else {
+            return Err(format!(
+                "OperatorApproved on clean workspace expected Passed, got {:?}",
+                report.closure_report.final_validation_status
+            ));
+        }
+        Ok(())
+    }));
+
     v
+}
+
+/// Unique temp path for a benchmark store scenario.
+fn temp_store_path(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut p = std::env::temp_dir();
+    p.push(format!("kosmo-{tag}-{nanos}.jsonl"));
+    p
 }
 
 fn run_cerebras(api_key: &str) -> ScenarioResult {

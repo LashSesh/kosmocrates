@@ -72,7 +72,131 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ✅ COMPLETE (35 new tests; pse-core absent from dep tree) |
 | R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ✅ COMPLETE (272 kosmo-core tests, +35 new) |
 | R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ✅ COMPLETE (305 kosmo-core tests, +33 new) |
-| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — 37 invariant scenarios R1–R9, optional Cerebras API probe | ✅ COMPLETE (37/37 PASS) |
+| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — invariant scenarios R1–R9 + RX, optional Cerebras API probe | ✅ COMPLETE (52/52 core PASS) |
+| RX | Real Foundry Executor | new crate `kosmo-foundry`; `FoundryExecutor`, `map_kind_to_subcommand`, `standard_cargo_plan` — runs allowlisted cargo checks in a policy-governed sandbox, produces real `FoundryExecutionReport` | ✅ COMPLETE (13 new tests) |
+| RX | Real ParseBack Executor | new crate `kosmo-parseback`; `ParseBackExecutor`, `TopologySnapshot`, `CrateFingerprint`, `diff_snapshots` — snapshots workspace crate topology via `cargo metadata`, diffs pre/post materialization, produces real `ParseBackReport` | ✅ COMPLETE (17 new tests) |
+| RX | Operator (R1→R2→R3 pipeline) | new crate `kosmo-operator`; `OperatorExecutor`, `OperationPlan`, `OperationReport`, `standard_plan` — orchestrates foundry + parseback + closure + optional store persistence into a real end-to-end validation pipeline | ✅ COMPLETE (8 new tests; 52/52 eval scenarios) |
+
+---
+
+## RX — Real Foundry Executor (post-R9 emergent step)
+
+The R1 phase delivered the Foundry *data model* (`FoundryExecutionPlan` →
+`FoundryExecutionReport`), but `kosmo-pipeline::simulate_foundry_check` only
+*simulated* an outcome. RX closes that gap: `kosmo-foundry` is the runtime
+that turns a plan into an actually-executed report.
+
+**Why a separate crate:** `kosmo-core` is the portable, process-free substrate
+above `pse-types`. Host process execution is a host capability, so it lives in a
+dedicated crate — the same isolation principle as `kosmo-pse-bridge`.
+
+**Safety contract enforced by construction:**
+- ReportOnly mode spawns nothing → `SkippedByReportOnly`.
+- Command allowlist is checked *before* spawn → `CommandDeniedByPolicy`.
+- Only read-only verification subcommands are reachable (`check`/`test`/`clippy`);
+  no `FoundryCheckKind` maps to a mutating command.
+- Environment is stripped (no passthrough unless permitted; secrets never forwarded).
+- Per-check timeout kills overruns → `TimedOut`.
+- Worst-wins aggregation across checks; an empty plan fails closed → `Inconclusive`.
+- Every per-check evidence id and the report id are SHA-256 content digests.
+
+This makes the R3 Validation Closure operational: the Foundry half of the
+closure is now a real execution outcome, not a simulation.
+
+---
+
+## RX — Operator (R1→R2→R3 full pipeline, post-R9 emergent step)
+
+R1 delivered a real Foundry executor, R2 a real ParseBack executor. `kosmo-operator`
+closes the final gap by orchestrating them sequentially and computing a real
+`ValidationClosureReport` (R3) — making the entire R1→R2→R3 staircase operational.
+
+**Pipeline:**
+```
+ParseBackPre-snapshot → FoundryChecks → ParseBackPost-snapshot → ValidationClosure → (store)
+```
+
+**Policy contract:**
+- `ReportOnly` → all sub-reports `SkippedByReportOnly`; closure `Inconclusive`; zero I/O.
+- `DryRun` → full read-only execution (cargo checks + snapshot); no host writes; not persisted.
+- `OperatorApproved` → full execution; if `store_path` set, appends closure payload digest to JSONL store.
+
+**What makes this the R3 operationalization:**
+Before, `ValidationClosureReport` could only be populated with simulated outcomes.
+Now it is populated with real `FoundryExecutionOutcome` (from actual `cargo check/test/clippy`)
+and real `ParseBackOutcome` (from actual topology snapshot diff). When both pass, the closure
+status is `Passed` or `PassedWithWarnings` — a cryptographically content-addressed proof that
+the workspace is currently clean.
+
+**OperationReport (`report_id`)** is content-addressed over all sub-report ids + `elapsed_ms`
++ `persisted` flag (INVARIANT-007). This makes the full cycle auditable and replayable.
+
+4 new `RX:Operator` eval scenarios including a real DryRun and OperatorApproved round-trip.
+
+---
+
+## RX — Real ParseBack Executor (post-R9 emergent step)
+
+R2 delivered the ParseBack *data model* (`ParseBackPlan`, `ParseBackReport`, `ParseBackTopologyDelta`, severity ordering) but relied on pre-constructed snapshots in tests. RX closes that gap: `kosmo-parseback` is the executor that takes a real workspace snapshot via `cargo metadata`, diffs pre/post materialization topology, and produces a real `ParseBackReport`.
+
+**Why a separate crate:** `kosmo-core` is filesystem-free and process-free (wasm-portable). Running `cargo metadata` is a host capability → dedicated crate, same isolation principle as `kosmo-foundry` and `kosmo-pse-bridge`.
+
+**Assessment of TPT/Metatron connection:** TPT (Topologische Panoptische Triangulation) and MTL operate on the PSE cognitive/semantic phase-space layer (panoptic states, carrier geometry, Mandorla fields) — an entirely different domain from corpus topology diffing. Metatron's fingerprinting pattern (`TopologyRegionRef`, `MetatronRegionFingerprint`) was directionally relevant as inspiration, but the right scope for `ParseBackReport` is **crate-level topology** (packages × deps × source files) derived from `cargo metadata`, not HDAG microtopology. No kosmo-hyphae dependency needed.
+
+**What the executor does:**
+- `ParseBackExecutor::snapshot(scope)` → `TopologySnapshot` (via `cargo metadata --no-deps`)
+- `TopologySnapshot` = content-addressed BTreeMap of `CrateFingerprint` × `BTreeSet<dep-edges>`
+- `diff_snapshots(pre, post)` → sorted, content-addressed `Vec<ParseBackTopologyDelta>`
+  - `NodeRemoved` / `EdgeRemoved` → `Critical`
+  - `NodeAdded` / `EdgeAdded` → `Warning`
+  - `NodeModified` (files or deps changed) → `Info`
+- `execute(plan, pre, policy, evidence_bundle_id)` → `ParseBackReport`:
+  - `ReportOnly` → `SkippedByReportOnly` (no scan)
+  - `baseline_topology_id ≠ pre.snapshot_id` → `Inconclusive`
+  - `pre_id == post_id` → `TopologyUnchanged`
+  - Critical deltas present → `Failed`; otherwise `Passed`
+
+**Invariants preserved:**
+- INVARIANT-007: identical inputs → identical snapshot and report ids.
+- Evidence binding: every `ParseBackReport` carries `evidence_bundle_id ≠ ZERO`.
+- No floats: `elapsed_ms` is `u64`.
+- Worst-severity aggregation: `Critical` dominates → `Failed`.
+- ReportOnly is the only mode that bypasses the scan; `DryRun` and `OperatorApproved` both scan (read-only, no mutations).
+
+Two new `RX:ParseBackExec` eval scenarios run against the real workspace:
+- `rx-parseback-snapshot-deterministic` — two consecutive snapshots produce the same `snapshot_id`.
+- `rx-parseback-unchanged-workspace-passes` — no materialization → `TopologyUnchanged`.
+
+---
+
+## RX — Persistent CorpusCartography Store (post-R9 emergent step)
+
+R4 delivered the `CorpusCartographyStore` trait with an in-memory
+implementation only. RX adds `kosmo-store::JsonlCartographyStore`: an
+append-only, durable backend that persists each commit as one JSON line and
+reconstructs the manifest by replaying the file on open.
+
+**Why a separate crate:** `kosmo-core` is filesystem-free so it stays
+wasm-portable. Disk persistence is a host capability → dedicated crate, same
+isolation principle as `kosmo-foundry` and `kosmo-pse-bridge`.
+
+**Emergent safety property (the key insight):** writing a commit to disk *is a
+host write*. The in-memory store only needs to block `ReportOnly`; a durable
+store must *additionally* require `allow_host_write`. Because `DryRun` keeps
+`allow_host_write == false`, **`DryRun` cannot persist** — only
+`OperatorApproved` may append to disk. This is the same host-write policy bit
+the Foundry sandbox honours, now governing persistence: one invariant enforced
+across execution and storage alike.
+
+- ReportOnly → `PolicyDenied` (no file created).
+- DryRun → `PolicyDenied` (host write required; no file created).
+- OperatorApproved → persists; reopening reconstructs the manifest from disk.
+- Sequence/scope violations fail closed before any write.
+- `verify_integrity` re-reads the durable copy and detects digest mismatch
+  (tampering) and sequence gaps.
+
+7 new tests in `kosmo-store`; 2 new RX scenarios in `kosmo-eval`
+(now 42/42 core scenarios pass).
 
 ---
 

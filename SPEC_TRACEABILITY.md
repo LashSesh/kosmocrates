@@ -128,17 +128,17 @@ Target crate: `crates/kosmo-hyphae`
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `FragmentField` | LPCM v0.4.2 spec | ❌ |
-| `LocalCondensationCandidate` | LPCM v0.4.2 spec | ❌ |
-| `MonotoneContractiveFilter` | LPCM v0.4.2 spec | ❌ |
+| `FragmentField` | LPCM v0.4.2 spec | ✅ `kosmo-hyphae/src/lpcm.rs` |
+| `LocalCondensationCandidate` | LPCM v0.4.2 spec | ✅ `kosmo-hyphae/src/lpcm.rs` |
+| `MonotoneContractiveFilter` | LPCM v0.4.2 spec | ✅ `kosmo-hyphae/src/lpcm.rs` |
 
 ## MVP-7 / Phase 9 — SystemCube v0.4.3
 
 | Type / Module | Spec Source | Status |
 |---|---|---|
-| `SystemCube` | SystemCube v0.4.3 spec | ❌ |
-| `BlueprintUnit` | SystemCube v0.4.3 spec | ❌ |
-| `SystemCubeManifest` | SystemCube v0.4.3 spec | ❌ |
+| `SystemCube` | SystemCube v0.4.3 spec | ✅ `kosmo-systemcube/src/` |
+| `BlueprintUnit` | SystemCube v0.4.3 spec | ✅ `kosmo-systemcube/src/` |
+| `SystemCubeManifest` | SystemCube v0.4.3 spec | ✅ `kosmo-systemcube/src/` |
 
 ---
 
@@ -153,11 +153,114 @@ Target crate: `crates/kosmo-hyphae`
 | CROSS-005 | Raw external code never enters default ContextPack | ✅ `context_pack::tests::cross_005_external_taint_rejected` |
 | CROSS-006 | Every durable object has digest, evidence, policy, replay status | ✅ `evidence::tests::cross_006_bundle_has_digest_evidence_policy_replay` |
 | CROSS-007 | Gate-relevant numerics use fixed-point / rational | ✅ `fixed_point::tests::q16_comparison_is_integer_only` |
-| CROSS-008 | Every materialization path declares Foundry checks | ❌ |
-| CROSS-009 | Topology-changing materialization declares parse-back | ❌ |
+| CROSS-008 | Every materialization path declares Foundry checks | ✅ `kosmo-pipeline/src/materialization.rs` |
+| CROSS-009 | Topology-changing materialization declares parse-back | ✅ `kosmo-pipeline/src/materialization.rs` |
 | CROSS-010 | No numeric score bypasses gates | ✅ `motif::tests::cross_010_high_support_does_not_bypass_gates` |
 | CROSS-011 | Synthetic artifacts are low-authority and tainted | 🔶 `TaintLabel::Synthetic` enforced in passive_run yields |
 | CROSS-012 | Negative evidence persisted and affects ranking | ✅ `assimilation::tests::cross_012_negative_evidence_representable` |
 | CROSS-013 | Report-only produces diagnostics without host writes | ✅ `report::tests::cross_013_report_only_produces_text_without_writes` |
 | CROSS-014 | Implementation can replay from content-addressed artifacts | 🔶 All artifacts content-addressed; replay path Phase 5+ |
 | CROSS-015 | Non-replayable objects marked replay-incomplete | 🔶 `ReplayStatus::ReplayIncomplete` default in EvidenceBundle |
+
+---
+
+## KOSMO-OPS-01 — Operationalization (R0–RX)
+Target spec: `specs/kosmocrates_production_substrate_operationalization_spec_v0_1.pdf`
+
+### R1 — Real Foundry MVP
+Target: `kosmo-core/src/foundry.rs`
+
+| Type / Module | Status |
+|---|---|
+| `FoundryExecutionPlan`, `FoundryExecutionReport`, `FoundryExecutionOutcome` | ✅ |
+| `FoundrySandboxSpec`, `FoundryCommandPolicy`, `FoundryTimeoutPolicy`, `FoundryEnvironmentPolicy` | ✅ |
+| `FoundryCheckSpec` | ✅ |
+
+### R2 — Parse-Back MVP
+Target: `kosmo-core/src/parseback.rs`
+
+| Type / Module | Status |
+|---|---|
+| `ParseBackPlan`, `ParseBackReport`, `ParseBackOutcome` | ✅ |
+| `ParseBackTopologyDelta`, `TopologyChangeKind`, `ParseBackSeverity`, `ParseBackScanScope` | ✅ |
+
+### R3 — Validation Closure
+Target: `kosmo-core/src/validation.rs`
+
+| Type / Module | Status |
+|---|---|
+| `ValidationClosureReport`, `ValidationClosureStatus`, `determine_closure_status` | ✅ |
+
+### R4 — Persistent CorpusCartography Store
+Target: `kosmo-core/src/cartography.rs`
+
+| Type / Module | Status |
+|---|---|
+| `CorpusCartographyStore` (trait), `CartographyStorageManifest`, `CartographyStoreCommit` | ✅ |
+| `CartographyIntegrityReport`, `InMemoryCartographyStore`, `CorpusScope` | ✅ |
+
+### R5 — Isolated Worktree Materialization
+Target: `kosmo-core/src/materialization.rs`
+
+| Type / Module | Status |
+|---|---|
+| `IsolatedWorktreeSpec`, `MaterializationExecutionPlan`, `WorkbenchTaskApplication` | ✅ |
+| `MaterializationExecutionReport` | ✅ |
+
+### R6 — SystemCube Disk Export
+Target: `kosmo-core/src/kcube.rs`
+
+| Type / Module | Status |
+|---|---|
+| `KcubePackage`, `KcubeExportPolicy`, `KcubeWriteReport`, `KcubeRoundtripVerification` | ✅ |
+
+### R7 — PSE Bridge
+Target: `crates/kosmo-pse-bridge/src/lib.rs`
+
+| Type / Module | Status |
+|---|---|
+| `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest`, `PromotionOutcome` | ✅ |
+| `validate_candidate` | ✅ |
+
+### R8 — Controlled Acquisition
+Target: `kosmo-core/src/acquisition.rs`
+
+| Type / Module | Status |
+|---|---|
+| `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ✅ |
+
+### R9 — Evaluation Harness
+Target: `kosmo-core/src/evaluation.rs`
+
+| Type / Module | Status |
+|---|---|
+| `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ✅ |
+| `EvaluationSuiteReport`, `StubEvaluationHarness` | ✅ |
+
+### RX — Real Foundry Executor
+Target: `crates/kosmo-foundry/src/lib.rs`
+
+| Type / Module | Status |
+|---|---|
+| `FoundryExecutor`, `map_kind_to_subcommand`, `standard_cargo_plan` | ✅ |
+
+### RX — Persistent JSONL Store
+Target: `crates/kosmo-store/src/lib.rs`
+
+| Type / Module | Status |
+|---|---|
+| `JsonlCartographyStore` | ✅ |
+
+### RX — Real ParseBack Executor
+Target: `crates/kosmo-parseback/src/lib.rs`
+
+| Type / Module | Status |
+|---|---|
+| `ParseBackExecutor`, `TopologySnapshot`, `CrateFingerprint`, `diff_snapshots` | ✅ |
+
+### RX — Operator Pipeline
+Target: `crates/kosmo-operator/src/lib.rs`
+
+| Type / Module | Status |
+|---|---|
+| `OperatorExecutor`, `OperationPlan`, `OperationReport`, `standard_plan` | ✅ |

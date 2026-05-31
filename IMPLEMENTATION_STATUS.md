@@ -248,3 +248,126 @@
 
 ## Open Blockers
 None. Entire spec corpus (Phases 0–11) is implemented.
+
+---
+
+# KOSMO-OPS-01 — Operationalization Staircase
+
+Spec: `KOSMO_OPS_01_STATUS.md`. Branch: `claude/kosmo-ops-01-operationalization`.
+
+## Phases R0–R9 (Data Model)
+
+### Phase R0 — Foundation Types (2026-05-31)
+- [x] `Digest` newtype (32-byte SHA-256), `Q16` fixed-point (`i64 × 2^16`)
+- [x] `PolicyProfile` — `ReportOnly` / `DryRun` / `OperatorApproved`
+- [x] `EvidenceBundle` — content-addressed evidence record
+- [x] `ParseBackTopologyDelta` / `ParseBackSeverity` — topology diff types
+- [x] `FoundryCheckKind` / `FoundryCheckSpec` / `FoundryCommandPolicy` / `FoundryTimeoutPolicy`
+- [x] Hosted in `crates/kosmo-core`
+
+### Phase R1 — Foundry Execution Data Types (2026-05-31)
+- [x] `FoundryExecutionPlan` (content-addressed over check specs + policy refs)
+- [x] `FoundryCheckOutcome` (`Passed` / `Failed` / `SkippedByReportOnly` / `CommandDeniedByPolicy`)
+- [x] `FoundryExecutionReport` (content-addressed; `verify_id()`)
+- [x] `worst_outcome()` worst-wins aggregation
+- [x] 8 unit tests
+
+### Phase R2 — CorpusCartography Data Types (2026-05-31)
+- [x] `CartographyEntryKind` / `CartographyStoreCommit` (content-addressed)
+- [x] `CorpusCartographyStore` trait (`append`, `read_manifest`, `verify_integrity`)
+- [x] `CorpusDiagnosticReport` (content-addressed)
+- [x] `CartographyStorageManifest` (monotone head sequence)
+- [x] 12 unit tests
+
+### Phase R3 — ParseBack Data Types (2026-05-31)
+- [x] `ParseBackPlan` / `ParseBackReport` (content-addressed; `verify_id()`)
+- [x] `ParseBackOutcome` (`Passed` / `Failed` / `Inconclusive` / `TopologyUnchanged` / `SkippedByReportOnly`)
+- [x] `ParseBackSeverity` worst-wins severity ladder
+- [x] `ParseBackTopologyDelta` (`NodeAdded` / `NodeRemoved` / `EdgeAdded` / `EdgeRemoved` / `NodeModified`)
+- [x] 9 unit tests
+
+### Phase R4 — Operator Orchestration Data Types (2026-05-31)
+- [x] `ValidationClosureReport` (content-addressed over all sub-report IDs)
+- [x] `OperatorGateOutcome` (`Passed` / `Failed` / `Inconclusive`)
+- [x] Gate synthesis logic (`worst_outcome_of_closure()`)
+- [x] 7 unit tests
+
+### Phases R5–R9 — Eval Benchmark Scenarios (2026-05-31)
+- [x] `tools/kosmo-eval` binary (`kosmo-eval`): 42 scenarios covering R1–R9 invariants
+- [x] R1:Foundry — 9 scenarios (SkippedByReportOnly, CommandDeniedByPolicy, content-addressing, etc.)
+- [x] R2:Cartography — 8 scenarios (append, manifest, integrity, worst-wins, fail-closed)
+- [x] R3:ParseBack — 7 scenarios (topology delta, severity ladder, report content-addressing)
+- [x] R4:Operator — 6 scenarios (closure synthesis, gate outcome, INVARIANT-007)
+- [x] R5–R9 misc — 12 scenarios (cross-cutting invariants, policy contracts, round-trip)
+- [x] All 42 pass with `EXIT 0`
+
+## Phases RX — Real Executors
+
+### Phase RX-1 — Real Foundry Executor (2026-05-31)
+- [x] New crate `crates/kosmo-foundry` added to workspace
+- [x] `FoundryExecutor::execute()` — runs allowlisted cargo check/test/clippy commands
+      via `std::process::Command`; `ReportOnly` → `SkippedByReportOnly` (no spawn);
+      `CommandDeniedByPolicy` checked before spawn
+- [x] `standard_cargo_plan()` / `minimal_check_plan()` plan constructors
+- [x] `map_kind_to_subcommand()` — deterministic command mapping
+- [x] 8 unit tests (including real `cargo check -p kosmo-core` integration test)
+
+### Phase RX-2 — Persistent CorpusCartography Store (2026-05-31)
+- [x] New crate `crates/kosmo-store` added to workspace
+- [x] `JsonlCartographyStore` — JSONL append-only durable backend
+- [x] `verify_integrity()` — re-reads disk, detects digest mismatch and sequence gaps
+- [x] Emergent invariant: `DryRun` cannot persist (`allow_host_write = false`); only `OperatorApproved`
+- [x] 9 unit tests (including real filesystem round-trip)
+
+### Phase RX-3 — Real ParseBack Executor (2026-05-31)
+- [x] New crate `crates/kosmo-parseback` added to workspace
+- [x] `ParseBackExecutor::snapshot()` — `cargo metadata --format-version 1 --no-deps`
+      snapshots crate-level topology; `INVARIANT-007`: identical inputs → identical IDs
+- [x] `CrateFingerprint` — SHA-256(name + files_id + dep_names); content-addressed
+- [x] `TopologySnapshot` — content-addressed; `diff_snapshots()` produces delta list
+- [x] `ParseBackExecutor::execute()` — takes pre-snapshot explicitly, takes post-snapshot
+      internally, diffs, maps severity (NodeRemoved/EdgeRemoved → Critical, NodeAdded/EdgeAdded
+      → Warning, NodeModified → Info)
+- [x] `ReportOnly` → `SkippedByReportOnly`; baseline mismatch → `Inconclusive`
+- [x] 17 unit tests (including real workspace integration tests)
+
+### Phase RX-4 — Operator Orchestrator (2026-05-31)
+- [x] New crate `crates/kosmo-operator` added to workspace
+- [x] `OperatorExecutor::execute()` — R1→R2→R3 full pipeline:
+      1. ParseBack pre-snapshot
+      2. Foundry check execution
+      3. ParseBack post-snapshot + diff
+      4. `ValidationClosureReport` synthesis
+      5. Optional JSONL store persistence (only if `OperatorApproved` + `allow_host_write`)
+- [x] `OperationPlan` / `OperationReport` (both content-addressed, `verify_id()`)
+- [x] `standard_plan()` convenience constructor
+- [x] 8 unit tests (including real `cargo check -p kosmo-parseback` integration + temp store)
+
+### Phase RX-BENCH — Eval Benchmark Extended (2026-05-31)
+- [x] `tools/kosmo-eval` extended to 52 scenarios (10 new RX scenarios)
+- [x] RX:ParseBackExec — 6 scenarios (report-only skip, baseline mismatch, node-added warning,
+      node-removed critical, deterministic snapshot, unchanged-workspace passes)
+- [x] RX:Operator — 4 scenarios (report-only inconclusive, content-addressed report,
+      full-cycle dry-run, approved-persists-closure)
+- [x] All 52 scenarios pass with `EXIT 0` in < 30 s on a warm build
+
+## Completed OPS-01 Summary
+
+| Phase | Crate | Tests |
+|---|---|---|
+| R0 | kosmo-core (ext) | 43 total |
+| R1 | kosmo-core | 8 |
+| R2 | kosmo-core | 12 |
+| R3 | kosmo-core | 9 |
+| R4 | kosmo-core | 7 |
+| R5–R9 | kosmo-eval (42 scenarios) | — |
+| RX-1 | kosmo-foundry | 8 |
+| RX-2 | kosmo-store | 9 |
+| RX-3 | kosmo-parseback | 17 |
+| RX-4 | kosmo-operator | 8 |
+| RX-BENCH | kosmo-eval (52 scenarios) | — |
+
+**Total: 614 tests workspace-wide. 0 failures. 0 warnings. 52/52 eval scenarios pass.**
+
+## Open Blockers
+None. KOSMO-OPS-01 staircase R0–RX is fully implemented.

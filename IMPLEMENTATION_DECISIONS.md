@@ -110,3 +110,43 @@ extraction, micrograph lifting, and microtopology diagnostics. The two are separ
 **Rationale:** The v0.4.1 spec defines HYPHAE-specific microtopology tooling. The existing
 `pse-metatron` is a lower-level graph analysis library used by the PSE engine. They serve
 different purposes and must not be conflated.
+
+---
+
+## AD-010 — Real executors live in separate host-capability crates
+
+**Decision:** `kosmo-foundry` (process execution), `kosmo-store` (disk persistence), `kosmo-parseback` (cargo metadata + filesystem walk), and `kosmo-operator` (orchestration) each live in their own crate outside `kosmo-core`.
+
+**Rationale:** `kosmo-core` is wasm-portable and process-free. Host capabilities (spawn, filesystem I/O, cargo invocation) require OS access that must not be available in wasm builds. The same isolation principle already applied to `kosmo-pse-bridge`.
+
+---
+
+## AD-011 — Disk persistence requires `allow_host_write`; DryRun cannot persist
+
+**Decision:** `JsonlCartographyStore::append()` checks `policy.allow_host_write` in addition to the `ReportOnly` check. This means `DryRun` (which sets `allow_host_write = false`) cannot persist to disk; only `OperatorApproved` can.
+
+**Rationale:** A durable append is a host write. The policy bit `allow_host_write` already governs the Foundry sandbox. Extending the same bit to the persistence layer creates a single invariant: `allow_host_write = false` means no host mutations anywhere in the stack (execution or storage).
+
+---
+
+## AD-012 — ParseBack snapshots crate-level topology from `cargo metadata`
+
+**Decision:** `kosmo-parseback` uses `cargo metadata --no-deps` to capture the crate dependency graph and file topology. The snapshot is content-addressed at the crate level (name × sorted source files × sorted dep names). No Rust AST parsing.
+
+**Rationale:** AST-level topology would require a full Rust parser dependency and would be prohibitively slow for a pre/post diff. Crate-level topology captures the structurally meaningful changes (crate added/removed, dep edge added/removed, file count changed) that ParseBack is defined to detect.
+
+---
+
+## AD-013 — TopologyChangeKind severity mapping is fail-closed
+
+**Decision:** `NodeRemoved` and `EdgeRemoved` map to `ParseBackSeverity::Critical` (→ `Failed`); `NodeAdded` and `EdgeAdded` map to `Warning`; `NodeModified` maps to `Info`. Any `Critical` delta drives the overall `ParseBackOutcome` to `Failed`.
+
+**Rationale:** Destructive structural changes (a crate or dependency disappearing) are more likely to indicate a regression or corruption than additive changes. Fail-closed means questionable state is never silently promoted.
+
+---
+
+## AD-014 — OperationReport is content-addressed over all sub-report IDs
+
+**Decision:** `OperationReport.report_id = SHA256(JCS({plan_id, foundry_report_id, parseback_report_id, closure_report_id, elapsed_ms, persisted}))`. It does not include the full sub-report payloads, only their IDs.
+
+**Rationale:** Content-addressing by ID rather than payload keeps the OperationReport lightweight while preserving INVARIANT-007 (identical inputs → identical ID). Any change in any sub-report cascades up through its ID to change the operation report ID.

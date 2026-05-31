@@ -1,0 +1,14 @@
+[package]
+name = "kosmo-foundry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Real Foundry executor — runs allowlisted cargo checks in a policy-governed sandbox and produces content-addressed FoundryExecutionReports."
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }

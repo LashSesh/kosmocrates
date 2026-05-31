@@ -13,6 +13,54 @@ note explicitly says so.
 
 ## [Unreleased]
 
+### Added
+
+* **KOSMO-OPS-01 Operationalization Staircase** — R0–RX full implementation
+  of the empirical validation benchmark for KOSMO-OPS-01 invariants R1–R9.
+
+  Four new host-capability crates:
+
+  - `crates/kosmo-foundry` — Real Foundry executor. Runs allowlisted `cargo`
+    subcommands (check / test / clippy) via `std::process::Command`. Policy
+    contract: `ReportOnly` → `SkippedByReportOnly` (zero spawn); command
+    denied before spawn; `FoundryExecutionReport` content-addressed.
+    8 unit tests.
+
+  - `crates/kosmo-store` — Persistent JSONL CorpusCartography store.
+    Implements `CorpusCartographyStore` trait from `kosmo-core`. Append-only
+    durable backend with `verify_integrity()` (digest mismatch + sequence gap
+    detection). Emergent invariant: `DryRun` (`allow_host_write=false`)
+    cannot persist — only `OperatorApproved`. 9 unit tests.
+
+  - `crates/kosmo-parseback` — Real ParseBack executor. Snapshots workspace
+    crate topology via `cargo metadata --format-version 1 --no-deps`.
+    `TopologySnapshot` and `CrateFingerprint` are content-addressed (SHA-256);
+    INVARIANT-007: identical inputs → identical IDs. `diff_snapshots()`
+    classifies: `NodeRemoved`/`EdgeRemoved` → Critical, `NodeAdded`/
+    `EdgeAdded` → Warning, `NodeModified` → Info (fail-closed worst-wins).
+    17 unit tests including real workspace integration.
+
+  - `crates/kosmo-operator` — Operator orchestrator. Wires the R1→R2→R3
+    full pipeline: ParseBack pre-snapshot → Foundry execution → ParseBack
+    post-snapshot + diff → `ValidationClosureReport` synthesis → optional
+    JSONL store persistence (only `OperatorApproved` + `allow_host_write`).
+    `OperationPlan` and `OperationReport` are content-addressed.
+    8 unit tests including real targeted `cargo check` + temp store round-trip.
+
+  `tools/kosmo-eval` benchmark extended to 52 scenarios:
+  - 42 existing R1–R9 data-model scenarios (unchanged)
+  - 6 new RX:ParseBackExec scenarios (report-only skip, baseline mismatch,
+    severity classification, deterministic snapshot, real workspace pass)
+  - 4 new RX:Operator scenarios (report-only inconclusive, content-addressed
+    report, full-cycle dry-run, approved-persists-closure)
+
+  All 52 scenarios pass `EXIT 0`. Workspace: 614 tests, 0 failures.
+
+  Architecture decisions added: AD-010 (host-capability crate isolation),
+  AD-011 (`allow_host_write` extended to disk persistence), AD-012
+  (`cargo metadata` strategy for ParseBack), AD-013 (fail-closed severity
+  mapping), AD-014 (OperationReport content-addressed over sub-IDs).
+
 ### Fixed
 
 * **Two stale test assertions in `pse-eval-matrix`** (`agent_exoskeleton.rs`):
