@@ -6,6 +6,7 @@
 //! Layer position: kosmo-core sits directly above the existing `pse-types`
 //! substrate and below all HYPHAE, Workbench, and SystemCube layers.
 
+pub mod acquisition;
 pub mod authority;
 pub mod cartography;
 pub mod digest;
@@ -19,6 +20,10 @@ pub mod policy;
 pub mod run;
 pub mod validation;
 
+pub use acquisition::{
+    AcquiredSource, AcquisitionSandbox, AcquisitionSourceKind, AcquisitionTaint,
+    LicenseCheckOutcome, SecretScanOutcome, SourceAcquisitionCapability,
+};
 pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
 pub use cartography::{
     CartographyEntryKind, CartographyIntegrityReport, CartographyIntegrityStatus,
