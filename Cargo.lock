@@ -1226,6 +1226,7 @@ version = "0.1.0"
 dependencies = [
  "kosmo-core",
  "kosmo-foundry",
+ "kosmo-parseback",
  "kosmo-pse-bridge",
  "kosmo-store",
  "reqwest",
@@ -1250,6 +1251,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kosmo-parseback"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

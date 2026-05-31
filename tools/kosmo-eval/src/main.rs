@@ -1,4 +1,5 @@
 use std::io::{self, Write as IoWrite};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use kosmo_core::{
@@ -33,6 +34,8 @@ use kosmo_pse_bridge::{
     PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
     PromotionOutcome, validate_candidate,
 };
+
+use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
 
 fn d(seed: &[u8]) -> Digest {
     Digest::of_bytes(seed)
@@ -896,6 +899,180 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let _ = std::fs::remove_file(&path);
         if !intact {
             return Err(format!("expected Intact/2, got {:?}/{}", report.status, report.checked_count));
+        }
+        Ok(())
+    }));
+
+    // ── RX: Real ParseBack Executor ───────────────────────────────────────────
+    // Validates the real ParseBack executor: governance, baseline integrity,
+    // deterministic snapshotting, and structural diff logic.
+
+    v.push(run_check("rx-parseback-report-only-skips-scan", "RX:ParseBackExec", || {
+        use kosmo_core::{ParseBackPlan, ParseBackScanScope};
+        let executor = ParseBackExecutor::new(PathBuf::from("/nonexistent"));
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            Default::default(),
+            Default::default(),
+        );
+        let plan = ParseBackPlan::new(
+            d(b"pol"), d(b"mat-plan"),
+            ParseBackScanScope::FullWorkspace,
+            pre.snapshot_id,
+        );
+        let policy = PolicyProfile::default_report_only();
+        let report = executor.execute(&plan, &pre, &policy, d(b"bundle"));
+        if !report.outcome.is_skipped_report_only() {
+            return Err(format!("expected SkippedByReportOnly, got {:?}", report.outcome));
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-baseline-mismatch-inconclusive", "RX:ParseBackExec", || {
+        use kosmo_core::{ParseBackPlan, ParseBackScanScope};
+        let executor = ParseBackExecutor::new(PathBuf::from("/nonexistent"));
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            Default::default(),
+            Default::default(),
+        );
+        let wrong_baseline = d(b"wrong-baseline");
+        let plan = ParseBackPlan::new(
+            d(b"pol"), d(b"mat-plan"),
+            ParseBackScanScope::FullWorkspace,
+            wrong_baseline, // does not match pre.snapshot_id
+        );
+        let policy = PolicyProfile::dry_run();
+        let report = executor.execute(&plan, &pre, &policy, d(b"bundle"));
+        if !report.outcome.is_failure_class() {
+            return Err(format!("expected Inconclusive, got {:?}", report.outcome));
+        }
+        if report.diagnostics.iter().all(|s| !s.contains("mismatch")) {
+            return Err("diagnostic must mention mismatch".into());
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-diff-node-added-warning", "RX:ParseBackExec", || {
+        use kosmo_core::ParseBackScanScope;
+        use std::collections::{BTreeMap, BTreeSet};
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            BTreeMap::new(),
+            BTreeSet::new(),
+        );
+        let fp = CrateFingerprint::new("new-crate".into(), vec!["lib.rs".into()], vec![]);
+        let mut nodes = BTreeMap::new();
+        nodes.insert("new-crate".to_string(), fp.clone());
+        let post = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            nodes,
+            BTreeSet::new(),
+        );
+        let deltas = diff_snapshots(&pre, &post);
+        if deltas.len() != 1 {
+            return Err(format!("expected 1 delta, got {}", deltas.len()));
+        }
+        use kosmo_core::TopologyChangeKind;
+        if !matches!(deltas[0].change_kind, TopologyChangeKind::NodeAdded) {
+            return Err(format!("expected NodeAdded, got {:?}", deltas[0].change_kind));
+        }
+        use kosmo_core::ParseBackSeverity;
+        if deltas[0].severity != ParseBackSeverity::Warning {
+            return Err(format!("expected Warning severity, got {:?}", deltas[0].severity));
+        }
+        if !deltas[0].verify_id() {
+            return Err("delta id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-diff-node-removed-critical", "RX:ParseBackExec", || {
+        use kosmo_core::ParseBackScanScope;
+        use std::collections::{BTreeMap, BTreeSet};
+        let fp = CrateFingerprint::new("gone-crate".into(), vec!["lib.rs".into()], vec![]);
+        let mut nodes = BTreeMap::new();
+        nodes.insert("gone-crate".to_string(), fp);
+        let pre = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            nodes,
+            BTreeSet::new(),
+        );
+        let post = TopologySnapshot::from_parts(
+            ParseBackScanScope::FullWorkspace,
+            BTreeMap::new(),
+            BTreeSet::new(),
+        );
+        let deltas = diff_snapshots(&pre, &post);
+        if deltas.len() != 1 {
+            return Err(format!("expected 1 delta, got {}", deltas.len()));
+        }
+        use kosmo_core::TopologyChangeKind;
+        if !matches!(deltas[0].change_kind, TopologyChangeKind::NodeRemoved) {
+            return Err(format!("expected NodeRemoved, got {:?}", deltas[0].change_kind));
+        }
+        use kosmo_core::ParseBackSeverity;
+        if deltas[0].severity != ParseBackSeverity::Critical {
+            return Err(format!("expected Critical severity, got {:?}", deltas[0].severity));
+        }
+        if !deltas[0].verify_id() {
+            return Err("delta id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-snapshot-deterministic", "RX:ParseBackExec", || {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        let executor = ParseBackExecutor::new(workspace_root);
+        use kosmo_core::ParseBackScanScope;
+        let s1 = match executor.snapshot(&ParseBackScanScope::FullWorkspace) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("snapshot failed: {}", e)),
+        };
+        let s2 = match executor.snapshot(&ParseBackScanScope::FullWorkspace) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("snapshot (2nd) failed: {}", e)),
+        };
+        if s1.snapshot_id != s2.snapshot_id {
+            return Err("snapshots are not deterministic".into());
+        }
+        if s1.crate_count() < 10 {
+            return Err(format!("expected ≥10 crates, got {}", s1.crate_count()));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-parseback-unchanged-workspace-passes", "RX:ParseBackExec", || {
+        use kosmo_core::{ParseBackPlan, ParseBackScanScope};
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        let executor = ParseBackExecutor::new(workspace_root);
+        let pre = match executor.snapshot(&ParseBackScanScope::AffectedCratesOnly) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("pre-snapshot failed: {}", e)),
+        };
+        let plan = ParseBackPlan::new(
+            d(b"pol"), d(b"mat-plan"),
+            ParseBackScanScope::AffectedCratesOnly,
+            pre.snapshot_id,
+        );
+        let policy = PolicyProfile::dry_run();
+        let report = executor.execute(&plan, &pre, &policy, d(b"bundle"));
+        if !report.outcome.is_passed() {
+            return Err(format!("unchanged workspace must pass, got {:?}", report.outcome));
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        if report.pre_topology_id != report.post_topology_id {
+            return Err("pre/post topology ids must be equal when unchanged".into());
         }
         Ok(())
     }));

@@ -72,8 +72,9 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ✅ COMPLETE (35 new tests; pse-core absent from dep tree) |
 | R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ✅ COMPLETE (272 kosmo-core tests, +35 new) |
 | R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ✅ COMPLETE (305 kosmo-core tests, +33 new) |
-| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — invariant scenarios R1–R9 + RX, optional Cerebras API probe | ✅ COMPLETE (40/40 core PASS) |
+| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — invariant scenarios R1–R9 + RX, optional Cerebras API probe | ✅ COMPLETE (48/48 core PASS) |
 | RX | Real Foundry Executor | new crate `kosmo-foundry`; `FoundryExecutor`, `map_kind_to_subcommand`, `standard_cargo_plan` — runs allowlisted cargo checks in a policy-governed sandbox, produces real `FoundryExecutionReport` | ✅ COMPLETE (13 new tests) |
+| RX | Real ParseBack Executor | new crate `kosmo-parseback`; `ParseBackExecutor`, `TopologySnapshot`, `CrateFingerprint`, `diff_snapshots` — snapshots workspace crate topology via `cargo metadata`, diffs pre/post materialization, produces real `ParseBackReport` | ✅ COMPLETE (17 new tests; 48/48 eval scenarios) |
 
 ---
 
@@ -100,6 +101,40 @@ dedicated crate — the same isolation principle as `kosmo-pse-bridge`.
 
 This makes the R3 Validation Closure operational: the Foundry half of the
 closure is now a real execution outcome, not a simulation.
+
+---
+
+## RX — Real ParseBack Executor (post-R9 emergent step)
+
+R2 delivered the ParseBack *data model* (`ParseBackPlan`, `ParseBackReport`, `ParseBackTopologyDelta`, severity ordering) but relied on pre-constructed snapshots in tests. RX closes that gap: `kosmo-parseback` is the executor that takes a real workspace snapshot via `cargo metadata`, diffs pre/post materialization topology, and produces a real `ParseBackReport`.
+
+**Why a separate crate:** `kosmo-core` is filesystem-free and process-free (wasm-portable). Running `cargo metadata` is a host capability → dedicated crate, same isolation principle as `kosmo-foundry` and `kosmo-pse-bridge`.
+
+**Assessment of TPT/Metatron connection:** TPT (Topologische Panoptische Triangulation) and MTL operate on the PSE cognitive/semantic phase-space layer (panoptic states, carrier geometry, Mandorla fields) — an entirely different domain from corpus topology diffing. Metatron's fingerprinting pattern (`TopologyRegionRef`, `MetatronRegionFingerprint`) was directionally relevant as inspiration, but the right scope for `ParseBackReport` is **crate-level topology** (packages × deps × source files) derived from `cargo metadata`, not HDAG microtopology. No kosmo-hyphae dependency needed.
+
+**What the executor does:**
+- `ParseBackExecutor::snapshot(scope)` → `TopologySnapshot` (via `cargo metadata --no-deps`)
+- `TopologySnapshot` = content-addressed BTreeMap of `CrateFingerprint` × `BTreeSet<dep-edges>`
+- `diff_snapshots(pre, post)` → sorted, content-addressed `Vec<ParseBackTopologyDelta>`
+  - `NodeRemoved` / `EdgeRemoved` → `Critical`
+  - `NodeAdded` / `EdgeAdded` → `Warning`
+  - `NodeModified` (files or deps changed) → `Info`
+- `execute(plan, pre, policy, evidence_bundle_id)` → `ParseBackReport`:
+  - `ReportOnly` → `SkippedByReportOnly` (no scan)
+  - `baseline_topology_id ≠ pre.snapshot_id` → `Inconclusive`
+  - `pre_id == post_id` → `TopologyUnchanged`
+  - Critical deltas present → `Failed`; otherwise `Passed`
+
+**Invariants preserved:**
+- INVARIANT-007: identical inputs → identical snapshot and report ids.
+- Evidence binding: every `ParseBackReport` carries `evidence_bundle_id ≠ ZERO`.
+- No floats: `elapsed_ms` is `u64`.
+- Worst-severity aggregation: `Critical` dominates → `Failed`.
+- ReportOnly is the only mode that bypasses the scan; `DryRun` and `OperatorApproved` both scan (read-only, no mutations).
+
+Two new `RX:ParseBackExec` eval scenarios run against the real workspace:
+- `rx-parseback-snapshot-deterministic` — two consecutive snapshots produce the same `snapshot_id`.
+- `rx-parseback-unchanged-workspace-passes` — no materialization → `TopologyUnchanged`.
 
 ---
 

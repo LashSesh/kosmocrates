@@ -18,6 +18,7 @@ kosmo-core = { path = "../../crates/kosmo-core" }
 kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
 kosmo-foundry = { path = "../../crates/kosmo-foundry" }
 kosmo-store = { path = "../../crates/kosmo-store" }
+kosmo-parseback = { path = "../../crates/kosmo-parseback" }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 

@@ -5,6 +5,7 @@ members = [
     "crates/kosmo-pse-bridge",
     "crates/kosmo-foundry",
     "crates/kosmo-store",
+    "crates/kosmo-parseback",
     "crates/kosmo-workbench",
     "crates/kosmo-hyphae",
     "crates/kosmo-systemcube",
