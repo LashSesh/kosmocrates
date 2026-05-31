@@ -301,3 +301,27 @@ TOTAL:            278 passed,  0 failed,  0 warnings
 ```
 
 All 11 phases of the Kosmocrates spec corpus are implemented and verified.
+
+---
+
+## KOSMO-OPS-01 — Operationalization Staircase
+
+| Phase | Description | Deliverables | Tests | Status |
+|---|---|---|---|---|
+| R0 | Baseline Lock | spec read, 278 baseline tests locked | — | ✅ COMPLETE |
+| R1 | Real Foundry MVP | `FoundryExecutionPlan`/`Report`/`Outcome` + supporting types | 35 new | ✅ COMPLETE |
+| R2 | Parse-Back MVP | `ParseBackPlan`/`Report` + `TopologyDelta` | 28 new | ✅ COMPLETE |
+| R3 | Validation Closure | `ValidationClosureReport`, `determine_closure_status` | 30 new | ✅ COMPLETE |
+| R4 | Persistent CorpusCartography Store | trait + `InMemoryCartographyStore` | 26 new | ✅ COMPLETE |
+| R5 | Isolated Worktree Materialization | `IsolatedWorktreeSpec`, `MaterializationExecutionPlan` | 33 new | ✅ COMPLETE |
+| R6 | SystemCube Disk Export | `KcubePackage`, `KcubeExportPolicy`, `KcubeWriteReport` | 36 new | ✅ COMPLETE |
+| R7 | PSE Bridge | `kosmo-pse-bridge` crate, `PseBridgeCandidate`/`Policy`/`PromotionRequest` | 35 new | ✅ COMPLETE |
+| R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource` | 35 new | ✅ COMPLETE |
+| R9 | Evaluation Harness | `EvaluationScenario`/`RunReport`/`Metrics`/`Harness` | 33 new | ✅ COMPLETE |
+| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval`; 52/52 scenarios pass | 52/52 | ✅ COMPLETE |
+| RX (Foundry) | `kosmo-foundry` crate | `FoundryExecutor`, real cargo process execution | 13 | ✅ COMPLETE |
+| RX (Store) | `kosmo-store` crate | `JsonlCartographyStore`, host-write invariant | 7 | ✅ COMPLETE |
+| RX (ParseBack) | `kosmo-parseback` crate | `ParseBackExecutor`, cargo metadata topology | 17 | ✅ COMPLETE |
+| RX (Operator) | `kosmo-operator` crate | `OperatorExecutor`, R1→R2→R3 pipeline | 8 | ✅ COMPLETE |
+
+**Final verification:** 614 kosmo tests across 10 crates, 0 failures, 0 warnings. 52/52 eval scenarios pass.

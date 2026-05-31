@@ -12,6 +12,7 @@
 | **PSE+IL Intelligence Layer** | directions 1–10 in `pse-adapter-il` | Active epistemic system: health, lifecycle, agenda, retrieval |
 | **NxAlien** | `pse-nxalien-*`, `nxalien-cli` | Agent-context exoskeleton: governance rules → HDAG → epistemic signal |
 | **Adapters** | `pse-adapter-*` | Domain adapters: seismo, vitals, binance, ENTSOE, syslog, … |
+| **KOSMO-OPS-01 Operationalization** | `kosmo-foundry`, `kosmo-store`, `kosmo-parseback`, `kosmo-operator` | R1→R2→R3 execution pipeline: Foundry check → topology snapshot → closure report |
 
 All layers are **fail-closed**: `SemanticCrystal` records flow only through the PSE-Bridge.
 No subsystem constructs or commits crystals on its own.
@@ -1607,7 +1608,7 @@ cargo run --release -p pse-bench-gt --bin bench_gt -- \
 
 ## Workspace layout
 
-39 crates, 10 domain adapters, 12 tool binaries:
+43 crates, 10 domain adapters, 12 tool binaries:
 
 ```
 crates/
@@ -1678,6 +1679,30 @@ crates/
   pse-reasoning       Epistemic Thunderbolt Vector — D=ψ·ρ·ω guided multi-hop
                       reasoning via guide(query, store, config) → ReasoningChain;
                       10 unit tests
+  kosmo-core          KOSMO-OPS-01 data model (wasm-portable, process-free):
+                      Digest, Q16, PolicyProfile, EvidenceBundle, FoundryCheckSpec,
+                      FoundryExecutionPlan/Report, CartographyStoreCommit,
+                      ParseBackPlan/Report, ValidationClosureReport; 79+ unit tests
+  kosmo-workbench     WorkspaceIndex, TaskSpec, FoundryRunner stubs; 20 tests
+  kosmo-hyphae        HYPHAE v0.3/v0.4, CubeSwarm, Metatron, Surgery, LPCM v0.4.2;
+                      127 unit tests
+  kosmo-systemcube    SystemCube passive export: BlueprintUnit, SystemCubeManifest,
+                      ContradictionEnergyReport, KcubeExportReport; 36 tests
+  kosmo-pipeline      run_dry_pipeline: GateTraceAggregator, IntegrationRunReport,
+                      OperatorApprovalToken, MaterializationPlan; 46 tests
+  kosmo-foundry       KOSMO-OPS-01 RX — Real Foundry executor: runs allowlisted
+                      `cargo` subcommands (check/test/clippy) via process spawn;
+                      ReportOnly → SkippedByReportOnly; 8 tests
+  kosmo-store         KOSMO-OPS-01 RX — Persistent JSONL CorpusCartography store:
+                      JsonlCartographyStore, verify_integrity(); DryRun cannot
+                      persist (allow_host_write=false invariant); 9 tests
+  kosmo-parseback     KOSMO-OPS-01 RX — Real ParseBack executor: topology snapshot
+                      via `cargo metadata --no-deps`, CrateFingerprint, diff_snapshots
+                      (NodeRemoved/EdgeRemoved→Critical; INVARIANT-007); 17 tests
+  kosmo-operator      KOSMO-OPS-01 RX — Operator orchestrator: R1→R2→R3 pipeline
+                      (Foundry check → ParseBack pre/post diff → ValidationClosure
+                      → optional JSONL persist); OperationReport content-addressed;
+                      8 tests
 
 adapters/
   pse-adapter-binance     Crypto markets (Binance OHLCV)
@@ -1760,6 +1785,11 @@ tools/
   nxalien-cli         nxalien governance CLI:
                       compile [--remote <url>] [--remote-only]
                       (binary: nxalien)
+  kosmo-eval          KOSMO-OPS-01 empirical validation benchmark: 52 scenarios
+                      exercising R1–R9 data-model invariants + RX real-executor
+                      contracts (ParseBack determinism, Operator full-cycle dry-run,
+                      closure persistence); EXIT 0 = all pass
+                      (binary: kosmo-eval)
 ```
 
 ---
