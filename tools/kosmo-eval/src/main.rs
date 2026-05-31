@@ -823,26 +823,40 @@ fn run_cerebras(api_key: &str) -> ScenarioResult {
             return Err(format!("HTTP {status}: {}", &body[..body.len().min(200)]));
         }
 
-        let json: serde_json::Value = resp
-            .json()
-            .map_err(|e| format!("JSON parse failed: {e}"))?;
+        let raw = resp.text().map_err(|e| format!("read response failed: {e}"))?;
+        let json: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|e| format!("JSON parse failed: {e}\nRaw: {}", &raw[..raw.len().min(400)]))?;
 
-        let choices = json["choices"]
-            .as_array()
-            .ok_or_else(|| "missing 'choices' array in response".to_string())?;
-
-        if choices.is_empty() {
-            return Err("empty 'choices' array".into());
-        }
-
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| "missing content in first choice".to_string())?;
+        // Extract text content robustly: handle both string and array content fields.
+        let msg = &json["choices"][0]["message"];
+        let content: String = match &msg["content"] {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Array(parts) => {
+                // OpenAI-style content blocks: [{type:"text", text:"..."}]
+                parts.iter()
+                    .filter_map(|p| p["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("")
+            }
+            serde_json::Value::Null => {
+                // Dump the full response so the caller can diagnose
+                return Err(format!(
+                    "content is null — full response:\n{}",
+                    serde_json::to_string_pretty(&json).unwrap_or(raw)
+                ));
+            }
+            other => {
+                return Err(format!(
+                    "unexpected content type: {other}\nfull response:\n{}",
+                    serde_json::to_string_pretty(&json).unwrap_or(raw)
+                ));
+            }
+        };
 
         if content.to_uppercase().contains("KOSMO") {
             Ok(())
         } else {
-            Err(format!("unexpected response (expected 'KOSMO-OK'): {:?}", content))
+            Err(format!("unexpected response: {:?}", content))
         }
     })();
 
