@@ -72,6 +72,7 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ✅ COMPLETE (35 new tests; pse-core absent from dep tree) |
 | R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ✅ COMPLETE (272 kosmo-core tests, +35 new) |
 | R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ✅ COMPLETE (305 kosmo-core tests, +33 new) |
+| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — 37 invariant scenarios R1–R9, optional Cerebras API probe | ✅ COMPLETE (37/37 PASS) |
 
 ---
 

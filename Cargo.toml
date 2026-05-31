@@ -76,6 +76,7 @@ members = [
     "crates/pse-reasoning",
     "tools/nxalien-cli",
     "tools/pse-paper-bench",
+    "tools/kosmo-eval",
 ]
 
 [workspace.package]
