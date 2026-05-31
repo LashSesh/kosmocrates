@@ -806,7 +806,7 @@ fn run_cerebras(api_key: &str) -> ScenarioResult {
         let body = serde_json::json!({
             "model": model,
             "messages": [{"role": "user", "content": "Reply with exactly one word: KOSMO-OK"}],
-            "max_tokens": 16
+            "max_tokens": 512
         });
 
         let resp = client
