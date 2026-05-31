@@ -16,6 +16,7 @@ publish = false
 [dependencies]
 kosmo-core = { path = "../../crates/kosmo-core" }
 kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
+kosmo-foundry = { path = "../../crates/kosmo-foundry" }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 

@@ -72,7 +72,34 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ✅ COMPLETE (35 new tests; pse-core absent from dep tree) |
 | R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ✅ COMPLETE (272 kosmo-core tests, +35 new) |
 | R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ✅ COMPLETE (305 kosmo-core tests, +33 new) |
-| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — 37 invariant scenarios R1–R9, optional Cerebras API probe | ✅ COMPLETE (37/37 PASS) |
+| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — invariant scenarios R1–R9 + RX, optional Cerebras API probe | ✅ COMPLETE (40/40 core PASS) |
+| RX | Real Foundry Executor | new crate `kosmo-foundry`; `FoundryExecutor`, `map_kind_to_subcommand`, `standard_cargo_plan` — runs allowlisted cargo checks in a policy-governed sandbox, produces real `FoundryExecutionReport` | ✅ COMPLETE (13 new tests) |
+
+---
+
+## RX — Real Foundry Executor (post-R9 emergent step)
+
+The R1 phase delivered the Foundry *data model* (`FoundryExecutionPlan` →
+`FoundryExecutionReport`), but `kosmo-pipeline::simulate_foundry_check` only
+*simulated* an outcome. RX closes that gap: `kosmo-foundry` is the runtime
+that turns a plan into an actually-executed report.
+
+**Why a separate crate:** `kosmo-core` is the portable, process-free substrate
+above `pse-types`. Host process execution is a host capability, so it lives in a
+dedicated crate — the same isolation principle as `kosmo-pse-bridge`.
+
+**Safety contract enforced by construction:**
+- ReportOnly mode spawns nothing → `SkippedByReportOnly`.
+- Command allowlist is checked *before* spawn → `CommandDeniedByPolicy`.
+- Only read-only verification subcommands are reachable (`check`/`test`/`clippy`);
+  no `FoundryCheckKind` maps to a mutating command.
+- Environment is stripped (no passthrough unless permitted; secrets never forwarded).
+- Per-check timeout kills overruns → `TimedOut`.
+- Worst-wins aggregation across checks; an empty plan fails closed → `Inconclusive`.
+- Every per-check evidence id and the report id are SHA-256 content digests.
+
+This makes the R3 Validation Closure operational: the Foundry half of the
+closure is now a real execution outcome, not a simulation.
 
 ---
 

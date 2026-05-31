@@ -787,6 +787,58 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: Real Foundry Executor ─────────────────────────────────────────────
+    // These exercise the live executor's governance layer (cross-platform,
+    // no compilation). The real process spawn/capture/timeout paths are covered
+    // by `cargo test -p kosmo-foundry`.
+
+    v.push(run_check("rx-foundry-report-only-spawns-nothing", "RX:FoundryExec", || {
+        let plan = kosmo_foundry::standard_cargo_plan(
+            d(b"pol"), d(b"ws"), d(b"task"), d(b"root"), 30_000,
+        );
+        let exec = kosmo_foundry::FoundryExecutor::new(".");
+        let report = exec.execute(&plan, &PolicyProfile::default_report_only(), d(b"bundle"));
+        if !report.outcome.is_skipped_report_only() {
+            return Err(format!("expected SkippedByReportOnly, got {:?}", report.outcome));
+        }
+        if !report.check_results.is_empty() {
+            return Err("ReportOnly must spawn nothing — no check results allowed".into());
+        }
+        if !report.verify_id() {
+            return Err("FoundryExecutionReport id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-foundry-command-denied-not-executed", "RX:FoundryExec", || {
+        // Default cargo policy allows only `cargo`; invoke a different program.
+        let plan = kosmo_foundry::standard_cargo_plan(
+            d(b"pol"), d(b"ws"), d(b"task"), d(b"root"), 30_000,
+        );
+        let exec = kosmo_foundry::FoundryExecutor::new(".").with_program("definitely-not-cargo");
+        let report = exec.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));
+        if report.outcome != kosmo_core::FoundryExecutionOutcome::CommandDeniedByPolicy {
+            return Err(format!("expected CommandDeniedByPolicy, got {:?}", report.outcome));
+        }
+        if !report.verify_id() {
+            return Err("FoundryExecutionReport id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-foundry-kind-mapping-read-only", "RX:FoundryExec", || {
+        use kosmo_core::FoundryCheckKind as K;
+        use kosmo_foundry::map_kind_to_subcommand as m;
+        // Only read-only verification subcommands are reachable.
+        if m(&K::Build) != Some("check") { return Err("Build must map to check".into()); }
+        if m(&K::Test) != Some("test") { return Err("Test must map to test".into()); }
+        if m(&K::Lint) != Some("clippy") { return Err("Lint must map to clippy".into()); }
+        // No mapping exposes a mutating command.
+        if m(&K::Security).is_some() { return Err("Security must not map to cargo".into()); }
+        if m(&K::Custom("x".into())).is_some() { return Err("Custom must not map".into()); }
+        Ok(())
+    }));
+
     v
 }
 
