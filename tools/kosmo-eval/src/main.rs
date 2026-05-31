@@ -793,7 +793,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
 fn run_cerebras(api_key: &str) -> ScenarioResult {
     // Model is configurable via CEREBRAS_MODEL; default is the current Cerebras fast model.
     let model = std::env::var("CEREBRAS_MODEL")
-        .unwrap_or_else(|_| "llama-3.3-70b".to_string());
+        .unwrap_or_else(|_| "gpt-oss-120b".to_string());
 
     let t0 = Instant::now();
     let result: Result<(), String> = (|| {
