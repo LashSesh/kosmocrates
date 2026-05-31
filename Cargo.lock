@@ -1227,6 +1227,7 @@ dependencies = [
  "kosmo-core",
  "kosmo-foundry",
  "kosmo-pse-bridge",
+ "kosmo-store",
  "reqwest",
  "serde_json",
 ]
@@ -1273,6 +1274,15 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "sha2 0.11.0",
+]
+
+[[package]]
+name = "kosmo-store"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

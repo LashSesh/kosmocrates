@@ -103,6 +103,37 @@ closure is now a real execution outcome, not a simulation.
 
 ---
 
+## RX — Persistent CorpusCartography Store (post-R9 emergent step)
+
+R4 delivered the `CorpusCartographyStore` trait with an in-memory
+implementation only. RX adds `kosmo-store::JsonlCartographyStore`: an
+append-only, durable backend that persists each commit as one JSON line and
+reconstructs the manifest by replaying the file on open.
+
+**Why a separate crate:** `kosmo-core` is filesystem-free so it stays
+wasm-portable. Disk persistence is a host capability → dedicated crate, same
+isolation principle as `kosmo-foundry` and `kosmo-pse-bridge`.
+
+**Emergent safety property (the key insight):** writing a commit to disk *is a
+host write*. The in-memory store only needs to block `ReportOnly`; a durable
+store must *additionally* require `allow_host_write`. Because `DryRun` keeps
+`allow_host_write == false`, **`DryRun` cannot persist** — only
+`OperatorApproved` may append to disk. This is the same host-write policy bit
+the Foundry sandbox honours, now governing persistence: one invariant enforced
+across execution and storage alike.
+
+- ReportOnly → `PolicyDenied` (no file created).
+- DryRun → `PolicyDenied` (host write required; no file created).
+- OperatorApproved → persists; reopening reconstructs the manifest from disk.
+- Sequence/scope violations fail closed before any write.
+- `verify_integrity` re-reads the durable copy and detects digest mismatch
+  (tampering) and sequence gaps.
+
+7 new tests in `kosmo-store`; 2 new RX scenarios in `kosmo-eval`
+(now 42/42 core scenarios pass).
+
+---
+
 ## Hard Safety Rules Carried Forward (Non-Negotiable)
 
 1. `ImplementationMode::ReportOnly` is the default across all new code paths.

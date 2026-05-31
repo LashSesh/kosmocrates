@@ -839,7 +839,79 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: Persistent CorpusCartography Store (disk) ─────────────────────────
+    // Demonstrates the emergent host-write invariant: a durable append is a
+    // host write, so DryRun (allow_host_write == false) cannot persist — only
+    // OperatorApproved can. Uses a temp file that is cleaned up.
+
+    v.push(run_check("rx-store-dryrun-cannot-persist", "RX:PersistStore", || {
+        use kosmo_core::{CartographyEntryKind, CartographyStoreCommit, CorpusCartographyStore,
+            CorpusScope, CartographyStoreError};
+        let path = temp_store_path("eval-dryrun");
+        let mut store = kosmo_store::JsonlCartographyStore::open(
+            &path, CorpusScope::LocalHostProject, d(b"pol"),
+        ).map_err(|e| format!("open failed: {e}"))?;
+        let commit = CartographyStoreCommit::new(
+            CorpusScope::LocalHostProject, 1, d(b"payload"),
+            CartographyEntryKind::EvidenceSummary, d(b"bundle"), d(b"pol"),
+        );
+        let res = store.append(commit, &PolicyProfile::dry_run());
+        let denied = matches!(res, Err(CartographyStoreError::PolicyDenied { .. }));
+        let no_file = !path.exists();
+        let _ = std::fs::remove_file(&path);
+        if !denied {
+            return Err("DryRun must be denied: a durable append is a host write".into());
+        }
+        if !no_file {
+            return Err("no file may be created when persist is denied".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-store-operator-approved-persists-reloads", "RX:PersistStore", || {
+        use kosmo_core::{CartographyEntryKind, CartographyStoreCommit, CorpusCartographyStore,
+            CorpusScope};
+        let path = temp_store_path("eval-persist");
+        let _ = std::fs::remove_file(&path);
+        let scope = CorpusScope::LocalHostProject;
+        // Write two commits under OperatorApproved (allow_host_write == true).
+        {
+            let mut store = kosmo_store::JsonlCartographyStore::open(&path, scope.clone(), d(b"pol"))
+                .map_err(|e| format!("open failed: {e}"))?;
+            for seq in 1..=2u64 {
+                let commit = CartographyStoreCommit::new(
+                    scope.clone(), seq, d(format!("p{seq}").as_bytes()),
+                    CartographyEntryKind::EvidenceSummary, d(b"bundle"), d(b"pol"),
+                );
+                store.append(commit, &PolicyProfile::operator_approved())
+                    .map_err(|e| format!("append {seq} failed: {e}"))?;
+            }
+        }
+        // Reopen from disk and verify integrity of the durable copy.
+        let reopened = kosmo_store::JsonlCartographyStore::open(&path, scope, d(b"pol"))
+            .map_err(|e| format!("reopen failed: {e}"))?;
+        let report = reopened.verify_integrity(d(b"bundle"))
+            .map_err(|e| format!("integrity failed: {e}"))?;
+        let intact = report.status.is_intact() && report.checked_count == 2;
+        let _ = std::fs::remove_file(&path);
+        if !intact {
+            return Err(format!("expected Intact/2, got {:?}/{}", report.status, report.checked_count));
+        }
+        Ok(())
+    }));
+
     v
+}
+
+/// Unique temp path for a benchmark store scenario.
+fn temp_store_path(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut p = std::env::temp_dir();
+    p.push(format!("kosmo-{tag}-{nanos}.jsonl"));
+    p
 }
 
 fn run_cerebras(api_key: &str) -> ScenarioResult {
