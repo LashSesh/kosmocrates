@@ -791,6 +791,10 @@ fn build_scenarios() -> Vec<ScenarioResult> {
 }
 
 fn run_cerebras(api_key: &str) -> ScenarioResult {
+    // Model is configurable via CEREBRAS_MODEL; default is the current Cerebras fast model.
+    let model = std::env::var("CEREBRAS_MODEL")
+        .unwrap_or_else(|_| "gpt-oss-120b".to_string());
+
     let t0 = Instant::now();
     let result: Result<(), String> = (|| {
         let client = reqwest::blocking::Client::builder()
@@ -798,8 +802,9 @@ fn run_cerebras(api_key: &str) -> ScenarioResult {
             .build()
             .map_err(|e| format!("client build failed: {e}"))?;
 
+        println!("  model: {model}");
         let body = serde_json::json!({
-            "model": "llama3.1-8b",
+            "model": model,
             "messages": [{"role": "user", "content": "Reply with exactly one word: KOSMO-OK"}],
             "max_tokens": 16
         });
