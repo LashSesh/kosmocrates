@@ -15,6 +15,45 @@ note explicitly says so.
 
 ### Added
 
+* **Unified tripolar energy kernel** (`kosmo-core::energy`) — the single,
+  float-free, content-addressed selection core `D = ψ · ρ · ω`.
+
+  - `TripolarEnergy { psi, rho, omega }` — the three poles (meaning / coherence
+    / phase), each clamped to `[0, 1]`; `d()` computes `ψ·ρ·ω` in `Q16` integer
+    arithmetic (CROSS-007: no floats).
+  - `EnergyFactors` — six `[0, 1]` modulators (`gate`, `taint`, `license`,
+    `foundry`, `seam`, `contradiction`) derived fail-closed from the substrate's
+    own `GateResult` / `TaintLabel` / `LicenseStatus` / `FoundrySurvival`. Each
+    factor can only *reduce* energy; a single zero collapses it.
+  - `EnergyKernel` — tripolar core × factor product → final selection energy.
+  - `EnergyAssessment` — content-addressed, evidence-bound, `verify_id()`.
+  - `rank_by_energy` — deterministic descending ranking, `subject_id` tie-break,
+    never silently drops a zero-energy candidate.
+  - **Non-bypass invariant (CROSS-010):** energy ranks but never gates. A
+    `Reject` zeroes the `gate` factor, so a rejected candidate can never
+    out-rank a passing one and a high `D` can never flip a `Reject` into an
+    `Accept`. 20 unit tests.
+
+* **Real code topology extraction** (`kosmo-hyphae::code_hdag`) — replaced the
+  one-node `CodeHDAG` skeleton with `extract_from_rust_source`, a dependency-free
+  lexical extractor that emits real module/import/fn/type/test nodes and
+  `Imports`/`Contains`/`Tests`/`Implements` edges. Content-addressed to the
+  source line; deterministic (INVARIANT-007). Bridges into the energy kernel via
+  `rho_coherence()`, `omega_phase()`, `energy_kernel()`, and `energy_assessment()`
+  (ψ is a caller input; ρ and ω are derived from graph structure). New `Contains`
+  `HDAGEdgeKind`; `CodeHDAG` content-address now covers full edge wiring. 12 new
+  unit tests.
+
+* **`tools/kosmo-eval` extended to 60 scenarios** (was 52): 5 new `RX:Energy`
+  scenarios (tripolar exactness, gate non-bypass, quarantine/proprietary/foundry
+  zeroing, content-addressing, deterministic ranking) and 3 new `RX:Topology`
+  scenarios (real-graph extraction, deterministic extraction, the full
+  topology→energy chain). `kosmo-eval` now depends on `kosmo-hyphae`.
+
+* Architecture decisions **AD-015** (tripolar energy kernel + non-bypass
+  invariant) and **AD-016** (lexical topology extraction + topology→energy
+  bridge).
+
 * **KOSMO-OPS-01 Operationalization Staircase** — R0–RX full implementation
   of the empirical validation benchmark for KOSMO-OPS-01 invariants R1–R9.
 
@@ -62,6 +101,12 @@ note explicitly says so.
   mapping), AD-014 (OperationReport content-addressed over sub-IDs).
 
 ### Fixed
+
+* **`-D warnings` build of `kosmo-core` and `kosmo-operator`** — removed two
+  pre-existing unused-import warnings (`EvidenceBundle`/`EvidenceRef` at module
+  scope in `cartography.rs`; `FoundryCommandPolicy`/`FoundryEnvironmentPolicy`
+  at module scope in `kosmo-operator`, now scoped to the tests that use them)
+  that broke `RUSTFLAGS="-D warnings"` builds of those crates.
 
 * **Two stale test assertions in `pse-eval-matrix`** (`agent_exoskeleton.rs`):
   `ablation_aggregate_base_metrics_present` expected the robustness label

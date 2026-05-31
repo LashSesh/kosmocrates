@@ -1226,6 +1226,7 @@ version = "0.1.0"
 dependencies = [
  "kosmo-core",
  "kosmo-foundry",
+ "kosmo-hyphae",
  "kosmo-operator",
  "kosmo-parseback",
  "kosmo-pse-bridge",

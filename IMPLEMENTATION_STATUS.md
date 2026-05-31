@@ -371,3 +371,51 @@ Spec: `KOSMO_OPS_01_STATUS.md`. Branch: `claude/kosmo-ops-01-operationalization`
 
 ## Open Blockers
 None. KOSMO-OPS-01 staircase R0–RX is fully implemented.
+
+---
+
+# KOSMO-TOPO-ENERGY-01 — Real Topology In, Tripolar Energy On It (2026-05-31)
+
+Front of the production-machine vision chain:
+`real topology in → tripolar energy → (blueprint out → validation → feedback)`.
+This round delivered the first two links.
+
+### TE-1 — Unified tripolar energy kernel (`kosmo-core::energy`)
+- [x] `TripolarEnergy { psi, rho, omega }` — `D = ψ·ρ·ω`, Q16 integer arithmetic, no floats (CROSS-007)
+- [x] `EnergyFactors` — gate/taint/license/foundry/seam/contradiction, each `[0,1]`, derived fail-closed from `GateResult`/`TaintLabel`/`LicenseStatus`/`FoundrySurvival`
+- [x] `EnergyKernel` — `D · ∏ factors`; `EnergyAssessment` content-addressed + evidence-bound
+- [x] `rank_by_energy` — deterministic, tie-break on `subject_id`, never drops a candidate
+- [x] **Non-bypass invariant (CROSS-010):** `Reject` → gate factor 0 → energy 0; energy ranks but never gates
+- [x] 20 unit tests
+
+### TE-2 — Real code topology extraction (`kosmo-hyphae::code_hdag`)
+- [x] `CodeHDAG::extract_from_rust_source` — dependency-free lexical extractor
+- [x] Nodes: modules, imports, fn defs, type defs, tests; edges: `Imports`/`Contains`/`Tests`/`Implements`
+- [x] Content-addressed to `location:line:text`; deterministic (INVARIANT-007); new `Contains` edge kind; content-address now covers full edge wiring
+- [x] Topology→energy bridge: `rho_coherence()`, `omega_phase()`, `energy_kernel()`, `energy_assessment()` (ψ caller-supplied; ρ, ω derived from graph)
+- [x] 12 new unit tests
+
+### TE-3 — Empirical benchmark (`tools/kosmo-eval`)
+- [x] +5 `RX:Energy` scenarios (tripolar exactness, gate non-bypass, hard-state zeroing, content-addressing, deterministic ranking)
+- [x] +3 `RX:Topology` scenarios (real-graph extraction, deterministic extraction, full topology→energy chain)
+- [x] 60/60 scenarios pass, EXIT 0; `kosmo-eval` now depends on `kosmo-hyphae`
+
+### Maintenance
+- [x] Fixed two pre-existing `-D warnings` failures (unused imports in `cartography.rs` and `kosmo-operator`)
+
+| Phase | Crate | Tests |
+|---|---|---|
+| TE-1 | kosmo-core (energy) | 20 |
+| TE-2 | kosmo-hyphae (code_hdag) | 12 new (139 crate total) |
+| TE-3 | kosmo-eval | 60 scenarios |
+
+**Total: 646 substrate tests (was 614). 0 failures. 0 warnings. 60/60 eval scenarios pass.**
+
+### Decisions
+AD-015 (tripolar energy kernel + non-bypass invariant), AD-016 (lexical topology extraction + topology→energy bridge).
+
+## Open Blockers (TOPO-ENERGY)
+None. Highest-priority remaining bridges, in order:
+1. Adopt `EnergyKernel` for `SourceCube`/`BlueprintUnit`/`NormGene` ranking (currently the kernel is available and demonstrated but the legacy heuristics still stand alongside it).
+2. Real `.kcube` executor crate (the `kosmo-core::kcube` data model exists but has no host-capability writer/importer/roundtrip — the established foundry/store/parseback pattern).
+3. Close the PSE feedback loop (the `kosmo-pse-bridge` is candidate-only / one-directional).

@@ -26,8 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use kosmo_core::{
     CartographyEntryKind, CartographyStoreCommit, CorpusCartographyStore, CorpusScope,
-    Digest, FoundryCommandPolicy, FoundryEnvironmentPolicy, FoundryExecutionPlan,
-    ImplementationMode, ParseBackScanScope, ParseBackSeverity,
+    Digest, FoundryExecutionPlan, ImplementationMode, ParseBackScanScope, ParseBackSeverity,
     PolicyProfile, ValidationClosureReport,
 };
 use kosmo_foundry::FoundryExecutor;
@@ -406,7 +405,7 @@ pub fn standard_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus, ValidationClosureStatus};
+    use kosmo_core::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
 
     fn pid() -> Digest { Digest::of_bytes(b"policy") }
 
@@ -419,7 +418,10 @@ mod tests {
     }
 
     fn empty_foundry_plan() -> FoundryExecutionPlan {
-        use kosmo_core::{FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy};
+        use kosmo_core::{
+            FoundryCommandPolicy, FoundryEnvironmentPolicy, FoundrySandboxKind, FoundrySandboxSpec,
+            FoundryTimeoutPolicy,
+        };
         FoundryExecutionPlan::new(
             pid(),
             Digest::of_bytes(b"widx"),
@@ -511,7 +513,8 @@ mod tests {
     }
 
     fn minimal_check_plan() -> FoundryExecutionPlan {
-        use kosmo_core::{FoundryCheckKind, FoundryCheckSpec, FoundrySandboxSpec,
+        use kosmo_core::{FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
+            FoundryEnvironmentPolicy, FoundrySandboxSpec,
             FoundrySandboxKind, FoundryTimeoutPolicy};
         let check_spec = FoundryCheckSpec::new(
             FoundryCheckKind::Build,

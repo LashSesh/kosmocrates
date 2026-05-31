@@ -1,5 +1,5 @@
 use crate::digest::Digest;
-use crate::evidence::{EvidenceBundle, EvidenceRef, ReplayStatus};
+use crate::evidence::ReplayStatus;
 use crate::policy::PolicyProfile;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -424,7 +424,7 @@ impl CartographyStorageManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence::{EvidenceBundle, EvidenceKind, ReplayStatus};
+    use crate::evidence::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
     use crate::policy::{ImplementationMode, PolicyProfile};
 
     fn d(seed: &[u8]) -> Digest {

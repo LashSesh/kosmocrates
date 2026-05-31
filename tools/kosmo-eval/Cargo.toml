@@ -15,6 +15,7 @@ publish = false
 
 [dependencies]
 kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-hyphae = { path = "../../crates/kosmo-hyphae" }
 kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
 kosmo-foundry = { path = "../../crates/kosmo-foundry" }
 kosmo-store = { path = "../../crates/kosmo-store" }

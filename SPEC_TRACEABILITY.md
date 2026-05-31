@@ -264,3 +264,35 @@ Target: `crates/kosmo-operator/src/lib.rs`
 | Type / Module | Status |
 |---|---|
 | `OperatorExecutor`, `OperationPlan`, `OperationReport`, `standard_plan` | ✅ |
+
+## KOSMO-TOPO-ENERGY-01 — Real Topology In, Tripolar Energy On It
+
+### TE — Unified tripolar energy kernel
+Target: `crates/kosmo-core/src/energy.rs` (AD-015)
+
+| Type / Module | Status |
+|---|---|
+| `TripolarEnergy` (`D = ψ·ρ·ω`, Q16, CROSS-007) | ✅ |
+| `EnergyFactors` (gate/taint/license/foundry/seam/contradiction, fail-closed) | ✅ |
+| `EnergyKernel`, `FoundrySurvival` | ✅ |
+| `EnergyAssessment` (content-addressed, evidence-bound, CROSS-006) | ✅ |
+| `rank_by_energy` (deterministic, never drops candidates) | ✅ |
+| Non-bypass invariant: energy ranks, never gates (CROSS-010) | ✅ |
+
+### TE — Real code topology extraction
+Target: `crates/kosmo-hyphae/src/code_hdag.rs` (AD-016)
+
+| Type / Module | Status |
+|---|---|
+| `CodeHDAG::extract_from_rust_source` (lexical, dependency-free) | ✅ |
+| Real nodes (module/import/fn/type/test) + edges (`Imports`/`Contains`/`Tests`/`Implements`) | ✅ |
+| Content-addressed to source line; deterministic (INVARIANT-007) | ✅ |
+| Topology→energy bridge: `rho_coherence`, `omega_phase`, `energy_kernel`, `energy_assessment` | ✅ |
+
+### TE — Empirical benchmark
+Target: `tools/kosmo-eval/src/main.rs`
+
+| Scenario group | Status |
+|---|---|
+| `RX:Energy` (5 scenarios) | ✅ |
+| `RX:Topology` (3 scenarios) | ✅ |

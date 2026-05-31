@@ -28,7 +28,12 @@ use kosmo_core::{
     EvaluationSuiteReport, StubEvaluationHarness,
     // Core
     Digest, PolicyProfile, Q16,
+    // Unified tripolar energy kernel
+    EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult, LicenseStatus,
+    TaintLabel, TripolarEnergy, rank_by_energy,
 };
+
+use kosmo_hyphae::code_hdag::{CodeHDAG, HDAGEdgeKind};
 
 use kosmo_pse_bridge::{
     PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
@@ -1219,6 +1224,221 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 "OperatorApproved on clean workspace expected Passed, got {:?}",
                 report.closure_report.final_validation_status
             ));
+        }
+        Ok(())
+    }));
+
+    // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
+
+    v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {
+        // 0.5 · 0.5 · 0.5 = 0.125, integer-exact in Q16 (no floats).
+        let t = TripolarEnergy::new(Q16::HALF, Q16::HALF, Q16::HALF);
+        if t.d() != Q16::ratio(1, 8).unwrap() {
+            return Err(format!("expected D=1/8, got raw {}", t.d().raw()));
+        }
+        if TripolarEnergy::unit().d() != Q16::ONE {
+            return Err("unit tripolar must yield D=1".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-reject-gate-never-bypassed", "RX:Energy", || {
+        // A maximal tripolar core with a Reject gate must yield ZERO energy:
+        // energy ranks, it never bypasses a gate (CROSS-010).
+        let factors = EnergyFactors::derive(
+            &GateResult::Reject { reason: "missing evidence".into() },
+            &TaintLabel::Clean,
+            &LicenseStatus::Permissive { spdx: "MIT".into() },
+            FoundrySurvival::Passed,
+            Q16::ONE,
+            Q16::ZERO,
+        );
+        let rejected = EnergyKernel::new(TripolarEnergy::unit(), factors);
+        if !rejected.is_zeroed() {
+            return Err("Reject gate must zero the energy".into());
+        }
+        // A passing kernel with even a tiny D out-ranks the rejected maximal one.
+        let passing = EnergyKernel::new(
+            TripolarEnergy::new(Q16::ratio(1, 100).unwrap(), Q16::ONE, Q16::ONE),
+            EnergyFactors::all_clean(),
+        );
+        if passing.energy().raw() <= rejected.energy().raw() {
+            return Err("a gate-passing candidate must out-rank a rejected one".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-quarantine-and-proprietary-zero", "RX:Energy", || {
+        // Hard taint/license states collapse energy to zero (fail-closed).
+        for factors in [
+            EnergyFactors::derive(
+                &GateResult::Pass,
+                &TaintLabel::Quarantined { reason: "x".into() },
+                &LicenseStatus::Permissive { spdx: "MIT".into() },
+                FoundrySurvival::Passed,
+                Q16::ONE,
+                Q16::ZERO,
+            ),
+            EnergyFactors::derive(
+                &GateResult::Pass,
+                &TaintLabel::Clean,
+                &LicenseStatus::Proprietary,
+                FoundrySurvival::Passed,
+                Q16::ONE,
+                Q16::ZERO,
+            ),
+            EnergyFactors::derive(
+                &GateResult::Pass,
+                &TaintLabel::Clean,
+                &LicenseStatus::Permissive { spdx: "MIT".into() },
+                FoundrySurvival::Failed,
+                Q16::ONE,
+                Q16::ZERO,
+            ),
+        ] {
+            let k = EnergyKernel::new(TripolarEnergy::unit(), factors);
+            if !k.is_zeroed() {
+                return Err("quarantine / proprietary / foundry-failure must zero energy".into());
+            }
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-assessment-content-addressed", "RX:Energy", || {
+        let k = EnergyKernel::new(TripolarEnergy::unit(), EnergyFactors::all_clean());
+        let a1 = EnergyAssessment::new(d(b"subject"), k, d(b"pol"), d(b"bundle"));
+        let a2 = EnergyAssessment::new(d(b"subject"), k, d(b"pol"), d(b"bundle"));
+        if a1.id != a2.id {
+            return Err("identical inputs must produce identical assessment id".into());
+        }
+        if !a1.verify_id() || a1.id == Digest::ZERO {
+            return Err("assessment id must verify and be non-zero".into());
+        }
+        if a1.evidence_bundle_id == Digest::ZERO {
+            return Err("assessment must be evidence-bound".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-ranking-deterministic", "RX:Energy", || {
+        let hi = EnergyAssessment::new(
+            d(b"hi"),
+            EnergyKernel::new(TripolarEnergy::unit(), EnergyFactors::all_clean()),
+            d(b"pol"),
+            d(b"bundle"),
+        );
+        let lo = EnergyAssessment::new(
+            d(b"lo"),
+            EnergyKernel::new(
+                TripolarEnergy::new(Q16::ratio(1, 4).unwrap(), Q16::ONE, Q16::ONE),
+                EnergyFactors::all_clean(),
+            ),
+            d(b"pol"),
+            d(b"bundle"),
+        );
+        let r1 = rank_by_energy(&[lo.clone(), hi.clone()]);
+        let r2 = rank_by_energy(&[hi.clone(), lo.clone()]);
+        if r1[0].subject_id != hi.subject_id || r2[0].subject_id != hi.subject_id {
+            return Err("higher energy must rank first regardless of input order".into());
+        }
+        if r1.len() != 2 {
+            return Err("ranking must preserve every candidate".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Topology — real lexical code-HDAG extraction ─────────────────────
+
+    const TOPO_SAMPLE: &str = "\
+use std::collections::BTreeMap;
+use crate::digest::Digest;
+
+pub mod inner;
+
+pub struct Widget { pub size: u32 }
+pub enum Color { Red, Green }
+pub trait Render { fn render(&self) -> String; }
+
+impl Render for Widget {
+    fn render(&self) -> String { String::new() }
+}
+
+pub fn build(a: u32, b: u32) -> Widget { Widget { size: a + b } }
+fn helper() {}
+
+#[test]
+fn it_builds() { assert!(true); }
+";
+
+    v.push(run_check("rx-topology-extracts-real-graph", "RX:Topology", || {
+        let h = CodeHDAG::extract_from_rust_source(
+            d(b"ev"),
+            "src/widget.rs",
+            TOPO_SAMPLE,
+            TaintLabel::Clean,
+        );
+        if h.edges_of_kind(&HDAGEdgeKind::Imports) != 2 {
+            return Err(format!("expected 2 imports, got {}", h.edges_of_kind(&HDAGEdgeKind::Imports)));
+        }
+        if h.edges_of_kind(&HDAGEdgeKind::Tests) != 1 {
+            return Err("expected exactly one #[test] fn".into());
+        }
+        if h.edges_of_kind(&HDAGEdgeKind::Implements) != 1 {
+            return Err("expected one `impl Render for Widget`".into());
+        }
+        if h.definition_count() < 8 {
+            return Err(format!("expected rich topology, got {} defs", h.definition_count()));
+        }
+        // Not the old one-node skeleton.
+        let sk = CodeHDAG::skeleton_for_source(d(b"ev"), "src/widget.rs", TaintLabel::Clean);
+        if h.hdag_id == sk.hdag_id || h.nodes.len() <= sk.nodes.len() {
+            return Err("extracted graph must be strictly richer than the skeleton".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-topology-extraction-deterministic", "RX:Topology", || {
+        let a = CodeHDAG::extract_from_rust_source(d(b"ev"), "x.rs", TOPO_SAMPLE, TaintLabel::Clean);
+        let b = CodeHDAG::extract_from_rust_source(d(b"ev"), "x.rs", TOPO_SAMPLE, TaintLabel::Clean);
+        if a.hdag_id != b.hdag_id {
+            return Err("identical source must yield identical hdag_id (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-topology-energy-chain", "RX:Topology", || {
+        // The full front of the vision: real topology in → tripolar energy on it.
+        // A complete, tested module must carry more energy than an empty one,
+        // holding the semantic pole ψ constant.
+        let rich = CodeHDAG::extract_from_rust_source(
+            d(b"ev"),
+            "src/widget.rs",
+            TOPO_SAMPLE,
+            TaintLabel::Clean,
+        );
+        let empty = CodeHDAG::extract_from_rust_source(
+            d(b"ev"),
+            "src/empty.rs",
+            "// nothing here\n",
+            TaintLabel::Clean,
+        );
+        let psi = Q16::ONE;
+        let rich_e = rich.energy_kernel(psi, EnergyFactors::all_clean()).energy();
+        let empty_e = empty.energy_kernel(psi, EnergyFactors::all_clean()).energy();
+        if rich_e.raw() <= empty_e.raw() {
+            return Err("richer topology must yield higher energy".into());
+        }
+        if !empty_e.is_zero() {
+            return Err("empty topology must yield zero energy".into());
+        }
+        // ω = 1 because imports + contained defs + tests are all present.
+        if rich.omega_phase() != Q16::ONE {
+            return Err("complete module must have ω = 1".into());
+        }
+        // And the assessment over real topology is content-addressed & evidence-bound.
+        let a = rich.energy_assessment(psi, EnergyFactors::all_clean(), d(b"pol"), d(b"bundle"));
+        if !a.verify_id() || a.subject_id != rich.hdag_id {
+            return Err("topology energy assessment must verify and key on hdag_id".into());
         }
         Ok(())
     }));
