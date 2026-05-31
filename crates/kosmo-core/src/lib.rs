@@ -10,6 +10,7 @@ pub mod acquisition;
 pub mod authority;
 pub mod cartography;
 pub mod digest;
+pub mod evaluation;
 pub mod evidence;
 pub mod fixed_point;
 pub mod foundry;
@@ -32,6 +33,11 @@ pub use cartography::{
 };
 pub use digest::{canonical_bytes, Digest};
 pub use evidence::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+pub use evaluation::{
+    EvaluationCriteria, EvaluationDimension, EvaluationHarness, EvaluationMetrics,
+    EvaluationOutcome, EvaluationRunReport, EvaluationScenario, EvaluationSuiteOutcome,
+    EvaluationSuiteReport, StubEvaluationHarness,
+};
 pub use fixed_point::Q16;
 pub use kcube::{
     KcubeArtifactKind, KcubeExportPolicy, KcubeManifestEntry, KcubePackage,

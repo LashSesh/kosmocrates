@@ -71,7 +71,7 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R6 | SystemCube Disk Export | `KcubePackage`, `KcubeExportPolicy`, `KcubeWriteReport`, `KcubeRoundtripVerification` | ✅ COMPLETE (237 kosmo-core tests, +36 new) |
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ✅ COMPLETE (35 new tests; pse-core absent from dep tree) |
 | R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ✅ COMPLETE (272 kosmo-core tests, +35 new) |
-| R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ⏳ PENDING |
+| R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ✅ COMPLETE (305 kosmo-core tests, +33 new) |
 
 ---
 
