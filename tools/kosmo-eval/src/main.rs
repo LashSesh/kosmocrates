@@ -36,6 +36,7 @@ use kosmo_pse_bridge::{
 };
 
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
+use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
 
 fn d(seed: &[u8]) -> Digest {
     Digest::of_bytes(seed)
@@ -1073,6 +1074,151 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         }
         if report.pre_topology_id != report.post_topology_id {
             return Err("pre/post topology ids must be equal when unchanged".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX: Operator (R1→R2→R3 full pipeline) ────────────────────────────────
+    // Validates the operator orchestration: policy governance and the full
+    // validation-closure pipeline producing a real content-addressed report.
+
+    v.push(run_check("rx-operator-report-only-inconclusive", "RX:Operator", || {
+        use kosmo_core::{ParseBackScanScope, ValidationClosureStatus};
+        let plan = standard_plan(
+            &PathBuf::from("/nonexistent"),
+            ParseBackScanScope::FullWorkspace,
+            d(b"pol"),
+            5_000,
+        );
+        let executor = OperatorExecutor::new(PathBuf::from("/nonexistent"));
+        let report = executor.execute(&plan, &PolicyProfile::default_report_only(), d(b"bundle"));
+        if !matches!(report.closure_report.final_validation_status, ValidationClosureStatus::Inconclusive) {
+            return Err(format!("ReportOnly must be Inconclusive, got {:?}", report.closure_report.final_validation_status));
+        }
+        if report.persisted {
+            return Err("ReportOnly must never persist".into());
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-operator-report-is-content-addressed", "RX:Operator", || {
+        use kosmo_core::ParseBackScanScope;
+        let plan = standard_plan(
+            &PathBuf::from("/nonexistent"),
+            ParseBackScanScope::FullWorkspace,
+            d(b"pol"),
+            5_000,
+        );
+        let executor = OperatorExecutor::new(PathBuf::from("/nonexistent"));
+        let bid = d(b"bundle");
+        let r1 = executor.execute(&plan, &PolicyProfile::default_report_only(), bid);
+        let r2 = executor.execute(&plan, &PolicyProfile::default_report_only(), bid);
+        if r1.report_id != r2.report_id {
+            return Err("INVARIANT-007: identical inputs must produce identical report_id".into());
+        }
+        if r1.report_id == d(b"") {
+            return Err("report_id must not be zero/empty".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-operator-full-cycle-dry-run", "RX:Operator", || {
+        use kosmo_core::{FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
+            FoundryEnvironmentPolicy, FoundryExecutionPlan, FoundrySandboxKind,
+            FoundrySandboxSpec, FoundryTimeoutPolicy, ParseBackScanScope,
+            ValidationClosureStatus};
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        // Use a targeted check-only plan on a single already-compiled crate for speed.
+        let check_spec = FoundryCheckSpec::new(FoundryCheckKind::Build, "kosmo-parseback", true)
+            .with_args(vec!["-p".into(), "kosmo-parseback".into()]);
+        let foundry_plan = FoundryExecutionPlan::new(
+            d(b"pol"),
+            d(b"widx"),
+            d(b"task"),
+            FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, d(b"root")),
+            vec![check_spec],
+            FoundryCommandPolicy::default_cargo_policy(),
+            FoundryTimeoutPolicy::new(60_000, 120_000),
+            FoundryEnvironmentPolicy::locked(),
+        );
+        let plan = OperationPlan::new(foundry_plan, ParseBackScanScope::AffectedCratesOnly, d(b"pol"));
+        let executor = OperatorExecutor::new(&workspace_root);
+        let report = executor.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));
+        let ok = matches!(
+            report.closure_report.final_validation_status,
+            ValidationClosureStatus::Passed | ValidationClosureStatus::PassedWithWarnings
+        );
+        if !ok {
+            return Err(format!(
+                "DryRun on clean workspace expected Passed/PassedWithWarnings, got {:?} (foundry: {:?}, parseback: {:?})",
+                report.closure_report.final_validation_status,
+                report.foundry_report.outcome,
+                report.parseback_report.outcome,
+            ));
+        }
+        if report.persisted {
+            return Err("DryRun must not persist".into());
+        }
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-operator-approved-persists-closure", "RX:Operator", || {
+        use kosmo_core::{FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
+            FoundryEnvironmentPolicy, FoundryExecutionPlan, FoundrySandboxKind,
+            FoundrySandboxSpec, FoundryTimeoutPolicy, ParseBackScanScope,
+            ValidationClosureStatus};
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..").join("..");
+        let store_path = {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos()).unwrap_or(0);
+            std::env::temp_dir().join(format!("kosmo-op-eval-{nanos}.jsonl"))
+        };
+        let check_spec = FoundryCheckSpec::new(FoundryCheckKind::Build, "kosmo-parseback", true)
+            .with_args(vec!["-p".into(), "kosmo-parseback".into()]);
+        let foundry_plan = FoundryExecutionPlan::new(
+            d(b"pol"),
+            d(b"widx"),
+            d(b"task"),
+            FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, d(b"root")),
+            vec![check_spec],
+            FoundryCommandPolicy::default_cargo_policy(),
+            FoundryTimeoutPolicy::new(60_000, 120_000),
+            FoundryEnvironmentPolicy::locked(),
+        );
+        let plan = OperationPlan::new(foundry_plan, ParseBackScanScope::AffectedCratesOnly, d(b"pol"));
+        let executor = OperatorExecutor::new(&workspace_root)
+            .with_store(&store_path);
+        let report = executor.execute(&plan, &PolicyProfile::operator_approved(), d(b"bundle"));
+        let file_created = store_path.exists();
+        let _ = std::fs::remove_file(&store_path);
+
+        if !report.verify_id() {
+            return Err("report id verification failed".into());
+        }
+        if matches!(
+            report.closure_report.final_validation_status,
+            ValidationClosureStatus::Passed | ValidationClosureStatus::PassedWithWarnings
+        ) {
+            if !report.persisted {
+                return Err("OperatorApproved + Passed must persist closure".into());
+            }
+            if !file_created {
+                return Err("store file must be created when closure is persisted".into());
+            }
+        } else {
+            return Err(format!(
+                "OperatorApproved on clean workspace expected Passed, got {:?}",
+                report.closure_report.final_validation_status
+            ));
         }
         Ok(())
     }));

@@ -72,9 +72,10 @@ All 278 tests pass. 2 ignored tests in `kosmo-workbench` are pre-existing (place
 | R7 | PSE Bridge | new crate `kosmo-pse-bridge`; `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest` | ✅ COMPLETE (35 new tests; pse-core absent from dep tree) |
 | R8 | Controlled Acquisition | `SourceAcquisitionCapability`, `AcquisitionSandbox`, `AcquiredSource`, `AcquisitionTaint` | ✅ COMPLETE (272 kosmo-core tests, +35 new) |
 | R9 | Evaluation Harness | `EvaluationScenario`, `EvaluationRunReport`, `EvaluationMetrics`, `EvaluationHarness` | ✅ COMPLETE (305 kosmo-core tests, +33 new) |
-| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — invariant scenarios R1–R9 + RX, optional Cerebras API probe | ✅ COMPLETE (48/48 core PASS) |
+| BENCH | Empirical Benchmark CLI | `tools/kosmo-eval` binary — invariant scenarios R1–R9 + RX, optional Cerebras API probe | ✅ COMPLETE (52/52 core PASS) |
 | RX | Real Foundry Executor | new crate `kosmo-foundry`; `FoundryExecutor`, `map_kind_to_subcommand`, `standard_cargo_plan` — runs allowlisted cargo checks in a policy-governed sandbox, produces real `FoundryExecutionReport` | ✅ COMPLETE (13 new tests) |
-| RX | Real ParseBack Executor | new crate `kosmo-parseback`; `ParseBackExecutor`, `TopologySnapshot`, `CrateFingerprint`, `diff_snapshots` — snapshots workspace crate topology via `cargo metadata`, diffs pre/post materialization, produces real `ParseBackReport` | ✅ COMPLETE (17 new tests; 48/48 eval scenarios) |
+| RX | Real ParseBack Executor | new crate `kosmo-parseback`; `ParseBackExecutor`, `TopologySnapshot`, `CrateFingerprint`, `diff_snapshots` — snapshots workspace crate topology via `cargo metadata`, diffs pre/post materialization, produces real `ParseBackReport` | ✅ COMPLETE (17 new tests) |
+| RX | Operator (R1→R2→R3 pipeline) | new crate `kosmo-operator`; `OperatorExecutor`, `OperationPlan`, `OperationReport`, `standard_plan` — orchestrates foundry + parseback + closure + optional store persistence into a real end-to-end validation pipeline | ✅ COMPLETE (8 new tests; 52/52 eval scenarios) |
 
 ---
 
@@ -101,6 +102,36 @@ dedicated crate — the same isolation principle as `kosmo-pse-bridge`.
 
 This makes the R3 Validation Closure operational: the Foundry half of the
 closure is now a real execution outcome, not a simulation.
+
+---
+
+## RX — Operator (R1→R2→R3 full pipeline, post-R9 emergent step)
+
+R1 delivered a real Foundry executor, R2 a real ParseBack executor. `kosmo-operator`
+closes the final gap by orchestrating them sequentially and computing a real
+`ValidationClosureReport` (R3) — making the entire R1→R2→R3 staircase operational.
+
+**Pipeline:**
+```
+ParseBackPre-snapshot → FoundryChecks → ParseBackPost-snapshot → ValidationClosure → (store)
+```
+
+**Policy contract:**
+- `ReportOnly` → all sub-reports `SkippedByReportOnly`; closure `Inconclusive`; zero I/O.
+- `DryRun` → full read-only execution (cargo checks + snapshot); no host writes; not persisted.
+- `OperatorApproved` → full execution; if `store_path` set, appends closure payload digest to JSONL store.
+
+**What makes this the R3 operationalization:**
+Before, `ValidationClosureReport` could only be populated with simulated outcomes.
+Now it is populated with real `FoundryExecutionOutcome` (from actual `cargo check/test/clippy`)
+and real `ParseBackOutcome` (from actual topology snapshot diff). When both pass, the closure
+status is `Passed` or `PassedWithWarnings` — a cryptographically content-addressed proof that
+the workspace is currently clean.
+
+**OperationReport (`report_id`)** is content-addressed over all sub-report ids + `elapsed_ms`
++ `persisted` flag (INVARIANT-007). This makes the full cycle auditable and replayable.
+
+4 new `RX:Operator` eval scenarios including a real DryRun and OperatorApproved round-trip.
 
 ---
 

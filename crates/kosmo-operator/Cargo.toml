@@ -1,0 +1,21 @@
+[package]
+name = "kosmo-operator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "KOSMO-OPS-01 RX — operator orchestrator: wires kosmo-foundry + kosmo-parseback + kosmo-store into a complete R1→R2→R3 validation-closure pipeline"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core      = { path = "../kosmo-core" }
+kosmo-foundry   = { path = "../kosmo-foundry" }
+kosmo-parseback = { path = "../kosmo-parseback" }
+kosmo-store     = { path = "../kosmo-store" }
+serde      = { workspace = true }
+serde_json = { workspace = true }
