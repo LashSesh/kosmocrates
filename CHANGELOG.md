@@ -15,6 +15,18 @@ note explicitly says so.
 
 ### Added
 
+* **TopologyAmbiguityProfile + ComplementVoidHypothesis energy_assessment** —
+  completes energy integration for all Q16-score types in kosmo-hyphae.
+  Every substrate type that carries a Q16 score now has `energy_assessment`.
+
+  - `TopologyAmbiguityProfile::energy_assessment(gate)`: ψ = `confidence_score`;
+    `evidence_bundle_id = micrograph_id` (the source micrograph, CROSS-006).
+  - `ComplementVoidHypothesis::energy_assessment(gate)`: ψ = `confidence_score`;
+    `evidence_bundle_id` = first non-ZERO entry in `evidence_ids`, falling back to
+    `micrograph_id` (CROSS-006: always non-ZERO). Both forms allow `rank_by_energy`
+    over a diagnostic's sub-items.
+  - 4 new `metatron.rs` tests (169 hyphae tests total, 734 substrate tests).
+
 * **SemanticLossRecord + MicrographLiftReport energy integration + pipeline Step 3c** —
   closes the last energy_assessment gap in kosmo-hyphae; lift quality signal now
   surfaces in every metatron-enabled pipeline run.

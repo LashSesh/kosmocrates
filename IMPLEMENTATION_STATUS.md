@@ -4,8 +4,14 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **730 substrate tests** (kosmo-core 339, kosmo-hyphae 165, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 55) — 0 failures
+- **734 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 55) — 0 failures
 - **100/100 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
+
+### TopologyAmbiguityProfile + ComplementVoidHypothesis energy_assessment (2026-06-01)
+- [x] `TopologyAmbiguityProfile::energy_assessment(gate)` — ψ=`confidence_score`; `evidence_bundle_id=micrograph_id` (CROSS-006)
+- [x] `ComplementVoidHypothesis::energy_assessment(gate)` — ψ=`confidence_score`; evidence = first non-ZERO `evidence_ids` entry, else `micrograph_id` (CROSS-006)
+- [x] 4 new metatron.rs tests (169 hyphae tests total)
 
 ### SemanticLossRecord + MicrographLiftReport energy_assessment + Pipeline Step 3c (2026-06-01)
 - [x] `SemanticLossRecord::energy_assessment(gate)` — ψ=`loss_ratio`; `evidence_bundle_id=region_id` (CROSS-006)

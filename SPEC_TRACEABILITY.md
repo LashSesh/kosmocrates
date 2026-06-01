@@ -73,8 +73,8 @@ Target crate: `crates/kosmo-hyphae`
 | `SourceCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/cube.rs` |
 | `SourceCubeWorker` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
 | `CubeSwarm` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
-| `CubeMandorla` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
-| `CompositeSupportCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/swarm.rs` |
+| `CubeMandorla` + `energy_assessment` | HYPHAE v0.3 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/swarm.rs` |
+| `CompositeSupportCube` + `energy_assessment` | HYPHAE v0.3 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/swarm.rs` |
 | `HostTargetDelta` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/delta.rs` |
 
 ## MVP-4 / Phase 5 — HYPHAE v0.4 Persistence
@@ -87,7 +87,7 @@ Target crate: `crates/kosmo-hyphae`
 | `CartographyPrecheck` / `ReplayManifest` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
 | `StructuralCrystalCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
 | `ConstraintProgram` / `AssimilationCertificate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
-| `StructuralCrystalRecord` / `Resonite` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
+| `StructuralCrystalRecord` / `Resonite` + `energy_assessment` | HYPHAE v0.4 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/crystal.rs` |
 | `DualFabricGateCascade` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
 | `NormGeneCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/norm.rs` |
 | `NormFitnessTrace` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/norm.rs` |
@@ -101,13 +101,13 @@ Target crate: `crates/kosmo-hyphae`
 | `TopologyRegionRef` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `RegionExtractionProfile` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `ProjectionProfile` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `SemanticLossRecord` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `SemanticLossRecord` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MetatronMicrograph` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `MicrographLiftReport` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `MicrographLiftReport` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MetatronRegionFingerprint` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MicroTopologyDiagnostic` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `TopologyAmbiguityProfile` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `ComplementVoidHypothesis` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `TopologyAmbiguityProfile` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `ComplementVoidHypothesis` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MicroTopologyIndex` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `lift_region()` M1 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `diagnose_micrograph()` M2 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
@@ -279,6 +279,25 @@ Target: `crates/kosmo-core/src/energy.rs` (AD-015)
 | `rank_by_energy` (deterministic, never drops candidates) | ✅ |
 | Non-bypass invariant: energy ranks, never gates (CROSS-010) | ✅ |
 
+### TE — Energy integration: all Q16-score substrate types
+Every kosmo-hyphae type carrying a Q16 score now has `energy_assessment`.
+
+| Type | ψ (meaning) | evidence_bundle_id |
+|---|---|---|
+| `StructuralCrystalCandidate` | `support_score` | `evidence_bundle_id` (field) |
+| `MotifCandidate` | `support_score` | `evidence_bundle_id` (field) |
+| `SourceCube` | `support_score` | `evidence_bundle_id` (field) |
+| `TopologicalSurgeryOption` | `confidence_score` | `diagnostic_id` (causal) |
+| `HostVoid` | `severity` | `void_id` (self-ref) |
+| `NormGeneCandidate` | `fitness_score` | `evidence_bundle_id` (field) |
+| `Resonite` | `resonance_score` | `resonite_id` (self-ref, symmetric) |
+| `CubeMandorla` | `overlap_score` | `mandorla_id` (self-ref) |
+| `CompositeSupportCube` | `aggregate_support` | `composite_id` (self-ref) |
+| `SemanticLossRecord` | `loss_ratio` | `region_id` (causal) |
+| `MicrographLiftReport` | `loss_ratio` | `micrograph_id` (causal) |
+| `TopologyAmbiguityProfile` | `confidence_score` | `micrograph_id` (causal) |
+| `ComplementVoidHypothesis` | `confidence_score` | first `evidence_ids` or `micrograph_id` |
+
 ### TE — Real code topology extraction
 Target: `crates/kosmo-hyphae/src/code_hdag.rs` (AD-016)
 
@@ -296,3 +315,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
+| `RX:Pipeline` (34 scenarios including all energy-ranked pipeline outputs) | ✅ |
