@@ -31,14 +31,14 @@ use kosmo_core::{Digest, GateResult, PolicyProfile, PromotionFeedback, Q16, rank
 use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_hyphae::{
-    CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography, CorpusCartographyUpdate,
-    CubeSwarm, CubeDimensionProfile, DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta,
-    LpcmPassiveReport, MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
-    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, MotifCandidate,
-    NormFitnessTrace, NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube,
-    SeamGraph, StructuralCrystalCandidate, SupportMassVector, SurgeryWorkbenchTask,
-    TopologicalSurgeryOption, TopologyAmbiguityProfile, diagnose_micrograph, lift_region,
-    passive_run, passive_run_augmented, HyphaeRunResult,
+    AssimilationLedger, CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography,
+    CorpusCartographyUpdate, CubeSwarm, CubeDimensionProfile, DeficiencyVector,
+    HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport, MetatronMicrograph,
+    MetatronRegionFingerprint, MicrographLiftReport, MicroTopologyDiagnostic, MicroTopologyIndex,
+    MorphogenicCorpusUpdate, MotifCandidate, NormFitnessTrace, NormGeneCandidate, Fragment,
+    FragmentField, FragmentKind, SourceCube, SeamGraph, StructuralCrystalCandidate,
+    SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption, TopologyAmbiguityProfile,
+    diagnose_micrograph, lift_region, passive_run, passive_run_augmented, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
@@ -161,6 +161,7 @@ struct ReportContent {
     norm_candidate_count: u32,
     norm_fitness_trace_count: u32,
     has_systemcube: bool,
+    hyphae_ledger_id: Digest,
 }
 
 /// Unified dry-run report from the full pipeline.
@@ -288,6 +289,7 @@ impl IntegrationRunReport {
             norm_candidate_count: norm_candidates.len() as u32,
             norm_fitness_trace_count: norm_fitness_traces.len() as u32,
             has_systemcube: systemcube_export.is_some(),
+            hyphae_ledger_id: hyphae_result.ledger.ledger_id,
         });
         Self {
             report_id,
@@ -733,7 +735,8 @@ pub fn run_dry_pipeline(
         };
 
     // ── 5b. Optional norm candidates — from accepted decisions ────────────────
-    // One NormGeneCandidate per accepted decision: name derived from void/yield,
+    // One NormGeneCandidate per accepted decision: name encodes the intent kind
+    // so operators can identify the structural context of each candidate.
     // initial fitness = Q16::ONE (just accepted). Evidence = decision's evidence_bundle_id
     // (causal chain: accepted decision → norm gene). Energy-ranked by fitness D.
     let norm_candidates: Vec<NormGeneCandidate> = if options.enable_norm_candidates {
@@ -744,14 +747,28 @@ pub fn run_dry_pipeline(
             .zip(hyphae.decisions.iter())
             .filter(|(_, d)| d.outcome.is_accepted())
             .map(|(intent, decision)| {
-                let void_hex = intent.target_void_id
-                    .map(|id| id.to_hex()[..16].to_string())
-                    .unwrap_or_else(|| decision.yield_id.to_hex()[..16].to_string());
-                let name = format!("norm:void:{}", void_hex);
-                let description = format!(
-                    "Norm gene from accepted decision for void {}",
-                    void_hex
-                );
+                let (name, description) = match &intent.kind {
+                    kosmo_hyphae::frontier::SourceIntentKind::FillVoid { void_id } => {
+                        let hex = &void_id.to_hex()[..16];
+                        (format!("norm:void:{}", hex),
+                         format!("Norm gene from accepted decision for void {}", hex))
+                    }
+                    kosmo_hyphae::frontier::SourceIntentKind::ReduceDeficiency { deficiency_kind } => {
+                        let kind = format!("{:?}", deficiency_kind);
+                        (format!("norm:deficiency:{}", kind),
+                         format!("Norm gene from accepted decision reducing {:?} deficiency", deficiency_kind))
+                    }
+                    kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern { pattern_name } => {
+                        let short = &pattern_name[..pattern_name.len().min(24)];
+                        (format!("norm:pattern:{}", short),
+                         format!("Norm gene from accepted decision suggesting pattern '{}'", pattern_name))
+                    }
+                    kosmo_hyphae::frontier::SourceIntentKind::Custom { description: desc } => {
+                        let hex = &decision.yield_id.to_hex()[..16];
+                        (format!("norm:custom:{}", hex),
+                         format!("Norm gene from accepted custom decision: {}", &desc[..desc.len().min(48)]))
+                    }
+                };
                 NormGeneCandidate::new(
                     name,
                     description,

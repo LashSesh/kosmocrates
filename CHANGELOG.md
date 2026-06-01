@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **`AssimilationLedger` — sequenced, content-addressed audit log of all decisions per run**
+  (INVARIANT-007 strengthened: `run_id` is now sensitive to decision outcomes, not just
+  decision count).
+
+  - `AssimilationLedger { ledger_id, run_id, events, policy_id }` added to
+    `kosmo-hyphae/assimilation`. Built via two-pass construction: a placeholder pass
+    derives `ledger_id` from the ordered event sequence, then the final `run_id` is
+    sealed with `ledger_id` in its content hash.
+  - `HyphaeRunResult.ledger: AssimilationLedger` — every passive run now carries its
+    full decision log.
+  - `RunContent.ledger_id` participates in `run_id` content-addressing.
+  - `ReportContent.hyphae_ledger_id` propagates the ledger commitment into the pipeline
+    `report_id`.
+  - 4 new hyphae tests (182 total); 1 new `RX:Hyphae` eval scenario (132 total).
+
 * **Motif feedback loop + `SuggestPattern` yield kind** — closes the cross-run feedback
   loop so motifs observed in one pipeline run propagate as structural proposals
   into the next run's frontier.

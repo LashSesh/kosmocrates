@@ -134,6 +134,70 @@ impl AssimilationDecision {
     }
 }
 
+/// Serialize-only for `AssimilationLedger` content-addressing.
+#[derive(Serialize)]
+struct LedgerContent {
+    run_id: Digest,
+    event_count: u32,
+    event_ids: Vec<Digest>,
+    policy_id: Digest,
+}
+
+/// A sequenced, content-addressed log of all assimilation decisions in a run.
+///
+/// One `LedgerEvent` per decision, numbered 0..N-1. The `ledger_id` is the
+/// content hash of all event IDs in order — changing any decision changes the
+/// entire ledger ID (INVARIANT-007).
+///
+/// Used as an audit trail: every gate outcome is traceable to its sequence
+/// position and the run that produced it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssimilationLedger {
+    pub ledger_id: Digest,
+    pub run_id: Digest,
+    pub events: Vec<LedgerEvent>,
+    pub policy_id: Digest,
+}
+
+impl AssimilationLedger {
+    /// Build a ledger from an ordered slice of decisions.
+    ///
+    /// Sequence numbers are assigned 0..decisions.len()-1. The ledger_id
+    /// is computed over all resulting event IDs.
+    pub fn from_decisions(decisions: &[AssimilationDecision], run_id: Digest, policy_id: Digest) -> Self {
+        let events: Vec<LedgerEvent> = decisions
+            .iter()
+            .enumerate()
+            .map(|(seq, d)| {
+                d.to_ledger_event(seq as u64).with_run_id(run_id)
+            })
+            .collect();
+        let event_ids: Vec<Digest> = events.iter().map(|e| e.event_id).collect();
+        let ledger_id = Digest::of(&LedgerContent {
+            run_id,
+            event_count: events.len() as u32,
+            event_ids,
+            policy_id,
+        });
+        Self { ledger_id, run_id, events, policy_id }
+    }
+
+    /// Total number of decisions recorded.
+    pub fn event_count(&self) -> usize {
+        self.events.len()
+    }
+
+    /// Number of events with a `Pass` gate result.
+    pub fn accepted_count(&self) -> usize {
+        self.events.iter().filter(|e| e.gate_result.as_ref().map_or(false, |r| r.is_pass())).count()
+    }
+
+    /// Number of events with a `Reject` gate result.
+    pub fn rejected_count(&self) -> usize {
+        self.events.iter().filter(|e| e.gate_result.as_ref().map_or(false, |r| r.is_rejected())).count()
+    }
+}
+
 /// A record of negative evidence — a yield that was rejected.
 ///
 /// Stored so future runs can avoid re-proposing the same failed yield
@@ -303,5 +367,71 @@ mod tests {
 
         // Different taints → different decision_ids (taint is in content hash)
         assert_ne!(d.decision_id, d2.decision_id, "taint must participate in content-address");
+    }
+
+    fn make_decision(policy: &PolicyProfile, ev: &EvidenceBundle, seed: &[u8], clean: bool) -> AssimilationDecision {
+        let taint = if clean {
+            TaintLabel::Clean
+        } else {
+            TaintLabel::Quarantined { reason: "bad".into() }
+        };
+        let authority = if clean { AuthorityLabel::Foundry } else { AuthorityLabel::Unknown };
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(Digest::of_bytes(seed)), None,
+            taint, authority, ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, ev);
+        AssimilationDecision::from_trace(&yield_, &trace, ev, policy.id)
+    }
+
+    #[test]
+    fn ledger_empty_decisions_has_non_zero_id() {
+        let policy = PolicyProfile::default_report_only();
+        let run_id = Digest::of_bytes(b"run");
+        let ledger = AssimilationLedger::from_decisions(&[], run_id, policy.id);
+        assert_ne!(ledger.ledger_id, Digest::ZERO);
+        assert_eq!(ledger.event_count(), 0);
+        assert_eq!(ledger.accepted_count(), 0);
+        assert_eq!(ledger.rejected_count(), 0);
+    }
+
+    #[test]
+    fn ledger_event_count_matches_decisions() {
+        let policy = PolicyProfile::default_report_only();
+        let ev = make_evidence(policy.id);
+        let run_id = Digest::of_bytes(b"run");
+        let d1 = make_decision(&policy, &ev, b"a", true);
+        let d2 = make_decision(&policy, &ev, b"b", false);
+        let d3 = make_decision(&policy, &ev, b"c", true);
+        let ledger = AssimilationLedger::from_decisions(&[d1, d2, d3], run_id, policy.id);
+        assert_eq!(ledger.event_count(), 3);
+        assert_eq!(ledger.accepted_count(), 2);
+        assert_eq!(ledger.rejected_count(), 1);
+    }
+
+    #[test]
+    fn ledger_different_outcomes_produce_different_ids() {
+        let policy = PolicyProfile::default_report_only();
+        let ev = make_evidence(policy.id);
+        let run_id = Digest::of_bytes(b"run");
+        let d_accept = make_decision(&policy, &ev, b"x", true);
+        let d_reject = make_decision(&policy, &ev, b"y", false);
+        let ledger_accept = AssimilationLedger::from_decisions(&[d_accept], run_id, policy.id);
+        let ledger_reject = AssimilationLedger::from_decisions(&[d_reject], run_id, policy.id);
+        assert_ne!(ledger_accept.ledger_id, ledger_reject.ledger_id,
+            "different decisions must produce different ledger_ids");
+    }
+
+    #[test]
+    fn ledger_is_content_addressed() {
+        let policy = PolicyProfile::default_report_only();
+        let ev = make_evidence(policy.id);
+        let run_id = Digest::of_bytes(b"run");
+        let d = make_decision(&policy, &ev, b"z", true);
+        let l1 = AssimilationLedger::from_decisions(&[d.clone()], run_id, policy.id);
+        let l2 = AssimilationLedger::from_decisions(&[d], run_id, policy.id);
+        assert_eq!(l1.ledger_id, l2.ledger_id, "same decisions → same ledger_id (INVARIANT-007)");
     }
 }

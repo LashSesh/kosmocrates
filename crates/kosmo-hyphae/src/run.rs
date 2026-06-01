@@ -1,4 +1,4 @@
-use crate::assimilation::{AssimilationDecision, NegativeEvidenceRecord};
+use crate::assimilation::{AssimilationDecision, AssimilationLedger, NegativeEvidenceRecord};
 use crate::frontier::{SourceFrontierGraph, SourceIntent};
 use crate::gates::GateCascade;
 use crate::host::HostCube;
@@ -16,6 +16,7 @@ struct RunContent {
     host_cube_id: Digest,
     frontier_id: Digest,
     decision_count: u64,
+    ledger_id: Digest,
     policy_id: Digest,
 }
 
@@ -31,6 +32,9 @@ pub struct HyphaeRunResult {
     pub frontier: SourceFrontierGraph,
     pub decisions: Vec<AssimilationDecision>,
     pub negative_evidence: Vec<NegativeEvidenceRecord>,
+    /// Sequenced, content-addressed audit log of all decisions (INVARIANT-007).
+    /// `ledger_id` changes if any decision outcome changes across runs.
+    pub ledger: AssimilationLedger,
     pub accepted_count: usize,
     pub rejected_count: usize,
     pub evidence_only_count: usize,
@@ -116,12 +120,21 @@ pub fn passive_run_augmented(
     let rejected_count = decisions.iter().filter(|d| d.outcome.is_rejected()).count();
     let evidence_only_count = decisions.len() - accepted_count - rejected_count;
 
+    // Build the ledger before sealing run_id so ledger_id participates in it.
+    // Two runs with identical intents but different gate outcomes will have different run_ids.
+    let ledger_placeholder_run_id = Digest::of_bytes(b"ledger-pre-seal");
+    let ledger = AssimilationLedger::from_decisions(&decisions, ledger_placeholder_run_id, policy.id);
+
     let run_id = Digest::of(&RunContent {
         host_cube_id: host_cube.cube_id,
         frontier_id: frontier.graph_id,
         decision_count: decisions.len() as u64,
+        ledger_id: ledger.ledger_id,
         policy_id: policy.id,
     });
+
+    // Re-seal ledger with the final run_id.
+    let ledger = AssimilationLedger::from_decisions(&decisions, run_id, policy.id);
 
     HyphaeRunResult {
         run_id,
@@ -129,6 +142,7 @@ pub fn passive_run_augmented(
         frontier,
         decisions,
         negative_evidence,
+        ledger,
         accepted_count,
         rejected_count,
         evidence_only_count,

@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **803 substrate tests** (kosmo-core 339, kosmo-hyphae 178, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 87) — 0 failures
-- **131/131 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **807 substrate tests** (kosmo-core 339, kosmo-hyphae 182, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 87) — 0 failures
+- **132/132 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,14 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `AssimilationLedger` — Content-Addressed Decision Audit Log (2026-06-01)
+- [x] `AssimilationLedger { ledger_id, run_id, events, policy_id }` — sequenced, content-addressed log of all `AssimilationDecision`s in a run (INVARIANT-007)
+- [x] Two-pass construction: placeholder `run_id` → get `ledger_id` → real `run_id` seals over `ledger_id`; makes `run_id` sensitive to decision outcomes
+- [x] `HyphaeRunResult.ledger: AssimilationLedger` — every passive run carries its full decision log
+- [x] `RunContent.ledger_id` participates in `run_id` content-addressing
+- [x] `ReportContent.hyphae_ledger_id` propagates ledger commitment into pipeline `report_id`
+- [x] 4 new hyphae tests (182 total); 1 new eval scenario `RX:Hyphae` (132 total, 807 substrate tests)
 
 ### Motif Feedback Loop + `SuggestPattern` Yield Kind (2026-06-01)
 - [x] `yield_for_intent` now selects yield kind from intent kind: `SuggestPattern` → `StructuralYieldKind::MotifProposal`; `ReduceDeficiency` → `DeficiencyFill`; others → `DeficiencyFill`

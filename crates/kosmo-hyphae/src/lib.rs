@@ -35,7 +35,7 @@ pub mod surgery;
 pub mod swarm;
 pub mod void_map;
 
-pub use assimilation::{AssimilationDecision, AssimilationOutcome, NegativeEvidenceRecord};
+pub use assimilation::{AssimilationDecision, AssimilationLedger, AssimilationOutcome, NegativeEvidenceRecord};
 pub use code_hdag::{CodeHDAG, CodeObservation, HDAGEdge, HDAGEdgeKind, HDAGNode, ObservationKind};
 pub use collapse::{
     CollapseAction, CollapseStep, CollapsePlanStatus, HostTargetCollapsePlan,

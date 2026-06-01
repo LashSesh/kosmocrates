@@ -2663,6 +2663,69 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    v.push(run_check("rx-hyphae-assimilation-ledger-content-addressed", "RX:Hyphae", || {
+        // AssimilationLedger must be content-addressed (INVARIANT-007):
+        // same decisions → same ledger_id; different decisions → different ledger_id.
+        // ledger_id must be non-ZERO even for zero decisions.
+        use kosmo_hyphae::assimilation::{AssimilationDecision, AssimilationLedger};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(Digest::of_bytes(b"ev"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let run_id = Digest::of_bytes(b"eval-run");
+
+        // Empty ledger must have non-ZERO id.
+        let empty_ledger = AssimilationLedger::from_decisions(&[], run_id, policy.id);
+        if empty_ledger.ledger_id == Digest::ZERO {
+            return Err("empty AssimilationLedger must have non-ZERO ledger_id".into());
+        }
+
+        let make_decision = |seed: &[u8], clean: bool| -> AssimilationDecision {
+            let (taint, authority) = if clean {
+                (TaintLabel::Clean, AuthorityLabel::Foundry)
+            } else {
+                (TaintLabel::Quarantined { reason: "bad".into() }, AuthorityLabel::Unknown)
+            };
+            let yield_ = StructuralYield::new(
+                StructuralYieldKind::DeficiencyFill,
+                Some(Digest::of_bytes(seed)), None,
+                taint, authority, ev.bundle_id, policy.id,
+            );
+            let cascade = GateCascade::standard_gates(policy.clone());
+            let trace = cascade.apply(&yield_, &ev);
+            AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id)
+        };
+
+        let d1 = make_decision(b"p", true);
+        let d2 = make_decision(b"q", false);
+
+        // Content-addressed: same input → same id.
+        let l1 = AssimilationLedger::from_decisions(&[d1.clone()], run_id, policy.id);
+        let l2 = AssimilationLedger::from_decisions(&[d1.clone()], run_id, policy.id);
+        if l1.ledger_id != l2.ledger_id {
+            return Err("same decisions must produce same ledger_id (INVARIANT-007)".into());
+        }
+
+        // Different decisions → different ledger_ids.
+        let l3 = AssimilationLedger::from_decisions(&[d2.clone()], run_id, policy.id);
+        if l1.ledger_id == l3.ledger_id {
+            return Err("different decisions must produce different ledger_ids".into());
+        }
+
+        // accepted/rejected counts match gate outcomes.
+        let ledger = AssimilationLedger::from_decisions(&[d1, d2], run_id, policy.id);
+        if ledger.accepted_count() != 1 || ledger.rejected_count() != 1 {
+            return Err(format!(
+                "expected accepted=1 rejected=1, got accepted={} rejected={}",
+                ledger.accepted_count(), ledger.rejected_count(),
+            ));
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {
