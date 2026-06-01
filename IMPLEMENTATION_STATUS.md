@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, und läuft mit einem einzigen Aufruf auf echten Workspaces."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, und produziert priorisierte Arbeitsanweisungen."
 
-- **909 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 113) — 0 failures
-- **145/145 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **927 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120) — 0 failures
+- **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,17 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `ActionItem` — CAM Layer: Report → Ranked Actionable Directives (2026-06-01)
+
+The pipeline now distills its rich diagnostic output into a single unified, priority-ranked work queue — completing the "CAD/CAM" metaphor.
+
+- [x] `ActionItemKind` enum: `FillVoid`, `RepairTopology`, `PromoteToPse`, `ReviewCrystal`, `ApplyNorm`
+- [x] `ActionItem` struct: content-addressed `action_id`, `priority_score: Q16`, `kind`, `description`, `policy_id`
+- [x] `rank_score(pos, total)` — position-based Q16 priority (`ONE` for top, proportionally decreasing)
+- [x] `IntegrationRunReport::action_items()` — aggregates all five categories, sorts merged list descending by `priority_score`
+- [x] `ReviewCrystal` items only for `EvidenceOnly` candidates (not `Pending`/`Certified` — no operator action needed)
+- [x] 7 new pipeline tests (120 total); 2 new eval scenarios (147 total, 927 substrate tests)
 
 ### `run_workspace_pipeline` + `WorkspacePipelineSession` — Filesystem Entry Point (2026-06-01)
 

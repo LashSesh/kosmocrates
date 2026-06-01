@@ -3440,6 +3440,90 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: ActionItem — CAM layer ────────────────────────────────────────────
+
+    v.push(run_check("rx-pipeline-action-items-sorted-descending", "RX:ActionItem", || {
+        use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
+            WorkspaceEntry { path: "src/b.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 120, kind: WorkspaceEntryKind::SourceFile, content: None },
+        ];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_surgery: true,
+            enable_norm_candidates: true,
+            enable_crystal_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let report = run_dry_pipeline(&index, &opts, &policy);
+        let items = report.action_items();
+
+        // 1. Sorted descending.
+        for w in items.windows(2) {
+            if w[0].priority_score.raw() < w[1].priority_score.raw() {
+                return Err("action_items not sorted descending by priority_score".into());
+            }
+        }
+        // 2. One FillVoid per void.
+        let fill_count = items.iter()
+            .filter(|a| matches!(a.kind, ActionItemKind::FillVoid { .. }))
+            .count();
+        if fill_count != report.void_priority_ranking.len() {
+            return Err(format!(
+                "expected {} FillVoid items, got {}",
+                report.void_priority_ranking.len(), fill_count
+            ));
+        }
+        // 3. All action_ids non-ZERO and policy consistent.
+        for item in &items {
+            if item.action_id == Digest::ZERO {
+                return Err("action_id must be non-ZERO".into());
+            }
+            if item.policy_id != policy.id {
+                return Err("action_item policy_id mismatch".into());
+            }
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-action-items-top-void-scores-one", "RX:ActionItem", || {
+        use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile, Q16};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile, content: None },
+        ];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, policy.id);
+        let report = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if report.void_priority_ranking.is_empty() {
+            return Ok(()); // no voids → skip
+        }
+        let top_void = report.void_priority_ranking[0];
+        let items = report.action_items();
+        let top_fill = items.iter().find(|a| {
+            matches!(a.kind, ActionItemKind::FillVoid { void_id } if void_id == top_void)
+        });
+        match top_fill {
+            Some(item) if item.priority_score == Q16::ONE => Ok(()),
+            Some(item) => Err(format!(
+                "top void FillVoid must score Q16::ONE, got {}",
+                item.priority_score.raw()
+            )),
+            None => Err("top void missing from action_items".into()),
+        }
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

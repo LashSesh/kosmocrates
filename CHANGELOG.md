@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **`ActionItem` / `IntegrationRunReport::action_items()` — CAM layer**
+
+  The pipeline now completes the CAD/CAM metaphor by producing a single,
+  unified, priority-ranked work queue from the full diagnostic report.
+
+  - `ActionItemKind`: `FillVoid { void_id }`, `RepairTopology { surgery_option_id }`,
+    `PromoteToPse { candidate_id }`, `ReviewCrystal { candidate_id }`,
+    `ApplyNorm { norm_candidate_id, name }` — covers all five actionable categories.
+  - `ActionItem`: content-addressed (`action_id = Digest::of(kind_tag, target_id, policy_id)`),
+    carries `priority_score: Q16` and a human-readable `description`.
+  - `rank_score(pos, total)` — position-based Q16 priority derived from within-category
+    energy ranking: `Q16::ONE` for the top-ranked item, proportionally decreasing.
+  - `IntegrationRunReport::action_items()` — merges all five categories into a
+    single `Vec<ActionItem>` sorted descending by `priority_score`. Only `EvidenceOnly`
+    crystal candidates appear as `ReviewCrystal`; `Pending`/`Certified` need no review.
+  - 7 new pipeline tests (120 total); 2 new eval scenarios (147 total, 927 substrate tests).
+
 * **`run_workspace_pipeline` + `WorkspacePipelineSession` — single-call filesystem entry point**
 
   The pipeline is now directly usable on any filesystem path — no manual workspace

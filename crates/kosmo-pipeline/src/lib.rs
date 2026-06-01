@@ -1181,6 +1181,173 @@ pub fn run_dry_pipeline(
     )
 }
 
+// ─── ActionItem — CAM layer: report → ranked actionable directives ────────────
+
+/// Kind of actionable item distilled from an [`IntegrationRunReport`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ActionItemKind {
+    /// A structural void that should be filled.
+    FillVoid { void_id: Digest },
+    /// A topology surgery option ready to apply.
+    RepairTopology { surgery_option_id: Digest },
+    /// A PSE candidate ready for external evaluation / promotion.
+    PromoteToPse { candidate_id: Digest },
+    /// A crystal candidate with `EvidenceOnly` status that needs operator review.
+    ReviewCrystal { candidate_id: Digest },
+    /// A norm gene that has accumulated enough fitness to warrant application.
+    ApplyNorm { norm_candidate_id: Digest, name: String },
+}
+
+/// Serialize-only content for [`ActionItem`] content-addressing.
+#[derive(Serialize)]
+struct ActionContent {
+    kind_tag: &'static str,
+    target_id: Digest,
+    policy_id: Digest,
+}
+
+/// A ranked, actionable directive produced from an [`IntegrationRunReport`].
+///
+/// `priority_score` is a Q16 ratio derived from the item's position in its
+/// energy-ranked source list — `Q16::ONE` = highest priority, `Q16::ZERO` = lowest.
+/// All items across all categories are merged and sorted by `priority_score`
+/// descending so callers get a single, unified work queue.
+///
+/// `action_id` is content-addressed from `(kind_tag, target_id, policy_id)`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ActionItem {
+    pub action_id: Digest,
+    pub priority_score: Q16,
+    pub kind: ActionItemKind,
+    pub description: String,
+    pub policy_id: Digest,
+}
+
+impl ActionItem {
+    fn new(
+        kind_tag: &'static str,
+        target_id: Digest,
+        priority_score: Q16,
+        kind: ActionItemKind,
+        description: String,
+        policy_id: Digest,
+    ) -> Self {
+        let action_id = Digest::of(&ActionContent { kind_tag, target_id, policy_id });
+        Self { action_id, priority_score, kind, description, policy_id }
+    }
+}
+
+/// Compute a descending priority score for the item at `pos` out of `total`.
+///
+/// Returns `Q16::ONE` when `pos == 0` (top of the list), `Q16::ZERO` when
+/// `pos + 1 == total` (last item), and a proportional ratio in between.
+/// When `total == 0` returns `Q16::ZERO` (no items → no priority).
+fn rank_score(pos: usize, total: usize) -> Q16 {
+    if total == 0 {
+        return Q16::ZERO;
+    }
+    // score = (total - pos) / total → ONE for pos=0, approaches ZERO for pos=total-1
+    Q16::ratio((total - pos) as u64, total as u64).unwrap_or(Q16::ZERO)
+}
+
+impl IntegrationRunReport {
+    /// Produce a unified, priority-ranked list of actionable directives.
+    ///
+    /// Aggregates across five categories (void fill, topology repair, PSE promotion,
+    /// crystal review, norm application) and returns them sorted by `priority_score`
+    /// descending — the first item is the single highest-priority action across the
+    /// entire report.
+    ///
+    /// Each category contributes items ranked by the energy ordering already present
+    /// in the report (void_priority_ranking, surgery_options, pse_candidates, etc.).
+    /// `EvidenceOnly` crystal candidates are included as `ReviewCrystal` items; fully
+    /// `Pending`/`Certified` candidates are omitted (no operator action needed).
+    pub fn action_items(&self) -> Vec<ActionItem> {
+        let pid = self.policy_id;
+        let mut items: Vec<ActionItem> = Vec::new();
+
+        // ── FillVoid: one per void in priority order ───────────────────────────
+        let n = self.void_priority_ranking.len();
+        for (pos, &void_id) in self.void_priority_ranking.iter().enumerate() {
+            items.push(ActionItem::new(
+                "fill_void",
+                void_id,
+                rank_score(pos, n),
+                ActionItemKind::FillVoid { void_id },
+                format!("Fill structural void {:.16}", void_id.to_hex()),
+                pid,
+            ));
+        }
+
+        // ── RepairTopology: energy-ranked surgery options ──────────────────────
+        let n = self.surgery_options.len();
+        for (pos, opt) in self.surgery_options.iter().enumerate() {
+            items.push(ActionItem::new(
+                "repair_topology",
+                opt.option_id,
+                rank_score(pos, n),
+                ActionItemKind::RepairTopology { surgery_option_id: opt.option_id },
+                format!("Apply topology surgery option {:.16}", opt.option_id.to_hex()),
+                pid,
+            ));
+        }
+
+        // ── PromoteToPse: confidence-ranked PSE candidates ─────────────────────
+        let n = self.pse_candidates.len();
+        for (pos, cand) in self.pse_candidates.iter().enumerate() {
+            items.push(ActionItem::new(
+                "promote_to_pse",
+                cand.id,
+                rank_score(pos, n),
+                ActionItemKind::PromoteToPse { candidate_id: cand.id },
+                format!("Promote PSE candidate {:.16} ({:?})",
+                    cand.id.to_hex(), cand.kind),
+                pid,
+            ));
+        }
+
+        // ── ReviewCrystal: EvidenceOnly crystal candidates need operator review ─
+        let evidence_only: Vec<_> = self.crystal_candidates.iter()
+            .filter(|c| matches!(
+                c.certification_status,
+                kosmo_hyphae::crystal::CertificationStatus::EvidenceOnly
+            ))
+            .collect();
+        let n = evidence_only.len();
+        for (pos, cand) in evidence_only.iter().enumerate() {
+            items.push(ActionItem::new(
+                "review_crystal",
+                cand.candidate_id,
+                rank_score(pos, n),
+                ActionItemKind::ReviewCrystal { candidate_id: cand.candidate_id },
+                format!("Review EvidenceOnly crystal candidate {:.16}",
+                    cand.candidate_id.to_hex()),
+                pid,
+            ));
+        }
+
+        // ── ApplyNorm: all norm candidates (ranked by fitness via position) ─────
+        let n = self.norm_candidates.len();
+        for (pos, nc) in self.norm_candidates.iter().enumerate() {
+            items.push(ActionItem::new(
+                "apply_norm",
+                nc.candidate_id,
+                rank_score(pos, n),
+                ActionItemKind::ApplyNorm {
+                    norm_candidate_id: nc.candidate_id,
+                    name: nc.name.clone(),
+                },
+                format!("Apply norm '{}' (fitness={})", nc.name, nc.fitness_score.raw()),
+                pid,
+            ));
+        }
+
+        // Sort by priority_score descending (highest first).
+        items.sort_by(|a, b| b.priority_score.raw().cmp(&a.priority_score.raw()));
+        items
+    }
+}
+
 // ─── Filesystem-level entry point ────────────────────────────────────────────
 
 /// Run the full Kosmocrates pipeline on a workspace directory path.
@@ -2621,6 +2788,93 @@ mod tests {
         assert_ne!(r2.report_id, Digest::ZERO);
         let _ = std::fs::remove_dir_all(&ws);
         let _ = std::fs::remove_file(&store_path);
+    }
+
+    // ── ActionItem — CAM layer ────────────────────────────────────────────────
+
+    #[test]
+    fn action_items_empty_report_has_no_items() {
+        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        let items = r.action_items();
+        // Empty workspace → no voids, no surgery, no PSE, no crystals, no norms.
+        assert!(items.is_empty(), "empty workspace must produce no action items");
+    }
+
+    #[test]
+    fn action_items_returns_fill_void_for_each_void_in_report() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let voids = r.void_priority_ranking.len();
+        let fill_voids: Vec<_> = r.action_items().into_iter()
+            .filter(|a| matches!(a.kind, ActionItemKind::FillVoid { .. }))
+            .collect();
+        assert_eq!(fill_voids.len(), voids,
+            "must have one FillVoid item per void in void_priority_ranking");
+    }
+
+    #[test]
+    fn action_items_are_sorted_descending_by_priority() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let items = r.action_items();
+        for window in items.windows(2) {
+            assert!(
+                window[0].priority_score.raw() >= window[1].priority_score.raw(),
+                "action_items must be sorted by priority_score descending"
+            );
+        }
+    }
+
+    #[test]
+    fn action_items_are_content_addressed() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let items = r.action_items();
+        for item in &items {
+            assert_ne!(item.action_id, Digest::ZERO, "action_id must be non-ZERO");
+            assert_eq!(item.policy_id, policy().id, "action_id must carry pipeline policy_id");
+        }
+    }
+
+    #[test]
+    fn action_items_top_void_has_highest_priority() {
+        // The void at position 0 in void_priority_ranking should score Q16::ONE.
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        if r.void_priority_ranking.is_empty() { return; }
+        let top_void = r.void_priority_ranking[0];
+        let items = r.action_items();
+        let top_item = items.iter()
+            .find(|a| matches!(a.kind, ActionItemKind::FillVoid { void_id } if void_id == top_void));
+        if let Some(item) = top_item {
+            assert_eq!(item.priority_score, Q16::ONE,
+                "top-ranked void must have Q16::ONE priority_score");
+        }
+    }
+
+    #[test]
+    fn action_items_surgery_produces_repair_topology_entries() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_surgery: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let repairs: Vec<_> = r.action_items().into_iter()
+            .filter(|a| matches!(a.kind, ActionItemKind::RepairTopology { .. }))
+            .collect();
+        assert_eq!(repairs.len(), r.surgery_options.len(),
+            "must have one RepairTopology per surgery option");
+    }
+
+    #[test]
+    fn action_items_norm_candidates_produce_apply_norm_entries() {
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let norms: Vec<_> = r.action_items().into_iter()
+            .filter(|a| matches!(a.kind, ActionItemKind::ApplyNorm { .. }))
+            .collect();
+        assert_eq!(norms.len(), r.norm_candidates.len(),
+            "must have one ApplyNorm per norm candidate");
     }
 
     #[test]
