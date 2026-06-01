@@ -299,6 +299,7 @@ Every kosmo-hyphae type carrying a Q16 score now has `energy_assessment`.
 | `MicrographLiftReport` | `loss_ratio` | `micrograph_id` (causal) |
 | `TopologyAmbiguityProfile` | `confidence_score` | `micrograph_id` (causal) |
 | `ComplementVoidHypothesis` | `confidence_score` | first `evidence_ids` or `micrograph_id` |
+| `BlueprintUnit` | `Q16::ONE` (Accepted/AcceptedWithTaint), `Q16::ZERO` (RejectedOpaque) | `unit_id` (self-ref) |
 
 ### TE — Real code topology extraction
 Target: `crates/kosmo-hyphae/src/code_hdag.rs` (AD-016)
@@ -317,4 +318,5 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (46 scenarios including all energy-ranked pipeline outputs + Steps 1c, 3e, 3f, 5c, 5d, 6b) | ✅ |
+| `RX:Pipeline` (46 scenarios including all energy-ranked pipeline outputs + Steps 1c, 3e, 3f, 5c, 5d, 5e, 6b) | ✅ |
+| `RX:BlueprintEnergy` (2 scenarios: accepted positive / opaque zero; tainted ranks below clean) | ✅ |

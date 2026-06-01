@@ -693,7 +693,8 @@ pub fn run_dry_pipeline(
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
         let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
-        let units: Vec<BlueprintUnit> = hyphae
+        // Step 5e: build units then energy-rank them (accepted first, tainted below).
+        let raw_units: Vec<BlueprintUnit> = hyphae
             .decisions
             .iter()
             .filter(|d| d.outcome.is_accepted())
@@ -707,6 +708,12 @@ pub fn run_dry_pipeline(
                     policy,
                 )
             })
+            .collect();
+        let assessments: Vec<_> = raw_units.iter().map(|u| u.energy_assessment(&GateResult::Pass)).collect();
+        let ranked_ids = rank_by_energy(&assessments);
+        let units: Vec<BlueprintUnit> = ranked_ids
+            .iter()
+            .filter_map(|a| raw_units.iter().find(|u| u.unit_id == a.subject_id).cloned())
             .collect();
         let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
         let export = cube.export_dry_run(options.systemcube_capacity, policy);

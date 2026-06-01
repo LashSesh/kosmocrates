@@ -15,6 +15,19 @@ note explicitly says so.
 
 ### Added
 
+* **BlueprintUnit energy assessment — Step 5e** — completes energy integration for
+  `kosmo-systemcube`; every artifact type in the production chain now has
+  `energy_assessment`, enabling deterministic priority ordering across all layers.
+
+  - `BlueprintUnit::energy_assessment(gate)`: ψ = `Q16::ONE` for accepted units
+    (Accepted / AcceptedWithTaint); `Q16::ZERO` for opaque-rejected. The taint factor
+    separately reduces energy for tainted units (Synthetic → ½, Quarantined → 0).
+    `evidence_bundle_id = self.unit_id` (self-referential, CROSS-006).
+  - Pipeline Step 5e: blueprint units are energy-ranked before `SystemCube::new`,
+    surfacing the most trusted units at the top of every manifest.
+  - 3 new `kosmo-systemcube` tests (44 total); 2 new `RX:BlueprintEnergy` eval
+    scenarios (116 total, 759 substrate tests).
+
 * **PseBridgeCandidate pipeline integration — Step 6b** — surfaces all actionable
   pipeline observations as PSE-ready candidates, completing the observation→submission
   funnel without gating any decisions on PSE acceptance (CROSS-010).

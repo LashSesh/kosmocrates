@@ -2258,6 +2258,82 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
+
+    v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let src = Digest::of_bytes(b"src");
+        let ev = Digest::of_bytes(b"ev");
+        let accepted = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let opaque = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![],
+            &policy,
+        );
+        let ea = accepted.energy_assessment(&GateResult::Pass);
+        let eo = opaque.energy_assessment(&GateResult::Pass);
+        if ea.energy.raw() == 0 {
+            return Err("accepted BlueprintUnit must have positive energy".into());
+        }
+        if eo.energy.raw() != 0 {
+            return Err(format!("opaque-rejected BlueprintUnit must have zero energy, got {}", eo.energy.raw()));
+        }
+        // evidence self-referential (CROSS-006): unit_id used as evidence_bundle_id
+        if ea.evidence_bundle_id != accepted.unit_id {
+            return Err("evidence_bundle_id must equal unit_id (self-referential, CROSS-006)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-blueprint-energy-tainted-ranks-below-clean", "RX:BlueprintEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let ev = Digest::of_bytes(b"ev");
+        let clean = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            Digest::of_bytes(b"s1"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let synthetic = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            Digest::of_bytes(b"s2"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Synthetic,
+            vec![ev],
+            &policy,
+        );
+        let e_clean = clean.energy_assessment(&GateResult::Pass).energy;
+        let e_synthetic = synthetic.energy_assessment(&GateResult::Pass).energy;
+        if e_clean <= e_synthetic {
+            return Err(format!(
+                "clean (energy={}) must rank above synthetic tainted (energy={})",
+                e_clean.raw(), e_synthetic.raw()
+            ));
+        }
+        // rank_by_energy must surface clean first
+        let assessments = vec![
+            synthetic.energy_assessment(&GateResult::Pass),
+            clean.energy_assessment(&GateResult::Pass),
+        ];
+        let ranked = rank_by_energy(&assessments);
+        if ranked[0].subject_id != clean.unit_id {
+            return Err("rank_by_energy must put clean BlueprintUnit first".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {
