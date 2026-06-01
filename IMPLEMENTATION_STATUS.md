@@ -4,10 +4,11 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **759 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 44, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 77) — 0 failures
-- **116/116 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **764 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 49, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 77) — 0 failures
+- **118/118 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
+- **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
 - **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
@@ -15,6 +16,14 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### ContradictionEnergyReport Real Detection (2026-06-01)
+- [x] `ContradictionEnergyReport::from_units(manifest_id, policy, units)` — replaces `zero_energy` stub
+  - Filters to accepted units only; iterates unit_id-ordered pairs (INVARIANT-007)
+  - Same `source_ref`, same `kind` → `Duplicate`, weight `Q16::HALF`
+  - Same `source_ref`, different `kind` → `RoleConflict`, weight `Q16::ONE`
+- [x] `SystemCube::export_dry_run` now calls `from_units` — manifests with role conflicts surface non-zero total_energy
+- [x] 5 new `kosmo-systemcube` energy tests (49 total); 2 new `RX:ContradictionEnergy` eval scenarios (118 total, 764 substrate tests)
 
 ### BlueprintUnit Energy Assessment — Step 5e (2026-06-01)
 - [x] `BlueprintUnit::energy_assessment(gate)` added to `kosmo-systemcube`

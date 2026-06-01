@@ -15,6 +15,19 @@ note explicitly says so.
 
 ### Added
 
+* **ContradictionEnergyReport real pairwise detection** — replaces the `zero_energy`
+  stub in `SystemCube::export_dry_run` with a deterministic, unit_id-ordered pairwise
+  scan of accepted units; surfaces real `RoleConflict` and `Duplicate` signals.
+
+  - `ContradictionEnergyReport::from_units(manifest_id, policy, units)`:
+    same `source_ref` + same `kind` → `Duplicate` (weight `Q16::HALF`);
+    same `source_ref` + different `kind` → `RoleConflict` (weight `Q16::ONE`).
+    Units iterated in `unit_id` order for determinism (INVARIANT-007).
+  - `SystemCube::export_dry_run` now calls `from_units` — every `KcubeExportReport`
+    carries real contradiction diagnostics rather than a constant zero.
+  - 5 new `kosmo-systemcube` tests (49 total); 2 new `RX:ContradictionEnergy` eval
+    scenarios (118 total, 764 substrate tests).
+
 * **BlueprintUnit energy assessment — Step 5e** — completes energy integration for
   `kosmo-systemcube`; every artifact type in the production chain now has
   `energy_assessment`, enabling deterministic priority ordering across all layers.

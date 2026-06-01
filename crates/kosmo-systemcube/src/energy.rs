@@ -6,6 +6,7 @@
 //!
 //! The report is advisory only. It cannot authorise materialization.
 
+use crate::blueprint_unit::BlueprintUnit;
 use kosmo_core::{Digest, PolicyProfile, Q16};
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +102,53 @@ impl ContradictionEnergyReport {
         Self::new(manifest_id, policy, EnergyStatus::Available, vec![])
     }
 
+    /// Compute real pairwise contradiction energy from a set of `BlueprintUnit`s.
+    ///
+    /// Only accepted units are considered. For each pair sharing the same
+    /// `source_ref`:
+    /// - Same kind → `Duplicate` contradiction, weight `Q16::HALF`.
+    /// - Different kinds → `RoleConflict` contradiction, weight `Q16::ONE`.
+    ///
+    /// Units are iterated in `unit_id` order so the output is deterministic
+    /// regardless of insertion order (INVARIANT-007).
+    pub fn from_units(
+        manifest_id: Digest,
+        policy: &PolicyProfile,
+        units: &[BlueprintUnit],
+    ) -> Self {
+        let mut accepted: Vec<&BlueprintUnit> =
+            units.iter().filter(|u| u.is_accepted()).collect();
+
+        if accepted.len() < 2 {
+            return Self::insufficient(manifest_id, policy);
+        }
+
+        accepted.sort_by_key(|u| u.unit_id);
+
+        let mut contradictions: Vec<ContradictionRecord> = Vec::new();
+        for i in 0..accepted.len() {
+            for j in (i + 1)..accepted.len() {
+                let a = accepted[i];
+                let b = accepted[j];
+                if a.source_ref == b.source_ref {
+                    let (weight, reason) = if a.kind == b.kind {
+                        (Q16::HALF, format!("Duplicate: same source_ref and kind {:?}", a.kind))
+                    } else {
+                        (Q16::ONE, format!("RoleConflict: source_ref shared, kinds {:?} vs {:?}", a.kind, b.kind))
+                    };
+                    contradictions.push(ContradictionRecord {
+                        unit_a_id: a.unit_id,
+                        unit_b_id: b.unit_id,
+                        weight,
+                        reason,
+                    });
+                }
+            }
+        }
+
+        Self::new(manifest_id, policy, EnergyStatus::Available, contradictions)
+    }
+
     pub fn summary(&self) -> String {
         format!(
             "ContradictionEnergyReport — status={:?} energy={} contradictions={}",
@@ -114,7 +162,8 @@ impl ContradictionEnergyReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{PolicyProfile, Q16};
+    use crate::blueprint_unit::{BlueprintUnit, BlueprintUnitKind};
+    use kosmo_core::{AuthorityLabel, PolicyProfile, Q16, TaintLabel};
 
     fn policy() -> PolicyProfile {
         PolicyProfile::default_report_only()
@@ -122,6 +171,28 @@ mod tests {
 
     fn mid() -> Digest {
         Digest::of_bytes(b"manifest")
+    }
+
+    fn unit(kind: BlueprintUnitKind, src: &[u8], ev: &[u8]) -> BlueprintUnit {
+        BlueprintUnit::new(
+            kind,
+            Digest::of_bytes(src),
+            AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![Digest::of_bytes(ev)],
+            &PolicyProfile::default_report_only(),
+        )
+    }
+
+    fn unit_opaque(src: &[u8]) -> BlueprintUnit {
+        BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            Digest::of_bytes(src),
+            AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![],
+            &PolicyProfile::default_report_only(),
+        )
     }
 
     #[test]
@@ -184,5 +255,59 @@ mod tests {
         let s = r.summary();
         assert!(s.contains("ContradictionEnergyReport"));
         assert!(s.contains("Available"));
+    }
+
+    #[test]
+    fn from_units_no_contradiction_different_sources() {
+        let u1 = unit(BlueprintUnitKind::ModuleBoundary, b"src1", b"ev1");
+        let u2 = unit(BlueprintUnitKind::ModuleBoundary, b"src2", b"ev2");
+        let r = ContradictionEnergyReport::from_units(mid(), &policy(), &[u1, u2]);
+        assert_eq!(r.status, EnergyStatus::Available);
+        assert_eq!(r.total_energy, Q16::ZERO, "no contradiction when source_refs differ");
+        assert!(r.contradictions.is_empty());
+    }
+
+    #[test]
+    fn from_units_duplicate_same_source_and_kind_is_half_weight() {
+        let src = b"shared_src";
+        let u1 = unit(BlueprintUnitKind::ModuleBoundary, src, b"ev1");
+        let u2 = unit(BlueprintUnitKind::ModuleBoundary, src, b"ev2");
+        let r = ContradictionEnergyReport::from_units(mid(), &policy(), &[u1, u2]);
+        assert_eq!(r.status, EnergyStatus::Available);
+        assert_eq!(r.contradictions.len(), 1);
+        assert_eq!(r.contradictions[0].weight, Q16::HALF, "duplicate must have weight=HALF");
+        assert!(r.contradictions[0].reason.contains("Duplicate"));
+    }
+
+    #[test]
+    fn from_units_role_conflict_same_source_different_kind_is_full_weight() {
+        let src = b"shared_src";
+        let u1 = unit(BlueprintUnitKind::ModuleBoundary, src, b"ev1");
+        let u2 = unit(BlueprintUnitKind::CrystalReference, src, b"ev2");
+        let r = ContradictionEnergyReport::from_units(mid(), &policy(), &[u1, u2]);
+        assert_eq!(r.status, EnergyStatus::Available);
+        assert_eq!(r.contradictions.len(), 1);
+        assert_eq!(r.contradictions[0].weight, Q16::ONE, "role conflict must have weight=ONE");
+        assert!(r.contradictions[0].reason.contains("RoleConflict"));
+    }
+
+    #[test]
+    fn from_units_opaque_units_excluded_from_detection() {
+        let src = b"shared_src";
+        let accepted = unit(BlueprintUnitKind::ModuleBoundary, src, b"ev1");
+        let opaque = unit_opaque(src); // same source_ref, but opaque-rejected
+        let r = ContradictionEnergyReport::from_units(mid(), &policy(), &[accepted, opaque]);
+        // Only 1 accepted unit → insufficient (not available)
+        assert_eq!(r.status, EnergyStatus::Insufficient, "opaque units must be excluded");
+    }
+
+    #[test]
+    fn from_units_is_deterministic() {
+        let src = b"shared_src";
+        let u1 = unit(BlueprintUnitKind::ModuleBoundary, src, b"ev1");
+        let u2 = unit(BlueprintUnitKind::CrystalReference, src, b"ev2");
+        let r1 = ContradictionEnergyReport::from_units(mid(), &policy(), &[u1.clone(), u2.clone()]);
+        let r2 = ContradictionEnergyReport::from_units(mid(), &policy(), &[u2, u1]);
+        assert_eq!(r1.report_id, r2.report_id, "from_units must be order-independent (INVARIANT-007)");
     }
 }

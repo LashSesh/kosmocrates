@@ -49,7 +49,7 @@ use kosmo_pse_bridge::{
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
 use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
 use kosmo_kcube::{KcubeArtifact, KcubeExecutor, kcube_file_name};
-use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, SystemCube};
+use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, ContradictionEnergyReport, EnergyStatus, SystemCube};
 use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
 use kosmo_workbench::WorkspaceIndex;
 
@@ -3108,6 +3108,89 @@ fn it_builds() { assert!(true); }
         // package_id in the write report must match the parsed package id
         if report.package_id != pkg.id {
             return Err("package_id in write report must equal parsed KcubePackage.id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:ContradictionEnergy — real pairwise contradiction detection ───────────
+
+    v.push(run_check("rx-contradiction-energy-role-conflict-detected", "RX:ContradictionEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let src = d(b"shared_source");
+        let ev1 = d(b"ev1");
+        let ev2 = d(b"ev2");
+        // Two units with the same source_ref but different kinds = RoleConflict.
+        let boundary = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev1],
+            &policy,
+        );
+        let crystal = BlueprintUnit::new(
+            BlueprintUnitKind::CrystalReference,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev2],
+            &policy,
+        );
+        let r = ContradictionEnergyReport::from_units(mid, &policy, &[boundary, crystal]);
+        if r.status != EnergyStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.contradictions.len() != 1 {
+            return Err(format!("expected 1 contradiction, got {}", r.contradictions.len()));
+        }
+        if r.contradictions[0].weight != Q16::ONE {
+            return Err(format!("RoleConflict weight must be Q16::ONE, got {}", r.contradictions[0].weight.raw()));
+        }
+        if !r.contradictions[0].reason.contains("RoleConflict") {
+            return Err("contradiction reason must mention RoleConflict".into());
+        }
+        if r.total_energy != Q16::ONE {
+            return Err(format!("total_energy must be ONE, got {}", r.total_energy.raw()));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-contradiction-energy-independent-sources-zero", "RX:ContradictionEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let ev = d(b"ev");
+        // Units with distinct source_refs must not generate contradictions.
+        let u1 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src_a"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let u2 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src_b"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let r = ContradictionEnergyReport::from_units(mid, &policy, &[u1.clone(), u2.clone()]);
+        if r.status != EnergyStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.total_energy != Q16::ZERO {
+            return Err(format!("independent sources must yield zero energy, got {}", r.total_energy.raw()));
+        }
+        if !r.contradictions.is_empty() {
+            return Err(format!("expected 0 contradictions, got {}", r.contradictions.len()));
+        }
+        // report must be content-addressed and deterministic
+        let r2 = ContradictionEnergyReport::from_units(mid, &policy, &[u1, u2]);
+        if r.report_id != r2.report_id {
+            return Err("ContradictionEnergyReport must be deterministic (INVARIANT-007)".into());
         }
         Ok(())
     }));

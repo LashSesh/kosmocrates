@@ -166,11 +166,11 @@ impl SystemCube {
     ) -> KcubeExportReport {
         let d_density = DDensityReport::compute(&self.manifest, policy, capacity);
 
-        let energy = if self.manifest.accepted_count() < 2 {
-            ContradictionEnergyReport::insufficient(self.manifest.manifest_id, policy)
-        } else {
-            ContradictionEnergyReport::zero_energy(self.manifest.manifest_id, policy)
-        };
+        let energy = ContradictionEnergyReport::from_units(
+            self.manifest.manifest_id,
+            policy,
+            &self.units,
+        );
 
         let compatibility = if self.host_snapshot_id == Digest::ZERO {
             CompatibilityProfileReport::no_host_snapshot(self.manifest.manifest_id, policy)
