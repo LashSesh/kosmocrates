@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **777 substrate tests** (kosmo-core 339, kosmo-hyphae 172, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
-- **124/124 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **780 substrate tests** (kosmo-core 339, kosmo-hyphae 176, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
+- **126/126 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,13 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `ReduceDeficiency` Intents in Frontier + Spec §2.2 Yield Compliance (2026-06-01)
+- [x] `SourceFrontierGraph::from_void_map` now generates both `FillVoid` intents (one per void) and `ReduceDeficiency` intents (one per deficiency kind) from the derived `DeficiencyVector`
+- [x] `SourceFrontierGraph::from_void_map_and_deficiencies` — explicit constructor accepting a pre-computed `DeficiencyVector`
+- [x] `yield_for_intent` propagates `deficiency_kind_ref` from `ReduceDeficiency` intents, satisfying spec §2.2 (a yield must reference a void OR a deficiency)
+- [x] `ReduceDeficiency` yields are fully processed by the gate cascade → `AssimilationDecision` with non-ZERO id
+- [x] 4 new hyphae tests (176 total — 3 frontier, 1 run); 3 new `RX:Hyphae` eval scenarios (126 total, 780 substrate tests)
 
 ### Hyphae `yield_for_intent` Taint/Authority Propagation (2026-06-01)
 - [x] `yield_for_intent` now propagates `intent.taint.clone()` and `intent.authority.clone()` — no hardcoded overrides

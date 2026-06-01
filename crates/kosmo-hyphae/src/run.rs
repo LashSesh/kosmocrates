@@ -130,15 +130,24 @@ fn synthetic_evidence_for_intent(intent: &SourceIntent, policy_id: Digest) -> Ev
 /// The yield's trust level is derived entirely from the intent — no hardcoded
 /// overrides. A `TaintLabel::Clean` + `AuthorityLabel::Foundry` intent produces
 /// a yield that passes all gates and yields an `Accepted` decision.
+///
+/// For `ReduceDeficiency` intents, `deficiency_kind_ref` is populated from the
+/// intent kind so the yield satisfies spec §2.2 (must reference void OR deficiency).
 fn yield_for_intent(
     intent: &SourceIntent,
     evidence: &EvidenceBundle,
     policy_id: Digest,
 ) -> StructuralYield {
+    let deficiency_kind_ref = match &intent.kind {
+        crate::frontier::SourceIntentKind::ReduceDeficiency { deficiency_kind } => {
+            Some(format!("{:?}", deficiency_kind))
+        }
+        _ => None,
+    };
     StructuralYield::new(
         StructuralYieldKind::DeficiencyFill,
         intent.target_void_id,
-        None,
+        deficiency_kind_ref,
         intent.taint.clone(),
         intent.authority.clone(),
         evidence.bundle_id,
@@ -291,5 +300,56 @@ mod tests {
             decision.outcome,
         );
         assert_eq!(decision.taint, TaintLabel::Clean);
+    }
+
+    #[test]
+    fn yield_for_reduce_deficiency_intent_carries_deficiency_kind_ref() {
+        use kosmo_core::{AuthorityLabel, TaintLabel};
+        use crate::deficiency::DeficiencyKind;
+        use crate::frontier::{SourceIntent, SourceIntentKind};
+
+        let policy = PolicyProfile::default_report_only();
+        let intent = SourceIntent::new(
+            SourceIntentKind::ReduceDeficiency { deficiency_kind: DeficiencyKind::TestCoverage },
+            None,
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        );
+        let evidence = synthetic_evidence_for_intent(&intent, policy.id);
+        let yield_ = yield_for_intent(&intent, &evidence, policy.id);
+
+        // A ReduceDeficiency intent must produce a yield with deficiency_kind_ref set (spec §2.2).
+        assert_eq!(
+            yield_.deficiency_kind_ref.as_deref(),
+            Some("TestCoverage"),
+            "ReduceDeficiency intent must populate deficiency_kind_ref in the yield",
+        );
+        assert!(
+            yield_.host_void_id.is_none(),
+            "ReduceDeficiency intent has no specific void to target",
+        );
+    }
+
+    #[test]
+    fn passive_run_includes_reduce_deficiency_intents() {
+        let policy = PolicyProfile::default_report_only();
+        let index = make_index(vec![src("src/alpha.rs"), src("src/beta.rs")]);
+        let result = passive_run(&index, &policy);
+
+        // Frontier must contain both FillVoid and ReduceDeficiency intents.
+        let fill_count = result.frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, crate::frontier::SourceIntentKind::FillVoid { .. }))
+            .count();
+        let reduce_count = result.frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, crate::frontier::SourceIntentKind::ReduceDeficiency { .. }))
+            .count();
+
+        assert!(fill_count > 0, "source files must produce FillVoid intents");
+        assert!(reduce_count > 0, "deficiency entries must produce ReduceDeficiency intents");
+        assert_eq!(
+            result.total_yields(),
+            fill_count + reduce_count,
+            "every intent must produce exactly one decision",
+        );
     }
 }

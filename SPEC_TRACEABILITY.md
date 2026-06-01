@@ -64,6 +64,7 @@ Target crate: `crates/kosmo-hyphae`
 | `NegativeEvidenceRecord` | HYPHAE v0.3 spec; CROSS-012 | ✅ `kosmo-hyphae/src/assimilation.rs` |
 | `HyphaeRunResult` / `passive_run` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/run.rs` |
 | `yield_for_intent` taint/authority propagation | HYPHAE v0.3 spec; CROSS-007; INVARIANT-007 | ✅ `kosmo-hyphae/src/run.rs` — intent taint/authority flow unchanged to yield, no hardcoded overrides |
+| `ReduceDeficiency` intents + spec §2.2 yield compliance | HYPHAE v0.3 spec §2.2 | ✅ `kosmo-hyphae/src/frontier.rs` + `run.rs` — FillVoid + ReduceDeficiency intents from void map; deficiency_kind_ref populated |
 
 ## MVP-3 / Phase 4 — CubeSwarm MVP
 

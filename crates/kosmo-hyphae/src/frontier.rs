@@ -1,4 +1,4 @@
-use crate::deficiency::DeficiencyKind;
+use crate::deficiency::{DeficiencyKind, DeficiencyVector};
 use crate::void_map::TopologicalVoidMap;
 use kosmo_core::{AuthorityLabel, Digest, LicenseStatus, TaintLabel};
 use serde::{Deserialize, Serialize};
@@ -121,9 +121,24 @@ impl SourceFrontierGraph {
         Self { graph_id, intents, evidence: vec![], policy_id }
     }
 
-    /// Build a frontier from a void map: one FillVoid intent per void.
+    /// Build a frontier from a void map and its derived deficiency vector.
+    ///
+    /// Produces one `FillVoid` intent per void and one `ReduceDeficiency` intent per
+    /// deficiency kind. The category-level `ReduceDeficiency` intents satisfy spec §2.2
+    /// (a yield must reference either a void or a deficiency) for any yield built from
+    /// them, and are used by pipeline stages that target a whole deficiency class rather
+    /// than a single void.
     pub fn from_void_map(void_map: &TopologicalVoidMap, policy_id: Digest) -> Self {
-        let intents: Vec<SourceIntent> = void_map
+        let deficiency_vector = DeficiencyVector::from_void_map(void_map);
+        Self::from_void_map_and_deficiencies(void_map, &deficiency_vector, policy_id)
+    }
+
+    pub fn from_void_map_and_deficiencies(
+        void_map: &TopologicalVoidMap,
+        deficiency_vector: &DeficiencyVector,
+        policy_id: Digest,
+    ) -> Self {
+        let mut intents: Vec<SourceIntent> = void_map
             .voids
             .iter()
             .map(|v| {
@@ -135,6 +150,17 @@ impl SourceFrontierGraph {
                 )
             })
             .collect();
+
+        // One ReduceDeficiency intent per deficiency kind (category-level intents).
+        for entry in &deficiency_vector.entries {
+            intents.push(SourceIntent::new(
+                SourceIntentKind::ReduceDeficiency { deficiency_kind: entry.kind.clone() },
+                None,
+                TaintLabel::Unverified,
+                AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+            ));
+        }
+
         Self::from_intents(intents, policy_id)
     }
 
@@ -184,7 +210,45 @@ mod tests {
         ];
         let vm = TopologicalVoidMap::from_voids(voids, pid);
         let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
-        assert_eq!(frontier.intents.len(), 1);
+        // 1 FillVoid intent + 1 ReduceDeficiency(TestCoverage) intent
+        assert_eq!(frontier.intents.len(), 2);
+        assert!(frontier.intents.iter().any(|i| matches!(&i.kind, SourceIntentKind::FillVoid { .. })));
+        assert!(frontier.intents.iter().any(|i| matches!(&i.kind, SourceIntentKind::ReduceDeficiency { .. })));
+        assert!(frontier.verify_id());
+    }
+
+    #[test]
+    fn frontier_from_void_map_empty_produces_no_reduce_deficiency_intents() {
+        let pid = Digest::of_bytes(b"p");
+        let vm = TopologicalVoidMap::from_voids(vec![], pid);
+        let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
+        assert_eq!(frontier.intents.len(), 0);
+        assert!(frontier.verify_id());
+    }
+
+    #[test]
+    fn frontier_from_void_map_mixed_kinds_produce_two_reduce_deficiency_intents() {
+        let pid = Digest::of_bytes(b"p");
+        let voids = vec![
+            HostVoid::new(
+                HostVoidKind::MissingTestFiber { for_module: "src/a.rs".into() },
+                Q16::HALF,
+                "src/a.rs".into(),
+            ),
+            HostVoid::new(
+                HostVoidKind::MissingDocFiber { for_module: "src/b.rs".into() },
+                Q16::HALF,
+                "src/b.rs".into(),
+            ),
+        ];
+        let vm = TopologicalVoidMap::from_voids(voids, pid);
+        let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
+        // 2 FillVoid + 2 ReduceDeficiency (TestCoverage + Documentation)
+        assert_eq!(frontier.intents.len(), 4);
+        let reduce_count = frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, SourceIntentKind::ReduceDeficiency { .. }))
+            .count();
+        assert_eq!(reduce_count, 2, "one ReduceDeficiency intent per deficiency kind");
         assert!(frontier.verify_id());
     }
 }

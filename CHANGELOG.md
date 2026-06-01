@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **`ReduceDeficiency` intents in frontier + spec §2.2 yield compliance** — closes
+  the gap between the `DeficiencyVector` (already computed in Step 1c) and the
+  `SourceFrontierGraph` (previously void-map-only), and ensures every yield
+  produced from a `ReduceDeficiency` intent satisfies the spec §2.2 reference
+  invariant (a yield must reference a void OR a deficiency).
+
+  - `SourceFrontierGraph::from_void_map` now derives the `DeficiencyVector`
+    internally and appends one `ReduceDeficiency` intent per deficiency kind.
+    An empty void map still produces an empty frontier.
+  - `SourceFrontierGraph::from_void_map_and_deficiencies` exposed for callers
+    that already hold a pre-computed vector.
+  - `yield_for_intent` extracts `deficiency_kind_ref` from `ReduceDeficiency`
+    intents and passes it into `StructuralYield::new`; all other intent kinds
+    continue to produce `deficiency_kind_ref = None`.
+  - 4 new hyphae tests (176 total); 3 new `RX:Hyphae` eval scenarios (126 total,
+    780 substrate tests).
+
 * **`yield_for_intent` taint/authority propagation** — removes the last
   hardcoded trust override in the passive HYPHAE run path, opening the clean
   intent → Accepted decision path end-to-end.

@@ -2373,6 +2373,93 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    v.push(run_check("rx-hyphae-reduce-deficiency-intent-carries-kind-ref", "RX:Hyphae", || {
+        // A ReduceDeficiency intent must produce a yield with deficiency_kind_ref set.
+        // Without this, the yield has host_void_id=None AND deficiency_kind_ref=None,
+        // violating spec §2.2 (yield must reference void OR deficiency).
+        use kosmo_hyphae::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_hyphae::deficiency::DeficiencyKind;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let intent = SourceIntent::new(
+            SourceIntentKind::ReduceDeficiency { deficiency_kind: DeficiencyKind::TestCoverage },
+            None,
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        );
+        let ev_ref = EvidenceRef::new(intent.intent_id, EvidenceKind::HostScan, "eval-scan");
+        let evidence = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            intent.target_void_id,
+            match &intent.kind {
+                SourceIntentKind::ReduceDeficiency { deficiency_kind } =>
+                    Some(format!("{:?}", deficiency_kind)),
+                _ => None,
+            },
+            intent.taint.clone(),
+            intent.authority.clone(),
+            evidence.bundle_id,
+            policy.id,
+        );
+
+        if yield_.host_void_id.is_some() {
+            return Err("ReduceDeficiency yield must not reference a specific void".into());
+        }
+        if yield_.deficiency_kind_ref.as_deref() != Some("TestCoverage") {
+            return Err(format!(
+                "deficiency_kind_ref must be 'TestCoverage', got {:?}",
+                yield_.deficiency_kind_ref
+            ));
+        }
+        // Yield is still processable by the gate cascade.
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+        if decision.decision_id == Digest::ZERO {
+            return Err("ReduceDeficiency decision must have non-ZERO id (CROSS-006)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-frontier-includes-reduce-deficiency-intents", "RX:Hyphae", || {
+        // from_void_map must generate both FillVoid and ReduceDeficiency intents.
+        // The ReduceDeficiency intents represent category-level structural observations
+        // alongside the per-void FillVoid intents.
+        use kosmo_hyphae::frontier::{SourceFrontierGraph, SourceIntentKind};
+        use kosmo_hyphae::void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
+
+        let pid = PolicyProfile::default_report_only().id;
+        let voids = vec![
+            HostVoid::new(HostVoidKind::MissingTestFiber { for_module: "src/a.rs".into() }, Q16::HALF, "src/a.rs".into()),
+            HostVoid::new(HostVoidKind::MissingDocFiber { for_module: "src/b.rs".into() }, Q16::HALF, "src/b.rs".into()),
+        ];
+        let vm = TopologicalVoidMap::from_voids(voids, pid);
+        let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
+
+        let fill_count = frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, SourceIntentKind::FillVoid { .. }))
+            .count();
+        let reduce_count = frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, SourceIntentKind::ReduceDeficiency { .. }))
+            .count();
+
+        if fill_count != 2 {
+            return Err(format!("expected 2 FillVoid intents, got {}", fill_count));
+        }
+        if reduce_count != 2 {
+            return Err(format!("expected 2 ReduceDeficiency intents (TestCoverage + Documentation), got {}", reduce_count));
+        }
+        if !frontier.verify_id() {
+            return Err("frontier graph_id must match content hash (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {
