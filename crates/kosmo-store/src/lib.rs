@@ -35,6 +35,8 @@ use kosmo_core::{
     CartographyStoreCommit, CartographyStoreError, CorpusCartographyStore, CorpusScope, Digest,
     ImplementationMode, PolicyProfile,
 };
+use kosmo_hyphae::crystal::StructuralCrystalRecord;
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -252,6 +254,383 @@ impl CorpusCartographyStore for JsonlCartographyStore {
         &self.manifest.scope
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// CrystalRecordStore
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Error type for [`CrystalRecordStore`] operations.
+#[derive(Debug)]
+pub enum CrystalStoreError {
+    Io { message: String },
+    PolicyDenied { reason: String },
+    IntegrityViolation { record_id: Digest },
+}
+
+impl fmt::Display for CrystalStoreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io { message } => write!(f, "crystal store I/O: {message}"),
+            Self::PolicyDenied { reason } => write!(f, "crystal store policy denied: {reason}"),
+            Self::IntegrityViolation { record_id } => {
+                write!(f, "crystal store integrity violation: record_id={record_id:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CrystalStoreError {}
+
+/// An append-only, durable store for [`StructuralCrystalRecord`]s backed by a
+/// JSONL file.
+///
+/// Each line of the backing file is the JSON serialization of one record.
+/// Records are deduplicated by `record_id` — re-appending an already-stored
+/// record is a no-op. Opening is a read-only operation; disk writes require
+/// `allow_host_write` (same host-write invariant as [`JsonlCartographyStore`]).
+///
+/// The primary use-case is persisting the CAD library across integration runs
+/// so the `IntegrationRunOptions::prior_crystals` slice can be pre-populated
+/// from the previous session.
+pub struct CrystalRecordStore {
+    path: PathBuf,
+    records: Vec<StructuralCrystalRecord>,
+}
+
+impl CrystalRecordStore {
+    /// Open an existing JSONL store or create an empty (unwritten) one.
+    ///
+    /// Replays every line of an existing file, verifies each record's
+    /// `record_id`, and rejects the file on any integrity failure.
+    pub fn open(path: impl Into<PathBuf>) -> Result<Self, CrystalStoreError> {
+        let path = path.into();
+        let mut records: Vec<StructuralCrystalRecord> = Vec::new();
+
+        if path.exists() {
+            let file = File::open(&path).map_err(|e| CrystalStoreError::Io {
+                message: format!("open {}: {e}", path.display()),
+            })?;
+            let reader = BufReader::new(file);
+            for (lineno, line) in reader.lines().enumerate() {
+                let line = line.map_err(|e| CrystalStoreError::Io {
+                    message: format!("read line {}: {e}", lineno + 1),
+                })?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let record: StructuralCrystalRecord =
+                    serde_json::from_str(&line).map_err(|e| CrystalStoreError::Io {
+                        message: format!("parse line {}: {e}", lineno + 1),
+                    })?;
+                if !record.verify_id() {
+                    return Err(CrystalStoreError::IntegrityViolation {
+                        record_id: record.record_id,
+                    });
+                }
+                records.push(record);
+            }
+        }
+
+        Ok(Self { path, records })
+    }
+
+    /// Path of the backing JSONL file.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// All records currently held in the store.
+    pub fn records(&self) -> &[StructuralCrystalRecord] {
+        &self.records
+    }
+
+    /// Number of records currently persisted.
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    /// Whether the store holds no records.
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    /// Append a record to the store.
+    ///
+    /// Policy requirements (same as [`JsonlCartographyStore`]):
+    /// - `ReportOnly` is denied (no mutation).
+    /// - `allow_host_write` must be true (a durable append is a host write).
+    ///
+    /// Re-appending a record with the same `record_id` is silently deduplicated
+    /// and returns `Ok(())`.
+    pub fn append(
+        &mut self,
+        record: StructuralCrystalRecord,
+        policy: &PolicyProfile,
+    ) -> Result<(), CrystalStoreError> {
+        if policy.mode == ImplementationMode::ReportOnly {
+            return Err(CrystalStoreError::PolicyDenied {
+                reason: "ImplementationMode::ReportOnly forbids crystal store mutation".into(),
+            });
+        }
+        if !policy.allow_host_write {
+            return Err(CrystalStoreError::PolicyDenied {
+                reason: "crystal record append requires allow_host_write \
+                         (DryRun may not write host files)"
+                    .into(),
+            });
+        }
+
+        // Dedup by record_id — idempotent append.
+        if self.records.iter().any(|r| r.record_id == record.record_id) {
+            return Ok(());
+        }
+
+        let line = serde_json::to_string(&record).map_err(|e| CrystalStoreError::Io {
+            message: format!("serialize record: {e}"),
+        })?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|e| CrystalStoreError::Io {
+                message: format!("open for append {}: {e}", self.path.display()),
+            })?;
+        file.write_all(line.as_bytes())
+            .and_then(|_| file.write_all(b"\n"))
+            .and_then(|_| file.flush())
+            .and_then(|_| file.sync_all())
+            .map_err(|e| CrystalStoreError::Io {
+                message: format!("write {}: {e}", self.path.display()),
+            })?;
+
+        self.records.push(record);
+        Ok(())
+    }
+
+    /// Re-verify every record's `record_id` against its content.
+    ///
+    /// Returns `Ok(count)` on success, or `Err(CrystalStoreError::IntegrityViolation)`
+    /// on the first corrupted record.
+    pub fn verify_integrity(&self) -> Result<usize, CrystalStoreError> {
+        for record in &self.records {
+            if !record.verify_id() {
+                return Err(CrystalStoreError::IntegrityViolation {
+                    record_id: record.record_id,
+                });
+            }
+        }
+        Ok(self.records.len())
+    }
+}
+
+#[cfg(test)]
+mod crystal_store_tests {
+    use super::*;
+    use kosmo_core::{
+        AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef, Q16, ReplayStatus,
+        TaintLabel,
+    };
+    use kosmo_hyphae::{
+        assimilation::AssimilationDecision,
+        crystal::StructuralCrystalCandidate,
+        gates::GateCascade,
+        structural_yield::{StructuralYield, StructuralYieldKind},
+    };
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn d(seed: &[u8]) -> Digest {
+        Digest::of_bytes(seed)
+    }
+
+    fn temp_path(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mut p = std::env::temp_dir();
+        p.push(format!("kosmo-crystal-store-{tag}-{nanos}.jsonl"));
+        p
+    }
+
+    fn make_record(seed: &[u8]) -> StructuralCrystalRecord {
+        let policy = PolicyProfile::operator_approved();
+        let ev = EvidenceBundle::seal(
+            vec![EvidenceRef::new(d(seed), EvidenceKind::HostScan, "scan")],
+            policy.id,
+            ReplayStatus::Replayable,
+        );
+        let void_id = d(seed);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(void_id),
+            None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            ev.bundle_id,
+            policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(void_id),
+            Q16::ONE,
+            Q16::HALF,
+        );
+        candidate
+            .certify(ReplayStatus::Replayable)
+            .expect("candidate must certify")
+            .1
+    }
+
+    fn op_approved() -> PolicyProfile {
+        PolicyProfile::operator_approved()
+    }
+
+    #[test]
+    fn report_only_denies_append() {
+        let path = temp_path("ro");
+        let mut store = CrystalRecordStore::open(&path).unwrap();
+        let record = make_record(b"r1");
+        let res = store.append(record, &PolicyProfile::default());
+        assert!(matches!(res, Err(CrystalStoreError::PolicyDenied { .. })));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn dry_run_denies_append() {
+        let path = temp_path("dryrun");
+        let mut store = CrystalRecordStore::open(&path).unwrap();
+        let record = make_record(b"r2");
+        let res = store.append(record, &PolicyProfile::dry_run());
+        match &res {
+            Err(CrystalStoreError::PolicyDenied { reason }) => {
+                assert!(reason.contains("allow_host_write"));
+            }
+            other => panic!("expected PolicyDenied, got {other:?}"),
+        }
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn operator_approved_appends_and_reloads() {
+        let path = temp_path("persist");
+        let r1 = make_record(b"r1");
+        let r2 = make_record(b"r2");
+        let r1_id = r1.record_id;
+        let r2_id = r2.record_id;
+        {
+            let mut store = CrystalRecordStore::open(&path).unwrap();
+            store.append(r1, &op_approved()).unwrap();
+            store.append(r2, &op_approved()).unwrap();
+            assert_eq!(store.len(), 2);
+        }
+        let reopened = CrystalRecordStore::open(&path).unwrap();
+        assert_eq!(reopened.len(), 2);
+        assert!(reopened.records().iter().any(|r| r.record_id == r1_id));
+        assert!(reopened.records().iter().any(|r| r.record_id == r2_id));
+        assert_eq!(reopened.verify_integrity().unwrap(), 2);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn dedup_prevents_duplicate_records() {
+        let path = temp_path("dedup");
+        let record = make_record(b"dup");
+        let id = record.record_id;
+        let mut store = CrystalRecordStore::open(&path).unwrap();
+        store.append(record.clone(), &op_approved()).unwrap();
+        store.append(record, &op_approved()).unwrap(); // dedup — no-op
+        assert_eq!(store.len(), 1);
+        // Reload confirms only one line on disk.
+        let reopened = CrystalRecordStore::open(&path).unwrap();
+        assert_eq!(reopened.len(), 1);
+        assert_eq!(reopened.records()[0].record_id, id);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn integrity_detects_tampering() {
+        let path = temp_path("tamper");
+        let record = make_record(b"tamper");
+        {
+            let mut store = CrystalRecordStore::open(&path).unwrap();
+            store.append(record, &op_approved()).unwrap();
+        }
+        // Append a line with a corrupted record_id directly.
+        {
+            use std::io::Write as _;
+            let mut forged = make_record(b"other");
+            forged.record_id = d(b"wrong-id");
+            let line = serde_json::to_string(&forged).unwrap();
+            let mut f = OpenOptions::new().append(true).open(&path).unwrap();
+            writeln!(f, "{line}").unwrap();
+        }
+        let res = CrystalRecordStore::open(&path);
+        assert!(
+            matches!(res, Err(CrystalStoreError::IntegrityViolation { .. })),
+            "tampered record must be detected on open"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn empty_store_integrity_is_ok() {
+        let path = temp_path("empty");
+        let store = CrystalRecordStore::open(&path).unwrap();
+        assert!(store.is_empty());
+        assert_eq!(store.verify_integrity().unwrap(), 0);
+    }
+
+    #[test]
+    fn records_carry_structural_signals() {
+        let path = temp_path("signals");
+        let policy = PolicyProfile::operator_approved();
+        let ev = EvidenceBundle::seal(
+            vec![EvidenceRef::new(d(b"v1"), EvidenceKind::HostScan, "scan")],
+            policy.id,
+            ReplayStatus::Replayable,
+        );
+        let void_id = d(b"void1");
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(void_id),
+            None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            ev.bundle_id,
+            policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(void_id),
+            Q16::from_raw(49152), // 0.75
+            Q16::HALF,
+        );
+        let (_, record) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        assert_eq!(record.rho_coherence, Q16::from_raw(49152));
+        assert_eq!(record.omega_phase, Q16::HALF);
+        assert_eq!(record.source_void_id, Some(void_id));
+
+        let mut store = CrystalRecordStore::open(&path).unwrap();
+        store.append(record.clone(), &op_approved()).unwrap();
+        let reopened = CrystalRecordStore::open(&path).unwrap();
+        let reloaded = &reopened.records()[0];
+        assert_eq!(reloaded.record_id, record.record_id);
+        assert_eq!(reloaded.rho_coherence, Q16::from_raw(49152));
+        assert_eq!(reloaded.omega_phase, Q16::HALF);
+        assert_eq!(reloaded.source_void_id, Some(void_id));
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// JsonlCartographyStore tests
+// ────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

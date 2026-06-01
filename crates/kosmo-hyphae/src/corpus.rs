@@ -12,6 +12,9 @@ pub enum CorpusEntityKind {
     SourceCube,
     Motif,
     HostVoid,
+    /// A certified `StructuralCrystalRecord` — a proven reusable structural pattern.
+    /// Crystal records accumulate across runs, seeding the persistent CAD library.
+    CrystalRecord,
 }
 
 /// Serialize-only for CorpusEntity content-addressing.
@@ -432,7 +435,7 @@ mod tests {
                 path: p.to_string(),
                 digest: Digest::of_bytes(p.as_bytes()),
                 size_bytes: 100,
-                kind: WorkspaceEntryKind::SourceFile,
+                kind: WorkspaceEntryKind::SourceFile, content: None,
             })
             .collect();
         let count = entries.len() as u64;

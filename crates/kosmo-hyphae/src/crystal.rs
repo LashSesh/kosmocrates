@@ -26,6 +26,10 @@ struct CandidateContent {
     decision_id: Digest,
     support_score: i64,
     evidence_bundle_id: Digest,
+    /// `Digest::ZERO` when no void reference is available.
+    source_void_id: Digest,
+    rho_coherence: i64,
+    omega_phase: i64,
     policy_id: Digest,
 }
 
@@ -35,6 +39,12 @@ struct CandidateContent {
 /// A candidate's `CertificationStatus` starts as `Pending` and advances
 /// through constraint checking; it never becomes `Certified` without a
 /// fully satisfied `ConstraintProgram`.
+///
+/// `source_void_id`, `rho_coherence`, and `omega_phase` carry structural
+/// provenance from the `CodeHDAG` of the originating source file (when
+/// content was available at host scan time). They default to `None` / `Q16::ONE`
+/// when no HDAG is available. These signals propagate into `StructuralCrystalRecord`
+/// so the CAD library retains code-structure context.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StructuralCrystalCandidate {
     pub candidate_id: Digest,
@@ -43,11 +53,35 @@ pub struct StructuralCrystalCandidate {
     pub support_score: Q16,
     pub evidence_bundle_id: Digest,
     pub certification_status: CertificationStatus,
+    /// The void this candidate addresses (`None` for non-void intents).
+    pub source_void_id: Option<Digest>,
+    /// Structural-coherence pole ρ from the originating `CodeHDAG`.
+    /// `Q16::ONE` when no HDAG is available (unconstrained baseline).
+    pub rho_coherence: Q16,
+    /// Structural-complexity pole ω from the originating `CodeHDAG`.
+    /// `Q16::ONE` when no HDAG is available (unconstrained baseline).
+    pub omega_phase: Q16,
     pub policy_id: Digest,
 }
 
 impl StructuralCrystalCandidate {
     pub fn from_decision(decision: &AssimilationDecision) -> Self {
+        Self::from_decision_with_signals(decision, None, Q16::ONE, Q16::ONE)
+    }
+
+    /// Build a candidate with HDAG-derived structural signals.
+    ///
+    /// `source_void_id` is the void this candidate addresses (from the originating
+    /// intent's `target_void_id`). `rho_coherence` and `omega_phase` come from the
+    /// void's `CodeHDAG` when source content was available; pass `Q16::ONE` for both
+    /// when no HDAG is available (the content-addressing includes them, so HDAG-enriched
+    /// candidates have different `candidate_id`s from file-presence-only ones).
+    pub fn from_decision_with_signals(
+        decision: &AssimilationDecision,
+        source_void_id: Option<Digest>,
+        rho_coherence: Q16,
+        omega_phase: Q16,
+    ) -> Self {
         let certification_status = match &decision.outcome {
             AssimilationOutcome::Accepted { .. } => CertificationStatus::Pending,
             AssimilationOutcome::EvidenceOnly { .. } => CertificationStatus::EvidenceOnly,
@@ -61,8 +95,11 @@ impl StructuralCrystalCandidate {
         let candidate_id = Digest::of(&CandidateContent {
             yield_id: decision.yield_id,
             decision_id: decision.decision_id,
-            support_score: 0, // score is not yet known at candidate creation
+            support_score: 0,
             evidence_bundle_id: decision.evidence_bundle_id,
+            source_void_id: source_void_id.unwrap_or(Digest::ZERO),
+            rho_coherence: rho_coherence.raw(),
+            omega_phase: omega_phase.raw(),
             policy_id: decision.policy_id,
         });
 
@@ -73,12 +110,41 @@ impl StructuralCrystalCandidate {
             support_score: Q16::ZERO,
             evidence_bundle_id: decision.evidence_bundle_id,
             certification_status,
+            source_void_id,
+            rho_coherence,
+            omega_phase,
             policy_id: decision.policy_id,
         }
     }
 
     pub fn is_certifiable(&self) -> bool {
         matches!(self.certification_status, CertificationStatus::Pending)
+    }
+
+    /// Run the standard certification pipeline for this candidate.
+    ///
+    /// Returns `Some((certificate, record))` iff the candidate is `Pending`
+    /// and all constraints are satisfied. The `replay_status` comes from the
+    /// enclosing HYPHAE run (passive runs are always `Replayable`).
+    ///
+    /// This is the principal entry point for the pipeline Step 5d-cert.
+    pub fn certify(
+        &self,
+        replay_status: ReplayStatus,
+    ) -> Option<(AssimilationCertificate, StructuralCrystalRecord)> {
+        if !self.is_certifiable() {
+            return None;
+        }
+        let program = ConstraintProgram::from_candidate(self, replay_status.clone());
+        let proof = ReplayProof::new(
+            self.candidate_id,
+            replay_status,
+            self.evidence_bundle_id,
+            self.policy_id,
+        );
+        let cert = AssimilationCertificate::issue(self, &program, &proof)?;
+        let record = StructuralCrystalRecord::from_certificate(&cert, self);
+        Some((cert, record))
     }
 
     /// Build an [`EnergyAssessment`] for this crystal candidate.
@@ -181,6 +247,25 @@ impl ConstraintProgram {
         ];
         Self::evaluate(constraints, candidate.policy_id)
     }
+
+    /// Build a constraint program from the candidate itself, without requiring
+    /// the originating `EvidenceBundle` object.
+    ///
+    /// Used in pipeline Step 5d-cert where only the candidate's ID fields are
+    /// available. CROSS-006 guarantees `evidence_bundle_id != ZERO` for all
+    /// candidates derived from accepted decisions; `IsNotQuarantined` holds
+    /// because quarantined yields are rejected by the gate cascade and never
+    /// reach `Pending` status.
+    pub fn from_candidate(candidate: &StructuralCrystalCandidate, replay_status: ReplayStatus) -> Self {
+        let constraints = vec![
+            Constraint::new(ConstraintKind::HasEvidence, candidate.evidence_bundle_id != Digest::ZERO),
+            Constraint::new(ConstraintKind::HasGateTrace, true),
+            Constraint::new(ConstraintKind::HasVoidReference, candidate.yield_id != Digest::ZERO),
+            Constraint::new(ConstraintKind::IsReplayable, matches!(replay_status, ReplayStatus::Replayable)),
+            Constraint::new(ConstraintKind::IsNotQuarantined, candidate.is_certifiable()),
+        ];
+        Self::evaluate(constraints, candidate.policy_id)
+    }
 }
 
 /// Serialize-only for ReplayProof content-addressing.
@@ -279,30 +364,72 @@ impl AssimilationCertificate {
 struct RecordContent {
     candidate_id: Digest,
     certificate_id: Digest,
+    /// `Digest::ZERO` when no void reference is available.
+    source_void_id: Digest,
+    rho_coherence: i64,
+    omega_phase: i64,
     policy_id: Digest,
 }
 
 /// The final certified structural crystal — a yield that has passed all gates
 /// and constraints and is recorded as a durable structural pattern.
+///
+/// `source_void_id`, `rho_coherence`, and `omega_phase` carry the structural
+/// provenance from the `CodeHDAG` of the originating source file, making the CAD
+/// library element structurally rich: two records for the same void kind but
+/// different structural complexity will have different `record_id`s.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StructuralCrystalRecord {
     pub record_id: Digest,
     pub candidate_id: Digest,
     pub certificate_id: Digest,
+    /// The void this record addresses. `None` for non-void candidates.
+    pub source_void_id: Option<Digest>,
+    /// Structural-coherence pole ρ from the originating `CodeHDAG`.
+    pub rho_coherence: Q16,
+    /// Structural-complexity pole ω from the originating `CodeHDAG`.
+    pub omega_phase: Q16,
     pub policy_id: Digest,
 }
 
 impl StructuralCrystalRecord {
-    pub fn from_certificate(cert: &AssimilationCertificate) -> Self {
+    /// Recompute and verify the `record_id` against the record's fields.
+    ///
+    /// Returns `true` iff the stored `record_id` matches the expected content-addressed
+    /// digest. Used by `CrystalRecordStore::verify_integrity`.
+    pub fn verify_id(&self) -> bool {
+        let expected = Digest::of(&RecordContent {
+            candidate_id: self.candidate_id,
+            certificate_id: self.certificate_id,
+            source_void_id: self.source_void_id.unwrap_or(Digest::ZERO),
+            rho_coherence: self.rho_coherence.raw(),
+            omega_phase: self.omega_phase.raw(),
+            policy_id: self.policy_id,
+        });
+        self.record_id == expected
+    }
+
+    /// Build a record from an issued certificate and the originating candidate.
+    ///
+    /// The candidate carries `source_void_id`, `rho_coherence`, and `omega_phase`
+    /// so the CAD library element retains code-structure provenance. All three
+    /// participate in `record_id` content-addressing.
+    pub fn from_certificate(cert: &AssimilationCertificate, candidate: &StructuralCrystalCandidate) -> Self {
         let record_id = Digest::of(&RecordContent {
             candidate_id: cert.candidate_id,
             certificate_id: cert.certificate_id,
+            source_void_id: candidate.source_void_id.unwrap_or(Digest::ZERO),
+            rho_coherence: candidate.rho_coherence.raw(),
+            omega_phase: candidate.omega_phase.raw(),
             policy_id: cert.policy_id,
         });
         Self {
             record_id,
             candidate_id: cert.candidate_id,
             certificate_id: cert.certificate_id,
+            source_void_id: candidate.source_void_id,
+            rho_coherence: candidate.rho_coherence,
+            omega_phase: candidate.omega_phase,
             policy_id: cert.policy_id,
         }
     }
@@ -349,6 +476,30 @@ impl Resonite {
             policy_id,
         });
         Self { resonite_id, pattern_a_id: a, pattern_b_id: b, resonance_score, policy_id }
+    }
+
+    /// Compute resonance between two certified crystal records from their structural signals.
+    ///
+    /// Resonance = structural proximity: how similar the two patterns are in
+    /// `rho_coherence` (test coverage ratio) and `omega_phase` (complexity signal).
+    ///
+    /// Score formula (Q16, no floats — CROSS-007):
+    ///   `score = ((ONE - |ρ_a - ρ_b|) + (ONE - |ω_a - ω_b|)) / 2`
+    ///
+    /// Two identical patterns score ONE; maximally different patterns score ZERO.
+    /// Symmetric: `from_records(a, b, p) == from_records(b, a, p)` by construction
+    /// (canonical ordering of the two record IDs in `Resonite::new`).
+    pub fn from_records(
+        a: &StructuralCrystalRecord,
+        b: &StructuralCrystalRecord,
+        policy_id: Digest,
+    ) -> Self {
+        let rho_diff = (a.rho_coherence.raw() - b.rho_coherence.raw()).unsigned_abs() as i64;
+        let omega_diff = (a.omega_phase.raw() - b.omega_phase.raw()).unsigned_abs() as i64;
+        let rho_sim = (Q16::ONE.raw() - rho_diff).max(0);
+        let omega_sim = (Q16::ONE.raw() - omega_diff).max(0);
+        let score = Q16::from_raw((rho_sim + omega_sim) / 2);
+        Self::new(a.record_id, b.record_id, score, policy_id)
     }
 
     /// Build an [`EnergyAssessment`] for this resonance measurement.
@@ -538,10 +689,108 @@ mod tests {
         let program = ConstraintProgram::standard(&candidate, &ev, ReplayStatus::Replayable);
         let proof = ReplayProof::new(candidate.candidate_id, ReplayStatus::Replayable, ev.bundle_id, policy.id);
         let cert = AssimilationCertificate::issue(&candidate, &program, &proof).unwrap();
-        let r1 = StructuralCrystalRecord::from_certificate(&cert);
-        let r2 = StructuralCrystalRecord::from_certificate(&cert);
+        let r1 = StructuralCrystalRecord::from_certificate(&cert, &candidate);
+        let r2 = StructuralCrystalRecord::from_certificate(&cert, &candidate);
         assert_eq!(r1.record_id, r2.record_id);
         assert_ne!(r1.record_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn candidate_with_signals_has_different_id_than_without() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let void_id = Digest::of_bytes(b"v");
+        let c_plain = StructuralCrystalCandidate::from_decision(&decision);
+        let c_rich = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(void_id),
+            Q16::HALF,
+            Q16::ratio(1, 4).unwrap(),
+        );
+        assert_ne!(
+            c_plain.candidate_id, c_rich.candidate_id,
+            "HDAG signals must change candidate_id (structural provenance in content hash)"
+        );
+        assert_eq!(c_rich.source_void_id, Some(void_id));
+        assert_eq!(c_rich.rho_coherence, Q16::HALF);
+    }
+
+    #[test]
+    fn record_carries_structural_signals() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let void_id = Digest::of_bytes(b"v");
+        let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(void_id),
+            Q16::HALF,
+            Q16::ratio(3, 4).unwrap(),
+        );
+        let (_, record) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        assert_eq!(record.source_void_id, Some(void_id));
+        assert_eq!(record.rho_coherence, Q16::HALF);
+        assert_eq!(record.omega_phase, Q16::ratio(3, 4).unwrap());
+        assert_ne!(record.record_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn record_id_differs_with_different_signals() {
+        let policy = PolicyProfile::default_report_only();
+        let d1 = make_accepted_decision(&policy);
+        let d2 = make_accepted_decision(&policy);
+        let c1 = StructuralCrystalCandidate::from_decision_with_signals(
+            &d1, None, Q16::HALF, Q16::ONE,
+        );
+        let c2 = StructuralCrystalCandidate::from_decision_with_signals(
+            &d1, None, Q16::ratio(1, 4).unwrap(), Q16::ONE,
+        );
+        // d1 is the same decision, but different rho → different candidate_id → different record_id
+        let (_, r1) = c1.certify(ReplayStatus::Replayable).unwrap();
+        let (_, r2) = c2.certify(ReplayStatus::Replayable).unwrap();
+        assert_ne!(r1.record_id, r2.record_id,
+            "different structural signals must produce different record_ids");
+    }
+
+    #[test]
+    fn resonite_from_records_identical_scores_one() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision, None, Q16::HALF, Q16::HALF,
+        );
+        let (_, record) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        let r = Resonite::from_records(&record, &record, policy.id);
+        assert_eq!(r.resonance_score, Q16::ONE,
+            "identical patterns must resonate at score ONE");
+    }
+
+    #[test]
+    fn resonite_from_records_is_symmetric() {
+        let policy = PolicyProfile::default_report_only();
+        let d1 = make_accepted_decision(&policy);
+        let d2 = make_accepted_decision(&policy);
+        let c1 = StructuralCrystalCandidate::from_decision_with_signals(&d1, None, Q16::HALF, Q16::ONE);
+        let c2 = StructuralCrystalCandidate::from_decision_with_signals(&d2, None, Q16::ratio(1, 4).unwrap(), Q16::HALF);
+        let (_, r1) = c1.certify(ReplayStatus::Replayable).unwrap();
+        let (_, r2) = c2.certify(ReplayStatus::Replayable).unwrap();
+        let res_ab = Resonite::from_records(&r1, &r2, policy.id);
+        let res_ba = Resonite::from_records(&r2, &r1, policy.id);
+        assert_eq!(res_ab.resonite_id, res_ba.resonite_id,
+            "Resonite::from_records must be symmetric");
+    }
+
+    #[test]
+    fn resonite_from_records_maximally_different_scores_zero() {
+        let policy = PolicyProfile::default_report_only();
+        let d1 = make_accepted_decision(&policy);
+        let d2 = make_accepted_decision(&policy);
+        let c1 = StructuralCrystalCandidate::from_decision_with_signals(&d1, None, Q16::ZERO, Q16::ZERO);
+        let c2 = StructuralCrystalCandidate::from_decision_with_signals(&d2, None, Q16::ONE, Q16::ONE);
+        let (_, r1) = c1.certify(ReplayStatus::Replayable).unwrap();
+        let (_, r2) = c2.certify(ReplayStatus::Replayable).unwrap();
+        let res = Resonite::from_records(&r1, &r2, policy.id);
+        assert_eq!(res.resonance_score, Q16::ZERO,
+            "maximally different structural signals must resonate at score ZERO");
     }
 
     #[test]
@@ -593,6 +842,62 @@ mod tests {
         let candidate = StructuralCrystalCandidate::from_decision(&decision);
         let a = candidate.energy_assessment(&GateResult::Reject { reason: "test".into() });
         assert!(a.kernel.is_zeroed(), "Reject gate must zero energy (CROSS-010)");
+    }
+
+    #[test]
+    fn certify_pending_candidate_produces_record() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        assert!(candidate.is_certifiable());
+        let result = candidate.certify(ReplayStatus::Replayable);
+        assert!(result.is_some(), "Pending candidate with Replayable status must certify");
+        let (cert, record) = result.unwrap();
+        assert_ne!(cert.certificate_id, Digest::ZERO);
+        assert_ne!(record.record_id, Digest::ZERO);
+        assert_eq!(record.candidate_id, candidate.candidate_id);
+    }
+
+    #[test]
+    fn certify_evidence_only_candidate_returns_none() {
+        let policy = PolicyProfile::default_report_only();
+        let ev = make_evidence(policy.id);
+        let void_id = Digest::of_bytes(b"v");
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(void_id), None,
+            TaintLabel::Synthetic, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        assert!(!candidate.is_certifiable());
+        assert!(candidate.certify(ReplayStatus::Replayable).is_none(),
+            "EvidenceOnly candidate must not certify");
+    }
+
+    #[test]
+    fn certify_is_deterministic() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        let (_, r1) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        let (_, r2) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        assert_eq!(r1.record_id, r2.record_id, "certify must be deterministic (INVARIANT-007)");
+    }
+
+    #[test]
+    fn from_candidate_constraint_program_all_satisfied_for_pending() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        let program = ConstraintProgram::from_candidate(&candidate, ReplayStatus::Replayable);
+        assert!(program.all_satisfied,
+            "Pending candidate with Replayable status must satisfy all constraints");
+        assert_eq!(program.constraints.len(), 5);
+        assert_ne!(program.program_id, Digest::ZERO);
     }
 
     #[test]

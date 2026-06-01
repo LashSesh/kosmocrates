@@ -922,6 +922,97 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: CrystalRecordStore ────────────────────────────────────────────────
+    // Validates the durable crystal CAD library: policy gating, dedup,
+    // structural signal round-trip, and integrity verification.
+
+    v.push(run_check("rx-store-crystal-record-persist-and-reload", "RX:CrystalStore", || {
+        use kosmo_core::{
+            AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, Q16, ReplayStatus, TaintLabel,
+        };
+        use kosmo_hyphae::{
+            assimilation::AssimilationDecision,
+            crystal::StructuralCrystalCandidate,
+            gates::GateCascade,
+            structural_yield::{StructuralYield, StructuralYieldKind},
+        };
+        use kosmo_store::CrystalRecordStore;
+
+        let path = temp_store_path("eval-crystal");
+        let _ = std::fs::remove_file(&path);
+
+        let policy = PolicyProfile::operator_approved();
+        let make_record = |seed: &[u8]| -> Result<_, String> {
+            let ev = EvidenceBundle::seal(
+                vec![EvidenceRef::new(d(seed), EvidenceKind::HostScan, "scan")],
+                policy.id,
+                ReplayStatus::Replayable,
+            );
+            let void_id = d(seed);
+            let yield_ = StructuralYield::new(
+                StructuralYieldKind::DeficiencyFill,
+                Some(void_id), None,
+                TaintLabel::Clean, AuthorityLabel::Foundry,
+                ev.bundle_id, policy.id,
+            );
+            let cascade = GateCascade::standard_gates(policy.clone());
+            let trace = cascade.apply(&yield_, &ev);
+            let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+            let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+                &decision, Some(void_id), Q16::from_raw(49152), Q16::HALF,
+            );
+            candidate.certify(ReplayStatus::Replayable)
+                .map(|(_, r)| r)
+                .ok_or_else(|| "certify failed".into())
+        };
+
+        let r1 = make_record(b"crys1")?;
+        let r2 = make_record(b"crys2")?;
+        let r1_id = r1.record_id;
+        let r2_id = r2.record_id;
+
+        // Append two distinct records.
+        {
+            let mut store = CrystalRecordStore::open(&path)
+                .map_err(|e| format!("open: {e}"))?;
+            store.append(r1.clone(), &policy).map_err(|e| format!("append r1: {e}"))?;
+            store.append(r2.clone(), &policy).map_err(|e| format!("append r2: {e}"))?;
+            // Dedup: re-appending r1 must be a no-op.
+            store.append(r1, &policy).map_err(|e| format!("dedup append: {e}"))?;
+            if store.len() != 2 {
+                return Err(format!("expected len=2, got {}", store.len()));
+            }
+        }
+
+        // Reload from disk and verify round-trip + structural signals.
+        let reopened = CrystalRecordStore::open(&path)
+            .map_err(|e| format!("reopen: {e}"))?;
+        if reopened.len() != 2 {
+            return Err(format!("expected 2 records after reload, got {}", reopened.len()));
+        }
+        if !reopened.records().iter().any(|r| r.record_id == r1_id) {
+            return Err("r1 missing after reload".into());
+        }
+        if !reopened.records().iter().any(|r| r.record_id == r2_id) {
+            return Err("r2 missing after reload".into());
+        }
+        let verified = reopened.verify_integrity().map_err(|e| format!("integrity: {e}"))?;
+        if verified != 2 {
+            return Err(format!("integrity returned {verified}, expected 2"));
+        }
+        // Structural signals survive the JSONL round-trip.
+        for rec in reopened.records() {
+            if rec.rho_coherence != Q16::from_raw(49152) {
+                return Err(format!("rho_coherence mismatch: {:?}", rec.rho_coherence));
+            }
+            if rec.omega_phase != Q16::HALF {
+                return Err(format!("omega_phase mismatch: {:?}", rec.omega_phase));
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }));
+
     // ── RX: Real ParseBack Executor ───────────────────────────────────────────
     // Validates the real ParseBack executor: governance, baseline integrity,
     // deterministic snapshotting, and structural diff logic.
@@ -1339,7 +1430,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
         use kosmo_core::Digest;
         let entries = vec![
-            WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"), size_bytes: 10, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"), size_bytes: 10, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
@@ -1477,9 +1568,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
-                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -1507,11 +1598,11 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"),
-                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "b.rs".into(), digest: Digest::of_bytes(b"b"),
-                size_bytes: 80, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 80, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "c.rs".into(), digest: Digest::of_bytes(b"c"),
-                size_bytes: 60, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 60, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -1560,9 +1651,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "x.rs".into(), digest: Digest::of_bytes(b"x"),
-                size_bytes: 10, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 10, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "y.rs".into(), digest: Digest::of_bytes(b"y"),
-                size_bytes: 20, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 20, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
@@ -1593,6 +1684,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1613,12 +1705,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/lib_test.rs".into(),
                 digest: Digest::of_bytes(b"test"),
                 size_bytes: 50,
                 kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1663,6 +1757,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1686,12 +1781,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/lib_test.rs".into(),
                 digest: Digest::of_bytes(b"test"),
                 size_bytes: 50,
                 kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1736,6 +1833,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
@@ -1760,12 +1858,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"alpha"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/beta.rs".into(),
                 digest: Digest::of_bytes(b"beta"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
@@ -1814,6 +1914,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1837,12 +1938,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/lib_test.rs".into(),
                 digest: Digest::of_bytes(b"test"),
                 size_bytes: 50,
                 kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1890,6 +1993,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1909,9 +2013,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -1989,9 +2093,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         // Source files without tests create MissingTestFiber voids.
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
-                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
@@ -2021,6 +2125,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2040,9 +2145,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2099,9 +2204,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/b.rs".into(), digest: Digest::of_bytes(b"b"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2140,6 +2245,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2159,9 +2265,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2212,6 +2318,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2231,9 +2338,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2292,6 +2399,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2318,9 +2426,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         // First: generate candidates.
@@ -2630,7 +2738,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
 
@@ -2724,6 +2832,696 @@ fn build_scenarios() -> Vec<ScenarioResult> {
             ));
         }
         Ok(())
+    }));
+
+    // ── RX:Crystal — certification pipeline ──────────────────────────────────
+
+    v.push(run_check("rx-crystal-certify-pending-candidate-produces-record", "RX:Crystal", || {
+        // A Pending StructuralCrystalCandidate from an accepted Clean decision must
+        // certify and produce a non-ZERO StructuralCrystalRecord (INVARIANT-007).
+        use kosmo_hyphae::crystal::{ConstraintProgram, StructuralCrystalCandidate};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(Digest::of_bytes(b"ev"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(Digest::of_bytes(b"void")), None,
+            TaintLabel::Clean, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let trace = GateCascade::standard_gates(policy.clone()).apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+
+        if !candidate.is_certifiable() {
+            return Err("accepted Clean decision must produce Pending candidate".into());
+        }
+        let (cert, record) = candidate.certify(ReplayStatus::Replayable)
+            .ok_or("Pending candidate with Replayable status must certify")?;
+
+        if cert.certificate_id == Digest::ZERO {
+            return Err("certificate_id must be non-ZERO (CROSS-006)".into());
+        }
+        if record.record_id == Digest::ZERO {
+            return Err("record_id must be non-ZERO (CROSS-006)".into());
+        }
+        if record.candidate_id != candidate.candidate_id {
+            return Err("record.candidate_id must match source candidate".into());
+        }
+
+        // Determinism: same candidate → same record_id (INVARIANT-007).
+        let (_, r2) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        if record.record_id != r2.record_id {
+            return Err("certify must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-certified-crystals-from-candidates", "RX:Pipeline", || {
+        // With enable_crystal_candidates=true, every certifiable candidate must
+        // produce a StructuralCrystalRecord in the same run (Step 5d-cert).
+        // Prior crystals from run 1 fed as prior_crystals to run 2 must change
+        // the report_id (the corpus now contains seeded crystal entities).
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/alpha.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
+            WorkspaceEntry { path: "src/beta.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 120, kind: WorkspaceEntryKind::SourceFile, content: None },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts, &policy);
+
+        // All certifiable candidates must have corresponding certified records.
+        let certifiable = r1.crystal_candidates.iter().filter(|c| c.is_certifiable()).count();
+        if r1.certified_crystals.len() != certifiable {
+            return Err(format!(
+                "expected {} certified records, got {}",
+                certifiable, r1.certified_crystals.len(),
+            ));
+        }
+        for rec in &r1.certified_crystals {
+            if rec.record_id == Digest::ZERO {
+                return Err("record_id must be non-ZERO".into());
+            }
+            if rec.policy_id != policy.id {
+                return Err("record.policy_id must match pipeline policy".into());
+            }
+        }
+
+        // Feed certified crystals back as prior_crystals — report_id must change
+        // because the seeded corpus is different from the empty corpus.
+        if !r1.certified_crystals.is_empty() {
+            let opts2 = IntegrationRunOptions {
+                enable_crystal_candidates: true,
+                prior_crystals: r1.certified_crystals.clone(),
+                ..IntegrationRunOptions::report_only()
+            };
+            let r2 = run_dry_pipeline(&index, &opts2, &policy);
+            if r1.report_id == r2.report_id {
+                return Err("prior_crystals must change report_id (corpus seeding)".into());
+            }
+        }
+        Ok(())
+    }));
+
+    // ── RX:Hyphae — CodeHDAG extracted from source content ───────────────────
+
+    v.push(run_check("rx-hyphae-hdag-extracted-from-source-content", "RX:Hyphae", || {
+        use kosmo_hyphae::host::HostCube;
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let source = "pub fn foo() {}\npub fn bar() {}\npub fn baz() {}\n";
+        let entries = vec![
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(source.as_bytes()),
+                size_bytes: source.len() as u64,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: Some(source.to_string()),
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+
+        // Both MissingTestFiber and MissingDocFiber voids get HDAG entries.
+        if cube.hdag_by_void_id.len() != 2 {
+            return Err(format!(
+                "expected 2 HDAG entries (one per void), got {}",
+                cube.hdag_by_void_id.len()
+            ));
+        }
+        for (void_id, hdag) in &cube.hdag_by_void_id {
+            if hdag.definition_count() < 3 {
+                return Err(format!(
+                    "void {} HDAG must have >= 3 definitions, got {}",
+                    void_id.to_hex()[..8].to_string(), hdag.definition_count()
+                ));
+            }
+        }
+        // Cube without content must have no HDAG entries.
+        let no_content_entries = vec![
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+        ];
+        let no_content_index = WorkspaceIndex::from_entries("test-root".into(), no_content_entries, policy.id);
+        let cube_no = HostCube::from_workspace_index(&no_content_index, &policy);
+        if !cube_no.hdag_by_void_id.is_empty() {
+            return Err("cube without content must have empty hdag_by_void_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-hdag-severity-scales-with-definition-count", "RX:Hyphae", || {
+        use kosmo_hyphae::host::HostCube;
+        use kosmo_hyphae::void_map::HostVoidKind;
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+
+        let sparse_src = "// no functions\n";
+        let dense_src: String = (0..8).map(|i| format!("pub fn f{}() {{}}\n", i)).collect();
+
+        let make_cube = |source: &str| -> HostCube {
+            let entries = vec![
+                WorkspaceEntry {
+                    path: "src/lib.rs".into(),
+                    digest: Digest::of_bytes(source.as_bytes()),
+                    size_bytes: source.len() as u64,
+                    kind: WorkspaceEntryKind::SourceFile,
+                    content: Some(source.to_string()),
+                },
+            ];
+            HostCube::from_workspace_index(
+                &WorkspaceIndex::from_entries("test-root".into(), entries, policy.id),
+                &policy,
+            )
+        };
+
+        let sparse_cube = make_cube(sparse_src);
+        let dense_cube = make_cube(&dense_src);
+
+        let sev = |cube: &HostCube| {
+            cube.void_map.voids.iter()
+                .find(|v| matches!(&v.kind, HostVoidKind::MissingTestFiber { .. }))
+                .map(|v| v.severity.raw())
+                .unwrap_or(0)
+        };
+
+        let sev_sparse = sev(&sparse_cube);
+        let sev_dense = sev(&dense_cube);
+
+        if sev_dense <= sev_sparse {
+            return Err(format!(
+                "dense severity ({}) must exceed sparse severity ({})",
+                sev_dense, sev_sparse
+            ));
+        }
+        Ok(())
+    }));
+
+    // ── RX:Crystal — structural fingerprint on record + Resonite::from_records ─
+
+    v.push(run_check("rx-crystal-record-carries-structural-signals", "RX:Crystal", || {
+        use kosmo_hyphae::crystal::{
+            Resonite, StructuralCrystalCandidate, StructuralCrystalRecord,
+        };
+        use kosmo_core::{AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
+            PolicyProfile, Q16, ReplayStatus, TaintLabel};
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+
+        let policy = PolicyProfile::operator_approved();
+        let void_id = Digest::of_bytes(b"v");
+        let ev_ref = EvidenceRef::new(
+            Digest::of_bytes(b"ev-src"),
+            EvidenceKind::HostScan,
+            "test-ref".to_string(),
+        );
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(void_id), None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            ev.bundle_id,
+            policy.id,
+        );
+        let trace = GateCascade::standard_gates(policy.clone()).apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+
+        // Build candidate with structural signals.
+        let rho = Q16::HALF;
+        let omega = Q16::ratio(3, 4).unwrap();
+        let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision, Some(void_id), rho, omega,
+        );
+        let (_, record) = match candidate.certify(ReplayStatus::Replayable) {
+            Some(r) => r,
+            None => return Err("certify must succeed for a Pending candidate".into()),
+        };
+
+        if record.source_void_id != Some(void_id) {
+            return Err(format!("source_void_id mismatch: {:?}", record.source_void_id));
+        }
+        if record.rho_coherence != rho {
+            return Err(format!("rho_coherence mismatch: got {}", record.rho_coherence.raw()));
+        }
+        if record.omega_phase != omega {
+            return Err(format!("omega_phase mismatch: got {}", record.omega_phase.raw()));
+        }
+        if record.record_id == Digest::ZERO {
+            return Err("record_id must be non-ZERO".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-crystal-resonite-from-records-is-symmetric-and-bounded", "RX:Crystal", || {
+        use kosmo_hyphae::crystal::{Resonite, StructuralCrystalCandidate};
+        use kosmo_core::{AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
+            PolicyProfile, Q16, ReplayStatus, TaintLabel};
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+
+        let policy = PolicyProfile::operator_approved();
+
+        let make_record = |rho: Q16, omega: Q16, tag: &[u8]| {
+            let ev_ref = EvidenceRef::new(
+                Digest::of_bytes(tag),
+                EvidenceKind::HostScan,
+                "t".to_string(),
+            );
+            let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+            let yield_ = StructuralYield::new(
+                StructuralYieldKind::DeficiencyFill,
+                Some(Digest::of_bytes(tag)), None,
+                TaintLabel::Clean, AuthorityLabel::Foundry,
+                ev.bundle_id, policy.id,
+            );
+            let trace = GateCascade::standard_gates(policy.clone()).apply(&yield_, &ev);
+            let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+            let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+                &decision, None, rho, omega,
+            );
+            candidate.certify(ReplayStatus::Replayable).map(|(_, r)| r)
+        };
+
+        let r1 = make_record(Q16::HALF, Q16::HALF, b"a").ok_or("certify failed for r1")?;
+        let r2 = make_record(Q16::ratio(1, 4).unwrap(), Q16::ratio(3, 4).unwrap(), b"b").ok_or("certify failed for r2")?;
+
+        // Symmetry
+        let res_ab = Resonite::from_records(&r1, &r2, policy.id);
+        let res_ba = Resonite::from_records(&r2, &r1, policy.id);
+        if res_ab.resonite_id != res_ba.resonite_id {
+            return Err("Resonite::from_records must be symmetric".into());
+        }
+        // Score in [0, ONE]
+        if res_ab.resonance_score.raw() < 0 || res_ab.resonance_score.raw() > Q16::ONE.raw() {
+            return Err(format!("resonance_score out of bounds: {}", res_ab.resonance_score.raw()));
+        }
+
+        // Identical records score ONE
+        let res_same = Resonite::from_records(&r1, &r1, policy.id);
+        if res_same.resonance_score != Q16::ONE {
+            return Err(format!("identical records must score ONE, got {}", res_same.resonance_score.raw()));
+        }
+
+        // Policy propagation
+        if res_ab.policy_id != policy.id {
+            return Err("resonite policy_id must match pipeline policy".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-resonite-map-populated-with-prior-crystals", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry {
+                path: "src/alpha.rs".into(),
+                digest: Digest::of_bytes(b"a"),
+                size_bytes: 100,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+            WorkspaceEntry {
+                path: "src/beta.rs".into(),
+                digest: Digest::of_bytes(b"b"),
+                size_bytes: 120,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        let opts1 = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts1, &policy);
+
+        // resonite_map empty without prior_crystals
+        if !r1.resonite_map.is_empty() {
+            return Err(format!(
+                "resonite_map must be empty when no prior_crystals, got {}",
+                r1.resonite_map.len()
+            ));
+        }
+
+        // If certified crystals exist, feed them back and verify resonite_map is populated.
+        if !r1.certified_crystals.is_empty() {
+            let opts2 = IntegrationRunOptions {
+                enable_crystal_candidates: true,
+                prior_crystals: r1.certified_crystals.clone(),
+                ..IntegrationRunOptions::report_only()
+            };
+            let r2 = run_dry_pipeline(&index, &opts2, &policy);
+            if !r2.certified_crystals.is_empty() {
+                let expected = r2.certified_crystals.len() * r1.certified_crystals.len();
+                if r2.resonite_map.len() != expected {
+                    return Err(format!(
+                        "expected {} resonites (current × prior), got {}",
+                        expected, r2.resonite_map.len()
+                    ));
+                }
+                for res in &r2.resonite_map {
+                    if res.policy_id != policy.id {
+                        return Err("resonite policy_id mismatch".into());
+                    }
+                }
+            }
+        }
+
+        if !r1.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover resonite_map".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-crystal-resonance-boost-absent-without-prior", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let source = "pub fn alpha() {}\npub fn beta() {}\n";
+        let entries = vec![
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(source.as_bytes()),
+                size_bytes: source.len() as u64,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: Some(source.to_string()),
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        let opts = IntegrationRunOptions::report_only();
+        let r = run_dry_pipeline(&index, &opts, &policy);
+
+        // crystal_resonance must be absent when no prior_crystals provided.
+        let boosted = r.source_cubes.iter().any(|c| {
+            c.dimension_profile.dimensions.contains_key("crystal_resonance")
+        });
+        if boosted {
+            return Err("crystal_resonance must not appear without prior_crystals".into());
+        }
+
+        // No prior crystals → resonite_map empty.
+        if !r.resonite_map.is_empty() {
+            return Err(format!(
+                "resonite_map must be empty without prior_crystals, got {}",
+                r.resonite_map.len()
+            ));
+        }
+
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency failed".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX: Crystal auto-persist (Step 5f) ───────────────────────────────────
+
+    v.push(run_check("rx-pipeline-crystal-auto-persist-report-only-no-write", "RX:CrystalPersist", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let path = temp_store_path("eval-crystal-ro");
+        let _ = std::fs::remove_file(&path);
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![WorkspaceEntry {
+            path: "src/lib.rs".into(),
+            digest: Digest::of_bytes(b"x"),
+            size_bytes: 10,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: None,
+        }];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        run_dry_pipeline(&index, &opts, &policy);
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+            return Err("ReportOnly must not create crystal store file".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-crystal-auto-persist-persisted-count-is-observational", "RX:CrystalPersist", || {
+        // persisted_crystal_count must NOT affect report_id — it is observational.
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let path = temp_store_path("eval-crystal-obs");
+        let _ = std::fs::remove_file(&path);
+        let op_policy = PolicyProfile::operator_approved();
+        let entries = vec![WorkspaceEntry {
+            path: "src/lib.rs".into(),
+            digest: Digest::of_bytes(b"obs"),
+            size_bytes: 10,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: None,
+        }];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, op_policy.id);
+
+        let opts_no_store = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: None,
+            ..IntegrationRunOptions::report_only()
+        };
+        let opts_with_store = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        let r_no  = run_dry_pipeline(&index, &opts_no_store,  &op_policy);
+        let r_yes = run_dry_pipeline(&index, &opts_with_store, &op_policy);
+        let _ = std::fs::remove_file(&path);
+
+        if r_no.report_id != r_yes.report_id {
+            return Err(format!(
+                "crystal persistence must not affect report_id: {:?} vs {:?}",
+                r_no.report_id, r_yes.report_id
+            ));
+        }
+        // persisted_crystal_count is always 0 or equal to certified count.
+        if r_yes.persisted_crystal_count > r_yes.certified_crystals.len() as u32 {
+            return Err(format!(
+                "persisted_crystal_count {} exceeds certified count {}",
+                r_yes.persisted_crystal_count, r_yes.certified_crystals.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    // ── RX: run_workspace_pipeline / WorkspacePipelineSession ────────────────
+
+    v.push(run_check("rx-pipeline-run-workspace-pipeline-on-temp-dir", "RX:WorkspacePipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, WorkspacePipelineSession, run_workspace_pipeline};
+        use kosmo_core::PolicyProfile;
+        use std::fs;
+
+        // Create a minimal temp workspace with real .rs source files.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws_root = std::env::temp_dir().join(format!("kosmo-eval-ws-{nanos}"));
+        let src = ws_root.join("src");
+        fs::create_dir_all(&src).map_err(|e| format!("mkdir: {e}"))?;
+        fs::write(src.join("lib.rs"), "pub fn alpha() {}\npub fn beta() {}\n")
+            .map_err(|e| format!("write: {e}"))?;
+        fs::write(src.join("main.rs"), "fn main() {}\n")
+            .map_err(|e| format!("write: {e}"))?;
+
+        let policy = PolicyProfile::default_report_only();
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+
+        // Single-call filesystem-level entry point.
+        let report = run_workspace_pipeline(ws_root.to_str().unwrap(), &opts, &policy)
+            .map_err(|e| format!("run_workspace_pipeline: {e}"))?;
+
+        if !report.verify_policy_consistency() {
+            return Err("verify_policy_consistency failed".into());
+        }
+        if report.report_id == kosmo_core::Digest::ZERO {
+            return Err("report_id must be non-ZERO".into());
+        }
+
+        let _ = fs::remove_dir_all(&ws_root);
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-workspace-session-accumulates-across-runs", "RX:WorkspacePipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, WorkspacePipelineSession};
+        use kosmo_core::PolicyProfile;
+        use std::fs;
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws_root = std::env::temp_dir().join(format!("kosmo-eval-session-{nanos}"));
+        let src = ws_root.join("src");
+        fs::create_dir_all(&src).map_err(|e| format!("mkdir: {e}"))?;
+        fs::write(src.join("lib.rs"), "pub fn foo() {}\npub fn bar() {}\n")
+            .map_err(|e| format!("write: {e}"))?;
+
+        let store_path = temp_store_path("eval-session");
+        let _ = fs::remove_file(&store_path);
+
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(store_path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        let op_policy = PolicyProfile::operator_approved();
+        let mut session = WorkspacePipelineSession::new(opts, op_policy);
+
+        let r1 = session.run(ws_root.to_str().unwrap())
+            .map_err(|e| format!("run 1: {e}"))?;
+        let r2 = session.run(ws_root.to_str().unwrap())
+            .map_err(|e| format!("run 2: {e}"))?;
+
+        if session.run_count() != 2 {
+            return Err(format!("expected run_count=2, got {}", session.run_count()));
+        }
+        if !r1.verify_policy_consistency() {
+            return Err("r1 policy consistency failed".into());
+        }
+        if !r2.verify_policy_consistency() {
+            return Err("r2 policy consistency failed".into());
+        }
+        // Dedup: second run must not re-persist crystals from the first.
+        if !r1.certified_crystals.is_empty() && r2.persisted_crystal_count > 0 {
+            return Err(format!(
+                "second run persisted {} crystals that should have been deduped",
+                r2.persisted_crystal_count
+            ));
+        }
+
+        let _ = fs::remove_dir_all(&ws_root);
+        let _ = fs::remove_file(&store_path);
+        Ok(())
+    }));
+
+    // ── RX: ActionItem — CAM layer ────────────────────────────────────────────
+
+    v.push(run_check("rx-pipeline-action-items-sorted-descending", "RX:ActionItem", || {
+        use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
+            WorkspaceEntry { path: "src/b.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 120, kind: WorkspaceEntryKind::SourceFile, content: None },
+        ];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_surgery: true,
+            enable_norm_candidates: true,
+            enable_crystal_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let report = run_dry_pipeline(&index, &opts, &policy);
+        let items = report.action_items();
+
+        // 1. Sorted descending.
+        for w in items.windows(2) {
+            if w[0].priority_score.raw() < w[1].priority_score.raw() {
+                return Err("action_items not sorted descending by priority_score".into());
+            }
+        }
+        // 2. One FillVoid per void.
+        let fill_count = items.iter()
+            .filter(|a| matches!(a.kind, ActionItemKind::FillVoid { .. }))
+            .count();
+        if fill_count != report.void_priority_ranking.len() {
+            return Err(format!(
+                "expected {} FillVoid items, got {}",
+                report.void_priority_ranking.len(), fill_count
+            ));
+        }
+        // 3. All action_ids non-ZERO and policy consistent.
+        for item in &items {
+            if item.action_id == Digest::ZERO {
+                return Err("action_id must be non-ZERO".into());
+            }
+            if item.policy_id != policy.id {
+                return Err("action_item policy_id mismatch".into());
+            }
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-action-items-top-void-scores-one", "RX:ActionItem", || {
+        use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile, Q16};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile, content: None },
+        ];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, policy.id);
+        let report = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if report.void_priority_ranking.is_empty() {
+            return Ok(()); // no voids → skip
+        }
+        let top_void = report.void_priority_ranking[0];
+        let items = report.action_items();
+        let top_fill = items.iter().find(|a| {
+            matches!(a.kind, ActionItemKind::FillVoid { void_id } if void_id == top_void)
+        });
+        match top_fill {
+            Some(item) if item.priority_score == Q16::ONE => Ok(()),
+            Some(item) => Err(format!(
+                "top void FillVoid must score Q16::ONE, got {}",
+                item.priority_score.raw()
+            )),
+            None => Err("top void missing from action_items".into()),
+        }
     }));
 
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────

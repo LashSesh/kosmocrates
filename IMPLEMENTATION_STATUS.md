@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, und produziert priorisierte Arbeitsanweisungen."
 
-- **807 substrate tests** (kosmo-core 339, kosmo-hyphae 182, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 87) — 0 failures
-- **132/132 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **927 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120) — 0 failures
+- **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,113 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `ActionItem` — CAM Layer: Report → Ranked Actionable Directives (2026-06-01)
+
+The pipeline now distills its rich diagnostic output into a single unified, priority-ranked work queue — completing the "CAD/CAM" metaphor.
+
+- [x] `ActionItemKind` enum: `FillVoid`, `RepairTopology`, `PromoteToPse`, `ReviewCrystal`, `ApplyNorm`
+- [x] `ActionItem` struct: content-addressed `action_id`, `priority_score: Q16`, `kind`, `description`, `policy_id`
+- [x] `rank_score(pos, total)` — position-based Q16 priority (`ONE` for top, proportionally decreasing)
+- [x] `IntegrationRunReport::action_items()` — aggregates all five categories, sorts merged list descending by `priority_score`
+- [x] `ReviewCrystal` items only for `EvidenceOnly` candidates (not `Pending`/`Certified` — no operator action needed)
+- [x] 7 new pipeline tests (120 total); 2 new eval scenarios (147 total, 927 substrate tests)
+
+### `run_workspace_pipeline` + `WorkspacePipelineSession` — Filesystem Entry Point (2026-06-01)
+
+The pipeline is now callable with a single filesystem path — no manual `WorkspaceIndex` construction needed.
+
+- [x] `run_workspace_pipeline(root, options, policy)` — scans with content (HDAG extraction), delegates to `run_dry_pipeline`; returns `Result<IntegrationRunReport, WorkspaceError>`
+- [x] `WorkspacePipelineSession::new(options, policy)` — stateful session across multiple runs
+- [x] `WorkspacePipelineSession::run(root)` — each call scans, runs pipeline, auto-persists crystals
+- [x] `WorkspacePipelineSession::run_count()` — monotonic run counter
+- [x] `WorkspaceError` re-exported from `kosmo-pipeline` for ergonomic error handling
+- [x] 6 new pipeline tests (113 total); 2 new eval scenarios (145 total, 909 substrate tests)
+
+### Pipeline Step 5f — Crystal Auto-Persistence (2026-06-01)
+
+The full session-to-session CAD library loop is now automatic at the pipeline level.
+
+- [x] `IntegrationRunOptions::crystal_store_path: Option<PathBuf>` — opt-in store path (`#[serde(skip)]`)
+- [x] `IntegrationRunOptions::with_crystal_store_path(path)` — builder method
+- [x] **Step 5f pre-run**: on entry, if path exists, open store → merge records into effective `prior_crystals` (dedup by `record_id`)
+- [x] **Step 5f post-cert**: after Step 5d-cert, append certified crystals to store (policy-gated; ReportOnly/DryRun denied)
+- [x] `IntegrationRunReport::persisted_crystal_count: u32` — observational field, NOT in `report_id` hash
+- [x] `summary()` updated: `(certified: N, resonites: M, persisted: P)`
+- [x] 5 new pipeline tests (107 total); 2 new eval scenarios (143 total, 896 substrate tests)
+
+### `CrystalRecordStore` — Durable CAD Library Persistence (2026-06-01)
+
+Crystal records now survive across integration runs: the CAD library is a JSONL-backed
+append-only store with the same host-write policy invariant as `JsonlCartographyStore`.
+
+- [x] `StructuralCrystalRecord::verify_id()` — recomputes and verifies content-addressed `record_id`
+- [x] `CrystalRecordStore::open(path)` — replay JSONL, verify every record_id on open
+- [x] `CrystalRecordStore::append(record, policy)` — policy-gated (ReportOnly/DryRun denied), dedup by `record_id`, fsync
+- [x] `CrystalRecordStore::records()` — `&[StructuralCrystalRecord]` for `IntegrationRunOptions::prior_crystals`
+- [x] `CrystalRecordStore::verify_integrity()` — re-verify all records after reload
+- [x] `CrystalStoreError` enum — manual Display/Error impl (no thiserror dep)
+- [x] `kosmo-hyphae` dependency added to `kosmo-store`
+- [x] 7 new store tests (14 total); 1 new eval scenario (141 total, 886 substrate tests)
+
+### Crystal-Boosted SourceCube Scoring — `crystal_resonance` Dimension (2026-06-01)
+
+The CAD library now actively influences energy ranking of current-run SourceCubes.
+
+- [x] Pipeline Step 2b: `crystal_resonance` dimension added to `CubeDimensionProfile` when `prior_crystals` is non-empty AND source content (HDAG) is available
+- [x] Best structural proximity to any prior crystal (same rho/omega formula as `Resonite::from_records`) used as the dimension value
+- [x] Only set when `> ZERO` — no false-zero baseline; runs without prior crystals are unchanged
+- [x] `crystal_resonance` contributes to ρ (coherence) in tripolar energy → pattern-matched voids rank higher
+- [x] 2 new pipeline tests (102 total); 1 new eval scenario (140 total, 872 substrate tests)
+
+### Crystal Structural Fingerprint + Resonite Pipeline Wiring (2026-06-01)
+
+CAD library elements now carry code-structure provenance; cross-run pattern proximity is measured via Resonite.
+
+- [x] `StructuralCrystalCandidate`: `source_void_id`, `rho_coherence`, `omega_phase` — all in `candidate_id` hash
+- [x] `from_decision_with_signals(decision, void_id, rho, omega)` — HDAG signal injection at candidate creation
+- [x] `StructuralCrystalRecord`: `source_void_id`, `rho_coherence`, `omega_phase` — all in `record_id` hash
+- [x] `from_certificate(cert, candidate)` — structural provenance propagated from candidate to record
+- [x] `Resonite::from_records(a, b, policy_id)` — structural proximity: `((ONE-|ρ_diff|) + (ONE-|ω_diff|)) / 2`; symmetric, Q16 (CROSS-007)
+- [x] Pipeline Step 5d: `from_decision_with_signals` with HDAG signals from `hdag_by_void_id`
+- [x] Pipeline Step 5e-resonite: pairwise `Resonite` between current and prior crystals; `resonite_count` in `report_id`
+- [x] `IntegrationRunReport.resonite_map: Vec<Resonite>` — covered by `verify_policy_consistency`
+- [x] 6 new `crystal.rs` tests (197 total); 6 new pipeline tests (100 total); 3 new eval scenarios (139 total, 855 substrate tests)
+
+### CodeHDAG Pipeline Integration — Code-Structure-Aware Topology (2026-06-01)
+
+Deepens void detection and energy assessment from file-presence to code-structure. Controlled
+by `WorkspaceIndex::scan_path_with_content` — passive by default, opt-in via entry `content`.
+
+- [x] `WorkspaceEntry.content: Option<String>` (`#[serde(skip)]`) — source text for HDAG extraction; excluded from `index_id` (digest already content-addresses bytes)
+- [x] `WorkspaceIndex::scan_path_with_content(root, policy_id)` — populates `.content` for `.rs` source/test files (valid UTF-8 only)
+- [x] `HostCube.hdag_by_void_id: BTreeMap<Digest, CodeHDAG>` — HDAG keyed by void_id; `hdag_count` in `HostCubeContent` participates in `cube_id`
+- [x] `MissingTestFiber` severity scales with HDAG definition count: `HALF + HALF × min(N, 8) / 8`
+- [x] Pipeline Step 2b: `SourceCube.dimension_profile` enriched with `rho_coherence` + `omega_phase` from `CodeHDAG` when content available
+- [x] `IntegrationRunReport.source_cubes: Vec<SourceCube>` — SourceCubes exposed in report
+- [x] `CubeDimensionProfile::from_raw_map(BTreeMap<String, Q16>)` — new constructor for raw-key dimension maps
+- [x] 4 new `host.rs` HDAG tests; 1 `cube.rs` test; 3 pipeline SourceCube tests; 2 new eval scenarios `rx-hyphae-hdag-*` (136 total, 825 substrate tests)
+
+### Crystal Certification Pipeline — `StructuralCrystalRecord` (2026-06-01)
+
+Closes the gap between `StructuralCrystalCandidate` (pending, `support_score = Q16::ZERO`) and
+`StructuralCrystalRecord` (certified, durable CAD library element). Adds cross-run accumulation
+via `prior_crystals` seeding.
+
+- `ConstraintProgram::from_candidate(candidate, replay_status)` — evaluates standard 5-constraint
+  program from candidate ID fields alone (no `EvidenceBundle` object required at pipeline step 5d-cert)
+- `StructuralCrystalCandidate::certify(replay_status) -> Option<(AssimilationCertificate, StructuralCrystalRecord)>` — single-call certification: program → proof → certificate → record
+- `CorpusEntityKind::CrystalRecord` variant — certified crystal records are first-class corpus
+  entities, enabling cross-run accumulation in the persistent cartography
+- Pipeline Step 5d-cert: every `Pending` candidate from the current run is certified;
+  `certified_crystals: Vec<StructuralCrystalRecord>` in `IntegrationRunReport`
+- `certified_crystal_count: u32` in `ReportContent` — participates in `report_id` content-addressing
+- `IntegrationRunOptions.prior_crystals: Vec<StructuralCrystalRecord>` — seed corpus with crystal
+  records from prior runs (CAD library accumulation loop closed)
+- `verify_policy_consistency()` covers `certified_crystals[i].policy_id`
+- `summary()` reports `crystal_candidates: N (certified: M)`
+- 4 new `crystal.rs` tests (186 total); 4 new pipeline tests (91 total); 2 new `RX:Crystal` /
+  `RX:Pipeline` eval scenarios (134 total, 815 substrate tests)
 
 ### `AssimilationLedger` — Content-Addressed Decision Audit Log (2026-06-01)
 - [x] `AssimilationLedger { ledger_id, run_id, events, policy_id }` — sequenced, content-addressed log of all `AssimilationDecision`s in a run (INVARIANT-007)

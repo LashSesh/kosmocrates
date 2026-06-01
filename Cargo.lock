@@ -1320,6 +1320,7 @@ name = "kosmo-store"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "kosmo-hyphae",
  "serde",
  "serde_json",
 ]

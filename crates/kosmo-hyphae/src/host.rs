@@ -1,8 +1,10 @@
+use crate::code_hdag::CodeHDAG;
 use crate::deficiency::DeficiencyVector;
 use crate::void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
-use kosmo_core::{Digest, PolicyProfile, Q16};
+use kosmo_core::{Digest, PolicyProfile, Q16, TaintLabel};
 use kosmo_workbench::workspace::{WorkspaceEntryKind, WorkspaceIndex};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// A binding record linking a host workspace scan to a HYPHAE run.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -29,13 +31,19 @@ struct HostCubeContent {
     void_map_id: Digest,
     deficiency_vector_id: Digest,
     entry_count: u64,
+    hdag_count: u64,
     policy_id: Digest,
 }
 
-/// The HYPHAE view of a host workspace: voids and deficiency analysis.
+/// The HYPHAE view of a host workspace: voids, deficiency analysis, and
+/// optional code-structure HDAGs extracted from source content.
 ///
 /// Constructed from a `WorkspaceIndex`; no host file writes occur
 /// (HYPHAE v0.3 passive run).
+///
+/// `hdag_by_void_id` is populated when workspace entries carry source content
+/// (via `WorkspaceIndex::scan_path_with_content`). The map enables pipeline
+/// layers to look up the structural graph for each void's originating source file.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HostCube {
     pub cube_id: Digest,
@@ -43,21 +51,27 @@ pub struct HostCube {
     pub void_map: TopologicalVoidMap,
     pub deficiency_vector: DeficiencyVector,
     pub entry_count: u64,
+    /// HDAG keyed by `void.void_id`. Each source file may contribute HDAGs for
+    /// multiple voids (MissingTestFiber, MissingDocFiber, etc.).
+    /// Empty when entries lack content.
+    pub hdag_by_void_id: BTreeMap<Digest, CodeHDAG>,
     pub policy_id: Digest,
 }
 
 impl HostCube {
     pub fn from_workspace_index(index: &WorkspaceIndex, policy: &PolicyProfile) -> Self {
         let binding = HostBinding::new(index.index_id, policy.id);
-        let voids = Self::derive_voids(index);
+        let (voids, hdag_by_void_id) = Self::derive_voids_and_hdags(index);
         let void_map = TopologicalVoidMap::from_voids(voids, policy.id);
         let deficiency_vector = DeficiencyVector::from_void_map(&void_map);
+        let hdag_count = hdag_by_void_id.len() as u64;
 
         let cube_id = Digest::of(&HostCubeContent {
             binding_id: binding.binding_id,
             void_map_id: void_map.map_id,
             deficiency_vector_id: deficiency_vector.vector_id,
             entry_count: index.entry_count,
+            hdag_count,
             policy_id: policy.id,
         });
 
@@ -67,20 +81,29 @@ impl HostCube {
             void_map,
             deficiency_vector,
             entry_count: index.entry_count,
+            hdag_by_void_id,
             policy_id: policy.id,
         }
     }
 
-    /// Derive topological voids from the workspace entries using structural
-    /// heuristics (Phase 3: no real parser, observation-only).
-    fn derive_voids(index: &WorkspaceIndex) -> Vec<HostVoid> {
-        let mut voids = Vec::new();
+    /// Derive topological voids and, when entry content is available, CodeHDAGs.
+    ///
+    /// When `entry.content` is `Some`, a CodeHDAG is extracted from the source text
+    /// and stored under each void_id created for that file. This lets downstream
+    /// layers (pipeline SourceCube construction) enrich energy assessments with
+    /// `rho_coherence` (test-to-definition ratio) and `omega_phase` (complexity signal).
+    ///
+    /// Void severity is also modulated by HDAG structure when content is available:
+    /// `MissingTestFiber` severity scales with definition count (more definitions →
+    /// higher urgency for test coverage).
+    fn derive_voids_and_hdags(index: &WorkspaceIndex) -> (Vec<HostVoid>, BTreeMap<Digest, CodeHDAG>) {
+        let mut voids: Vec<HostVoid> = Vec::new();
+        let mut hdag_by_void_id: BTreeMap<Digest, CodeHDAG> = BTreeMap::new();
 
-        let source_paths: Vec<&str> = index
+        let source_entries: Vec<_> = index
             .entries
             .iter()
             .filter(|e| matches!(e.kind, WorkspaceEntryKind::SourceFile))
-            .map(|e| e.path.as_str())
             .collect();
 
         let test_paths: Vec<&str> = index
@@ -97,29 +120,58 @@ impl HostCube {
             .map(|e| e.path.as_str())
             .collect();
 
-        for src in &source_paths {
+        for entry in &source_entries {
+            let src = entry.path.as_str();
             let stem = module_stem(src);
+
+            // Extract HDAG when source content is available.
+            let hdag_opt: Option<CodeHDAG> = entry.content.as_deref().map(|text| {
+                CodeHDAG::extract_from_rust_source(
+                    entry.digest,
+                    src,
+                    text,
+                    TaintLabel::Unverified,
+                )
+            });
+
             let has_test = test_paths.iter().any(|t| path_contains_stem(t, stem));
             if !has_test {
-                voids.push(HostVoid::new(
+                // Severity scales with definition count: more definitions → higher urgency.
+                // Without HDAG: HALF. With HDAG and N definitions: HALF + HALF*min(N,8)/8.
+                let severity = if let Some(ref hdag) = hdag_opt {
+                    let defs = hdag.definition_count().min(8) as u64;
+                    let bonus = Q16::ratio(defs, 16).unwrap_or(Q16::ZERO);
+                    let base = Q16::ratio(1, 2).unwrap_or(Q16::ZERO);
+                    Q16::from_raw((base.raw() + bonus.raw()).min(Q16::ONE.raw()))
+                } else {
+                    Q16::ratio(1, 2).unwrap_or(Q16::ZERO)
+                };
+                let void = HostVoid::new(
                     HostVoidKind::MissingTestFiber { for_module: src.to_string() },
-                    // Severity: moderate — test coverage is a key quality signal.
-                    Q16::ratio(1, 2).unwrap_or(Q16::ZERO),
+                    severity,
                     src.to_string(),
-                ));
+                );
+                if let Some(ref hdag) = hdag_opt {
+                    hdag_by_void_id.insert(void.void_id, hdag.clone());
+                }
+                voids.push(void);
             }
 
             let has_doc = doc_paths.iter().any(|d| path_contains_stem(d, stem));
             if !has_doc {
-                voids.push(HostVoid::new(
+                let void = HostVoid::new(
                     HostVoidKind::MissingDocFiber { for_module: src.to_string() },
                     Q16::ratio(1, 4).unwrap_or(Q16::ZERO),
                     src.to_string(),
-                ));
+                );
+                if let Some(ref hdag) = hdag_opt {
+                    hdag_by_void_id.insert(void.void_id, hdag.clone());
+                }
+                voids.push(void);
             }
         }
 
-        voids
+        (voids, hdag_by_void_id)
     }
 
     pub fn void_count(&self) -> usize {
@@ -168,6 +220,17 @@ mod tests {
             digest: Digest::of_bytes(path.as_bytes()),
             size_bytes: 100,
             kind: WorkspaceEntryKind::SourceFile,
+            content: None,
+        }
+    }
+
+    fn src_with_content(path: &str, text: &str) -> WorkspaceEntry {
+        WorkspaceEntry {
+            path: path.into(),
+            digest: Digest::of_bytes(text.as_bytes()),
+            size_bytes: text.len() as u64,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: Some(text.to_string()),
         }
     }
 
@@ -177,6 +240,7 @@ mod tests {
             digest: Digest::of_bytes(path.as_bytes()),
             size_bytes: 50,
             kind: WorkspaceEntryKind::TestFile,
+            content: None,
         }
     }
 
@@ -222,5 +286,71 @@ mod tests {
         let cube = HostCube::from_workspace_index(&index, &policy);
         assert_eq!(cube.void_count(), 0);
         assert!(!cube.has_deficiencies());
+    }
+
+    #[test]
+    fn host_cube_hdag_empty_without_content() {
+        let policy = PolicyProfile::default_report_only();
+        // Entry has no content — HDAGs should not be populated.
+        let index = make_index(vec![src("src/lib.rs")]);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+        assert!(cube.hdag_by_void_id.is_empty(), "no HDAGs expected without source content");
+    }
+
+    #[test]
+    fn host_cube_hdag_extracted_when_content_present() {
+        let policy = PolicyProfile::default_report_only();
+        let source = "pub fn foo() {}\npub fn bar() {}\n";
+        let index = make_index(vec![src_with_content("src/lib.rs", source)]);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+        // Two voids (TestFiber + DocFiber) should each have an HDAG entry.
+        assert_eq!(cube.hdag_by_void_id.len(), 2, "both voids must carry the HDAG");
+        for hdag in cube.hdag_by_void_id.values() {
+            assert!(hdag.definition_count() >= 2, "expected at least 2 fn definitions");
+        }
+    }
+
+    #[test]
+    fn host_cube_severity_scales_with_definition_count() {
+        let policy = PolicyProfile::default_report_only();
+        // 0 definitions → severity should be HALF (base only).
+        let sparse = make_index(vec![src_with_content("src/sparse.rs", "// no fns")]);
+        let cube_sparse = HostCube::from_workspace_index(&sparse, &policy);
+
+        // 8+ definitions → severity should be > HALF.
+        let dense_src = (0..8)
+            .map(|i| format!("pub fn f{}() {{}}\n", i))
+            .collect::<String>();
+        let dense = make_index(vec![src_with_content("src/dense.rs", &dense_src)]);
+        let cube_dense = HostCube::from_workspace_index(&dense, &policy);
+
+        let severity_sparse = cube_sparse.void_map.voids.iter()
+            .find(|v| matches!(&v.kind, crate::void_map::HostVoidKind::MissingTestFiber { .. }))
+            .map(|v| v.severity)
+            .expect("sparse must have MissingTestFiber");
+
+        let severity_dense = cube_dense.void_map.voids.iter()
+            .find(|v| matches!(&v.kind, crate::void_map::HostVoidKind::MissingTestFiber { .. }))
+            .map(|v| v.severity)
+            .expect("dense must have MissingTestFiber");
+
+        assert!(
+            severity_dense.raw() > severity_sparse.raw(),
+            "more definitions must produce higher MissingTestFiber severity"
+        );
+    }
+
+    #[test]
+    fn host_cube_id_differs_with_and_without_hdag() {
+        let policy = PolicyProfile::default_report_only();
+        let index_no_content = make_index(vec![src("src/lib.rs")]);
+        let index_with_content = make_index(vec![src_with_content("src/lib.rs", "pub fn foo() {}")]);
+        let cube_no = HostCube::from_workspace_index(&index_no_content, &policy);
+        let cube_with = HostCube::from_workspace_index(&index_with_content, &policy);
+        // hdag_count participates in cube_id — so HDAG-enriched cube has a different id.
+        assert_ne!(
+            cube_no.cube_id, cube_with.cube_id,
+            "cube_id must differ when HDAG extraction changes hdag_count"
+        );
     }
 }
