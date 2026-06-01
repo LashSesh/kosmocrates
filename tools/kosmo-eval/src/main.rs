@@ -1870,6 +1870,104 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 5c NormFitnessTrace from prior feedback ───────────
+
+    v.push(run_check("rx-pipeline-norm-fitness-traces-empty-without-feedback", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        if !r.norm_fitness_traces.is_empty() {
+            return Err(format!(
+                "norm_fitness_traces must be empty when prior_feedback is empty, got {}",
+                r.norm_fitness_traces.len()
+            ));
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must pass with empty traces".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-norm-fitness-traces-from-matching-feedback", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        // First: generate candidates.
+        let opts_gen = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r_gen = run_dry_pipeline(&index, &opts_gen, &policy);
+        if r_gen.norm_candidates.is_empty() {
+            return Ok(()); // no accepted decisions — not an error, just skip
+        }
+        let candidate = &r_gen.norm_candidates[0];
+        let energy = Q16::ratio(3, 4).unwrap();
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            candidate.candidate_id,
+            candidate.candidate_id,
+            FeedbackOutcome::Accepted,
+            energy,
+            policy.id,
+            candidate.evidence_bundle_id,
+        );
+        // Second: apply prior_feedback.
+        let opts_fb = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            prior_feedback: vec![feedback.clone()],
+            ..IntegrationRunOptions::report_only()
+        };
+        let r_fb = run_dry_pipeline(&index, &opts_fb, &policy);
+        let trace = r_fb.norm_fitness_traces.iter()
+            .find(|t| t.candidate_id == candidate.candidate_id)
+            .ok_or("trace must exist for candidate that received feedback")?;
+        // Fitness trace content.
+        if trace.latest_fitness() != energy {
+            return Err(format!(
+                "latest_fitness must equal energy {}, got {}",
+                energy.raw(), trace.latest_fitness().raw()
+            ));
+        }
+        if trace.observations[0].evidence_ref != feedback.id {
+            return Err("evidence_ref must equal feedback.id — CROSS-006 via trace".into());
+        }
+        if trace.policy_id != policy.id {
+            return Err("trace.policy_id must match pipeline policy_id".into());
+        }
+        // Policy consistency must cover traces.
+        if !r_fb.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include norm_fitness_traces".into());
+        }
+        // Traces must participate in report_id.
+        let r_fb2 = run_dry_pipeline(&index, &opts_fb, &policy);
+        if r_fb.report_id != r_fb2.report_id {
+            return Err("norm_fitness_traces must participate in report_id deterministically".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {

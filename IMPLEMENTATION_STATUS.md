@@ -4,11 +4,21 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **741 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 62) — 0 failures
-- **104/104 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **744 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 65) — 0 failures
+- **106/106 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
+- **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
+
+### NormFitnessTrace Pipeline Integration — Step 5c (2026-06-01)
+- [x] `prior_feedback: Vec<PromotionFeedback>` added to `IntegrationRunOptions` (default empty)
+- [x] Pipeline Step 5c: for each `NormGeneCandidate`, fold matching feedback via `NormFitnessTrace::observe_from_feedback`; only traces with ≥1 observation included
+- [x] `IntegrationRunReport.norm_fitness_traces: Vec<NormFitnessTrace>` — one per candidate with matched feedback
+- [x] `ReportContent.norm_fitness_trace_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `norm_fitness_traces[i].policy_id`
+- [x] `summary()` reports `norm_candidates: N (traces: M)`
+- [x] 3 new pipeline tests (65 total); 2 new `RX:Pipeline` eval scenarios (106 total)
 
 ### SurgeryWorkbenchTask Pipeline Integration — Step 3e (2026-06-01)
 - [x] Pipeline Step 3e: `surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>` — 1:1 from `surgery_options` via `SurgeryWorkbenchTask::from_option()`; same energy-ranked order

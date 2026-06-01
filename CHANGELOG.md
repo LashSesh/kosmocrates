@@ -15,6 +15,20 @@ note explicitly says so.
 
 ### Added
 
+* **NormFitnessTrace pipeline integration — Step 5c** — closes the full
+  "Wissen zurück ins Substrat" loop: PSE promotion outcomes feed back into the
+  substrate as fitness observations, which can re-rank norm gene candidates.
+
+  - `IntegrationRunOptions.prior_feedback: Vec<PromotionFeedback>` (default empty).
+    On each run, feedback records with matching `norm_candidate_id` are folded into
+    `NormFitnessTrace::observe_from_feedback`. Only traces with ≥1 observation
+    are included in the report.
+  - `IntegrationRunReport.norm_fitness_traces: Vec<NormFitnessTrace>`;
+    `norm_fitness_trace_count` participates in `report_id`. `verify_policy_consistency()`
+    covers all trace `policy_id` fields. `summary()` reports `norm_candidates: N (traces: M)`.
+  - 3 new pipeline tests (65 total); 2 new `RX:Pipeline` eval scenarios (106 total,
+    744 substrate tests).
+
 * **SurgeryWorkbenchTask pipeline integration — Step 3e** — every energy-ranked
   `TopologicalSurgeryOption` now converts into a workbench-compatible task immediately
   after Step 3b, closing the surgery → workbench gap.

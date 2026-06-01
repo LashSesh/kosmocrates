@@ -316,4 +316,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (36 scenarios including all energy-ranked pipeline outputs + Step 3e) | ✅ |
+| `RX:Pipeline` (38 scenarios including all energy-ranked pipeline outputs + Steps 3e, 5c) | ✅ |

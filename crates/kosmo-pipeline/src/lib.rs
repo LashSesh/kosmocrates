@@ -27,17 +27,17 @@ pub use materialization::{
 };
 pub use persistence::persist_cartography_update;
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, rank_by_energy};
+use kosmo_core::{Digest, GateResult, PolicyProfile, PromotionFeedback, Q16, rank_by_energy};
 use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
     CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
     MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
-    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormGeneCandidate,
-    Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph, SupportMassVector,
-    SurgeryWorkbenchTask, TopologicalSurgeryOption, diagnose_micrograph, lift_region,
-    passive_run, HyphaeRunResult,
+    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormFitnessTrace,
+    NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
+    SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption, diagnose_micrograph,
+    lift_region, passive_run, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
@@ -69,6 +69,9 @@ pub struct IntegrationRunOptions {
     /// Generate energy-ranked `NormGeneCandidate` objects from accepted decisions.
     /// Initial fitness = `Q16::ONE`; evolves via `NormFitnessTrace` in later phases.
     pub enable_norm_candidates: bool,
+    /// Prior `PromotionFeedback` records to ingest into `NormFitnessTrace` objects
+    /// for each matching norm candidate (Step 5c). Empty by default.
+    pub prior_feedback: Vec<PromotionFeedback>,
 }
 
 impl IntegrationRunOptions {
@@ -82,6 +85,7 @@ impl IntegrationRunOptions {
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: false,
             enable_norm_candidates: false,
+            prior_feedback: vec![],
         }
     }
 
@@ -95,6 +99,7 @@ impl IntegrationRunOptions {
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: true,
             enable_norm_candidates: true,
+            prior_feedback: vec![],
         }
     }
 }
@@ -120,6 +125,7 @@ struct ReportContent {
     surgery_count: u32,
     surgery_workbench_task_count: u32,
     norm_candidate_count: u32,
+    norm_fitness_trace_count: u32,
     has_systemcube: bool,
 }
 
@@ -164,6 +170,10 @@ pub struct IntegrationRunReport {
     /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
     /// Empty when `enable_norm_candidates` is false.
     pub norm_candidates: Vec<NormGeneCandidate>,
+    /// Fitness traces for norm candidates, built from `prior_feedback` (Step 5c).
+    /// One trace per candidate that has at least one matching feedback record.
+    /// Empty when `prior_feedback` is empty or no feedback matches.
+    pub norm_fitness_traces: Vec<NormFitnessTrace>,
     pub systemcube_export: Option<KcubeExportReport>,
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
@@ -186,6 +196,7 @@ impl IntegrationRunReport {
         surgery_options: Vec<TopologicalSurgeryOption>,
         surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
         norm_candidates: Vec<NormGeneCandidate>,
+        norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
         aggregated_gate: AggregatedGateResult,
         policy: &PolicyProfile,
@@ -208,6 +219,7 @@ impl IntegrationRunReport {
             surgery_count: surgery_options.len() as u32,
             surgery_workbench_task_count: surgery_workbench_tasks.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
+            norm_fitness_trace_count: norm_fitness_traces.len() as u32,
             has_systemcube: systemcube_export.is_some(),
         });
         Self {
@@ -227,6 +239,7 @@ impl IntegrationRunReport {
             surgery_options,
             surgery_workbench_tasks,
             norm_candidates,
+            norm_fitness_traces,
             systemcube_export,
             aggregated_gate,
             final_result,
@@ -245,7 +258,7 @@ impl IntegrationRunReport {
              hyphae: {} | cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
-             surgery: {} (tasks: {}) | norm_candidates: {} | {}",
+             surgery: {} (tasks: {}) | norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -263,6 +276,7 @@ impl IntegrationRunReport {
             self.surgery_options.len(),
             self.surgery_workbench_tasks.len(),
             self.norm_candidates.len(),
+            self.norm_fitness_traces.len(),
             scube,
         )
     }
@@ -290,6 +304,7 @@ impl IntegrationRunReport {
             && self.surgery_options.iter().all(|o| o.policy_id == pid)
             && self.surgery_workbench_tasks.iter().all(|t| t.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
+            && self.norm_fitness_traces.iter().all(|t| t.policy_id == pid)
             && self
                 .systemcube_export
                 .as_ref()
@@ -553,6 +568,23 @@ pub fn run_dry_pipeline(
         Vec::new()
     };
 
+    // ── 5c. NormFitnessTrace: apply prior feedback to norm candidates ─────────
+    // Closes the "Wissen zurück ins Substrat" loop: PSE outcome → feedback record
+    // → fitness trace update. Only builds traces for candidates with ≥1 match.
+    let norm_fitness_traces: Vec<NormFitnessTrace> = norm_candidates
+        .iter()
+        .filter_map(|candidate| {
+            let trace = options.prior_feedback
+                .iter()
+                .filter(|fb| fb.norm_candidate_id == candidate.candidate_id)
+                .fold(
+                    NormFitnessTrace::empty(candidate.candidate_id, policy.id),
+                    |t, fb| t.observe_from_feedback(fb),
+                );
+            if trace.observations.is_empty() { None } else { Some(trace) }
+        })
+        .collect();
+
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
         let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
@@ -597,6 +629,7 @@ pub fn run_dry_pipeline(
         surgery_options,
         surgery_workbench_tasks,
         norm_candidates,
+        norm_fitness_traces,
         systemcube_export,
         aggregated_gate,
         policy,
@@ -681,12 +714,7 @@ mod tests {
     fn pipeline_metatron_produces_one_diagnostic_per_void() {
         let opts = IntegrationRunOptions {
             enable_metatron: true,
-            enable_lpcm: false,
-            enable_systemcube: false,
-            systemcube_capacity: 0,
-            lpcm_seam_threshold: Q16::ZERO,
-            enable_surgery: false,
-            enable_norm_candidates: false,
+            ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         assert_eq!(
@@ -995,6 +1023,88 @@ mod tests {
             r.surgery_workbench_tasks.len(),
             r.surgery_options.len(),
             "surgery_workbench_tasks must be 1:1 with surgery_options"
+        );
+    }
+
+    // ── NormFitnessTrace from prior feedback (Step 5c) ───────────────────────
+
+    #[test]
+    fn pipeline_no_fitness_traces_when_no_prior_feedback() {
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert!(
+            r.norm_fitness_traces.is_empty(),
+            "norm_fitness_traces must be empty when prior_feedback is empty"
+        );
+    }
+
+    #[test]
+    fn pipeline_fitness_trace_built_from_matching_feedback() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let p = policy();
+        let opts_gen = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        // First run: generate candidates.
+        let r1 = run_dry_pipeline(&fixture_index(), &opts_gen, &p);
+        if r1.norm_candidates.is_empty() {
+            return; // no accepted decisions in this fixture — skip
+        }
+        let candidate = &r1.norm_candidates[0];
+        let energy = Q16::ratio(3, 4).unwrap();
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            candidate.candidate_id,
+            candidate.candidate_id,
+            FeedbackOutcome::Accepted,
+            energy,
+            p.id,
+            candidate.evidence_bundle_id,
+        );
+        // Second run: apply the feedback.
+        let opts_fb = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            prior_feedback: vec![feedback.clone()],
+            ..IntegrationRunOptions::report_only()
+        };
+        let r2 = run_dry_pipeline(&fixture_index(), &opts_fb, &p);
+        let trace = r2.norm_fitness_traces.iter()
+            .find(|t| t.candidate_id == candidate.candidate_id)
+            .expect("trace must exist for the candidate that received feedback");
+        assert_eq!(trace.observations.len(), 1);
+        assert_eq!(trace.latest_fitness(), energy);
+        assert_eq!(trace.observations[0].evidence_ref, feedback.id);
+        assert_eq!(trace.policy_id, p.id);
+    }
+
+    #[test]
+    fn pipeline_fitness_trace_skips_unmatched_feedback() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let p = policy();
+        // Build feedback with a random candidate_id that matches nothing.
+        let unrelated_id = Digest::of_bytes(b"unrelated-candidate");
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            unrelated_id,
+            unrelated_id,
+            FeedbackOutcome::Accepted,
+            Q16::ONE,
+            p.id,
+            Digest::of_bytes(b"ev"),
+        );
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            prior_feedback: vec![feedback],
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        assert!(
+            r.norm_fitness_traces.is_empty(),
+            "unmatched feedback must not produce traces"
         );
     }
 
