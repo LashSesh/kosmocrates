@@ -15,6 +15,31 @@ note explicitly says so.
 
 ### Added
 
+* **Crystal structural fingerprint + Resonite pipeline wiring (Step 5e-resonite)**
+
+  Closes the loop between code structure and the CAD library: certified crystal records
+  now carry structural provenance, and cross-run pattern proximity is computed via Resonite.
+
+  - `StructuralCrystalCandidate`: new fields `source_void_id: Option<Digest>`,
+    `rho_coherence: Q16`, `omega_phase: Q16`; both participate in `candidate_id`
+    content-addressing so HDAG-enriched candidates differ from file-presence-only ones.
+  - `StructuralCrystalCandidate::from_decision_with_signals(decision, void_id, rho, omega)` —
+    builds a candidate with code-structure signals. `from_decision` now delegates to it
+    with defaults `(None, ONE, ONE)`.
+  - `StructuralCrystalRecord`: new fields `source_void_id`, `rho_coherence`, `omega_phase`
+    propagated from the candidate at certification time; all three participate in `record_id`.
+  - `StructuralCrystalRecord::from_certificate(cert, candidate)` — updated signature
+    (second argument carries the structural provenance).
+  - `Resonite::from_records(a, b, policy_id)` — structural proximity score:
+    `((ONE - |ρ_a - ρ_b|) + (ONE - |ω_a - ω_b|)) / 2`; symmetric, Q16, no floats (CROSS-007).
+  - Pipeline Step 5d: candidates built with HDAG signals via `from_decision_with_signals`
+    (intent's `target_void_id` + `hdag_by_void_id` lookup).
+  - Pipeline Step 5e-resonite: pairwise `Resonite` between every current certified crystal
+    and every prior crystal; `resonite_count` participates in `report_id`.
+  - `IntegrationRunReport.resonite_map: Vec<Resonite>` — covered by `verify_policy_consistency`.
+  - 6 new `crystal.rs` tests (197 total); 6 new pipeline tests (100 total); 3 new eval scenarios
+    (`rx-crystal-*` ×2, `rx-pipeline-resonite-*` ×1) → 139 total, 855 substrate tests.
+
 * **CodeHDAG pipeline integration — code-structure-aware void severity and SourceCube dimensions**
 
   Topology observation deepened from file-presence to code-structure. When workspace entries

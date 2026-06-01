@@ -2950,6 +2950,189 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Crystal — structural fingerprint on record + Resonite::from_records ─
+
+    v.push(run_check("rx-crystal-record-carries-structural-signals", "RX:Crystal", || {
+        use kosmo_hyphae::crystal::{
+            Resonite, StructuralCrystalCandidate, StructuralCrystalRecord,
+        };
+        use kosmo_core::{AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
+            PolicyProfile, Q16, ReplayStatus, TaintLabel};
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+
+        let policy = PolicyProfile::operator_approved();
+        let void_id = Digest::of_bytes(b"v");
+        let ev_ref = EvidenceRef::new(
+            Digest::of_bytes(b"ev-src"),
+            EvidenceKind::HostScan,
+            "test-ref".to_string(),
+        );
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(void_id), None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            ev.bundle_id,
+            policy.id,
+        );
+        let trace = GateCascade::standard_gates(policy.clone()).apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+
+        // Build candidate with structural signals.
+        let rho = Q16::HALF;
+        let omega = Q16::ratio(3, 4).unwrap();
+        let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision, Some(void_id), rho, omega,
+        );
+        let (_, record) = match candidate.certify(ReplayStatus::Replayable) {
+            Some(r) => r,
+            None => return Err("certify must succeed for a Pending candidate".into()),
+        };
+
+        if record.source_void_id != Some(void_id) {
+            return Err(format!("source_void_id mismatch: {:?}", record.source_void_id));
+        }
+        if record.rho_coherence != rho {
+            return Err(format!("rho_coherence mismatch: got {}", record.rho_coherence.raw()));
+        }
+        if record.omega_phase != omega {
+            return Err(format!("omega_phase mismatch: got {}", record.omega_phase.raw()));
+        }
+        if record.record_id == Digest::ZERO {
+            return Err("record_id must be non-ZERO".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-crystal-resonite-from-records-is-symmetric-and-bounded", "RX:Crystal", || {
+        use kosmo_hyphae::crystal::{Resonite, StructuralCrystalCandidate};
+        use kosmo_core::{AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
+            PolicyProfile, Q16, ReplayStatus, TaintLabel};
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+
+        let policy = PolicyProfile::operator_approved();
+
+        let make_record = |rho: Q16, omega: Q16, tag: &[u8]| {
+            let ev_ref = EvidenceRef::new(
+                Digest::of_bytes(tag),
+                EvidenceKind::HostScan,
+                "t".to_string(),
+            );
+            let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+            let yield_ = StructuralYield::new(
+                StructuralYieldKind::DeficiencyFill,
+                Some(Digest::of_bytes(tag)), None,
+                TaintLabel::Clean, AuthorityLabel::Foundry,
+                ev.bundle_id, policy.id,
+            );
+            let trace = GateCascade::standard_gates(policy.clone()).apply(&yield_, &ev);
+            let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+            let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+                &decision, None, rho, omega,
+            );
+            candidate.certify(ReplayStatus::Replayable).map(|(_, r)| r)
+        };
+
+        let r1 = make_record(Q16::HALF, Q16::HALF, b"a").ok_or("certify failed for r1")?;
+        let r2 = make_record(Q16::ratio(1, 4).unwrap(), Q16::ratio(3, 4).unwrap(), b"b").ok_or("certify failed for r2")?;
+
+        // Symmetry
+        let res_ab = Resonite::from_records(&r1, &r2, policy.id);
+        let res_ba = Resonite::from_records(&r2, &r1, policy.id);
+        if res_ab.resonite_id != res_ba.resonite_id {
+            return Err("Resonite::from_records must be symmetric".into());
+        }
+        // Score in [0, ONE]
+        if res_ab.resonance_score.raw() < 0 || res_ab.resonance_score.raw() > Q16::ONE.raw() {
+            return Err(format!("resonance_score out of bounds: {}", res_ab.resonance_score.raw()));
+        }
+
+        // Identical records score ONE
+        let res_same = Resonite::from_records(&r1, &r1, policy.id);
+        if res_same.resonance_score != Q16::ONE {
+            return Err(format!("identical records must score ONE, got {}", res_same.resonance_score.raw()));
+        }
+
+        // Policy propagation
+        if res_ab.policy_id != policy.id {
+            return Err("resonite policy_id must match pipeline policy".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-resonite-map-populated-with-prior-crystals", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry {
+                path: "src/alpha.rs".into(),
+                digest: Digest::of_bytes(b"a"),
+                size_bytes: 100,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+            WorkspaceEntry {
+                path: "src/beta.rs".into(),
+                digest: Digest::of_bytes(b"b"),
+                size_bytes: 120,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        let opts1 = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts1, &policy);
+
+        // resonite_map empty without prior_crystals
+        if !r1.resonite_map.is_empty() {
+            return Err(format!(
+                "resonite_map must be empty when no prior_crystals, got {}",
+                r1.resonite_map.len()
+            ));
+        }
+
+        // If certified crystals exist, feed them back and verify resonite_map is populated.
+        if !r1.certified_crystals.is_empty() {
+            let opts2 = IntegrationRunOptions {
+                enable_crystal_candidates: true,
+                prior_crystals: r1.certified_crystals.clone(),
+                ..IntegrationRunOptions::report_only()
+            };
+            let r2 = run_dry_pipeline(&index, &opts2, &policy);
+            if !r2.certified_crystals.is_empty() {
+                let expected = r2.certified_crystals.len() * r1.certified_crystals.len();
+                if r2.resonite_map.len() != expected {
+                    return Err(format!(
+                        "expected {} resonites (current × prior), got {}",
+                        expected, r2.resonite_map.len()
+                    ));
+                }
+                for res in &r2.resonite_map {
+                    if res.policy_id != policy.id {
+                        return Err("resonite policy_id mismatch".into());
+                    }
+                }
+            }
+        }
+
+        if !r1.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover resonite_map".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

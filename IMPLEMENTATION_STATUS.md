@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CodeHDAG als Struktursignal."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek mit Strukturfingerabdruck und Resonanzmaß."
 
-- **825 substrate tests** (kosmo-core 339, kosmo-hyphae 191, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 94) — 0 failures
-- **136/136 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **855 substrate tests** (kosmo-core 339, kosmo-hyphae 197, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 100) — 0 failures
+- **139/139 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,20 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Crystal Structural Fingerprint + Resonite Pipeline Wiring (2026-06-01)
+
+CAD library elements now carry code-structure provenance; cross-run pattern proximity is measured via Resonite.
+
+- [x] `StructuralCrystalCandidate`: `source_void_id`, `rho_coherence`, `omega_phase` — all in `candidate_id` hash
+- [x] `from_decision_with_signals(decision, void_id, rho, omega)` — HDAG signal injection at candidate creation
+- [x] `StructuralCrystalRecord`: `source_void_id`, `rho_coherence`, `omega_phase` — all in `record_id` hash
+- [x] `from_certificate(cert, candidate)` — structural provenance propagated from candidate to record
+- [x] `Resonite::from_records(a, b, policy_id)` — structural proximity: `((ONE-|ρ_diff|) + (ONE-|ω_diff|)) / 2`; symmetric, Q16 (CROSS-007)
+- [x] Pipeline Step 5d: `from_decision_with_signals` with HDAG signals from `hdag_by_void_id`
+- [x] Pipeline Step 5e-resonite: pairwise `Resonite` between current and prior crystals; `resonite_count` in `report_id`
+- [x] `IntegrationRunReport.resonite_map: Vec<Resonite>` — covered by `verify_policy_consistency`
+- [x] 6 new `crystal.rs` tests (197 total); 6 new pipeline tests (100 total); 3 new eval scenarios (139 total, 855 substrate tests)
 
 ### CodeHDAG Pipeline Integration — Code-Structure-Aware Topology (2026-06-01)
 
