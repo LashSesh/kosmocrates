@@ -1578,6 +1578,82 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 5b NormGeneCandidate generation ───────────────────
+
+    v.push(run_check("rx-pipeline-norm-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.norm_candidates.is_empty() {
+            return Err(format!(
+                "norm_candidates must be empty when disabled, got {}",
+                r.norm_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-norm-candidates-from-accepted-decisions", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib_test.rs".into(),
+                digest: Digest::of_bytes(b"test"),
+                size_bytes: 50,
+                kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        // Each accepted decision yields a norm candidate.
+        let accepted = r.hyphae_result.decisions.iter().filter(|d| d.outcome.is_accepted()).count();
+        if r.norm_candidates.len() != accepted {
+            return Err(format!(
+                "expected {} norm candidates (= accepted decisions), got {}",
+                accepted, r.norm_candidates.len()
+            ));
+        }
+        // All must carry the pipeline policy_id and non-ZERO evidence refs.
+        for c in &r.norm_candidates {
+            if c.policy_id != policy.id {
+                return Err("norm candidate policy_id mismatch".into());
+            }
+            if c.evidence_bundle_id == Digest::ZERO {
+                return Err("CROSS-006: norm candidate evidence_bundle_id must be non-ZERO".into());
+            }
+            if c.fitness_score != Q16::ONE {
+                return Err(format!("initial fitness must be Q16::ONE, got {:?}", c.fitness_score));
+            }
+        }
+        // verify_policy_consistency() must cover norm candidates.
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include norm_candidates".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {

@@ -33,8 +33,8 @@ use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
     CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
-    MicroTopologyDiagnostic, MorphogenicCorpusUpdate, Fragment, FragmentField, FragmentKind,
-    SourceCube, SeamGraph, SupportMassVector, TopologicalSurgeryOption,
+    MicroTopologyDiagnostic, MorphogenicCorpusUpdate, NormGeneCandidate, Fragment, FragmentField,
+    FragmentKind, SourceCube, SeamGraph, SupportMassVector, TopologicalSurgeryOption,
     diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
 };
@@ -65,6 +65,9 @@ pub struct IntegrationRunOptions {
     /// Derive and energy-rank surgery options from Metatron diagnostics.
     /// Only produces results when `enable_metatron` is also true.
     pub enable_surgery: bool,
+    /// Generate energy-ranked `NormGeneCandidate` objects from accepted decisions.
+    /// Initial fitness = `Q16::ONE`; evolves via `NormFitnessTrace` in later phases.
+    pub enable_norm_candidates: bool,
 }
 
 impl IntegrationRunOptions {
@@ -77,6 +80,7 @@ impl IntegrationRunOptions {
             systemcube_capacity: 0,
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: false,
+            enable_norm_candidates: false,
         }
     }
 
@@ -89,6 +93,7 @@ impl IntegrationRunOptions {
             systemcube_capacity,
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: true,
+            enable_norm_candidates: true,
         }
     }
 }
@@ -110,6 +115,7 @@ struct ReportContent {
     metatron_count: u32,
     lpcm_count: u32,
     surgery_count: u32,
+    norm_candidate_count: u32,
     has_systemcube: bool,
 }
 
@@ -141,6 +147,10 @@ pub struct IntegrationRunReport {
     /// Energy-ranked surgery options derived from Metatron diagnostics.
     /// Empty when `enable_surgery` or `enable_metatron` is false.
     pub surgery_options: Vec<TopologicalSurgeryOption>,
+    /// Energy-ranked norm gene candidates generated from accepted decisions.
+    /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
+    /// Empty when `enable_norm_candidates` is false.
+    pub norm_candidates: Vec<NormGeneCandidate>,
     pub systemcube_export: Option<KcubeExportReport>,
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
@@ -159,6 +169,7 @@ impl IntegrationRunReport {
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         surgery_options: Vec<TopologicalSurgeryOption>,
+        norm_candidates: Vec<NormGeneCandidate>,
         systemcube_export: Option<KcubeExportReport>,
         aggregated_gate: AggregatedGateResult,
         policy: &PolicyProfile,
@@ -177,6 +188,7 @@ impl IntegrationRunReport {
             metatron_count: metatron_diagnostics.len() as u32,
             lpcm_count: lpcm_reports.len() as u32,
             surgery_count: surgery_options.len() as u32,
+            norm_candidate_count: norm_candidates.len() as u32,
             has_systemcube: systemcube_export.is_some(),
         });
         Self {
@@ -192,6 +204,7 @@ impl IntegrationRunReport {
             metatron_diagnostics,
             lpcm_reports,
             surgery_options,
+            norm_candidates,
             systemcube_export,
             aggregated_gate,
             final_result,
@@ -209,7 +222,8 @@ impl IntegrationRunReport {
             "IntegrationRunReport — policy={:.8} | final={:?} | \
              hyphae: {} | cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
-             morphogenic: {:.8} | metatron: {} | lpcm: {} | surgery: {} | {}",
+             morphogenic: {:.8} | metatron: {} | lpcm: {} | surgery: {} | \
+             norm_candidates: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -223,6 +237,7 @@ impl IntegrationRunReport {
             self.metatron_diagnostics.len(),
             self.lpcm_reports.len(),
             self.surgery_options.len(),
+            self.norm_candidates.len(),
             scube,
         )
     }
@@ -247,6 +262,7 @@ impl IntegrationRunReport {
             && self.metatron_diagnostics.iter().all(|d| d.policy_id == pid)
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
             && self.surgery_options.iter().all(|o| o.policy_id == pid)
+            && self.norm_candidates.iter().all(|c| c.policy_id == pid)
             && self
                 .systemcube_export
                 .as_ref()
@@ -446,6 +462,46 @@ pub fn run_dry_pipeline(
         policy.id,
     );
 
+    // ── 5b. Optional norm candidates — from accepted decisions ────────────────
+    // One NormGeneCandidate per accepted decision: name derived from void/yield,
+    // initial fitness = Q16::ONE (just accepted). Evidence = decision's evidence_bundle_id
+    // (causal chain: accepted decision → norm gene). Energy-ranked by fitness D.
+    let norm_candidates: Vec<NormGeneCandidate> = if options.enable_norm_candidates {
+        let raw: Vec<NormGeneCandidate> = hyphae
+            .frontier
+            .intents
+            .iter()
+            .zip(hyphae.decisions.iter())
+            .filter(|(_, d)| d.outcome.is_accepted())
+            .map(|(intent, decision)| {
+                let void_hex = intent.target_void_id
+                    .map(|id| id.to_hex()[..16].to_string())
+                    .unwrap_or_else(|| decision.yield_id.to_hex()[..16].to_string());
+                let name = format!("norm:void:{}", void_hex);
+                let description = format!(
+                    "Norm gene from accepted decision for void {}",
+                    void_hex
+                );
+                NormGeneCandidate::new(
+                    name,
+                    description,
+                    Q16::ONE,
+                    decision.evidence_bundle_id,
+                    policy.id,
+                )
+            })
+            .collect();
+        let assessments: Vec<_> = raw.iter()
+            .map(|c| c.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        ranked.iter()
+            .filter_map(|a| raw.iter().find(|c| c.candidate_id == a.subject_id).cloned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
         let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
@@ -486,6 +542,7 @@ pub fn run_dry_pipeline(
         metatron_diagnostics,
         lpcm_reports,
         surgery_options,
+        norm_candidates,
         systemcube_export,
         aggregated_gate,
         policy,
@@ -575,6 +632,7 @@ mod tests {
             systemcube_capacity: 0,
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: false,
+            enable_norm_candidates: false,
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         assert_eq!(
@@ -733,5 +791,47 @@ mod tests {
         let s = r.summary();
         assert!(!s.is_empty());
         assert!(s.contains("IntegrationRunReport"));
+    }
+
+    // ── Norm candidates optional layer ────────────────────────────────────────
+
+    #[test]
+    fn pipeline_no_norm_candidates_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.norm_candidates.is_empty(), "norm_candidates must be empty when disabled");
+    }
+
+    #[test]
+    fn pipeline_norm_candidates_generated_from_accepted_decisions() {
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let accepted_count = r.hyphae_result.decisions.iter().filter(|d| d.outcome.is_accepted()).count();
+        assert_eq!(
+            r.norm_candidates.len(),
+            accepted_count,
+            "one norm candidate per accepted decision"
+        );
+        for c in &r.norm_candidates {
+            assert_eq!(c.fitness_score, Q16::ONE, "initial fitness must be Q16::ONE");
+            assert!(c.name.starts_with("norm:void:"), "candidate name must encode target void");
+            assert_ne!(c.candidate_id, Digest::ZERO, "candidate_id must be non-ZERO");
+            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        }
+    }
+
+    #[test]
+    fn pipeline_norm_candidates_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for c in &r.norm_candidates {
+            assert_eq!(c.policy_id, p.id, "norm candidate must carry pipeline policy_id");
+        }
     }
 }
