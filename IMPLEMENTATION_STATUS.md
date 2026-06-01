@@ -4,9 +4,18 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **734 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 55) — 0 failures
-- **100/100 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **738 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 59) — 0 failures
+- **102/102 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
+- **`MicroTopologyIndex` assembled in pipeline** ✅
+
+### MicroTopologyIndex Pipeline Integration — Step 3d (2026-06-01)
+- [x] Pipeline Step 3d: fold `(micrograph, fingerprint, diagnostic)` triples into `MicroTopologyIndex` after metatron loop
+- [x] `IntegrationRunReport.metatron_index: MicroTopologyIndex` (empty-state when Metatron disabled)
+- [x] `ReportContent.metatron_index_id` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `metatron_index.policy_id`
+- [x] `summary()` reports `metatron_index.index_id` prefix
+- [x] 4 new pipeline tests (59 total); 2 new `RX:Pipeline` eval scenarios (102 total)
 
 ### TopologyAmbiguityProfile + ComplementVoidHypothesis energy_assessment (2026-06-01)
 - [x] `TopologyAmbiguityProfile::energy_assessment(gate)` — ψ=`confidence_score`; `evidence_bundle_id=micrograph_id` (CROSS-006)

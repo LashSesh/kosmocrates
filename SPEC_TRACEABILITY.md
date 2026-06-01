@@ -109,6 +109,7 @@ Target crate: `crates/kosmo-hyphae`
 | `TopologyAmbiguityProfile` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `ComplementVoidHypothesis` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MicroTopologyIndex` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `MicroTopologyIndex` (assembled in pipeline Step 3d) | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` + `kosmo-pipeline/src/lib.rs` |
 | `lift_region()` M1 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `diagnose_micrograph()` M2 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 

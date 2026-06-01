@@ -15,6 +15,19 @@ note explicitly says so.
 
 ### Added
 
+* **MicroTopologyIndex pipeline integration — Step 3d** — closes the last metatron
+  integration gap; `MicroTopologyIndex` existed in the spec but was never assembled.
+
+  - Pipeline Step 3d: after the metatron loop, all `(MetatronMicrograph,
+    MetatronRegionFingerprint, MicroTopologyDiagnostic)` triples are folded into a
+    `MicroTopologyIndex` via `MicroTopologyIndex::add`. Produces an empty-state index
+    when `enable_metatron` is false.
+  - `IntegrationRunReport.metatron_index: MicroTopologyIndex`; `index_id` participates
+    in `report_id` (content-addressed). `verify_policy_consistency()` covers
+    `metatron_index.policy_id`. `summary()` reports `index_id` prefix.
+  - 4 new pipeline tests (59 total); 2 new `RX:Pipeline` eval scenarios (102 total,
+    738 substrate tests).
+
 * **TopologyAmbiguityProfile + ComplementVoidHypothesis energy_assessment** —
   completes energy integration for all Q16-score types in kosmo-hyphae.
   Every substrate type that carries a Q16 score now has `energy_assessment`.
