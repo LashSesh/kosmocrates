@@ -1351,6 +1351,66 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — JsonlCartographyStore persistence (policy-gated) ────────
+
+    v.push(run_check("rx-pipeline-cartography-persist-blocked-by-default-policy", "RX:Pipeline", || {
+        // run_dry_pipeline uses ReportOnly policy → persisting its cartography
+        // update must be denied. One invariant governs both the run and any
+        // subsequent persistence attempt: allow_host_write == false.
+        use kosmo_core::{CartographyStoreError, CorpusScope};
+        use kosmo_pipeline::persist_cartography_update;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("kosmo-eval-persist-ro-{nanos}.jsonl"));
+        let res = persist_cartography_update(
+            &r.cartography_update, &path, CorpusScope::LocalHostProject, &policy,
+        );
+        if !matches!(res, Err(CartographyStoreError::PolicyDenied { .. })) {
+            return Err("ReportOnly policy must deny cartography persistence".into());
+        }
+        if path.exists() { let _ = std::fs::remove_file(&path); }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-cartography-persist-succeeds-with-operator-approved", "RX:Pipeline", || {
+        // OperatorApproved policy (allow_host_write=true) must allow persistence.
+        // The stored commit's payload_digest must equal the update's update_id.
+        use kosmo_core::{CartographyEntryKind, CartographyStoreError, CorpusScope};
+        use kosmo_pipeline::persist_cartography_update;
+        use kosmo_store::JsonlCartographyStore;
+        use kosmo_core::CorpusCartographyStore;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let policy = PolicyProfile::operator_approved();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("kosmo-eval-persist-oa-{nanos}.jsonl"));
+        let commit_id = persist_cartography_update(
+            &r.cartography_update, &path, CorpusScope::LocalHostProject, &policy,
+        ).map_err(|e| format!("persist failed: {:?}", e))?;
+        if commit_id == Digest::ZERO {
+            return Err("persisted commit_id must be non-zero".into());
+        }
+        // Verify: reopen store, check payload_digest == update_id
+        let store = JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, policy.id)
+            .map_err(|e| format!("reopen failed: {:?}", e))?;
+        let manifest = store.read_manifest().map_err(|e| format!("manifest: {:?}", e))?;
+        if manifest.entries.len() != 1 {
+            return Err(format!("expected 1 commit, got {}", manifest.entries.len()));
+        }
+        if manifest.entries[0].payload_digest != r.cartography_update.update_id {
+            return Err("commit payload_digest must equal cartography update_id".into());
+        }
+        if manifest.entries[0].payload_kind != CartographyEntryKind::CartographyUpdate {
+            return Err("commit payload_kind must be CartographyUpdate".into());
+        }
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {

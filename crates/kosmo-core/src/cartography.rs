@@ -37,6 +37,9 @@ pub enum CartographyEntryKind {
     /// Feedback from a PSE promotion outcome — carries knowledge back into the
     /// corpus (the "Wissen zurück ins Substrat" record).
     PromotionFeedback,
+    /// A `CorpusCartographyUpdate` produced by a pipeline run, recording the
+    /// delta between the corpus state before and after the run.
+    CartographyUpdate,
     Custom(String),
 }
 

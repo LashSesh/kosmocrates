@@ -18,12 +18,14 @@
 
 pub mod aggregator;
 pub mod materialization;
+pub mod persistence;
 
 pub use aggregator::{AggregatedGateResult, GateTraceAggregator, LayerGateSummary};
 pub use materialization::{
     MaterializationOutcome, MaterializationPlan, OperatorApprovalToken,
     ParseBackExpectation, WorkbenchMaterializationTask, simulate_foundry_check,
 };
+pub use persistence::persist_cartography_update;
 
 use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
 use kosmo_core::TaintLabel;
