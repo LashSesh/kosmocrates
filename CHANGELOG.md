@@ -15,6 +15,36 @@ note explicitly says so.
 
 ### Added
 
+* **SemanticLossRecord + MicrographLiftReport energy integration + pipeline Step 3c** —
+  closes the last energy_assessment gap in kosmo-hyphae; lift quality signal now
+  surfaces in every metatron-enabled pipeline run.
+
+  - `SemanticLossRecord::energy_assessment(gate)`: ψ = `loss_ratio` (high loss =
+    high energy = most urgent to review); `evidence_bundle_id = region_id` (CROSS-006).
+  - `MicrographLiftReport::energy_assessment(gate)`: ψ = `loss_ratio`;
+    `evidence_bundle_id = micrograph_id` (CROSS-006).
+  - Pipeline Step 3c: the M1 lift report (`MicrographLiftReport`) is no longer
+    discarded. When `enable_metatron` is true, one report per void is collected,
+    energy-ranked by `loss_ratio` (most lossy lifts first), and stored in
+    `IntegrationRunReport.lift_reports`. `ReportContent.lift_report_count`
+    participates in `report_id`.
+  - `summary()` now reports `metatron: N (lift_reports: M)`.
+  - 4 new `metatron.rs` tests + 3 new pipeline tests + 2 new `RX:Pipeline`
+    eval scenarios (100 total, 730 substrate tests).
+
+* **Resonite, CubeMandorla, CompositeSupportCube energy_assessment** —
+  completes energy integration for all swarm and crystal structural types.
+
+  - `Resonite::energy_assessment(gate)`: ψ = `resonance_score`; symmetric
+    (r(a,b) produces the same assessment as r(b,a)); `evidence_bundle_id =
+    resonite_id` (self-referential, CROSS-006).
+  - `CubeMandorla::energy_assessment(gate)`: ψ = `overlap_score`;
+    `evidence_bundle_id = mandorla_id` (self-referential, CROSS-006).
+  - `CompositeSupportCube::energy_assessment(gate)`: ψ = `aggregate_support`;
+    `evidence_bundle_id = composite_id` (self-referential, CROSS-006).
+  - No new fields on any type — the type's own content address satisfies CROSS-006.
+  - 3 new `crystal.rs` tests + 4 new `swarm.rs` tests.
+
 * **NormGeneCandidate pipeline integration — Step 5b** — closes the last
   hyphae-to-pipeline integration gap; norm gene candidates are now generated
   and ranked as part of every full pipeline run.

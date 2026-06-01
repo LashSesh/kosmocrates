@@ -4,8 +4,23 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **712 substrate tests** (kosmo-core 339, kosmo-hyphae 155, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 52) — 0 failures
-- **98/98 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **730 substrate tests** (kosmo-core 339, kosmo-hyphae 165, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 55) — 0 failures
+- **100/100 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+
+### SemanticLossRecord + MicrographLiftReport energy_assessment + Pipeline Step 3c (2026-06-01)
+- [x] `SemanticLossRecord::energy_assessment(gate)` — ψ=`loss_ratio`; `evidence_bundle_id=region_id` (CROSS-006)
+- [x] `MicrographLiftReport::energy_assessment(gate)` — ψ=`loss_ratio`; `evidence_bundle_id=micrograph_id` (CROSS-006)
+- [x] Pipeline Step 3c: `lift_reports: Vec<MicrographLiftReport>` in `IntegrationRunReport` — one per void when Metatron enabled, energy-ranked by `loss_ratio`
+- [x] `ReportContent.lift_report_count` participates in `report_id`
+- [x] `summary()` reports lift_reports count alongside metatron diagnostics
+- [x] 4 new metatron.rs tests + 3 new pipeline tests; 2 new `RX:Pipeline` eval scenarios (100 total)
+
+### Resonite + CubeMandorla + CompositeSupportCube energy_assessment (2026-06-01)
+- [x] `Resonite::energy_assessment(gate)` — ψ=`resonance_score`; symmetric (r(a,b)≡r(b,a)); `evidence_bundle_id=resonite_id`
+- [x] `CubeMandorla::energy_assessment(gate)` — ψ=`overlap_score`; `evidence_bundle_id=mandorla_id`
+- [x] `CompositeSupportCube::energy_assessment(gate)` — ψ=`aggregate_support`; `evidence_bundle_id=composite_id`
+- [x] All three use self-referential content addresses as evidence (CROSS-006: no new fields needed)
+- [x] 3 crystal.rs tests + 4 swarm.rs tests (6 total new tests)
 
 ### NormGeneCandidate Pipeline Integration — Step 5b (2026-06-01)
 - [x] `enable_norm_candidates: bool` in `IntegrationRunOptions` (default false)
