@@ -1230,9 +1230,11 @@ dependencies = [
  "kosmo-kcube",
  "kosmo-operator",
  "kosmo-parseback",
+ "kosmo-pipeline",
  "kosmo-pse-bridge",
  "kosmo-store",
  "kosmo-systemcube",
+ "kosmo-workbench",
  "reqwest",
  "serde_json",
 ]
