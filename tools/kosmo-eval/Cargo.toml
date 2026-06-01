@@ -23,6 +23,8 @@ kosmo-parseback = { path = "../../crates/kosmo-parseback" }
 kosmo-operator = { path = "../../crates/kosmo-operator" }
 kosmo-kcube = { path = "../../crates/kosmo-kcube" }
 kosmo-systemcube = { path = "../../crates/kosmo-systemcube" }
+kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
+kosmo-workbench = { path = "../../crates/kosmo-workbench" }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 

@@ -7,6 +7,13 @@
 - **680 substrate tests** (kosmo-core 339, kosmo-hyphae 142, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 41) — 0 failures
 - **72/72 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 
+### Phase 4 CubeSwarm + HostTargetDelta Pipeline Integration (2026-06-01)
+- [x] `run_dry_pipeline` Step 2b: accepted decisions → SourceCubes → CubeSwarm → CompositeSupportCube
+- [x] `HostTargetDelta::from_source_cubes` called (energy-ranked, not raw Q16)
+- [x] `IntegrationRunReport` carries `swarm_composite` + `void_fill_delta`
+- [x] `verify_policy_consistency()` covers swarm + delta policy_ids
+- [x] 4 `RX:Pipeline` scenarios all pass (80/80 total)
+
 ### Energy Kernel Adoption in Selection Paths (2026-06-01)
 - [x] `SourceCube::energy_assessment(gate, license, foundry)` — ψ=support_score, ρ=avg profile coverage
 - [x] `NormGeneCandidate::energy_assessment(gate)` — ψ=fitness_score, fail-closed gate

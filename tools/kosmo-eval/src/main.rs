@@ -49,6 +49,8 @@ use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, dif
 use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
 use kosmo_kcube::{KcubeArtifact, KcubeExecutor, kcube_file_name};
 use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, SystemCube};
+use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+use kosmo_workbench::WorkspaceIndex;
 
 fn d(seed: &[u8]) -> Digest {
     Digest::of_bytes(seed)
@@ -1231,6 +1233,68 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 "OperatorApproved on clean workspace expected Passed, got {:?}",
                 report.closure_report.final_validation_status
             ));
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Phase 4 CubeSwarm + HostTargetDelta weld ──────────────
+
+    v.push(run_check("rx-pipeline-swarm-and-delta-in-report", "RX:Pipeline", || {
+        // The IntegrationRunReport must carry swarm_composite and void_fill_delta
+        // for every run — Phase 4 CubeSwarm is always-on (passive / advisory).
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.swarm_composite.policy_id != policy.id {
+            return Err("swarm_composite must carry pipeline policy_id".into());
+        }
+        if r.void_fill_delta.policy_id != policy.id {
+            return Err("void_fill_delta must carry pipeline policy_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-empty-workspace-delta-clean", "RX:Pipeline", || {
+        // An empty workspace produces no voids → delta status must be Clean.
+        use kosmo_hyphae::delta::DeltaStatus;
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.void_fill_delta.status != DeltaStatus::Clean {
+            return Err(format!(
+                "empty workspace must yield Clean delta, got {:?}",
+                r.void_fill_delta.status
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-policy-consistency-includes-swarm", "RX:Pipeline", || {
+        // verify_policy_consistency() must check swarm + delta policy_ids too.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must pass with swarm/delta present".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-report-is-deterministic", "RX:Pipeline", || {
+        // Two identical runs must produce the same report_id — the Phase 4
+        // swarm + delta must be content-addressed and deterministic.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r1.report_id != r2.report_id {
+            return Err("pipeline must be deterministic across runs".into());
+        }
+        if r1.swarm_composite.composite_id != r2.swarm_composite.composite_id {
+            return Err("swarm_composite must be deterministic".into());
+        }
+        if r1.void_fill_delta.delta_id != r2.void_fill_delta.delta_id {
+            return Err("void_fill_delta must be deterministic".into());
         }
         Ok(())
     }));

@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Phase 4 CubeSwarm + HostTargetDelta wired into the pipeline** — closes the
+  integration gap where `CubeSwarm` and `HostTargetDelta` existed but were never
+  called from `run_dry_pipeline`.
+
+  Step 2b in `run_dry_pipeline`: accepted assimilation decisions are converted
+  to `SourceCube`s (ψ=1, taint from intent), assembled into a `CubeSwarm`,
+  and ranked via `HostTargetDelta::from_source_cubes` (energy-correct path).
+  `IntegrationRunReport` now carries `swarm_composite: CompositeSupportCube`
+  and `void_fill_delta: HostTargetDelta` — both content-addressed and
+  policy-tagged. `verify_policy_consistency()` covers the new fields.
+
+  - **`tools/kosmo-eval` extended to 80 scenarios** (was 76): 4 new
+    `RX:Pipeline` scenarios (swarm+delta in report, empty-workspace delta is
+    Clean, policy consistency includes swarm, deterministic across runs).
+
 * **Energy kernel adoption in selection paths** — closes the gap where
   `SourceCube` and `NormGeneCandidate` ranked by raw Q16 scores instead of
   the unified tripolar energy kernel (as called out in the `kosmo-core::energy`

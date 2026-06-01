@@ -28,11 +28,9 @@ pub use materialization::{
 use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
 use kosmo_core::TaintLabel;
 use kosmo_hyphae::{
-    CorpusCartography,
-    CorpusCartographyUpdate,
-    LpcmPassiveReport,
-    MicroTopologyDiagnostic,
-    Fragment, FragmentField, FragmentKind,
+    CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
+    CubeDimensionProfile, HostTargetDelta, LpcmPassiveReport, MicroTopologyDiagnostic,
+    Fragment, FragmentField, FragmentKind, SourceCube,
     SeamGraph, SupportMassVector,
     diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
@@ -94,6 +92,8 @@ impl IntegrationRunOptions {
 struct ReportContent {
     hyphae_run_id: Digest,
     cartography_update_id: Digest,
+    swarm_composite_id: Digest,
+    void_fill_delta_id: Digest,
     policy_id: Digest,
     aggregate_id: Digest,
     metatron_count: u32,
@@ -112,6 +112,10 @@ pub struct IntegrationRunReport {
     pub policy_id: Digest,
     pub hyphae_result: HyphaeRunResult,
     pub cartography_update: CorpusCartographyUpdate,
+    /// Phase 4: merged support cube from all accepted SourceCubes.
+    pub swarm_composite: CompositeSupportCube,
+    /// Phase 4: energy-ranked void-fill plan (always present; passive/advisory).
+    pub void_fill_delta: HostTargetDelta,
     pub metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
     pub lpcm_reports: Vec<LpcmPassiveReport>,
     pub systemcube_export: Option<KcubeExportReport>,
@@ -124,6 +128,8 @@ impl IntegrationRunReport {
     fn new(
         hyphae_result: HyphaeRunResult,
         cartography_update: CorpusCartographyUpdate,
+        swarm_composite: CompositeSupportCube,
+        void_fill_delta: HostTargetDelta,
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         systemcube_export: Option<KcubeExportReport>,
@@ -134,6 +140,8 @@ impl IntegrationRunReport {
         let report_id = Digest::of(&ReportContent {
             hyphae_run_id: hyphae_result.run_id,
             cartography_update_id: cartography_update.update_id,
+            swarm_composite_id: swarm_composite.composite_id,
+            void_fill_delta_id: void_fill_delta.delta_id,
             policy_id: policy.id,
             aggregate_id: aggregated_gate.aggregate_id,
             metatron_count: metatron_diagnostics.len() as u32,
@@ -145,6 +153,8 @@ impl IntegrationRunReport {
             policy_id: policy.id,
             hyphae_result,
             cartography_update,
+            swarm_composite,
+            void_fill_delta,
             metatron_diagnostics,
             lpcm_reports,
             systemcube_export,
@@ -163,11 +173,14 @@ impl IntegrationRunReport {
         format!(
             "IntegrationRunReport — policy={:.8} | final={:?} | \
              hyphae: {} | cartography: {} entities | \
+             swarm: {} cubes → {:?} | \
              metatron: {} | lpcm: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
             self.cartography_update.added_entity_ids.len(),
+            self.swarm_composite.source_cube_ids.len(),
+            self.void_fill_delta.status,
             self.metatron_diagnostics.len(),
             self.lpcm_reports.len(),
             scube,
@@ -186,6 +199,8 @@ impl IntegrationRunReport {
         let pid = self.policy_id;
         self.hyphae_result.policy_id == pid
             && self.cartography_update.policy_id == pid
+            && self.swarm_composite.policy_id == pid
+            && self.void_fill_delta.policy_id == pid
             && self.aggregated_gate.policy_id == pid
             && self.metatron_diagnostics.iter().all(|d| d.policy_id == pid)
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
@@ -242,6 +257,48 @@ pub fn run_dry_pipeline(
         cartography_update.update_id,
         GateResult::Pass,
     );
+
+    // ── 2b. Phase 4 CubeSwarm — energy-ranked void-fill plan ─────────────────
+    // Build SourceCubes from accepted decisions. intents and decisions are
+    // produced in lockstep by passive_run, so zip is safe.
+    let source_cubes: Vec<SourceCube> = hyphae
+        .frontier
+        .intents
+        .iter()
+        .zip(hyphae.decisions.iter())
+        .filter(|(_, d)| d.outcome.is_accepted())
+        .map(|(intent, decision)| {
+            SourceCube::new(
+                intent.target_void_id,
+                format!("intent:{}", &decision.yield_id.to_hex()[..16]),
+                CubeDimensionProfile::empty(),
+                Q16::ONE,
+                intent.taint.clone(),
+                decision.evidence_bundle_id,
+                policy.id,
+            )
+        })
+        .collect();
+
+    let swarm = CubeSwarm::new(policy.clone(), source_cubes.clone());
+    let (_workers, swarm_composite) = swarm.run();
+
+    let host_void_ids: Vec<Digest> = hyphae
+        .host_cube
+        .void_map
+        .voids
+        .iter()
+        .map(|v| v.void_id)
+        .collect();
+
+    let void_fill_delta = HostTargetDelta::from_source_cubes(
+        hyphae.host_cube.cube_id,
+        &host_void_ids,
+        swarm_composite.composite_id,
+        &source_cubes,
+        policy.id,
+    );
+    agg.record("void_fill_plan", void_fill_delta.delta_id, GateResult::Pass);
 
     // ── 3. Optional Metatron v0.4.1 diagnostics ───────────────────────────────
     let mut metatron_diagnostics: Vec<MicroTopologyDiagnostic> = Vec::new();
@@ -326,6 +383,8 @@ pub fn run_dry_pipeline(
     IntegrationRunReport::new(
         hyphae,
         cartography_update,
+        swarm_composite,
+        void_fill_delta,
         metatron_diagnostics,
         lpcm_reports,
         systemcube_export,
