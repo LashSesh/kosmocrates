@@ -15,6 +15,22 @@ note explicitly says so.
 
 ### Added
 
+* **`run_workspace_pipeline` + `WorkspacePipelineSession` — single-call filesystem entry point**
+
+  The pipeline is now directly usable on any filesystem path — no manual workspace
+  construction required. This is the "next instance zur Software-Produktion" entry point.
+
+  - `run_workspace_pipeline(root, options, policy)` — equivalent to
+    `WorkspaceIndex::scan_path_with_content` + `run_dry_pipeline`. Source files are read
+    with content so HDAG extraction is active and `crystal_resonance` dimensions appear.
+  - `WorkspacePipelineSession::new(options, policy)` — wraps options and policy across
+    repeated `run(root)` calls; `run_count()` tracks how many runs have completed.
+  - When `crystal_store_path` is set in options, the session automatically accumulates
+    crystal knowledge: every `run()` auto-loads prior crystals and auto-persists new ones
+    with dedup. The CAD library grows richer with each call, zero boilerplate.
+  - `WorkspaceError` re-exported from `kosmo-pipeline` for ergonomic `?` propagation.
+  - 6 new pipeline tests (113 total); 2 new eval scenarios (145 total, 909 substrate tests).
+
 * **Pipeline Step 5f — crystal auto-persistence closes the session-to-session loop**
 
   The pipeline now manages the CAD library feedback loop automatically. One call,

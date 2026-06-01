@@ -3346,6 +3346,100 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: run_workspace_pipeline / WorkspacePipelineSession ────────────────
+
+    v.push(run_check("rx-pipeline-run-workspace-pipeline-on-temp-dir", "RX:WorkspacePipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, WorkspacePipelineSession, run_workspace_pipeline};
+        use kosmo_core::PolicyProfile;
+        use std::fs;
+
+        // Create a minimal temp workspace with real .rs source files.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws_root = std::env::temp_dir().join(format!("kosmo-eval-ws-{nanos}"));
+        let src = ws_root.join("src");
+        fs::create_dir_all(&src).map_err(|e| format!("mkdir: {e}"))?;
+        fs::write(src.join("lib.rs"), "pub fn alpha() {}\npub fn beta() {}\n")
+            .map_err(|e| format!("write: {e}"))?;
+        fs::write(src.join("main.rs"), "fn main() {}\n")
+            .map_err(|e| format!("write: {e}"))?;
+
+        let policy = PolicyProfile::default_report_only();
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+
+        // Single-call filesystem-level entry point.
+        let report = run_workspace_pipeline(ws_root.to_str().unwrap(), &opts, &policy)
+            .map_err(|e| format!("run_workspace_pipeline: {e}"))?;
+
+        if !report.verify_policy_consistency() {
+            return Err("verify_policy_consistency failed".into());
+        }
+        if report.report_id == kosmo_core::Digest::ZERO {
+            return Err("report_id must be non-ZERO".into());
+        }
+
+        let _ = fs::remove_dir_all(&ws_root);
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-workspace-session-accumulates-across-runs", "RX:WorkspacePipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, WorkspacePipelineSession};
+        use kosmo_core::PolicyProfile;
+        use std::fs;
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws_root = std::env::temp_dir().join(format!("kosmo-eval-session-{nanos}"));
+        let src = ws_root.join("src");
+        fs::create_dir_all(&src).map_err(|e| format!("mkdir: {e}"))?;
+        fs::write(src.join("lib.rs"), "pub fn foo() {}\npub fn bar() {}\n")
+            .map_err(|e| format!("write: {e}"))?;
+
+        let store_path = temp_store_path("eval-session");
+        let _ = fs::remove_file(&store_path);
+
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(store_path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        let op_policy = PolicyProfile::operator_approved();
+        let mut session = WorkspacePipelineSession::new(opts, op_policy);
+
+        let r1 = session.run(ws_root.to_str().unwrap())
+            .map_err(|e| format!("run 1: {e}"))?;
+        let r2 = session.run(ws_root.to_str().unwrap())
+            .map_err(|e| format!("run 2: {e}"))?;
+
+        if session.run_count() != 2 {
+            return Err(format!("expected run_count=2, got {}", session.run_count()));
+        }
+        if !r1.verify_policy_consistency() {
+            return Err("r1 policy consistency failed".into());
+        }
+        if !r2.verify_policy_consistency() {
+            return Err("r2 policy consistency failed".into());
+        }
+        // Dedup: second run must not re-persist crystals from the first.
+        if !r1.certified_crystals.is_empty() && r2.persisted_crystal_count > 0 {
+            return Err(format!(
+                "second run persisted {} crystals that should have been deduped",
+                r2.persisted_crystal_count
+            ));
+        }
+
+        let _ = fs::remove_dir_all(&ws_root);
+        let _ = fs::remove_file(&store_path);
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions und wird vollautomatisch befüllt."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, und läuft mit einem einzigen Aufruf auf echten Workspaces."
 
-- **896 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 107) — 0 failures
-- **143/143 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **909 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 113) — 0 failures
+- **145/145 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,17 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `run_workspace_pipeline` + `WorkspacePipelineSession` — Filesystem Entry Point (2026-06-01)
+
+The pipeline is now callable with a single filesystem path — no manual `WorkspaceIndex` construction needed.
+
+- [x] `run_workspace_pipeline(root, options, policy)` — scans with content (HDAG extraction), delegates to `run_dry_pipeline`; returns `Result<IntegrationRunReport, WorkspaceError>`
+- [x] `WorkspacePipelineSession::new(options, policy)` — stateful session across multiple runs
+- [x] `WorkspacePipelineSession::run(root)` — each call scans, runs pipeline, auto-persists crystals
+- [x] `WorkspacePipelineSession::run_count()` — monotonic run counter
+- [x] `WorkspaceError` re-exported from `kosmo-pipeline` for ergonomic error handling
+- [x] 6 new pipeline tests (113 total); 2 new eval scenarios (145 total, 909 substrate tests)
 
 ### Pipeline Step 5f — Crystal Auto-Persistence (2026-06-01)
 
