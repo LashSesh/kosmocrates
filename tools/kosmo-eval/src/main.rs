@@ -2261,6 +2261,43 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    v.push(run_check("rx-pipeline-systemcube-tainted-units-warn-not-reject", "RX:Pipeline", || {
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let score = r.systemcube_compatibility_score()
+            .ok_or("compatibility score must be Some when systemcube enabled")?;
+        // Pipeline units are Synthetic → AcceptedWithTaint → TaintedUnit gaps → score < ONE
+        if score >= Q16::ONE {
+            return Err(format!("expected score < ONE for tainted units, got {}", score.raw()));
+        }
+        // Compatibility gaps produce Warn, never Reject (advisory only).
+        if r.final_result.is_rejected() {
+            return Err("compatibility gaps must Warn, not Reject".into());
+        }
+        // Contradiction energy accessor must return Some.
+        if r.systemcube_contradiction_energy().is_none() {
+            return Err("contradiction energy must be Some when systemcube enabled".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-systemcube-summary-includes-diagnostics", "RX:Pipeline", || {
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let s = r.summary();
+        if !s.contains("compat=") {
+            return Err(format!("summary must include compat= field, got: {}", &s[..s.len().min(200)]));
+        }
+        if !s.contains("contradiction_energy=") {
+            return Err("summary must include contradiction_energy= field".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

@@ -322,3 +322,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 | `RX:BlueprintEnergy` (2 scenarios: accepted positive / opaque zero; tainted ranks below clean) | ✅ |
 | `RX:ContradictionEnergy` (2 scenarios: role conflict detected; independent sources zero energy) | ✅ |
 | `RX:Compatibility` (2 scenarios: clean units score=ONE; tainted unit reduces score + gap) | ✅ |
+| `RX:Pipeline` systemcube diagnostics (tainted units Warn-not-Reject; summary includes compat + contradiction_energy) | ✅ |

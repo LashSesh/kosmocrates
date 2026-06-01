@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **SystemCube diagnostics surfaced in pipeline** — compatibility and contradiction
+  energy are now first-class citizens of `IntegrationRunReport`, with accessors,
+  gate contribution, and summary inclusion.
+
+  - `IntegrationRunReport::systemcube_compatibility_score() -> Option<Q16>` and
+    `systemcube_contradiction_energy() -> Option<Q16>` — direct accessors that avoid
+    drilling through `Option<KcubeExportReport>`.
+  - SystemCube gate contribution upgraded: `Warn` when `compatibility.gaps` is
+    non-empty (structural advisory signal, not energy — respects CROSS-010); `Pass`
+    when all accepted units are clean.
+  - `summary()` now includes `compat=<score>` and `contradiction_energy=<total>` in
+    the systemcube section.
+  - 3 new pipeline tests (80 total); 2 new `RX:Pipeline` eval scenarios (122 total,
+    772 substrate tests).
+
 * **CompatibilityProfileReport real gap detection** — replaces the `perfect()` stub
   in `SystemCube::export_dry_run` with unit-aware gap analysis; every
   `KcubeExportReport` now carries real compatibility diagnostics.

@@ -294,10 +294,26 @@ impl IntegrationRunReport {
         }
     }
 
+    /// Total contradiction energy from the SystemCube export, if enabled.
+    pub fn systemcube_contradiction_energy(&self) -> Option<Q16> {
+        self.systemcube_export.as_ref().map(|e| e.contradiction_energy.total_energy)
+    }
+
+    /// Compatibility score from the SystemCube export, if enabled.
+    /// `Q16::ONE` = all accepted units are fully compatible; lower = gaps present.
+    pub fn systemcube_compatibility_score(&self) -> Option<Q16> {
+        self.systemcube_export.as_ref().map(|e| e.compatibility.compatibility_score)
+    }
+
     /// Operator-readable summary of the pipeline run.
     pub fn summary(&self) -> String {
         let scube = if let Some(ref e) = self.systemcube_export {
-            format!("systemcube=Some(mode={:?})", e.mode)
+            format!(
+                "systemcube=Some(mode={:?}, compat={}, contradiction_energy={})",
+                e.mode,
+                e.compatibility.compatibility_score.raw(),
+                e.contradiction_energy.total_energy.raw(),
+            )
         } else {
             "systemcube=None".into()
         };
@@ -717,7 +733,19 @@ pub fn run_dry_pipeline(
             .collect();
         let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
         let export = cube.export_dry_run(options.systemcube_capacity, policy);
-        agg.record("systemcube", export.export_id, GateResult::Pass);
+        // Gate contribution: Warn when compatibility gaps exist (structural advisory, not energy).
+        let cube_gate = if export.compatibility.gaps.is_empty() {
+            GateResult::Pass
+        } else {
+            GateResult::Warn {
+                message: format!(
+                    "systemcube: {} compatibility gap(s); score={}",
+                    export.compatibility.gaps.len(),
+                    export.compatibility.compatibility_score.raw(),
+                ),
+            }
+        };
+        agg.record("systemcube", export.export_id, cube_gate);
         Some(export)
     } else {
         None
@@ -993,6 +1021,44 @@ mod tests {
         if let Some(ref export) = r.systemcube_export {
             assert_eq!(export.policy_id, p.id);
         }
+    }
+
+    #[test]
+    fn pipeline_systemcube_compatibility_accessor_returns_score() {
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let score = r.systemcube_compatibility_score();
+        assert!(score.is_some(), "compatibility score must be Some when systemcube enabled");
+        // All pipeline units carry TaintLabel::Synthetic → AcceptedWithTaint → gaps → score < ONE
+        assert!(
+            score.unwrap() < Q16::ONE,
+            "tainted units must produce score < ONE (got {})",
+            score.unwrap().raw()
+        );
+    }
+
+    #[test]
+    fn pipeline_systemcube_contradiction_energy_accessor_returns_value() {
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let energy = r.systemcube_contradiction_energy();
+        assert!(energy.is_some(), "contradiction energy must be Some when systemcube enabled");
+    }
+
+    #[test]
+    fn pipeline_systemcube_tainted_units_produce_warn_gate() {
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        // All pipeline units are Synthetic → compatibility gaps → gate Warn
+        // Warn is not Pass and not Reject — aggregate should carry the Warn
+        assert!(
+            !r.final_result.is_rejected(),
+            "compatibility gaps must Warn, never Reject"
+        );
+        // summary must now include compat and contradiction_energy
+        let s = r.summary();
+        assert!(s.contains("compat="), "summary must include compat score");
+        assert!(s.contains("contradiction_energy="), "summary must include contradiction energy");
     }
 
     // ── Fail-closed gate propagation ──────────────────────────────────────────

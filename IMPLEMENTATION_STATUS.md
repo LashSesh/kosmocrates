@@ -4,12 +4,13 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **769 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 77) — 0 failures
-- **120/120 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **772 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 80) — 0 failures
+- **122/122 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
 - **`CompatibilityProfileReport::from_units` — real gap detection (TaintedUnit, MissingSourceRef)** ✅
+- **SystemCube diagnostics surfaced in pipeline: accessors + gate contribution + summary** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
 - **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
@@ -17,6 +18,13 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### SystemCube Diagnostics Surfaced in Pipeline (2026-06-01)
+- [x] `IntegrationRunReport::systemcube_contradiction_energy() -> Option<Q16>` — direct accessor, no drilling
+- [x] `IntegrationRunReport::systemcube_compatibility_score() -> Option<Q16>` — direct accessor
+- [x] `summary()` now includes `compat=<score>` and `contradiction_energy=<total>` in the systemcube field
+- [x] SystemCube gate contribution: `Warn` when `compatibility.gaps` is non-empty (structural advisory, not energy-based); `Pass` when fully compatible
+- [x] 3 new pipeline tests (80 total); 2 new `RX:Pipeline` eval scenarios (122 total, 772 substrate tests)
 
 ### CompatibilityProfileReport Real Gap Detection (2026-06-01)
 - [x] `CompatibilityProfileReport::from_units(manifest_id, host_snapshot_id, policy, units)` — replaces `perfect()` stub in `export_dry_run`
