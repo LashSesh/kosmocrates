@@ -922,6 +922,97 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: CrystalRecordStore ────────────────────────────────────────────────
+    // Validates the durable crystal CAD library: policy gating, dedup,
+    // structural signal round-trip, and integrity verification.
+
+    v.push(run_check("rx-store-crystal-record-persist-and-reload", "RX:CrystalStore", || {
+        use kosmo_core::{
+            AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, Q16, ReplayStatus, TaintLabel,
+        };
+        use kosmo_hyphae::{
+            assimilation::AssimilationDecision,
+            crystal::StructuralCrystalCandidate,
+            gates::GateCascade,
+            structural_yield::{StructuralYield, StructuralYieldKind},
+        };
+        use kosmo_store::CrystalRecordStore;
+
+        let path = temp_store_path("eval-crystal");
+        let _ = std::fs::remove_file(&path);
+
+        let policy = PolicyProfile::operator_approved();
+        let make_record = |seed: &[u8]| -> Result<_, String> {
+            let ev = EvidenceBundle::seal(
+                vec![EvidenceRef::new(d(seed), EvidenceKind::HostScan, "scan")],
+                policy.id,
+                ReplayStatus::Replayable,
+            );
+            let void_id = d(seed);
+            let yield_ = StructuralYield::new(
+                StructuralYieldKind::DeficiencyFill,
+                Some(void_id), None,
+                TaintLabel::Clean, AuthorityLabel::Foundry,
+                ev.bundle_id, policy.id,
+            );
+            let cascade = GateCascade::standard_gates(policy.clone());
+            let trace = cascade.apply(&yield_, &ev);
+            let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+            let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+                &decision, Some(void_id), Q16::from_raw(49152), Q16::HALF,
+            );
+            candidate.certify(ReplayStatus::Replayable)
+                .map(|(_, r)| r)
+                .ok_or_else(|| "certify failed".into())
+        };
+
+        let r1 = make_record(b"crys1")?;
+        let r2 = make_record(b"crys2")?;
+        let r1_id = r1.record_id;
+        let r2_id = r2.record_id;
+
+        // Append two distinct records.
+        {
+            let mut store = CrystalRecordStore::open(&path)
+                .map_err(|e| format!("open: {e}"))?;
+            store.append(r1.clone(), &policy).map_err(|e| format!("append r1: {e}"))?;
+            store.append(r2.clone(), &policy).map_err(|e| format!("append r2: {e}"))?;
+            // Dedup: re-appending r1 must be a no-op.
+            store.append(r1, &policy).map_err(|e| format!("dedup append: {e}"))?;
+            if store.len() != 2 {
+                return Err(format!("expected len=2, got {}", store.len()));
+            }
+        }
+
+        // Reload from disk and verify round-trip + structural signals.
+        let reopened = CrystalRecordStore::open(&path)
+            .map_err(|e| format!("reopen: {e}"))?;
+        if reopened.len() != 2 {
+            return Err(format!("expected 2 records after reload, got {}", reopened.len()));
+        }
+        if !reopened.records().iter().any(|r| r.record_id == r1_id) {
+            return Err("r1 missing after reload".into());
+        }
+        if !reopened.records().iter().any(|r| r.record_id == r2_id) {
+            return Err("r2 missing after reload".into());
+        }
+        let verified = reopened.verify_integrity().map_err(|e| format!("integrity: {e}"))?;
+        if verified != 2 {
+            return Err(format!("integrity returned {verified}, expected 2"));
+        }
+        // Structural signals survive the JSONL round-trip.
+        for rec in reopened.records() {
+            if rec.rho_coherence != Q16::from_raw(49152) {
+                return Err(format!("rho_coherence mismatch: {:?}", rec.rho_coherence));
+            }
+            if rec.omega_phase != Q16::HALF {
+                return Err(format!("omega_phase mismatch: {:?}", rec.omega_phase));
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }));
+
     // ── RX: Real ParseBack Executor ───────────────────────────────────────────
     // Validates the real ParseBack executor: governance, baseline integrity,
     // deterministic snapshotting, and structural diff logic.

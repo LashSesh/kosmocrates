@@ -393,6 +393,22 @@ pub struct StructuralCrystalRecord {
 }
 
 impl StructuralCrystalRecord {
+    /// Recompute and verify the `record_id` against the record's fields.
+    ///
+    /// Returns `true` iff the stored `record_id` matches the expected content-addressed
+    /// digest. Used by `CrystalRecordStore::verify_integrity`.
+    pub fn verify_id(&self) -> bool {
+        let expected = Digest::of(&RecordContent {
+            candidate_id: self.candidate_id,
+            certificate_id: self.certificate_id,
+            source_void_id: self.source_void_id.unwrap_or(Digest::ZERO),
+            rho_coherence: self.rho_coherence.raw(),
+            omega_phase: self.omega_phase.raw(),
+            policy_id: self.policy_id,
+        });
+        self.record_id == expected
+    }
+
     /// Build a record from an issued certificate and the originating candidate.
     ///
     /// The candidate carries `source_void_id`, `rho_coherence`, and `omega_phase`

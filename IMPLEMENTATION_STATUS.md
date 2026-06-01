@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking und überlebt Sessions."
 
-- **872 substrate tests** (kosmo-core 339, kosmo-hyphae 197, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 102) — 0 failures
-- **140/140 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **886 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 102) — 0 failures
+- **141/141 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,20 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `CrystalRecordStore` — Durable CAD Library Persistence (2026-06-01)
+
+Crystal records now survive across integration runs: the CAD library is a JSONL-backed
+append-only store with the same host-write policy invariant as `JsonlCartographyStore`.
+
+- [x] `StructuralCrystalRecord::verify_id()` — recomputes and verifies content-addressed `record_id`
+- [x] `CrystalRecordStore::open(path)` — replay JSONL, verify every record_id on open
+- [x] `CrystalRecordStore::append(record, policy)` — policy-gated (ReportOnly/DryRun denied), dedup by `record_id`, fsync
+- [x] `CrystalRecordStore::records()` — `&[StructuralCrystalRecord]` for `IntegrationRunOptions::prior_crystals`
+- [x] `CrystalRecordStore::verify_integrity()` — re-verify all records after reload
+- [x] `CrystalStoreError` enum — manual Display/Error impl (no thiserror dep)
+- [x] `kosmo-hyphae` dependency added to `kosmo-store`
+- [x] 7 new store tests (14 total); 1 new eval scenario (141 total, 886 substrate tests)
 
 ### Crystal-Boosted SourceCube Scoring — `crystal_resonance` Dimension (2026-06-01)
 

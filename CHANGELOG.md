@@ -15,6 +15,27 @@ note explicitly says so.
 
 ### Added
 
+* **`CrystalRecordStore` — durable JSONL-backed CAD library persistence**
+
+  Crystal records now survive across integration runs; the CAD library can be
+  pre-loaded into `IntegrationRunOptions::prior_crystals` from the previous session.
+
+  - `StructuralCrystalRecord::verify_id()` — recomputes the `record_id` from fields
+    for integrity checking; used by the store on open and in `verify_integrity`.
+  - `CrystalRecordStore::open(path)` — replays the JSONL file, verifying every
+    `record_id`; returns `Err(IntegrityViolation)` on any tampered record.
+  - `CrystalRecordStore::append(record, policy)` — same host-write invariant as
+    `JsonlCartographyStore`: `ReportOnly` and `DryRun` are denied; only
+    `OperatorApproved` (or a profile with `allow_host_write`) can persist. Dedup
+    by `record_id` — re-appending an already-stored record is a silent no-op.
+  - `CrystalRecordStore::records()` → `&[StructuralCrystalRecord]` for direct use
+    as `IntegrationRunOptions::prior_crystals` without an extra copy.
+  - `CrystalRecordStore::verify_integrity()` → re-verifies every record after reload.
+  - `CrystalStoreError` — simple error enum with manual `Display`/`Error` impl
+    (no thiserror dependency added to `kosmo-store`).
+  - `kosmo-hyphae` added as a dependency of `kosmo-store`.
+  - 7 new store tests (14 total); 1 new eval scenario (141 total, 886 substrate tests).
+
 * **Crystal-boosted SourceCube scoring — `crystal_resonance` dimension**
 
   Closes the CAD library feedback loop: prior certified crystal records now influence
