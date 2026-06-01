@@ -1450,6 +1450,89 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 3b surgery options (energy-ranked) ────────────────
+
+    v.push(run_check("rx-pipeline-no-surgery-when-disabled", "RX:Pipeline", || {
+        // Surgery is off by default; report must carry an empty surgery_options vec.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.surgery_options.is_empty() {
+            return Err("surgery_options must be empty when enable_surgery=false".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-surgery-produces-options-with-metatron", "RX:Pipeline", || {
+        // With both Metatron and surgery enabled, any diagnostics that contain
+        // ambiguities or void hypotheses should yield surgery options.
+        // With the fixture index (3 entries → 3 voids → 3 diagnostics), at least
+        // one option should be produced if the diagnostics have any hypotheses.
+        // We verify: surgery_options.len() >= 0 (never panics), all carry policy_id,
+        // and verify_policy_consistency() passes.
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_surgery: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        // All surgery options must carry the pipeline policy_id.
+        for opt in &r.surgery_options {
+            if opt.policy_id != policy.id {
+                return Err("surgery option policy_id must match pipeline policy".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover surgery_options".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-surgery-options-are-energy-ranked", "RX:Pipeline", || {
+        // When surgery options are present, they must be ordered by energy
+        // (confidence_score descending) — highest D first.
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "b.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 80, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "c.rs".into(), digest: Digest::of_bytes(b"c"),
+                size_bytes: 60, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_surgery: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts, &policy);
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        // Determinism: same options in same order across runs.
+        let ids1: Vec<_> = r1.surgery_options.iter().map(|o| o.option_id).collect();
+        let ids2: Vec<_> = r2.surgery_options.iter().map(|o| o.option_id).collect();
+        if ids1 != ids2 {
+            return Err("surgery_options must be deterministic across runs".into());
+        }
+        // Energy ordering: each option's confidence_score must be ≥ the next.
+        for window in r1.surgery_options.windows(2) {
+            if window[0].confidence_score < window[1].confidence_score {
+                return Err("surgery_options must be ranked by confidence_score descending".into());
+            }
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {

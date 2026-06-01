@@ -27,14 +27,14 @@ pub use materialization::{
 };
 pub use persistence::persist_cartography_update;
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
+use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, rank_by_energy};
 use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
     CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
     MicroTopologyDiagnostic, MorphogenicCorpusUpdate, Fragment, FragmentField, FragmentKind,
-    SourceCube, SeamGraph, SupportMassVector,
+    SourceCube, SeamGraph, SupportMassVector, TopologicalSurgeryOption,
     diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
 };
@@ -62,6 +62,9 @@ pub struct IntegrationRunOptions {
     pub systemcube_capacity: u32,
     /// Q16 seam compatibility threshold for LPCM reports.
     pub lpcm_seam_threshold: Q16,
+    /// Derive and energy-rank surgery options from Metatron diagnostics.
+    /// Only produces results when `enable_metatron` is also true.
+    pub enable_surgery: bool,
 }
 
 impl IntegrationRunOptions {
@@ -73,6 +76,7 @@ impl IntegrationRunOptions {
             enable_systemcube: false,
             systemcube_capacity: 0,
             lpcm_seam_threshold: Q16::ZERO,
+            enable_surgery: false,
         }
     }
 
@@ -84,6 +88,7 @@ impl IntegrationRunOptions {
             enable_systemcube: true,
             systemcube_capacity,
             lpcm_seam_threshold: Q16::ZERO,
+            enable_surgery: true,
         }
     }
 }
@@ -103,6 +108,7 @@ struct ReportContent {
     aggregate_id: Digest,
     metatron_count: u32,
     lpcm_count: u32,
+    surgery_count: u32,
     has_systemcube: bool,
 }
 
@@ -128,6 +134,9 @@ pub struct IntegrationRunReport {
     pub morphogenic_update: MorphogenicCorpusUpdate,
     pub metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
     pub lpcm_reports: Vec<LpcmPassiveReport>,
+    /// Energy-ranked surgery options derived from Metatron diagnostics.
+    /// Empty when `enable_surgery` or `enable_metatron` is false.
+    pub surgery_options: Vec<TopologicalSurgeryOption>,
     pub systemcube_export: Option<KcubeExportReport>,
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
@@ -144,6 +153,7 @@ impl IntegrationRunReport {
         morphogenic_update: MorphogenicCorpusUpdate,
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
         lpcm_reports: Vec<LpcmPassiveReport>,
+        surgery_options: Vec<TopologicalSurgeryOption>,
         systemcube_export: Option<KcubeExportReport>,
         aggregated_gate: AggregatedGateResult,
         policy: &PolicyProfile,
@@ -160,6 +170,7 @@ impl IntegrationRunReport {
             aggregate_id: aggregated_gate.aggregate_id,
             metatron_count: metatron_diagnostics.len() as u32,
             lpcm_count: lpcm_reports.len() as u32,
+            surgery_count: surgery_options.len() as u32,
             has_systemcube: systemcube_export.is_some(),
         });
         Self {
@@ -173,6 +184,7 @@ impl IntegrationRunReport {
             morphogenic_update,
             metatron_diagnostics,
             lpcm_reports,
+            surgery_options,
             systemcube_export,
             aggregated_gate,
             final_result,
@@ -190,7 +202,7 @@ impl IntegrationRunReport {
             "IntegrationRunReport — policy={:.8} | final={:?} | \
              hyphae: {} | cartography: {} entities | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
-             morphogenic: {:.8} | metatron: {} | lpcm: {} | {}",
+             morphogenic: {:.8} | metatron: {} | lpcm: {} | surgery: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -202,6 +214,7 @@ impl IntegrationRunReport {
             hex_prefix(&self.morphogenic_update.update_id),
             self.metatron_diagnostics.len(),
             self.lpcm_reports.len(),
+            self.surgery_options.len(),
             scube,
         )
     }
@@ -225,6 +238,7 @@ impl IntegrationRunReport {
             && self.aggregated_gate.policy_id == pid
             && self.metatron_diagnostics.iter().all(|d| d.policy_id == pid)
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
+            && self.surgery_options.iter().all(|o| o.policy_id == pid)
             && self
                 .systemcube_export
                 .as_ref()
@@ -295,6 +309,26 @@ pub fn run_dry_pipeline(
             metatron_diagnostics.push(diag);
         }
     }
+
+    // ── 3b. Optional surgery — energy-ranked options from Metatron diagnostics ─
+    // Only runs when both Metatron and surgery are enabled; requires diagnostics.
+    let surgery_options: Vec<TopologicalSurgeryOption> =
+        if options.enable_surgery && options.enable_metatron {
+            let raw: Vec<TopologicalSurgeryOption> = metatron_diagnostics
+                .iter()
+                .flat_map(|diag| TopologicalSurgeryOption::from_diagnostic(diag, policy))
+                .collect();
+            let assessments: Vec<_> = raw.iter()
+                .map(|o| o.energy_assessment(&GateResult::Pass))
+                .collect();
+            let ranked = rank_by_energy(&assessments);
+            // Reorder raw options to match energy ranking.
+            ranked.iter()
+                .filter_map(|a| raw.iter().find(|o| o.option_id == a.subject_id).cloned())
+                .collect()
+        } else {
+            Vec::new()
+        };
 
     // ── 4. Optional LPCM v0.4.2 passive reports ───────────────────────────────
     let mut lpcm_reports: Vec<LpcmPassiveReport> = Vec::new();
@@ -435,6 +469,7 @@ pub fn run_dry_pipeline(
         morphogenic_update,
         metatron_diagnostics,
         lpcm_reports,
+        surgery_options,
         systemcube_export,
         aggregated_gate,
         policy,
@@ -523,6 +558,7 @@ mod tests {
             enable_systemcube: false,
             systemcube_capacity: 0,
             lpcm_seam_threshold: Q16::ZERO,
+            enable_surgery: false,
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         assert_eq!(
