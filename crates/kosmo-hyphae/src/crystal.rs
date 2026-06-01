@@ -350,6 +350,31 @@ impl Resonite {
         });
         Self { resonite_id, pattern_a_id: a, pattern_b_id: b, resonance_score, policy_id }
     }
+
+    /// Build an [`EnergyAssessment`] for this resonance measurement.
+    ///
+    /// - ψ (meaning)   = `resonance_score` — how strongly the two patterns resonate.
+    /// - ρ (coherence) = `Q16::ONE` — no additional coherence data at resonite level.
+    /// - ω (phase)     = `Q16::ONE` — no phase data at resonite level.
+    /// - `evidence_bundle_id` = `resonite_id` (self-referential content address —
+    ///   satisfies CROSS-006 non-ZERO evidence ref).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.resonance_score, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.resonite_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.resonite_id,
+        )
+    }
 }
 
 /// Serialize-only for DualFabricGateCascade content-addressing.
@@ -579,5 +604,35 @@ mod tests {
         assert_eq!(candidate.support_score, Q16::ZERO);
         let a = candidate.energy_assessment(&GateResult::Pass);
         assert!(a.kernel.is_zeroed(), "zero support_score must yield zero energy");
+    }
+
+    #[test]
+    fn resonite_energy_assessment_content_addressed() {
+        let pid = Digest::of_bytes(b"p");
+        let r = Resonite::new(Digest::of_bytes(b"a"), Digest::of_bytes(b"b"), Q16::HALF, pid);
+        let a1 = r.energy_assessment(&GateResult::Pass);
+        let a2 = r.energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, r.resonite_id);
+        assert_eq!(a1.evidence_bundle_id, r.resonite_id, "self-referential evidence must equal resonite_id");
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn resonite_reject_gate_zeroes_energy() {
+        let pid = Digest::of_bytes(b"p");
+        let r = Resonite::new(Digest::of_bytes(b"a"), Digest::of_bytes(b"b"), Q16::ONE, pid);
+        let a = r.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero resonite energy");
+    }
+
+    #[test]
+    fn resonite_energy_is_symmetric() {
+        let pid = Digest::of_bytes(b"p");
+        let r1 = Resonite::new(Digest::of_bytes(b"a"), Digest::of_bytes(b"b"), Q16::HALF, pid);
+        let r2 = Resonite::new(Digest::of_bytes(b"b"), Digest::of_bytes(b"a"), Q16::HALF, pid);
+        let a1 = r1.energy_assessment(&GateResult::Pass);
+        let a2 = r2.energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "resonite energy must be symmetric (r(a,b) == r(b,a))");
     }
 }
