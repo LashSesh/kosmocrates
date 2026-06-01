@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Decision taint propagation to BlueprintUnit** — closes the data flow gap
+  between `StructuralYield.taint` and `BlueprintUnit`; every trust signal now
+  travels through the full pipeline chain.
+
+  - `AssimilationDecision.taint: TaintLabel` added, propagated from the source
+    `StructuralYield` in `from_trace()`. The `taint` field participates in
+    `decision_id` content-addressing so different taints produce distinct IDs
+    (INVARIANT-007).
+  - Pipeline Step 5e uses `decision.taint.clone()` instead of the hardcoded
+    `TaintLabel::Synthetic`. All current passive-scan decisions remain Synthetic
+    (same runtime behaviour), but a future `OperatorAssisted` run with Clean
+    yields will automatically produce fully-compatible `Accepted` blueprint units.
+  - 1 new hyphae test (170 total); 1 new pipeline test (81 total); 1 new
+    `RX:Pipeline` eval scenario (123 total, 775 substrate tests).
+
 * **SystemCube diagnostics surfaced in pipeline** — compatibility and contradiction
   energy are now first-class citizens of `IntegrationRunReport`, with accessors,
   gate contribution, and summary inclusion.

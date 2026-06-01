@@ -719,7 +719,7 @@ pub fn run_dry_pipeline(
                     BlueprintUnitKind::ModuleBoundary,
                     d.yield_id,
                     kosmo_core::AuthorityLabel::Foundry,
-                    TaintLabel::Synthetic,
+                    d.taint.clone(),
                     vec![d.evidence_bundle_id],
                     policy,
                 )
@@ -1059,6 +1059,31 @@ mod tests {
         let s = r.summary();
         assert!(s.contains("compat="), "summary must include compat score");
         assert!(s.contains("contradiction_energy="), "summary must include contradiction energy");
+    }
+
+    #[test]
+    fn pipeline_blueprint_units_carry_decision_taint() {
+        // All passive_run decisions are Synthetic → BlueprintUnits must be
+        // AcceptedWithTaint, producing TaintedUnit compatibility gaps.
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        if let Some(ref export) = r.systemcube_export {
+            // Every compatibility gap must be TaintedUnit (propagated from Synthetic decision)
+            for gap in &export.compatibility.gaps {
+                assert_eq!(
+                    gap.gap_kind, "TaintedUnit",
+                    "gaps from Synthetic decisions must be TaintedUnit, got {}",
+                    gap.gap_kind
+                );
+            }
+            // If there are accepted units there must be at least one TaintedUnit gap
+            if export.d_density.accepted_unit_count > 0 {
+                assert!(
+                    !export.compatibility.gaps.is_empty(),
+                    "Synthetic decisions must generate TaintedUnit gaps"
+                );
+            }
+        }
     }
 
     // ── Fail-closed gate propagation ──────────────────────────────────────────

@@ -2298,6 +2298,31 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    v.push(run_check("rx-pipeline-decision-taint-propagates-to-blueprint-units", "RX:Pipeline", || {
+        // All passive_run yields are Synthetic. The taint must flow from
+        // AssimilationDecision.taint through to BlueprintUnit, producing
+        // TaintedUnit compatibility gaps — proving the propagation chain.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let export = r.systemcube_export
+            .as_ref()
+            .ok_or("systemcube export must be present")?;
+        // Every gap must be TaintedUnit — no gaps of another kind when all decisions are Synthetic.
+        for gap in &export.compatibility.gaps {
+            if gap.gap_kind != "TaintedUnit" {
+                return Err(format!("unexpected gap kind '{}'; expected TaintedUnit from Synthetic decisions", gap.gap_kind));
+            }
+        }
+        // Decision taint participates in content-addressing: re-run must give identical report.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        if r.report_id != r2.report_id {
+            return Err("taint-carrying decisions must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

@@ -1,6 +1,6 @@
 use crate::gates::GateTrace;
 use crate::structural_yield::StructuralYield;
-use kosmo_core::{Digest, EvidenceBundle, GateResult, LedgerEvent, LedgerEventKind};
+use kosmo_core::{Digest, EvidenceBundle, GateResult, LedgerEvent, LedgerEventKind, TaintLabel};
 use serde::{Deserialize, Serialize};
 
 /// The outcome of the assimilation decision.
@@ -34,6 +34,7 @@ struct DecisionContent {
     yield_id: Digest,
     gate_trace_id: Digest,
     outcome: String,
+    taint: String,
     evidence_bundle_id: Digest,
     policy_id: Digest,
 }
@@ -43,12 +44,16 @@ struct DecisionContent {
 ///
 /// Every decision is evidence-bound (CROSS-006) and records the full gate
 /// trace so it can be re-examined or replayed.
+/// `taint` is propagated from the source `StructuralYield` so consumers
+/// (e.g. `BlueprintUnit` assembly) can reflect the actual trust level.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AssimilationDecision {
     pub decision_id: Digest,
     pub yield_id: Digest,
     pub outcome: AssimilationOutcome,
     pub gate_trace_id: Digest,
+    /// Taint propagated from the originating `StructuralYield`.
+    pub taint: TaintLabel,
     pub evidence_bundle_id: Digest,
     pub policy_id: Digest,
 }
@@ -86,10 +91,12 @@ impl AssimilationDecision {
             },
         };
 
+        let taint = yield_.taint.clone();
         let decision_id = Digest::of(&DecisionContent {
             yield_id: yield_.yield_id,
             gate_trace_id: trace.trace_id,
             outcome: format!("{:?}", outcome),
+            taint: format!("{:?}", taint),
             evidence_bundle_id: evidence.bundle_id,
             policy_id,
         });
@@ -99,6 +106,7 @@ impl AssimilationDecision {
             yield_id: yield_.yield_id,
             outcome,
             gate_trace_id: trace.trace_id,
+            taint,
             evidence_bundle_id: evidence.bundle_id,
             policy_id,
         }
@@ -263,5 +271,37 @@ mod tests {
         let d1 = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
         let d2 = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
         assert_eq!(d1.decision_id, d2.decision_id);
+    }
+
+    #[test]
+    fn decision_propagates_taint_from_yield() {
+        let policy = PolicyProfile::default_report_only();
+        let ev = make_evidence(policy.id);
+
+        // Clean yield → decision.taint == Clean
+        let clean_yield = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(Digest::of_bytes(b"v")), None,
+            TaintLabel::Clean, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&clean_yield, &ev);
+        let d = AssimilationDecision::from_trace(&clean_yield, &trace, &ev, policy.id);
+        assert_eq!(d.taint, TaintLabel::Clean, "decision must carry yield taint");
+
+        // Synthetic yield → decision.taint == Synthetic
+        let synthetic_yield = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(Digest::of_bytes(b"v2")), None,
+            TaintLabel::Synthetic, AuthorityLabel::Agent { name: "hyphae".into() },
+            ev.bundle_id, policy.id,
+        );
+        let trace2 = cascade.apply(&synthetic_yield, &ev);
+        let d2 = AssimilationDecision::from_trace(&synthetic_yield, &trace2, &ev, policy.id);
+        assert_eq!(d2.taint, TaintLabel::Synthetic, "synthetic yield must propagate Synthetic taint");
+
+        // Different taints → different decision_ids (taint is in content hash)
+        assert_ne!(d.decision_id, d2.decision_id, "taint must participate in content-address");
     }
 }

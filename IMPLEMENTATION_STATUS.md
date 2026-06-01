@@ -4,13 +4,14 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **772 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 80) — 0 failures
-- **122/122 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **775 substrate tests** (kosmo-core 339, kosmo-hyphae 170, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
+- **123/123 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
 - **`CompatibilityProfileReport::from_units` — real gap detection (TaintedUnit, MissingSourceRef)** ✅
 - **SystemCube diagnostics surfaced in pipeline: accessors + gate contribution + summary** ✅
+- **`AssimilationDecision.taint` propagated from `StructuralYield`; pipeline uses real taint in `BlueprintUnit`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
 - **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
@@ -18,6 +19,13 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Decision Taint Propagation to BlueprintUnit (2026-06-01)
+- [x] `AssimilationDecision.taint: TaintLabel` — propagated from `StructuralYield.taint` via `from_trace()`; participates in `decision_id` content-address
+- [x] `DecisionContent` updated to include `taint` field — different taints produce different `decision_id` (INVARIANT-007)
+- [x] Pipeline Step 5e updated: `BlueprintUnit` uses `decision.taint.clone()` instead of hardcoded `TaintLabel::Synthetic`
+- [x] Architecture is now open for non-Synthetic runs: a future `OperatorAssisted` run with Clean yields will produce `Accepted` (not `AcceptedWithTaint`) units and `compatibility_score = Q16::ONE`
+- [x] 1 new hyphae test (170 total); 1 new pipeline test (81 total); 1 new `RX:Pipeline` eval scenario (123 total, 775 substrate tests)
 
 ### SystemCube Diagnostics Surfaced in Pipeline (2026-06-01)
 - [x] `IntegrationRunReport::systemcube_contradiction_energy() -> Option<Q16>` — direct accessor, no drilling
