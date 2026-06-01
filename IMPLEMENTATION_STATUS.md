@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **807 substrate tests** (kosmo-core 339, kosmo-hyphae 182, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 87) — 0 failures
-- **132/132 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **815 substrate tests** (kosmo-core 339, kosmo-hyphae 186, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 91) — 0 failures
+- **134/134 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,27 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Crystal Certification Pipeline — `StructuralCrystalRecord` (2026-06-01)
+
+Closes the gap between `StructuralCrystalCandidate` (pending, `support_score = Q16::ZERO`) and
+`StructuralCrystalRecord` (certified, durable CAD library element). Adds cross-run accumulation
+via `prior_crystals` seeding.
+
+- `ConstraintProgram::from_candidate(candidate, replay_status)` — evaluates standard 5-constraint
+  program from candidate ID fields alone (no `EvidenceBundle` object required at pipeline step 5d-cert)
+- `StructuralCrystalCandidate::certify(replay_status) -> Option<(AssimilationCertificate, StructuralCrystalRecord)>` — single-call certification: program → proof → certificate → record
+- `CorpusEntityKind::CrystalRecord` variant — certified crystal records are first-class corpus
+  entities, enabling cross-run accumulation in the persistent cartography
+- Pipeline Step 5d-cert: every `Pending` candidate from the current run is certified;
+  `certified_crystals: Vec<StructuralCrystalRecord>` in `IntegrationRunReport`
+- `certified_crystal_count: u32` in `ReportContent` — participates in `report_id` content-addressing
+- `IntegrationRunOptions.prior_crystals: Vec<StructuralCrystalRecord>` — seed corpus with crystal
+  records from prior runs (CAD library accumulation loop closed)
+- `verify_policy_consistency()` covers `certified_crystals[i].policy_id`
+- `summary()` reports `crystal_candidates: N (certified: M)`
+- 4 new `crystal.rs` tests (186 total); 4 new pipeline tests (91 total); 2 new `RX:Crystal` /
+  `RX:Pipeline` eval scenarios (134 total, 815 substrate tests)
 
 ### `AssimilationLedger` — Content-Addressed Decision Audit Log (2026-06-01)
 - [x] `AssimilationLedger { ledger_id, run_id, events, policy_id }` — sequenced, content-addressed log of all `AssimilationDecision`s in a run (INVARIANT-007)

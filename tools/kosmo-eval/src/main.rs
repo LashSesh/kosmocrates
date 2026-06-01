@@ -2726,6 +2726,110 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Crystal — certification pipeline ──────────────────────────────────
+
+    v.push(run_check("rx-crystal-certify-pending-candidate-produces-record", "RX:Crystal", || {
+        // A Pending StructuralCrystalCandidate from an accepted Clean decision must
+        // certify and produce a non-ZERO StructuralCrystalRecord (INVARIANT-007).
+        use kosmo_hyphae::crystal::{ConstraintProgram, StructuralCrystalCandidate};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(Digest::of_bytes(b"ev"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(Digest::of_bytes(b"void")), None,
+            TaintLabel::Clean, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let trace = GateCascade::standard_gates(policy.clone()).apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+
+        if !candidate.is_certifiable() {
+            return Err("accepted Clean decision must produce Pending candidate".into());
+        }
+        let (cert, record) = candidate.certify(ReplayStatus::Replayable)
+            .ok_or("Pending candidate with Replayable status must certify")?;
+
+        if cert.certificate_id == Digest::ZERO {
+            return Err("certificate_id must be non-ZERO (CROSS-006)".into());
+        }
+        if record.record_id == Digest::ZERO {
+            return Err("record_id must be non-ZERO (CROSS-006)".into());
+        }
+        if record.candidate_id != candidate.candidate_id {
+            return Err("record.candidate_id must match source candidate".into());
+        }
+
+        // Determinism: same candidate → same record_id (INVARIANT-007).
+        let (_, r2) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        if record.record_id != r2.record_id {
+            return Err("certify must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-certified-crystals-from-candidates", "RX:Pipeline", || {
+        // With enable_crystal_candidates=true, every certifiable candidate must
+        // produce a StructuralCrystalRecord in the same run (Step 5d-cert).
+        // Prior crystals from run 1 fed as prior_crystals to run 2 must change
+        // the report_id (the corpus now contains seeded crystal entities).
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/alpha.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/beta.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 120, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts, &policy);
+
+        // All certifiable candidates must have corresponding certified records.
+        let certifiable = r1.crystal_candidates.iter().filter(|c| c.is_certifiable()).count();
+        if r1.certified_crystals.len() != certifiable {
+            return Err(format!(
+                "expected {} certified records, got {}",
+                certifiable, r1.certified_crystals.len(),
+            ));
+        }
+        for rec in &r1.certified_crystals {
+            if rec.record_id == Digest::ZERO {
+                return Err("record_id must be non-ZERO".into());
+            }
+            if rec.policy_id != policy.id {
+                return Err("record.policy_id must match pipeline policy".into());
+            }
+        }
+
+        // Feed certified crystals back as prior_crystals — report_id must change
+        // because the seeded corpus is different from the empty corpus.
+        if !r1.certified_crystals.is_empty() {
+            let opts2 = IntegrationRunOptions {
+                enable_crystal_candidates: true,
+                prior_crystals: r1.certified_crystals.clone(),
+                ..IntegrationRunOptions::report_only()
+            };
+            let r2 = run_dry_pipeline(&index, &opts2, &policy);
+            if r1.report_id == r2.report_id {
+                return Err("prior_crystals must change report_id (corpus seeding)".into());
+            }
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

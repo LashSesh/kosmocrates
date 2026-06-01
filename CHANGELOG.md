@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Crystal certification pipeline — `StructuralCrystalRecord` + cross-run CAD library accumulation**
+
+  - `ConstraintProgram::from_candidate(candidate, replay_status)` — evaluates the standard
+    5-constraint program from candidate fields alone (no `EvidenceBundle` object required).
+  - `StructuralCrystalCandidate::certify(replay_status)` — single call produces
+    `(AssimilationCertificate, StructuralCrystalRecord)` for every `Pending` candidate.
+  - `CorpusEntityKind::CrystalRecord` — certified crystal records are first-class corpus
+    entities; the corpus now accumulates proven patterns across runs.
+  - Pipeline Step 5d-cert: `certified_crystals: Vec<StructuralCrystalRecord>` in
+    `IntegrationRunReport`; `certified_crystal_count` in `ReportContent`.
+  - `IntegrationRunOptions.prior_crystals: Vec<StructuralCrystalRecord>` — seed the corpus
+    with certified records from previous runs, closing the CAD library accumulation loop.
+  - 4 new `crystal.rs` tests (186 total); 4 new pipeline tests (91 total); 2 new eval
+    scenarios `RX:Crystal`/`RX:Pipeline` (134 total, 815 substrate tests).
+
 * **`AssimilationLedger` — sequenced, content-addressed audit log of all decisions per run**
   (INVARIANT-007 strengthened: `run_id` is now sensitive to decision outcomes, not just
   decision count).

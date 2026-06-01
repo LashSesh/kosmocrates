@@ -81,6 +81,32 @@ impl StructuralCrystalCandidate {
         matches!(self.certification_status, CertificationStatus::Pending)
     }
 
+    /// Run the standard certification pipeline for this candidate.
+    ///
+    /// Returns `Some((certificate, record))` iff the candidate is `Pending`
+    /// and all constraints are satisfied. The `replay_status` comes from the
+    /// enclosing HYPHAE run (passive runs are always `Replayable`).
+    ///
+    /// This is the principal entry point for the pipeline Step 5d-cert.
+    pub fn certify(
+        &self,
+        replay_status: ReplayStatus,
+    ) -> Option<(AssimilationCertificate, StructuralCrystalRecord)> {
+        if !self.is_certifiable() {
+            return None;
+        }
+        let program = ConstraintProgram::from_candidate(self, replay_status.clone());
+        let proof = ReplayProof::new(
+            self.candidate_id,
+            replay_status,
+            self.evidence_bundle_id,
+            self.policy_id,
+        );
+        let cert = AssimilationCertificate::issue(self, &program, &proof)?;
+        let record = StructuralCrystalRecord::from_certificate(&cert);
+        Some((cert, record))
+    }
+
     /// Build an [`EnergyAssessment`] for this crystal candidate.
     ///
     /// - ψ (meaning)  = `support_score` — zero until score is assigned post-gate.
@@ -178,6 +204,25 @@ impl ConstraintProgram {
             Constraint::new(ConstraintKind::HasVoidReference, candidate.yield_id != Digest::ZERO),
             Constraint::new(ConstraintKind::IsReplayable, matches!(replay_status, ReplayStatus::Replayable)),
             Constraint::new(ConstraintKind::IsNotQuarantined, true), // quarantined yields are rejected, never candidates
+        ];
+        Self::evaluate(constraints, candidate.policy_id)
+    }
+
+    /// Build a constraint program from the candidate itself, without requiring
+    /// the originating `EvidenceBundle` object.
+    ///
+    /// Used in pipeline Step 5d-cert where only the candidate's ID fields are
+    /// available. CROSS-006 guarantees `evidence_bundle_id != ZERO` for all
+    /// candidates derived from accepted decisions; `IsNotQuarantined` holds
+    /// because quarantined yields are rejected by the gate cascade and never
+    /// reach `Pending` status.
+    pub fn from_candidate(candidate: &StructuralCrystalCandidate, replay_status: ReplayStatus) -> Self {
+        let constraints = vec![
+            Constraint::new(ConstraintKind::HasEvidence, candidate.evidence_bundle_id != Digest::ZERO),
+            Constraint::new(ConstraintKind::HasGateTrace, true),
+            Constraint::new(ConstraintKind::HasVoidReference, candidate.yield_id != Digest::ZERO),
+            Constraint::new(ConstraintKind::IsReplayable, matches!(replay_status, ReplayStatus::Replayable)),
+            Constraint::new(ConstraintKind::IsNotQuarantined, candidate.is_certifiable()),
         ];
         Self::evaluate(constraints, candidate.policy_id)
     }
@@ -593,6 +638,62 @@ mod tests {
         let candidate = StructuralCrystalCandidate::from_decision(&decision);
         let a = candidate.energy_assessment(&GateResult::Reject { reason: "test".into() });
         assert!(a.kernel.is_zeroed(), "Reject gate must zero energy (CROSS-010)");
+    }
+
+    #[test]
+    fn certify_pending_candidate_produces_record() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        assert!(candidate.is_certifiable());
+        let result = candidate.certify(ReplayStatus::Replayable);
+        assert!(result.is_some(), "Pending candidate with Replayable status must certify");
+        let (cert, record) = result.unwrap();
+        assert_ne!(cert.certificate_id, Digest::ZERO);
+        assert_ne!(record.record_id, Digest::ZERO);
+        assert_eq!(record.candidate_id, candidate.candidate_id);
+    }
+
+    #[test]
+    fn certify_evidence_only_candidate_returns_none() {
+        let policy = PolicyProfile::default_report_only();
+        let ev = make_evidence(policy.id);
+        let void_id = Digest::of_bytes(b"v");
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(void_id), None,
+            TaintLabel::Synthetic, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        assert!(!candidate.is_certifiable());
+        assert!(candidate.certify(ReplayStatus::Replayable).is_none(),
+            "EvidenceOnly candidate must not certify");
+    }
+
+    #[test]
+    fn certify_is_deterministic() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        let (_, r1) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        let (_, r2) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        assert_eq!(r1.record_id, r2.record_id, "certify must be deterministic (INVARIANT-007)");
+    }
+
+    #[test]
+    fn from_candidate_constraint_program_all_satisfied_for_pending() {
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        let program = ConstraintProgram::from_candidate(&candidate, ReplayStatus::Replayable);
+        assert!(program.all_satisfied,
+            "Pending candidate with Replayable status must satisfy all constraints");
+        assert_eq!(program.constraints.len(), 5);
+        assert_ne!(program.program_id, Digest::ZERO);
     }
 
     #[test]

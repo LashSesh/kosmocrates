@@ -30,15 +30,17 @@ pub use persistence::persist_cartography_update;
 use kosmo_core::{Digest, GateResult, PolicyProfile, PromotionFeedback, Q16, rank_by_energy};
 use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
+use kosmo_core::ReplayStatus;
 use kosmo_hyphae::{
     AssimilationLedger, CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography,
-    CorpusCartographyUpdate, CubeSwarm, CubeDimensionProfile, DeficiencyVector,
-    HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport, MetatronMicrograph,
-    MetatronRegionFingerprint, MicrographLiftReport, MicroTopologyDiagnostic, MicroTopologyIndex,
-    MorphogenicCorpusUpdate, MotifCandidate, NormFitnessTrace, NormGeneCandidate, Fragment,
-    FragmentField, FragmentKind, SourceCube, SeamGraph, StructuralCrystalCandidate,
-    SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption, TopologyAmbiguityProfile,
-    diagnose_micrograph, lift_region, passive_run, passive_run_augmented, HyphaeRunResult,
+    CorpusCartographyUpdate, CorpusEntity, CorpusEntityKind, CubeSwarm, CubeDimensionProfile,
+    DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
+    MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport, MicroTopologyDiagnostic,
+    MicroTopologyIndex, MorphogenicCorpusUpdate, MotifCandidate, NormFitnessTrace,
+    NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
+    StructuralCrystalCandidate, StructuralCrystalRecord, SupportMassVector, SurgeryWorkbenchTask,
+    TopologicalSurgeryOption, TopologyAmbiguityProfile, diagnose_micrograph, lift_region,
+    passive_run, passive_run_augmented, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
@@ -90,6 +92,11 @@ pub struct IntegrationRunOptions {
     /// Minimum support score threshold for `prior_motifs` → `SuggestPattern` intent promotion.
     /// Defaults to `Q16::HALF` (motif must appear in ≥50% of scanned sources).
     pub prior_motif_min_support: kosmo_core::Q16,
+    /// Certified `StructuralCrystalRecord`s from previous runs to seed the corpus.
+    /// These are added as `CorpusEntityKind::CrystalRecord` entities at the start of
+    /// the run, making the CAD library accumulate across pipeline invocations.
+    /// Only used when `enable_crystal_candidates` is also true.
+    pub prior_crystals: Vec<StructuralCrystalRecord>,
 }
 
 impl IntegrationRunOptions {
@@ -109,6 +116,7 @@ impl IntegrationRunOptions {
             prior_feedback: vec![],
             prior_motifs: vec![],
             prior_motif_min_support: Q16::HALF,
+            prior_crystals: vec![],
         }
     }
 
@@ -128,6 +136,7 @@ impl IntegrationRunOptions {
             prior_feedback: vec![],
             prior_motifs: vec![],
             prior_motif_min_support: Q16::HALF,
+            prior_crystals: vec![],
         }
     }
 }
@@ -156,6 +165,7 @@ struct ReportContent {
     ambiguity_profile_count: u32,
     void_hypothesis_count: u32,
     crystal_candidate_count: u32,
+    certified_crystal_count: u32,
     pse_candidate_count: u32,
     motif_candidate_count: u32,
     norm_candidate_count: u32,
@@ -214,6 +224,12 @@ pub struct IntegrationRunReport {
     /// All start with `support_score = Q16::ZERO` (Pending certification).
     /// Empty when `enable_crystal_candidates` is false.
     pub crystal_candidates: Vec<StructuralCrystalCandidate>,
+    /// Certified crystal records produced from `crystal_candidates` that passed
+    /// all constraints (Step 5d-cert). Each record is a proven reusable structural
+    /// pattern — the durable element of the CAD library. Pass as `prior_crystals`
+    /// in the next run to seed the accumulated pattern base.
+    /// Empty when `enable_crystal_candidates` is false.
+    pub certified_crystals: Vec<StructuralCrystalRecord>,
     /// Flat confidence-ranked PSE bridge candidates (Step 6b) assembled from
     /// norm candidates and topology observations. Ready for PSE evaluation.
     /// Empty when `enable_pse_candidates` is false.
@@ -255,6 +271,7 @@ impl IntegrationRunReport {
         ambiguity_profiles: Vec<TopologyAmbiguityProfile>,
         complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
         crystal_candidates: Vec<StructuralCrystalCandidate>,
+        certified_crystals: Vec<StructuralCrystalRecord>,
         pse_candidates: Vec<PseBridgeCandidate>,
         motif_candidates: Vec<MotifCandidate>,
         norm_candidates: Vec<NormGeneCandidate>,
@@ -284,6 +301,7 @@ impl IntegrationRunReport {
             ambiguity_profile_count: ambiguity_profiles.len() as u32,
             void_hypothesis_count: complement_void_hypotheses.len() as u32,
             crystal_candidate_count: crystal_candidates.len() as u32,
+            certified_crystal_count: certified_crystals.len() as u32,
             pse_candidate_count: pse_candidates.len() as u32,
             motif_candidate_count: motif_candidates.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
@@ -311,6 +329,7 @@ impl IntegrationRunReport {
             ambiguity_profiles,
             complement_void_hypotheses,
             crystal_candidates,
+            certified_crystals,
             pse_candidates,
             motif_candidates,
             norm_candidates,
@@ -351,7 +370,8 @@ impl IntegrationRunReport {
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
              surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
-             crystal_candidates: {} | pse_candidates: {} | motif_candidates: {} | norm_candidates: {} (traces: {}) | {}",
+             crystal_candidates: {} (certified: {}) | pse_candidates: {} | \
+             motif_candidates: {} | norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -373,6 +393,7 @@ impl IntegrationRunReport {
             self.ambiguity_profiles.len(),
             self.complement_void_hypotheses.len(),
             self.crystal_candidates.len(),
+            self.certified_crystals.len(),
             self.pse_candidates.len(),
             self.motif_candidates.len(),
             self.norm_candidates.len(),
@@ -407,6 +428,7 @@ impl IntegrationRunReport {
             && self.ambiguity_profiles.iter().all(|a| a.policy_id == pid)
             && self.complement_void_hypotheses.iter().all(|h| h.policy_id == pid)
             && self.crystal_candidates.iter().all(|c| c.policy_id == pid)
+            && self.certified_crystals.iter().all(|r| r.policy_id == pid)
             && self.pse_candidates.iter().all(|c| c.policy_id == pid)
             && self.motif_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
@@ -483,8 +505,23 @@ pub fn run_dry_pipeline(
     let deficiency_vector = DeficiencyVector::from_void_map(&hyphae.host_cube.void_map);
 
     // ── 2. CorpusCartography update ───────────────────────────────────────────
-    let corpus = CorpusCartography::empty(policy.id);
-    let (_, cartography_update) = corpus.update_from_run(&hyphae);
+    // Seed the corpus with prior crystal records so the CAD library accumulates
+    // across pipeline runs. Prior crystals are added as CrystalRecord entities
+    // before the current run's data is appended.
+    let base_corpus = if options.enable_crystal_candidates && !options.prior_crystals.is_empty() {
+        let crystal_entities: Vec<CorpusEntity> = options.prior_crystals.iter()
+            .map(|r| CorpusEntity::new(
+                CorpusEntityKind::CrystalRecord,
+                r.record_id,
+                TaintLabel::Clean,
+                policy.id,
+            ))
+            .collect();
+        CorpusCartography::empty(policy.id).append(crystal_entities, vec![]).0
+    } else {
+        CorpusCartography::empty(policy.id)
+    };
+    let (_, cartography_update) = base_corpus.update_from_run(&hyphae);
     agg.record(
         "cartography",
         cartography_update.update_id,
@@ -734,6 +771,21 @@ pub fn run_dry_pipeline(
             Vec::new()
         };
 
+    // ── 5d-cert. Certify crystal candidates → StructuralCrystalRecord ──────────
+    // Run ConstraintProgram::from_candidate on each Pending candidate. Passive runs
+    // are always Replayable. All accepted-decision candidates satisfy every standard
+    // constraint (CROSS-006 guarantees non-ZERO evidence; quarantine was rejected at
+    // the gate cascade and never reaches Pending). The resulting StructuralCrystalRecord
+    // is the durable CAD library element — pass as prior_crystals in the next run.
+    let certified_crystals: Vec<StructuralCrystalRecord> = if options.enable_crystal_candidates {
+        crystal_candidates
+            .iter()
+            .filter_map(|c| c.certify(ReplayStatus::Replayable).map(|(_, r)| r))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // ── 5b. Optional norm candidates — from accepted decisions ────────────────
     // One NormGeneCandidate per accepted decision: name encodes the intent kind
     // so operators can identify the structural context of each candidate.
@@ -932,6 +984,7 @@ pub fn run_dry_pipeline(
         ambiguity_profiles,
         complement_void_hypotheses,
         crystal_candidates,
+        certified_crystals,
         pse_candidates,
         motif_candidates,
         norm_candidates,
@@ -1703,6 +1756,72 @@ mod tests {
             r.verify_policy_consistency(),
             "verify_policy_consistency must cover crystal_candidates"
         );
+    }
+
+    // ── Crystal certification Step 5d-cert ───────────────────────────────────
+
+    #[test]
+    fn pipeline_certified_crystals_match_candidates_when_enabled() {
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        // Every Pending candidate from accepted decisions must be certified.
+        assert_eq!(
+            r.certified_crystals.len(),
+            r.crystal_candidates.iter().filter(|c| c.is_certifiable()).count(),
+            "every certifiable candidate must produce a StructuralCrystalRecord"
+        );
+        for rec in &r.certified_crystals {
+            assert_ne!(rec.record_id, Digest::ZERO, "record_id must be non-ZERO");
+            assert_eq!(rec.policy_id, policy().id, "record must carry pipeline policy_id");
+        }
+    }
+
+    #[test]
+    fn pipeline_no_certified_crystals_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.certified_crystals.is_empty(), "certified_crystals must be empty when disabled");
+    }
+
+    #[test]
+    fn pipeline_certified_crystals_deterministic() {
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let ids1: Vec<_> = r1.certified_crystals.iter().map(|r| r.record_id).collect();
+        let ids2: Vec<_> = r2.certified_crystals.iter().map(|r| r.record_id).collect();
+        assert_eq!(ids1, ids2, "certified_crystals must be deterministic (INVARIANT-007)");
+    }
+
+    #[test]
+    fn pipeline_prior_crystals_seed_corpus() {
+        // Run once to collect certified crystals, then feed as prior_crystals to the
+        // next run. The second run's corpus must contain the prior crystal entities.
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let prior = r1.certified_crystals.clone();
+        if prior.is_empty() {
+            return; // No voids → no candidates → skip.
+        }
+        let opts2 = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            prior_crystals: prior.clone(),
+            ..IntegrationRunOptions::report_only()
+        };
+        let r2 = run_dry_pipeline(&fixture_index(), &opts2, &policy());
+        // The second run's cartography_update must reflect the seeded entities:
+        // Prior crystals are added before update_from_run, so the "before" corpus
+        // already has crystal entities — the after cartography_id will differ from r1.
+        assert_ne!(r1.report_id, r2.report_id,
+            "prior_crystals must change report_id (content-addressing reflects seeded state)");
     }
 
     // ── NormFitnessTrace from prior feedback (Step 5c) ───────────────────────

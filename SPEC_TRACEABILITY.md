@@ -67,6 +67,8 @@ Target crate: `crates/kosmo-hyphae`
 | `ReduceDeficiency` intents + spec §2.2 yield compliance | HYPHAE v0.3 spec §2.2 | ✅ `kosmo-hyphae/src/frontier.rs` + `run.rs` — FillVoid + ReduceDeficiency intents from void map; deficiency_kind_ref populated |
 | `MotifCandidate` pipeline Step 5a | HYPHAE v0.3 spec; CROSS-006; CROSS-007; INVARIANT-007 | ✅ `kosmo-pipeline/src/lib.rs` Step 5a — void kind frequency → energy-ranked MotifCandidates |
 | `AssimilationLedger` | HYPHAE v0.3 spec; INVARIANT-007 | ✅ `kosmo-hyphae/src/assimilation.rs` — sequenced content-addressed audit log; `run_id` seals over `ledger_id` |
+| `StructuralCrystalRecord` certification | HYPHAE v0.4 spec; CROSS-006; INVARIANT-007 | ✅ `kosmo-hyphae/src/crystal.rs` `certify()` + `ConstraintProgram::from_candidate`; pipeline Step 5d-cert |
+| `CorpusEntityKind::CrystalRecord` accumulation | HYPHAE v0.4 spec (persistent substrate) | ✅ `kosmo-hyphae/src/corpus.rs` + `prior_crystals` in pipeline — CAD library grows across runs |
 
 ## MVP-3 / Phase 4 — CubeSwarm MVP
 
