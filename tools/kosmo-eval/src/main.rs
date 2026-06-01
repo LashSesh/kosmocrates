@@ -1533,6 +1533,51 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 1b void priority ranking ───────────────────────────
+
+    v.push(run_check("rx-pipeline-void-priority-ranking-length-matches-voids", "RX:Pipeline", || {
+        // void_priority_ranking must contain exactly one entry per host void.
+        // Empty workspace → 0 voids → 0 ranked entries.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let void_count = r.hyphae_result.host_cube.void_count();
+        if r.void_priority_ranking.len() != void_count {
+            return Err(format!(
+                "void_priority_ranking.len()={} must equal void_count={}",
+                r.void_priority_ranking.len(), void_count
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-void-priority-ranking-is-deterministic", "RX:Pipeline", || {
+        // Identical runs must produce identical priority rankings (determinism).
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "x.rs".into(), digest: Digest::of_bytes(b"x"),
+                size_bytes: 10, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "y.rs".into(), digest: Digest::of_bytes(b"y"),
+                size_bytes: 20, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r1.void_priority_ranking != r2.void_priority_ranking {
+            return Err("void_priority_ranking must be deterministic".into());
+        }
+        // All IDs in ranking must appear in the void_map.
+        let void_ids: std::collections::HashSet<_> = r1.hyphae_result.host_cube.void_map.voids
+            .iter().map(|v| v.void_id).collect();
+        for vid in &r1.void_priority_ranking {
+            if !void_ids.contains(vid) {
+                return Err("void_priority_ranking must only contain known void IDs".into());
+            }
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {

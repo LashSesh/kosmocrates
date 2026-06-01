@@ -104,6 +104,7 @@ struct ReportContent {
     void_fill_delta_id: Digest,
     collapse_plan_id: Digest,
     morphogenic_update_id: Digest,
+    void_priority_count: u32,
     policy_id: Digest,
     aggregate_id: Digest,
     metatron_count: u32,
@@ -133,6 +134,9 @@ pub struct IntegrationRunReport {
     /// after the collapse plan executes (planning only; no mutation).
     pub morphogenic_update: MorphogenicCorpusUpdate,
     pub metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
+    /// Void IDs ranked by severity (highest first) via energy kernel.
+    /// Gives operators a prioritized repair order. Never empty when voids exist.
+    pub void_priority_ranking: Vec<Digest>,
     pub lpcm_reports: Vec<LpcmPassiveReport>,
     /// Energy-ranked surgery options derived from Metatron diagnostics.
     /// Empty when `enable_surgery` or `enable_metatron` is false.
@@ -151,6 +155,7 @@ impl IntegrationRunReport {
         void_fill_delta: HostTargetDelta,
         collapse_plan: HostTargetCollapsePlan,
         morphogenic_update: MorphogenicCorpusUpdate,
+        void_priority_ranking: Vec<Digest>,
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         surgery_options: Vec<TopologicalSurgeryOption>,
@@ -166,6 +171,7 @@ impl IntegrationRunReport {
             void_fill_delta_id: void_fill_delta.delta_id,
             collapse_plan_id: collapse_plan.plan_id,
             morphogenic_update_id: morphogenic_update.update_id,
+            void_priority_count: void_priority_ranking.len() as u32,
             policy_id: policy.id,
             aggregate_id: aggregated_gate.aggregate_id,
             metatron_count: metatron_diagnostics.len() as u32,
@@ -182,6 +188,7 @@ impl IntegrationRunReport {
             void_fill_delta,
             collapse_plan,
             morphogenic_update,
+            void_priority_ranking,
             metatron_diagnostics,
             lpcm_reports,
             surgery_options,
@@ -200,13 +207,14 @@ impl IntegrationRunReport {
         };
         format!(
             "IntegrationRunReport — policy={:.8} | final={:?} | \
-             hyphae: {} | cartography: {} entities | \
+             hyphae: {} | cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} | lpcm: {} | surgery: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
             self.cartography_update.added_entity_ids.len(),
+            self.void_priority_ranking.len(),
             self.swarm_composite.source_cube_ids.len(),
             self.void_fill_delta.status,
             self.collapse_plan.step_count(),
@@ -283,6 +291,13 @@ pub fn run_dry_pipeline(
         GateResult::Pass
     };
     agg.record("hyphae", hyphae.run_id, hyphae_gate);
+
+    // ── 1b. Void priority ranking — severity-ordered repair queue ─────────────
+    // Computed once from the void_map; always present, costs only a sort.
+    let void_priority_ranking = hyphae
+        .host_cube
+        .void_map
+        .priority_ranking(&GateResult::Pass);
 
     // ── 2. CorpusCartography update ───────────────────────────────────────────
     let corpus = CorpusCartography::empty(policy.id);
@@ -467,6 +482,7 @@ pub fn run_dry_pipeline(
         void_fill_delta,
         collapse_plan,
         morphogenic_update,
+        void_priority_ranking,
         metatron_diagnostics,
         lpcm_reports,
         surgery_options,
