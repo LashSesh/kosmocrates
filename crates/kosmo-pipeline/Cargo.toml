@@ -14,6 +14,7 @@ kosmo-workbench = { path = "../kosmo-workbench" }
 kosmo-hyphae = { path = "../kosmo-hyphae" }
 kosmo-systemcube = { path = "../kosmo-systemcube" }
 kosmo-store = { path = "../kosmo-store" }
+kosmo-pse-bridge = { path = "../kosmo-pse-bridge" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

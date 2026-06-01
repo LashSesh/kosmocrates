@@ -1295,6 +1295,7 @@ version = "0.1.0"
 dependencies = [
  "kosmo-core",
  "kosmo-hyphae",
+ "kosmo-pse-bridge",
  "kosmo-store",
  "kosmo-systemcube",
  "kosmo-workbench",

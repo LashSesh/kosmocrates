@@ -4,10 +4,113 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **738 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 59) — 0 failures
-- **102/102 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **775 substrate tests** (kosmo-core 339, kosmo-hyphae 170, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
+- **123/123 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
+- **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
+- **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
+- **`CompatibilityProfileReport::from_units` — real gap detection (TaintedUnit, MissingSourceRef)** ✅
+- **SystemCube diagnostics surfaced in pipeline: accessors + gate contribution + summary** ✅
+- **`AssimilationDecision.taint` propagated from `StructuralYield`; pipeline uses real taint in `BlueprintUnit`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
+- **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
+- **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
+- **`TopologyAmbiguityProfile` + `ComplementVoidHypothesis` energy-ranked in pipeline Step 3f** ✅
+- **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
+- **`DeficiencyVector` always-on pipeline Step 1c** ✅
+- **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Decision Taint Propagation to BlueprintUnit (2026-06-01)
+- [x] `AssimilationDecision.taint: TaintLabel` — propagated from `StructuralYield.taint` via `from_trace()`; participates in `decision_id` content-address
+- [x] `DecisionContent` updated to include `taint` field — different taints produce different `decision_id` (INVARIANT-007)
+- [x] Pipeline Step 5e updated: `BlueprintUnit` uses `decision.taint.clone()` instead of hardcoded `TaintLabel::Synthetic`
+- [x] Architecture is now open for non-Synthetic runs: a future `OperatorAssisted` run with Clean yields will produce `Accepted` (not `AcceptedWithTaint`) units and `compatibility_score = Q16::ONE`
+- [x] 1 new hyphae test (170 total); 1 new pipeline test (81 total); 1 new `RX:Pipeline` eval scenario (123 total, 775 substrate tests)
+
+### SystemCube Diagnostics Surfaced in Pipeline (2026-06-01)
+- [x] `IntegrationRunReport::systemcube_contradiction_energy() -> Option<Q16>` — direct accessor, no drilling
+- [x] `IntegrationRunReport::systemcube_compatibility_score() -> Option<Q16>` — direct accessor
+- [x] `summary()` now includes `compat=<score>` and `contradiction_energy=<total>` in the systemcube field
+- [x] SystemCube gate contribution: `Warn` when `compatibility.gaps` is non-empty (structural advisory, not energy-based); `Pass` when fully compatible
+- [x] 3 new pipeline tests (80 total); 2 new `RX:Pipeline` eval scenarios (122 total, 772 substrate tests)
+
+### CompatibilityProfileReport Real Gap Detection (2026-06-01)
+- [x] `CompatibilityProfileReport::from_units(manifest_id, host_snapshot_id, policy, units)` — replaces `perfect()` stub in `export_dry_run`
+  - Accepted units only; `AcceptedWithTaint` → `TaintedUnit` gap, severity `Q16::HALF`; `source_ref == Digest::ZERO` → `MissingSourceRef` gap, severity `Q16::ONE`
+  - `compatibility_score = Q16::ONE − avg_gap_severity`, clamped to `[0, ONE]`
+  - All-clean manifest → score = `Q16::ONE`; empty accepted set → `EmptyManifest` status
+  - Gaps sorted by `unit_id`; deterministic regardless of input order (INVARIANT-007)
+- [x] `SystemCube::export_dry_run` now calls `from_units` — every `KcubeExportReport` carries real compatibility diagnostics
+- [x] 5 new `kosmo-systemcube` compatibility tests (54 total); 2 new `RX:Compatibility` eval scenarios (120 total, 769 substrate tests)
+
+### ContradictionEnergyReport Real Detection (2026-06-01)
+- [x] `ContradictionEnergyReport::from_units(manifest_id, policy, units)` — replaces `zero_energy` stub
+  - Filters to accepted units only; iterates unit_id-ordered pairs (INVARIANT-007)
+  - Same `source_ref`, same `kind` → `Duplicate`, weight `Q16::HALF`
+  - Same `source_ref`, different `kind` → `RoleConflict`, weight `Q16::ONE`
+- [x] `SystemCube::export_dry_run` now calls `from_units` — manifests with role conflicts surface non-zero total_energy
+- [x] 5 new `kosmo-systemcube` energy tests (49 total); 2 new `RX:ContradictionEnergy` eval scenarios (118 total, 764 substrate tests)
+
+### BlueprintUnit Energy Assessment — Step 5e (2026-06-01)
+- [x] `BlueprintUnit::energy_assessment(gate)` added to `kosmo-systemcube`
+  - ψ = `Q16::ONE` for Accepted/AcceptedWithTaint; `Q16::ZERO` for RejectedOpaque
+  - Taint factor via `EnergyFactors::taint_factor(&self.taint)` — Synthetic reduces energy, Quarantined zeroes it
+  - `evidence_bundle_id = self.unit_id` (self-referential, CROSS-006: always non-ZERO)
+- [x] Pipeline Step 5e: `BlueprintUnit`s are energy-ranked before passing to `SystemCube::new` (accepted/clean first, tainted below)
+- [x] 3 new systemcube tests (44 total); 2 new `RX:BlueprintEnergy` eval scenarios (116 total, 759 substrate tests)
+
+### PseBridgeCandidate Pipeline Integration — Step 6b (2026-06-01)
+- [x] `enable_pse_candidates: bool` in `IntegrationRunOptions` (default false)
+- [x] Pipeline Step 6b: collects `PseBridgeCandidate` from `norm_candidates` (kind=`StructuralObservation`, ψ=`fitness_score`, evidence=`evidence_bundle_id`) and from `ambiguity_profiles` + `complement_void_hypotheses` (kind=`TopologyObservation`, ψ=`confidence_score`); sorted by confidence desc, then by id for determinism
+- [x] `IntegrationRunReport.pse_candidates: Vec<PseBridgeCandidate>` — PSE submission work queue
+- [x] `ReportContent.pse_candidate_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `pse_candidates[i].policy_id`
+- [x] `summary()` reports `pse_candidates: N`
+- [x] `kosmo-pse-bridge` added as dep to `kosmo-pipeline`
+- [x] 3 new pipeline tests (77 total); 2 new `RX:Pipeline` eval scenarios (114 total, 756 substrate tests)
+
+### DeficiencyVector Pipeline Integration — Step 1c (2026-06-01)
+- [x] Pipeline Step 1c: `DeficiencyVector::from_void_map(&hyphae.host_cube.void_map)` — always present (not gated on any option)
+- [x] `IntegrationRunReport.deficiency_vector: DeficiencyVector` — entries sorted by kind; `total_severity` is Q16 average
+- [x] `ReportContent.deficiency_vector_id` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `deficiency_vector.policy_id`
+- [x] `summary()` reports `deficiency: N entries (severity=...)`
+- [x] 3 new pipeline tests (74 total); 2 new `RX:Pipeline` eval scenarios (112 total)
+
+### StructuralCrystalCandidate Pipeline Integration — Step 5d (2026-06-01)
+- [x] `enable_crystal_candidates: bool` in `IntegrationRunOptions` (default false)
+- [x] Pipeline Step 5d: one `StructuralCrystalCandidate::from_decision(&decision)` per accepted decision; all start `support_score = Q16::ZERO` (Pending certification)
+- [x] `IntegrationRunReport.crystal_candidates: Vec<StructuralCrystalCandidate>` — explicit certification work queue
+- [x] `ReportContent.crystal_candidate_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `crystal_candidates[i].policy_id`
+- [x] `summary()` reports `crystal_candidates: N`
+- [x] 3 new pipeline tests (71 total); 2 new `RX:Pipeline` eval scenarios (110 total)
+
+### TopologyAmbiguityProfile + ComplementVoidHypothesis Pipeline Integration — Step 3f (2026-06-01)
+- [x] Pipeline Step 3f: flatten `ambiguities` and `void_hypotheses` from all `metatron_diagnostics`; energy-rank each by `confidence_score` (most confident first)
+- [x] `IntegrationRunReport.ambiguity_profiles: Vec<TopologyAmbiguityProfile>` — empty when Metatron disabled
+- [x] `IntegrationRunReport.complement_void_hypotheses: Vec<ComplementVoidHypothesis>` — empty when Metatron disabled
+- [x] `ReportContent.ambiguity_profile_count` and `void_hypothesis_count` participate in `report_id`
+- [x] `verify_policy_consistency()` covers both collections
+- [x] `summary()` reports `ambiguities: N | void_hyp: M`
+- [x] 3 new pipeline tests (68 total); 2 new `RX:Pipeline` eval scenarios (108 total)
+
+### NormFitnessTrace Pipeline Integration — Step 5c (2026-06-01)
+- [x] `prior_feedback: Vec<PromotionFeedback>` added to `IntegrationRunOptions` (default empty)
+- [x] Pipeline Step 5c: for each `NormGeneCandidate`, fold matching feedback via `NormFitnessTrace::observe_from_feedback`; only traces with ≥1 observation included
+- [x] `IntegrationRunReport.norm_fitness_traces: Vec<NormFitnessTrace>` — one per candidate with matched feedback
+- [x] `ReportContent.norm_fitness_trace_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `norm_fitness_traces[i].policy_id`
+- [x] `summary()` reports `norm_candidates: N (traces: M)`
+- [x] 3 new pipeline tests (65 total); 2 new `RX:Pipeline` eval scenarios (106 total)
+
+### SurgeryWorkbenchTask Pipeline Integration — Step 3e (2026-06-01)
+- [x] Pipeline Step 3e: `surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>` — 1:1 from `surgery_options` via `SurgeryWorkbenchTask::from_option()`; same energy-ranked order
+- [x] `IntegrationRunReport.surgery_workbench_tasks` (empty when `surgery_options` is empty)
+- [x] `ReportContent.surgery_workbench_task_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `surgery_workbench_tasks[i].policy_id`
+- [x] `summary()` reports `surgery: N (tasks: M)`
+- [x] 3 new pipeline tests (62 total); 2 new `RX:Pipeline` eval scenarios (104 total)
 
 ### MicroTopologyIndex Pipeline Integration — Step 3d (2026-06-01)
 - [x] Pipeline Step 3d: fold `(micrograph, fingerprint, diagnostic)` triples into `MicroTopologyIndex` after metatron loop

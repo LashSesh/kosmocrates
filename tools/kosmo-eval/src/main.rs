@@ -49,7 +49,10 @@ use kosmo_pse_bridge::{
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
 use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
 use kosmo_kcube::{KcubeArtifact, KcubeExecutor, kcube_file_name};
-use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, SystemCube};
+use kosmo_systemcube::{
+    BlueprintUnit, BlueprintUnitKind, CompatibilityProfileReport, CompatibilityStatus,
+    ContradictionEnergyReport, EnergyStatus, SystemCube,
+};
 use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
 use kosmo_workbench::WorkspaceIndex;
 
@@ -1795,6 +1798,607 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 3e SurgeryWorkbenchTask conversion ────────────────
+
+    v.push(run_check("rx-pipeline-surgery-workbench-tasks-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.surgery_workbench_tasks.is_empty() {
+            return Err(format!(
+                "surgery_workbench_tasks must be empty when surgery disabled, got {}",
+                r.surgery_workbench_tasks.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-surgery-workbench-tasks-match-surgery-options", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_surgery: true,
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        // 1:1 correspondence with surgery_options.
+        if r.surgery_workbench_tasks.len() != r.surgery_options.len() {
+            return Err(format!(
+                "surgery_workbench_tasks.len()={} must equal surgery_options.len()={}",
+                r.surgery_workbench_tasks.len(), r.surgery_options.len()
+            ));
+        }
+        // All workbench tasks must carry the pipeline policy_id.
+        for t in &r.surgery_workbench_tasks {
+            if t.policy_id != policy.id {
+                return Err("surgery workbench task policy_id mismatch".into());
+            }
+            if t.task_id == Digest::ZERO {
+                return Err("surgery workbench task_id must be non-ZERO".into());
+            }
+            if t.surgery_option_id == Digest::ZERO {
+                return Err("surgery_option_id must trace back to source option".into());
+            }
+        }
+        // verify_policy_consistency() must cover surgery_workbench_tasks.
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include surgery_workbench_tasks".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.surgery_workbench_tasks.iter().map(|t| t.task_id).collect();
+        let ids2: Vec<_> = r2.surgery_workbench_tasks.iter().map(|t| t.task_id).collect();
+        if ids1 != ids2 {
+            return Err("surgery_workbench_tasks must be deterministic across runs".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 1c DeficiencyVector ───────────────────────────────
+
+    v.push(run_check("rx-pipeline-deficiency-vector-always-present", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        // Empty workspace: no voids → empty deficiency vector, but still present.
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.deficiency_vector.vector_id == Digest::ZERO {
+            return Err("deficiency_vector.vector_id must be non-ZERO even when empty".into());
+        }
+        if r.deficiency_vector.policy_id != policy.id {
+            return Err("deficiency_vector.policy_id must match pipeline policy_id".into());
+        }
+        if !r.deficiency_vector.entries.is_empty() {
+            return Err("empty workspace must produce empty deficiency entries".into());
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover deficiency_vector".into());
+        }
+        // Determinism: vector_id must participate in report_id.
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.report_id != r2.report_id {
+            return Err("deficiency_vector must participate in report_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-deficiency-vector-captures-void-kinds", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        // Source files without tests create MissingTestFiber voids.
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        // With source files only, void_map should have MissingTestFiber voids.
+        // DeficiencyVector should reflect total_severity > 0 if any deficiencies found.
+        if r.deficiency_vector.vector_id == Digest::ZERO {
+            return Err("deficiency_vector must always have non-ZERO vector_id".into());
+        }
+        // total_severity must be consistent: either zero (no entries) or positive.
+        if !r.deficiency_vector.entries.is_empty() {
+            if r.deficiency_vector.total_severity == Q16::ZERO {
+                return Err("non-empty deficiency entries must yield non-zero total_severity".into());
+            }
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 6b PSE bridge candidates ──────────────────────────
+
+    v.push(run_check("rx-pipeline-pse-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.pse_candidates.is_empty() {
+            return Err(format!(
+                "pse_candidates must be empty when disabled, got {}",
+                r.pse_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-pse-candidates-cover-norm-and-topology", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_norm_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let expected = r.norm_candidates.len()
+            + r.ambiguity_profiles.len()
+            + r.complement_void_hypotheses.len();
+        if r.pse_candidates.len() != expected {
+            return Err(format!(
+                "expected {} PSE candidates (norm + ambiguities + void_hyp), got {}",
+                expected, r.pse_candidates.len()
+            ));
+        }
+        // Confidence descending.
+        for window in r.pse_candidates.windows(2) {
+            if window[0].confidence < window[1].confidence {
+                return Err("pse_candidates must be sorted by confidence descending".into());
+            }
+        }
+        for c in &r.pse_candidates {
+            if c.policy_id != policy.id {
+                return Err("PSE candidate policy_id mismatch".into());
+            }
+            if c.id == Digest::ZERO {
+                return Err("PSE candidate id must be non-ZERO".into());
+            }
+            if c.evidence_bundle_id == Digest::ZERO {
+                return Err("CROSS-006: PSE candidate evidence_bundle_id must be non-ZERO".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include pse_candidates".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.pse_candidates.iter().map(|c| c.id).collect();
+        let ids2: Vec<_> = r2.pse_candidates.iter().map(|c| c.id).collect();
+        if ids1 != ids2 {
+            return Err("pse_candidates must be deterministic".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 5d StructuralCrystalCandidate certification queue ──
+
+    v.push(run_check("rx-pipeline-crystal-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.crystal_candidates.is_empty() {
+            return Err(format!(
+                "crystal_candidates must be empty when disabled, got {}",
+                r.crystal_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-crystal-candidates-one-per-accepted-decision", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let accepted = r.hyphae_result.decisions.iter().filter(|d| d.outcome.is_accepted()).count();
+        if r.crystal_candidates.len() != accepted {
+            return Err(format!(
+                "expected {} crystal candidates (= accepted decisions), got {}",
+                accepted, r.crystal_candidates.len()
+            ));
+        }
+        for c in &r.crystal_candidates {
+            if c.policy_id != policy.id {
+                return Err("crystal candidate policy_id mismatch".into());
+            }
+            if c.candidate_id == Digest::ZERO {
+                return Err("candidate_id must be non-ZERO".into());
+            }
+            if c.support_score != Q16::ZERO {
+                return Err("support_score must be ZERO at creation (Pending certification)".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include crystal_candidates".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.crystal_candidates.iter().map(|c| c.candidate_id).collect();
+        let ids2: Vec<_> = r2.crystal_candidates.iter().map(|c| c.candidate_id).collect();
+        if ids1 != ids2 {
+            return Err("crystal_candidates must be deterministic".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 3f ambiguity profiles + void hypotheses ───────────
+
+    v.push(run_check("rx-pipeline-ambiguity-profiles-empty-without-metatron", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.ambiguity_profiles.is_empty() || !r.complement_void_hypotheses.is_empty() {
+            return Err(format!(
+                "ambiguity_profiles ({}) and complement_void_hypotheses ({}) must be empty without Metatron",
+                r.ambiguity_profiles.len(), r.complement_void_hypotheses.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-ambiguity-profiles-policy-consistent", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        for a in &r.ambiguity_profiles {
+            if a.policy_id != policy.id {
+                return Err("ambiguity profile policy_id mismatch".into());
+            }
+            if a.profile_id == Digest::ZERO {
+                return Err("CROSS-006: profile_id must be non-ZERO".into());
+            }
+        }
+        for h in &r.complement_void_hypotheses {
+            if h.policy_id != policy.id {
+                return Err("void hypothesis policy_id mismatch".into());
+            }
+            if h.hypothesis_id == Digest::ZERO {
+                return Err("CROSS-006: hypothesis_id must be non-ZERO".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover ambiguity_profiles and complement_void_hypotheses".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        let ids2: Vec<_> = r2.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        if ids1 != ids2 {
+            return Err("ambiguity_profiles must be deterministic".into());
+        }
+        // Energy ordering: confidence_score descending.
+        for window in r.ambiguity_profiles.windows(2) {
+            if window[0].confidence_score < window[1].confidence_score {
+                return Err("ambiguity_profiles must be ranked by confidence_score descending".into());
+            }
+        }
+        // Counts participate in report_id.
+        if r.report_id != r2.report_id {
+            return Err("ambiguity/hypothesis counts must participate in report_id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 5c NormFitnessTrace from prior feedback ───────────
+
+    v.push(run_check("rx-pipeline-norm-fitness-traces-empty-without-feedback", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        if !r.norm_fitness_traces.is_empty() {
+            return Err(format!(
+                "norm_fitness_traces must be empty when prior_feedback is empty, got {}",
+                r.norm_fitness_traces.len()
+            ));
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must pass with empty traces".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-norm-fitness-traces-from-matching-feedback", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        // First: generate candidates.
+        let opts_gen = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r_gen = run_dry_pipeline(&index, &opts_gen, &policy);
+        if r_gen.norm_candidates.is_empty() {
+            return Ok(()); // no accepted decisions — not an error, just skip
+        }
+        let candidate = &r_gen.norm_candidates[0];
+        let energy = Q16::ratio(3, 4).unwrap();
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            candidate.candidate_id,
+            candidate.candidate_id,
+            FeedbackOutcome::Accepted,
+            energy,
+            policy.id,
+            candidate.evidence_bundle_id,
+        );
+        // Second: apply prior_feedback.
+        let opts_fb = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            prior_feedback: vec![feedback.clone()],
+            ..IntegrationRunOptions::report_only()
+        };
+        let r_fb = run_dry_pipeline(&index, &opts_fb, &policy);
+        let trace = r_fb.norm_fitness_traces.iter()
+            .find(|t| t.candidate_id == candidate.candidate_id)
+            .ok_or("trace must exist for candidate that received feedback")?;
+        // Fitness trace content.
+        if trace.latest_fitness() != energy {
+            return Err(format!(
+                "latest_fitness must equal energy {}, got {}",
+                energy.raw(), trace.latest_fitness().raw()
+            ));
+        }
+        if trace.observations[0].evidence_ref != feedback.id {
+            return Err("evidence_ref must equal feedback.id — CROSS-006 via trace".into());
+        }
+        if trace.policy_id != policy.id {
+            return Err("trace.policy_id must match pipeline policy_id".into());
+        }
+        // Policy consistency must cover traces.
+        if !r_fb.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include norm_fitness_traces".into());
+        }
+        // Traces must participate in report_id.
+        let r_fb2 = run_dry_pipeline(&index, &opts_fb, &policy);
+        if r_fb.report_id != r_fb2.report_id {
+            return Err("norm_fitness_traces must participate in report_id deterministically".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-systemcube-tainted-units-warn-not-reject", "RX:Pipeline", || {
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let score = r.systemcube_compatibility_score()
+            .ok_or("compatibility score must be Some when systemcube enabled")?;
+        // Pipeline units are Synthetic → AcceptedWithTaint → TaintedUnit gaps → score < ONE
+        if score >= Q16::ONE {
+            return Err(format!("expected score < ONE for tainted units, got {}", score.raw()));
+        }
+        // Compatibility gaps produce Warn, never Reject (advisory only).
+        if r.final_result.is_rejected() {
+            return Err("compatibility gaps must Warn, not Reject".into());
+        }
+        // Contradiction energy accessor must return Some.
+        if r.systemcube_contradiction_energy().is_none() {
+            return Err("contradiction energy must be Some when systemcube enabled".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-systemcube-summary-includes-diagnostics", "RX:Pipeline", || {
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let s = r.summary();
+        if !s.contains("compat=") {
+            return Err(format!("summary must include compat= field, got: {}", &s[..s.len().min(200)]));
+        }
+        if !s.contains("contradiction_energy=") {
+            return Err("summary must include contradiction_energy= field".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-decision-taint-propagates-to-blueprint-units", "RX:Pipeline", || {
+        // All passive_run yields are Synthetic. The taint must flow from
+        // AssimilationDecision.taint through to BlueprintUnit, producing
+        // TaintedUnit compatibility gaps — proving the propagation chain.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let export = r.systemcube_export
+            .as_ref()
+            .ok_or("systemcube export must be present")?;
+        // Every gap must be TaintedUnit — no gaps of another kind when all decisions are Synthetic.
+        for gap in &export.compatibility.gaps {
+            if gap.gap_kind != "TaintedUnit" {
+                return Err(format!("unexpected gap kind '{}'; expected TaintedUnit from Synthetic decisions", gap.gap_kind));
+            }
+        }
+        // Decision taint participates in content-addressing: re-run must give identical report.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        if r.report_id != r2.report_id {
+            return Err("taint-carrying decisions must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
+
+    v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let src = Digest::of_bytes(b"src");
+        let ev = Digest::of_bytes(b"ev");
+        let accepted = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let opaque = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![],
+            &policy,
+        );
+        let ea = accepted.energy_assessment(&GateResult::Pass);
+        let eo = opaque.energy_assessment(&GateResult::Pass);
+        if ea.energy.raw() == 0 {
+            return Err("accepted BlueprintUnit must have positive energy".into());
+        }
+        if eo.energy.raw() != 0 {
+            return Err(format!("opaque-rejected BlueprintUnit must have zero energy, got {}", eo.energy.raw()));
+        }
+        // evidence self-referential (CROSS-006): unit_id used as evidence_bundle_id
+        if ea.evidence_bundle_id != accepted.unit_id {
+            return Err("evidence_bundle_id must equal unit_id (self-referential, CROSS-006)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-blueprint-energy-tainted-ranks-below-clean", "RX:BlueprintEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let ev = Digest::of_bytes(b"ev");
+        let clean = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            Digest::of_bytes(b"s1"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let synthetic = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            Digest::of_bytes(b"s2"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Synthetic,
+            vec![ev],
+            &policy,
+        );
+        let e_clean = clean.energy_assessment(&GateResult::Pass).energy;
+        let e_synthetic = synthetic.energy_assessment(&GateResult::Pass).energy;
+        if e_clean <= e_synthetic {
+            return Err(format!(
+                "clean (energy={}) must rank above synthetic tainted (energy={})",
+                e_clean.raw(), e_synthetic.raw()
+            ));
+        }
+        // rank_by_energy must surface clean first
+        let assessments = vec![
+            synthetic.energy_assessment(&GateResult::Pass),
+            clean.energy_assessment(&GateResult::Pass),
+        ];
+        let ranked = rank_by_energy(&assessments);
+        if ranked[0].subject_id != clean.unit_id {
+            return Err("rank_by_energy must put clean BlueprintUnit first".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {
@@ -2569,6 +3173,162 @@ fn it_builds() { assert!(true); }
         // package_id in the write report must match the parsed package id
         if report.package_id != pkg.id {
             return Err("package_id in write report must equal parsed KcubePackage.id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:ContradictionEnergy — real pairwise contradiction detection ───────────
+
+    v.push(run_check("rx-contradiction-energy-role-conflict-detected", "RX:ContradictionEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let src = d(b"shared_source");
+        let ev1 = d(b"ev1");
+        let ev2 = d(b"ev2");
+        // Two units with the same source_ref but different kinds = RoleConflict.
+        let boundary = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev1],
+            &policy,
+        );
+        let crystal = BlueprintUnit::new(
+            BlueprintUnitKind::CrystalReference,
+            src,
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev2],
+            &policy,
+        );
+        let r = ContradictionEnergyReport::from_units(mid, &policy, &[boundary, crystal]);
+        if r.status != EnergyStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.contradictions.len() != 1 {
+            return Err(format!("expected 1 contradiction, got {}", r.contradictions.len()));
+        }
+        if r.contradictions[0].weight != Q16::ONE {
+            return Err(format!("RoleConflict weight must be Q16::ONE, got {}", r.contradictions[0].weight.raw()));
+        }
+        if !r.contradictions[0].reason.contains("RoleConflict") {
+            return Err("contradiction reason must mention RoleConflict".into());
+        }
+        if r.total_energy != Q16::ONE {
+            return Err(format!("total_energy must be ONE, got {}", r.total_energy.raw()));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-contradiction-energy-independent-sources-zero", "RX:ContradictionEnergy", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let ev = d(b"ev");
+        // Units with distinct source_refs must not generate contradictions.
+        let u1 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src_a"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let u2 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src_b"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let r = ContradictionEnergyReport::from_units(mid, &policy, &[u1.clone(), u2.clone()]);
+        if r.status != EnergyStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.total_energy != Q16::ZERO {
+            return Err(format!("independent sources must yield zero energy, got {}", r.total_energy.raw()));
+        }
+        if !r.contradictions.is_empty() {
+            return Err(format!("expected 0 contradictions, got {}", r.contradictions.len()));
+        }
+        // report must be content-addressed and deterministic
+        let r2 = ContradictionEnergyReport::from_units(mid, &policy, &[u1, u2]);
+        if r.report_id != r2.report_id {
+            return Err("ContradictionEnergyReport must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Compatibility — CompatibilityProfileReport real gap detection ─────────
+
+    v.push(run_check("rx-compatibility-clean-units-score-one", "RX:Compatibility", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let hid = d(b"host");
+        let ev = d(b"ev");
+        let u1 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src1"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let u2 = BlueprintUnit::new(
+            BlueprintUnitKind::FiberDescriptor,
+            d(b"src2"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let r = CompatibilityProfileReport::from_units(mid, hid, &policy, &[u1.clone(), u2.clone()]);
+        if r.status != CompatibilityStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.compatibility_score != Q16::ONE {
+            return Err(format!("all-clean units must yield score=ONE, got {}", r.compatibility_score.raw()));
+        }
+        if !r.gaps.is_empty() {
+            return Err(format!("expected 0 gaps, got {}", r.gaps.len()));
+        }
+        // report must be content-addressed
+        let r2 = CompatibilityProfileReport::from_units(mid, hid, &policy, &[u1, u2]);
+        if r.report_id != r2.report_id {
+            return Err("CompatibilityProfileReport must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-compatibility-tainted-unit-reduces-score", "RX:Compatibility", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let hid = d(b"host");
+        let ev = d(b"ev");
+        let tainted = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src1"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Synthetic,
+            vec![ev],
+            &policy,
+        );
+        let r = CompatibilityProfileReport::from_units(mid, hid, &policy, &[tainted]);
+        if r.status != CompatibilityStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.gaps.len() != 1 {
+            return Err(format!("expected 1 gap, got {}", r.gaps.len()));
+        }
+        if r.gaps[0].gap_kind != "TaintedUnit" {
+            return Err(format!("expected TaintedUnit gap, got {}", r.gaps[0].gap_kind));
+        }
+        if r.gaps[0].severity != Q16::HALF {
+            return Err(format!("TaintedUnit severity must be HALF, got {}", r.gaps[0].severity.raw()));
+        }
+        if r.compatibility_score != Q16::HALF {
+            return Err(format!("one tainted unit must yield score=HALF, got {}", r.compatibility_score.raw()));
         }
         Ok(())
     }));

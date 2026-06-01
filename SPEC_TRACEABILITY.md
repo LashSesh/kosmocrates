@@ -51,7 +51,7 @@ Target crate: `crates/kosmo-hyphae`
 | `HostBinding` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/host.rs` |
 | `HostCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/host.rs` |
 | `TopologicalVoidMap` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/void_map.rs` |
-| `DeficiencyVector` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/deficiency.rs` |
+| `DeficiencyVector` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/deficiency.rs` + always-on in pipeline Step 1c |
 | `SourceIntent` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
 | `SourceFrontierGraph` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
 | `SourceEvidence` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
@@ -85,7 +85,7 @@ Target crate: `crates/kosmo-hyphae`
 | `CorpusEntity` / `CorpusRelation` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
 | `CorpusCartographyUpdate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
 | `CartographyPrecheck` / `ReplayManifest` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
-| `StructuralCrystalCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
+| `StructuralCrystalCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` + certification work queue in pipeline Step 5d |
 | `ConstraintProgram` / `AssimilationCertificate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
 | `StructuralCrystalRecord` / `Resonite` + `energy_assessment` | HYPHAE v0.4 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/crystal.rs` |
 | `DualFabricGateCascade` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
@@ -106,8 +106,8 @@ Target crate: `crates/kosmo-hyphae`
 | `MicrographLiftReport` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MetatronRegionFingerprint` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MicroTopologyDiagnostic` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `TopologyAmbiguityProfile` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `ComplementVoidHypothesis` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `TopologyAmbiguityProfile` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` + energy-ranked in pipeline Step 3f |
+| `ComplementVoidHypothesis` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` + energy-ranked in pipeline Step 3f |
 | `MicroTopologyIndex` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MicroTopologyIndex` (assembled in pipeline Step 3d) | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` + `kosmo-pipeline/src/lib.rs` |
 | `lift_region()` M1 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
@@ -123,7 +123,7 @@ Target crate: `crates/kosmo-hyphae`
 | `SurgeryRisk` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
 | `TopologicalSurgeryOption` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
 | `SurgeryBackedCollapseStep` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
-| `SurgeryWorkbenchTask` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `SurgeryWorkbenchTask` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` + assembled in pipeline Step 3e |
 
 ## MVP-6 / Phase 8 — LPCM v0.4.2
 
@@ -220,8 +220,9 @@ Target: `crates/kosmo-pse-bridge/src/lib.rs`
 
 | Type / Module | Status |
 |---|---|
-| `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest`, `PromotionOutcome` | ✅ |
+| `PseBridgeCandidate`, `PseBridgeCandidateKind`, `PseBridgePolicy`, `PromotionRequest`, `PromotionOutcome` | ✅ |
 | `validate_candidate` | ✅ |
+| `PseBridgeCandidate` assembled from pipeline observations in Step 6b (`kosmo-pipeline`) | ✅ |
 
 ### R8 — Controlled Acquisition
 Target: `kosmo-core/src/acquisition.rs`
@@ -298,6 +299,7 @@ Every kosmo-hyphae type carrying a Q16 score now has `energy_assessment`.
 | `MicrographLiftReport` | `loss_ratio` | `micrograph_id` (causal) |
 | `TopologyAmbiguityProfile` | `confidence_score` | `micrograph_id` (causal) |
 | `ComplementVoidHypothesis` | `confidence_score` | first `evidence_ids` or `micrograph_id` |
+| `BlueprintUnit` | `Q16::ONE` (Accepted/AcceptedWithTaint), `Q16::ZERO` (RejectedOpaque) | `unit_id` (self-ref) |
 
 ### TE — Real code topology extraction
 Target: `crates/kosmo-hyphae/src/code_hdag.rs` (AD-016)
@@ -316,4 +318,8 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (34 scenarios including all energy-ranked pipeline outputs) | ✅ |
+| `RX:Pipeline` (46 scenarios including all energy-ranked pipeline outputs + Steps 1c, 3e, 3f, 5c, 5d, 5e, 6b) | ✅ |
+| `RX:BlueprintEnergy` (2 scenarios: accepted positive / opaque zero; tainted ranks below clean) | ✅ |
+| `RX:ContradictionEnergy` (2 scenarios: role conflict detected; independent sources zero energy) | ✅ |
+| `RX:Compatibility` (2 scenarios: clean units score=ONE; tainted unit reduces score + gap) | ✅ |
+| `RX:Pipeline` systemcube diagnostics (tainted units Warn-not-Reject; summary includes compat + contradiction_energy) | ✅ |

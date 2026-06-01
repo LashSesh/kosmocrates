@@ -4,7 +4,10 @@
 //! content-addressed topological descriptor that can be included in a
 //! `SystemCubeManifest`. Opaque (non-evidence-bound) units are rejected.
 
-use kosmo_core::{AuthorityLabel, Digest, PolicyProfile, TaintLabel};
+use kosmo_core::{
+    AuthorityLabel, Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, PolicyProfile, Q16, TaintLabel, TripolarEnergy,
+};
 use serde::{Deserialize, Serialize};
 
 // ─── Blueprint Unit Kind ──────────────────────────────────────────────────────
@@ -112,6 +115,36 @@ impl BlueprintUnit {
     pub fn is_accepted(&self) -> bool {
         !matches!(self.status, BlueprintUnitStatus::RejectedOpaque)
     }
+
+    /// Build an [`EnergyAssessment`] for this unit using the tripolar kernel.
+    ///
+    /// - ψ = `Q16::ONE` for Accepted/AcceptedWithTaint; `Q16::ZERO` for RejectedOpaque.
+    ///   The taint factor separately reduces energy for tainted units (CROSS-010).
+    /// - ρ = `Q16::ONE` (no coherence data at BlueprintUnit level).
+    /// - ω = `Q16::ONE` (no phase data at BlueprintUnit level).
+    /// - `evidence_bundle_id = self.unit_id` (self-referential; always non-ZERO, CROSS-006).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let psi = if matches!(self.status, BlueprintUnitStatus::RejectedOpaque) {
+            Q16::ZERO
+        } else {
+            Q16::ONE
+        };
+        let tripolar = TripolarEnergy::new(psi, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: EnergyFactors::taint_factor(&self.taint),
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.unit_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.unit_id,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -208,5 +241,63 @@ mod tests {
             &policy(),
         );
         assert_eq!(u.evidence_ids, vec![e1.min(e2), e1.max(e2)]);
+    }
+
+    #[test]
+    fn blueprint_unit_accepted_energy_is_positive() {
+        let u = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src(),
+            AuthorityLabel::Operator,
+            TaintLabel::Clean,
+            vec![ev()],
+            &policy(),
+        );
+        let assessment = u.energy_assessment(&GateResult::Pass);
+        assert!(assessment.energy.raw() > 0, "accepted unit must have positive energy");
+        assert_eq!(assessment.subject_id, u.unit_id);
+        assert_eq!(assessment.evidence_bundle_id, u.unit_id);
+    }
+
+    #[test]
+    fn blueprint_unit_rejected_opaque_has_zero_energy() {
+        let u = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src(),
+            AuthorityLabel::Operator,
+            TaintLabel::Clean,
+            vec![],
+            &policy(),
+        );
+        assert_eq!(u.status, BlueprintUnitStatus::RejectedOpaque);
+        let assessment = u.energy_assessment(&GateResult::Pass);
+        assert_eq!(assessment.energy.raw(), 0, "opaque-rejected unit must have zero energy");
+    }
+
+    #[test]
+    fn blueprint_unit_tainted_lower_energy_than_clean() {
+        let clean = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            src(),
+            AuthorityLabel::Operator,
+            TaintLabel::Clean,
+            vec![ev()],
+            &policy(),
+        );
+        let tainted = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            Digest::of_bytes(b"src2"),
+            AuthorityLabel::Operator,
+            TaintLabel::Synthetic,
+            vec![ev()],
+            &policy(),
+        );
+        let e_clean = clean.energy_assessment(&GateResult::Pass).energy;
+        let e_tainted = tainted.energy_assessment(&GateResult::Pass).energy;
+        assert!(
+            e_clean > e_tainted,
+            "clean unit (energy={}) must rank above tainted unit (energy={})",
+            e_clean.raw(), e_tainted.raw()
+        );
     }
 }

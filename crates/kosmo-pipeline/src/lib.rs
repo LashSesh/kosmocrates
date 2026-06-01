@@ -27,21 +27,22 @@ pub use materialization::{
 };
 pub use persistence::persist_cartography_update;
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, rank_by_energy};
+use kosmo_core::{Digest, GateResult, PolicyProfile, PromotionFeedback, Q16, rank_by_energy};
 use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_hyphae::{
-    CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
-    CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
-    MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
-    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormGeneCandidate,
-    Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph, SupportMassVector,
-    TopologicalSurgeryOption, diagnose_micrograph, lift_region,
-    passive_run, HyphaeRunResult,
+    CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography, CorpusCartographyUpdate,
+    CubeSwarm, CubeDimensionProfile, DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta,
+    LpcmPassiveReport, MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
+    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormFitnessTrace,
+    NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
+    StructuralCrystalCandidate, SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption,
+    TopologyAmbiguityProfile, diagnose_micrograph, lift_region, passive_run, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
 };
+use kosmo_pse_bridge::{PseBridgeCandidate, PseBridgeCandidateKind};
 use kosmo_workbench::WorkspaceIndex;
 use serde::{Deserialize, Serialize};
 
@@ -69,6 +70,15 @@ pub struct IntegrationRunOptions {
     /// Generate energy-ranked `NormGeneCandidate` objects from accepted decisions.
     /// Initial fitness = `Q16::ONE`; evolves via `NormFitnessTrace` in later phases.
     pub enable_norm_candidates: bool,
+    /// Collect `StructuralCrystalCandidate` objects from accepted decisions (Step 5d).
+    /// Candidates start with `support_score = Q16::ZERO` (pending certification).
+    pub enable_crystal_candidates: bool,
+    /// Convert norm + topology candidates into `PseBridgeCandidate` objects (Step 6b).
+    /// Produces a flat, confidence-ranked list ready for PSE evaluation.
+    pub enable_pse_candidates: bool,
+    /// Prior `PromotionFeedback` records to ingest into `NormFitnessTrace` objects
+    /// for each matching norm candidate (Step 5c). Empty by default.
+    pub prior_feedback: Vec<PromotionFeedback>,
 }
 
 impl IntegrationRunOptions {
@@ -82,6 +92,9 @@ impl IntegrationRunOptions {
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: false,
             enable_norm_candidates: false,
+            enable_crystal_candidates: false,
+            enable_pse_candidates: false,
+            prior_feedback: vec![],
         }
     }
 
@@ -95,6 +108,9 @@ impl IntegrationRunOptions {
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: true,
             enable_norm_candidates: true,
+            enable_crystal_candidates: true,
+            enable_pse_candidates: true,
+            prior_feedback: vec![],
         }
     }
 }
@@ -105,6 +121,7 @@ impl IntegrationRunOptions {
 #[derive(Serialize)]
 struct ReportContent {
     hyphae_run_id: Digest,
+    deficiency_vector_id: Digest,
     cartography_update_id: Digest,
     swarm_composite_id: Digest,
     void_fill_delta_id: Digest,
@@ -118,7 +135,13 @@ struct ReportContent {
     lift_report_count: u32,
     lpcm_count: u32,
     surgery_count: u32,
+    surgery_workbench_task_count: u32,
+    ambiguity_profile_count: u32,
+    void_hypothesis_count: u32,
+    crystal_candidate_count: u32,
+    pse_candidate_count: u32,
     norm_candidate_count: u32,
+    norm_fitness_trace_count: u32,
     has_systemcube: bool,
 }
 
@@ -132,6 +155,9 @@ pub struct IntegrationRunReport {
     pub report_id: Digest,
     pub policy_id: Digest,
     pub hyphae_result: HyphaeRunResult,
+    /// Deficiency summary derived from the host void map (always present).
+    /// Entries sorted by kind; total_severity is the Q16 average.
+    pub deficiency_vector: DeficiencyVector,
     pub cartography_update: CorpusCartographyUpdate,
     /// Phase 4: merged support cube from all accepted SourceCubes.
     pub swarm_composite: CompositeSupportCube,
@@ -156,10 +182,31 @@ pub struct IntegrationRunReport {
     /// Energy-ranked surgery options derived from Metatron diagnostics.
     /// Empty when `enable_surgery` or `enable_metatron` is false.
     pub surgery_options: Vec<TopologicalSurgeryOption>,
+    /// Workbench-compatible surgery tasks derived 1:1 from `surgery_options`.
+    /// In the same energy-ranked order. Empty when `surgery_options` is empty.
+    pub surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
+    /// Energy-ranked topology ambiguity profiles from all Metatron diagnostics.
+    /// Most-confident ambiguity first. Empty when `enable_metatron` is false.
+    pub ambiguity_profiles: Vec<TopologyAmbiguityProfile>,
+    /// Energy-ranked complement void hypotheses from all Metatron diagnostics.
+    /// Most-confident hypothesis first. Empty when `enable_metatron` is false.
+    pub complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
+    /// Structural crystal candidates from accepted decisions (Step 5d).
+    /// All start with `support_score = Q16::ZERO` (Pending certification).
+    /// Empty when `enable_crystal_candidates` is false.
+    pub crystal_candidates: Vec<StructuralCrystalCandidate>,
+    /// Flat confidence-ranked PSE bridge candidates (Step 6b) assembled from
+    /// norm candidates and topology observations. Ready for PSE evaluation.
+    /// Empty when `enable_pse_candidates` is false.
+    pub pse_candidates: Vec<PseBridgeCandidate>,
     /// Energy-ranked norm gene candidates generated from accepted decisions.
     /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
     /// Empty when `enable_norm_candidates` is false.
     pub norm_candidates: Vec<NormGeneCandidate>,
+    /// Fitness traces for norm candidates, built from `prior_feedback` (Step 5c).
+    /// One trace per candidate that has at least one matching feedback record.
+    /// Empty when `prior_feedback` is empty or no feedback matches.
+    pub norm_fitness_traces: Vec<NormFitnessTrace>,
     pub systemcube_export: Option<KcubeExportReport>,
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
@@ -169,6 +216,7 @@ pub struct IntegrationRunReport {
 impl IntegrationRunReport {
     fn new(
         hyphae_result: HyphaeRunResult,
+        deficiency_vector: DeficiencyVector,
         cartography_update: CorpusCartographyUpdate,
         swarm_composite: CompositeSupportCube,
         void_fill_delta: HostTargetDelta,
@@ -180,7 +228,13 @@ impl IntegrationRunReport {
         lift_reports: Vec<MicrographLiftReport>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         surgery_options: Vec<TopologicalSurgeryOption>,
+        surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
+        ambiguity_profiles: Vec<TopologyAmbiguityProfile>,
+        complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
+        crystal_candidates: Vec<StructuralCrystalCandidate>,
+        pse_candidates: Vec<PseBridgeCandidate>,
         norm_candidates: Vec<NormGeneCandidate>,
+        norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
         aggregated_gate: AggregatedGateResult,
         policy: &PolicyProfile,
@@ -188,6 +242,7 @@ impl IntegrationRunReport {
         let final_result = aggregated_gate.final_result.clone();
         let report_id = Digest::of(&ReportContent {
             hyphae_run_id: hyphae_result.run_id,
+            deficiency_vector_id: deficiency_vector.vector_id,
             cartography_update_id: cartography_update.update_id,
             swarm_composite_id: swarm_composite.composite_id,
             void_fill_delta_id: void_fill_delta.delta_id,
@@ -201,13 +256,20 @@ impl IntegrationRunReport {
             lift_report_count: lift_reports.len() as u32,
             lpcm_count: lpcm_reports.len() as u32,
             surgery_count: surgery_options.len() as u32,
+            surgery_workbench_task_count: surgery_workbench_tasks.len() as u32,
+            ambiguity_profile_count: ambiguity_profiles.len() as u32,
+            void_hypothesis_count: complement_void_hypotheses.len() as u32,
+            crystal_candidate_count: crystal_candidates.len() as u32,
+            pse_candidate_count: pse_candidates.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
+            norm_fitness_trace_count: norm_fitness_traces.len() as u32,
             has_systemcube: systemcube_export.is_some(),
         });
         Self {
             report_id,
             policy_id: policy.id,
             hyphae_result,
+            deficiency_vector,
             cartography_update,
             swarm_composite,
             void_fill_delta,
@@ -219,29 +281,55 @@ impl IntegrationRunReport {
             lift_reports,
             lpcm_reports,
             surgery_options,
+            surgery_workbench_tasks,
+            ambiguity_profiles,
+            complement_void_hypotheses,
+            crystal_candidates,
+            pse_candidates,
             norm_candidates,
+            norm_fitness_traces,
             systemcube_export,
             aggregated_gate,
             final_result,
         }
     }
 
+    /// Total contradiction energy from the SystemCube export, if enabled.
+    pub fn systemcube_contradiction_energy(&self) -> Option<Q16> {
+        self.systemcube_export.as_ref().map(|e| e.contradiction_energy.total_energy)
+    }
+
+    /// Compatibility score from the SystemCube export, if enabled.
+    /// `Q16::ONE` = all accepted units are fully compatible; lower = gaps present.
+    pub fn systemcube_compatibility_score(&self) -> Option<Q16> {
+        self.systemcube_export.as_ref().map(|e| e.compatibility.compatibility_score)
+    }
+
     /// Operator-readable summary of the pipeline run.
     pub fn summary(&self) -> String {
         let scube = if let Some(ref e) = self.systemcube_export {
-            format!("systemcube=Some(mode={:?})", e.mode)
+            format!(
+                "systemcube=Some(mode={:?}, compat={}, contradiction_energy={})",
+                e.mode,
+                e.compatibility.compatibility_score.raw(),
+                e.contradiction_energy.total_energy.raw(),
+            )
         } else {
             "systemcube=None".into()
         };
         format!(
             "IntegrationRunReport — policy={:.8} | final={:?} | \
-             hyphae: {} | cartography: {} entities | voids (priority): {} | \
+             hyphae: {} | deficiency: {} entries (severity={}) | \
+             cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
-             surgery: {} | norm_candidates: {} | {}",
+             surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
+             crystal_candidates: {} | pse_candidates: {} | norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
+            self.deficiency_vector.entries.len(),
+            self.deficiency_vector.total_severity.raw(),
             self.cartography_update.added_entity_ids.len(),
             self.void_priority_ranking.len(),
             self.swarm_composite.source_cube_ids.len(),
@@ -254,7 +342,13 @@ impl IntegrationRunReport {
             self.lift_reports.len(),
             self.lpcm_reports.len(),
             self.surgery_options.len(),
+            self.surgery_workbench_tasks.len(),
+            self.ambiguity_profiles.len(),
+            self.complement_void_hypotheses.len(),
+            self.crystal_candidates.len(),
+            self.pse_candidates.len(),
             self.norm_candidates.len(),
+            self.norm_fitness_traces.len(),
             scube,
         )
     }
@@ -270,6 +364,7 @@ impl IntegrationRunReport {
     pub fn verify_policy_consistency(&self) -> bool {
         let pid = self.policy_id;
         self.hyphae_result.policy_id == pid
+            && self.deficiency_vector.policy_id == pid
             && self.cartography_update.policy_id == pid
             && self.swarm_composite.policy_id == pid
             && self.void_fill_delta.policy_id == pid
@@ -280,7 +375,13 @@ impl IntegrationRunReport {
             && self.metatron_index.policy_id == pid
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
             && self.surgery_options.iter().all(|o| o.policy_id == pid)
+            && self.surgery_workbench_tasks.iter().all(|t| t.policy_id == pid)
+            && self.ambiguity_profiles.iter().all(|a| a.policy_id == pid)
+            && self.complement_void_hypotheses.iter().all(|h| h.policy_id == pid)
+            && self.crystal_candidates.iter().all(|c| c.policy_id == pid)
+            && self.pse_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
+            && self.norm_fitness_traces.iter().all(|t| t.policy_id == pid)
             && self
                 .systemcube_export
                 .as_ref()
@@ -332,6 +433,9 @@ pub fn run_dry_pipeline(
         .host_cube
         .void_map
         .priority_ranking(&GateResult::Pass);
+
+    // ── 1c. DeficiencyVector — derived from void_map, always present ─────────
+    let deficiency_vector = DeficiencyVector::from_void_map(&hyphae.host_cube.void_map);
 
     // ── 2. CorpusCartography update ───────────────────────────────────────────
     let corpus = CorpusCartography::empty(policy.id);
@@ -396,6 +500,40 @@ pub fn run_dry_pipeline(
         } else {
             Vec::new()
         };
+
+    // ── 3e. Surgery workbench tasks — 1:1 from ranked surgery options ─────────
+    let surgery_workbench_tasks: Vec<SurgeryWorkbenchTask> = surgery_options
+        .iter()
+        .map(SurgeryWorkbenchTask::from_option)
+        .collect();
+
+    // ── 3f. Flatten + energy-rank ambiguity profiles and void hypotheses ────────
+    let ambiguity_profiles: Vec<TopologyAmbiguityProfile> = {
+        let raw: Vec<TopologyAmbiguityProfile> = metatron_diagnostics
+            .iter()
+            .flat_map(|d| d.ambiguities.iter().cloned())
+            .collect();
+        let assessments: Vec<_> = raw.iter()
+            .map(|a| a.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        ranked.iter()
+            .filter_map(|a| raw.iter().find(|p| p.profile_id == a.subject_id).cloned())
+            .collect()
+    };
+    let complement_void_hypotheses: Vec<ComplementVoidHypothesis> = {
+        let raw: Vec<ComplementVoidHypothesis> = metatron_diagnostics
+            .iter()
+            .flat_map(|d| d.void_hypotheses.iter().cloned())
+            .collect();
+        let assessments: Vec<_> = raw.iter()
+            .map(|h| h.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        ranked.iter()
+            .filter_map(|a| raw.iter().find(|h| h.hypothesis_id == a.subject_id).cloned())
+            .collect()
+    };
 
     // ── 4. Optional LPCM v0.4.2 passive reports ───────────────────────────────
     let mut lpcm_reports: Vec<LpcmPassiveReport> = Vec::new();
@@ -498,6 +636,19 @@ pub fn run_dry_pipeline(
         policy.id,
     );
 
+    // ── 5d. Optional crystal candidates — from accepted decisions ────────────
+    // One StructuralCrystalCandidate per accepted decision; support_score = Q16::ZERO
+    // (Pending certification). Collected to form an explicit certification work queue.
+    let crystal_candidates: Vec<StructuralCrystalCandidate> =
+        if options.enable_crystal_candidates {
+            hyphae.decisions.iter()
+                .filter(|d| d.outcome.is_accepted())
+                .map(StructuralCrystalCandidate::from_decision)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
     // ── 5b. Optional norm candidates — from accepted decisions ────────────────
     // One NormGeneCandidate per accepted decision: name derived from void/yield,
     // initial fitness = Q16::ONE (just accepted). Evidence = decision's evidence_bundle_id
@@ -538,10 +689,28 @@ pub fn run_dry_pipeline(
         Vec::new()
     };
 
+    // ── 5c. NormFitnessTrace: apply prior feedback to norm candidates ─────────
+    // Closes the "Wissen zurück ins Substrat" loop: PSE outcome → feedback record
+    // → fitness trace update. Only builds traces for candidates with ≥1 match.
+    let norm_fitness_traces: Vec<NormFitnessTrace> = norm_candidates
+        .iter()
+        .filter_map(|candidate| {
+            let trace = options.prior_feedback
+                .iter()
+                .filter(|fb| fb.norm_candidate_id == candidate.candidate_id)
+                .fold(
+                    NormFitnessTrace::empty(candidate.candidate_id, policy.id),
+                    |t, fb| t.observe_from_feedback(fb),
+                );
+            if trace.observations.is_empty() { None } else { Some(trace) }
+        })
+        .collect();
+
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
         let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
-        let units: Vec<BlueprintUnit> = hyphae
+        // Step 5e: build units then energy-rank them (accepted first, tainted below).
+        let raw_units: Vec<BlueprintUnit> = hyphae
             .decisions
             .iter()
             .filter(|d| d.outcome.is_accepted())
@@ -550,18 +719,84 @@ pub fn run_dry_pipeline(
                     BlueprintUnitKind::ModuleBoundary,
                     d.yield_id,
                     kosmo_core::AuthorityLabel::Foundry,
-                    TaintLabel::Synthetic,
+                    d.taint.clone(),
                     vec![d.evidence_bundle_id],
                     policy,
                 )
             })
             .collect();
+        let assessments: Vec<_> = raw_units.iter().map(|u| u.energy_assessment(&GateResult::Pass)).collect();
+        let ranked_ids = rank_by_energy(&assessments);
+        let units: Vec<BlueprintUnit> = ranked_ids
+            .iter()
+            .filter_map(|a| raw_units.iter().find(|u| u.unit_id == a.subject_id).cloned())
+            .collect();
         let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
         let export = cube.export_dry_run(options.systemcube_capacity, policy);
-        agg.record("systemcube", export.export_id, GateResult::Pass);
+        // Gate contribution: Warn when compatibility gaps exist (structural advisory, not energy).
+        let cube_gate = if export.compatibility.gaps.is_empty() {
+            GateResult::Pass
+        } else {
+            GateResult::Warn {
+                message: format!(
+                    "systemcube: {} compatibility gap(s); score={}",
+                    export.compatibility.gaps.len(),
+                    export.compatibility.compatibility_score.raw(),
+                ),
+            }
+        };
+        agg.record("systemcube", export.export_id, cube_gate);
         Some(export)
     } else {
         None
+    };
+
+    // ── 6b. PSE bridge candidates — flatten + confidence-rank ─────────────────
+    // Converts norm candidates and topology observations into PseBridgeCandidate
+    // objects, ready for PSE evaluation via validate_candidate().
+    let pse_candidates: Vec<PseBridgeCandidate> = if options.enable_pse_candidates {
+        let mut raw: Vec<PseBridgeCandidate> = Vec::new();
+        // NormGeneCandidate → StructuralObservation
+        for c in &norm_candidates {
+            raw.push(PseBridgeCandidate::new(
+                PseBridgeCandidateKind::StructuralObservation,
+                c.candidate_id,
+                &format!("norm:{}", &c.name[..c.name.len().min(32)]),
+                c.fitness_score,
+                hyphae.run_id,
+                c.evidence_bundle_id,
+                policy.id,
+            ));
+        }
+        // TopologyAmbiguityProfile → TopologyObservation
+        for a in &ambiguity_profiles {
+            raw.push(PseBridgeCandidate::new(
+                PseBridgeCandidateKind::TopologyObservation,
+                a.profile_id,
+                &format!("ambiguity:{:?}", a.ambiguity_kind),
+                a.confidence_score,
+                hyphae.run_id,
+                a.micrograph_id,
+                policy.id,
+            ));
+        }
+        // ComplementVoidHypothesis → TopologyObservation
+        for h in &complement_void_hypotheses {
+            raw.push(PseBridgeCandidate::new(
+                PseBridgeCandidateKind::TopologyObservation,
+                h.hypothesis_id,
+                &format!("void_hyp:{}", &h.hypothesized_void_kind[..h.hypothesized_void_kind.len().min(24)]),
+                h.confidence_score,
+                hyphae.run_id,
+                h.hypothesis_id,
+                policy.id,
+            ));
+        }
+        // Sort by confidence descending (deterministic: stable sort, then by id).
+        raw.sort_by(|a, b| b.confidence.cmp(&a.confidence).then(a.id.cmp(&b.id)));
+        raw
+    } else {
+        Vec::new()
     };
 
     // ── 6. Aggregate gate results ─────────────────────────────────────────────
@@ -569,6 +804,7 @@ pub fn run_dry_pipeline(
 
     IntegrationRunReport::new(
         hyphae,
+        deficiency_vector,
         cartography_update,
         swarm_composite,
         void_fill_delta,
@@ -580,7 +816,13 @@ pub fn run_dry_pipeline(
         lift_reports,
         lpcm_reports,
         surgery_options,
+        surgery_workbench_tasks,
+        ambiguity_profiles,
+        complement_void_hypotheses,
+        crystal_candidates,
+        pse_candidates,
         norm_candidates,
+        norm_fitness_traces,
         systemcube_export,
         aggregated_gate,
         policy,
@@ -629,6 +871,32 @@ mod tests {
         assert_ne!(r1.report_id, Digest::ZERO);
     }
 
+    // ── DeficiencyVector Step 1c ──────────────────────────────────────────────
+
+    #[test]
+    fn pipeline_deficiency_vector_always_present() {
+        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert_ne!(r.deficiency_vector.vector_id, Digest::ZERO, "vector_id must be non-ZERO");
+        assert_eq!(r.deficiency_vector.policy_id, policy().id);
+    }
+
+    #[test]
+    fn pipeline_deficiency_vector_empty_for_empty_workspace() {
+        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.deficiency_vector.entries.is_empty(), "no deficiencies for empty workspace");
+    }
+
+    #[test]
+    fn pipeline_deficiency_vector_is_deterministic() {
+        let r1 = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert_eq!(
+            r1.deficiency_vector.vector_id,
+            r2.deficiency_vector.vector_id,
+            "deficiency_vector must be deterministic"
+        );
+    }
+
     // ── Policy consistency (traceability) ─────────────────────────────────────
 
     #[test]
@@ -665,12 +933,7 @@ mod tests {
     fn pipeline_metatron_produces_one_diagnostic_per_void() {
         let opts = IntegrationRunOptions {
             enable_metatron: true,
-            enable_lpcm: false,
-            enable_systemcube: false,
-            systemcube_capacity: 0,
-            lpcm_seam_threshold: Q16::ZERO,
-            enable_surgery: false,
-            enable_norm_candidates: false,
+            ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         assert_eq!(
@@ -757,6 +1020,69 @@ mod tests {
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         if let Some(ref export) = r.systemcube_export {
             assert_eq!(export.policy_id, p.id);
+        }
+    }
+
+    #[test]
+    fn pipeline_systemcube_compatibility_accessor_returns_score() {
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let score = r.systemcube_compatibility_score();
+        assert!(score.is_some(), "compatibility score must be Some when systemcube enabled");
+        // All pipeline units carry TaintLabel::Synthetic → AcceptedWithTaint → gaps → score < ONE
+        assert!(
+            score.unwrap() < Q16::ONE,
+            "tainted units must produce score < ONE (got {})",
+            score.unwrap().raw()
+        );
+    }
+
+    #[test]
+    fn pipeline_systemcube_contradiction_energy_accessor_returns_value() {
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let energy = r.systemcube_contradiction_energy();
+        assert!(energy.is_some(), "contradiction energy must be Some when systemcube enabled");
+    }
+
+    #[test]
+    fn pipeline_systemcube_tainted_units_produce_warn_gate() {
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        // All pipeline units are Synthetic → compatibility gaps → gate Warn
+        // Warn is not Pass and not Reject — aggregate should carry the Warn
+        assert!(
+            !r.final_result.is_rejected(),
+            "compatibility gaps must Warn, never Reject"
+        );
+        // summary must now include compat and contradiction_energy
+        let s = r.summary();
+        assert!(s.contains("compat="), "summary must include compat score");
+        assert!(s.contains("contradiction_energy="), "summary must include contradiction energy");
+    }
+
+    #[test]
+    fn pipeline_blueprint_units_carry_decision_taint() {
+        // All passive_run decisions are Synthetic → BlueprintUnits must be
+        // AcceptedWithTaint, producing TaintedUnit compatibility gaps.
+        let opts = IntegrationRunOptions::all_layers(4);
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        if let Some(ref export) = r.systemcube_export {
+            // Every compatibility gap must be TaintedUnit (propagated from Synthetic decision)
+            for gap in &export.compatibility.gaps {
+                assert_eq!(
+                    gap.gap_kind, "TaintedUnit",
+                    "gaps from Synthetic decisions must be TaintedUnit, got {}",
+                    gap.gap_kind
+                );
+            }
+            // If there are accepted units there must be at least one TaintedUnit gap
+            if export.d_density.accepted_unit_count > 0 {
+                assert!(
+                    !export.compatibility.gaps.is_empty(),
+                    "Synthetic decisions must generate TaintedUnit gaps"
+                );
+            }
         }
     }
 
@@ -953,6 +1279,294 @@ mod tests {
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for c in &r.norm_candidates {
             assert_eq!(c.policy_id, p.id, "norm candidate must carry pipeline policy_id");
+        }
+    }
+
+    // ── Ambiguity profiles + void hypotheses (Step 3f) ───────────────────────
+
+    #[test]
+    fn pipeline_no_ambiguity_profiles_when_metatron_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.ambiguity_profiles.is_empty(),
+            "ambiguity_profiles must be empty when Metatron is disabled"
+        );
+        assert!(
+            r.complement_void_hypotheses.is_empty(),
+            "complement_void_hypotheses must be empty when Metatron is disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_ambiguity_profiles_are_energy_ranked() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        // Determinism.
+        let ids1: Vec<_> = r1.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        let ids2: Vec<_> = r2.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        assert_eq!(ids1, ids2, "ambiguity_profiles must be deterministic");
+        // Energy order: confidence_score descending.
+        for window in r1.ambiguity_profiles.windows(2) {
+            assert!(
+                window[0].confidence_score >= window[1].confidence_score,
+                "ambiguity_profiles must be ranked by confidence_score descending"
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_ambiguity_profiles_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for a in &r.ambiguity_profiles {
+            assert_eq!(a.policy_id, p.id, "ambiguity profile must carry pipeline policy_id");
+            assert_ne!(a.profile_id, Digest::ZERO, "profile_id must be non-ZERO");
+        }
+        for h in &r.complement_void_hypotheses {
+            assert_eq!(h.policy_id, p.id, "void hypothesis must carry pipeline policy_id");
+            assert_ne!(h.hypothesis_id, Digest::ZERO, "hypothesis_id must be non-ZERO");
+        }
+        assert!(r.verify_policy_consistency(), "verify_policy_consistency must cover ambiguities + hypotheses");
+    }
+
+    // ── Surgery workbench tasks (Step 3e) ────────────────────────────────────
+
+    #[test]
+    fn pipeline_no_surgery_workbench_tasks_when_surgery_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.surgery_workbench_tasks.is_empty(),
+            "surgery_workbench_tasks must be empty when surgery is disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_surgery_workbench_tasks_match_surgery_options_count() {
+        let opts = IntegrationRunOptions {
+            enable_surgery: true,
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert_eq!(
+            r.surgery_workbench_tasks.len(),
+            r.surgery_options.len(),
+            "surgery_workbench_tasks must be 1:1 with surgery_options"
+        );
+    }
+
+    // ── PSE bridge candidates (Step 6b) ──────────────────────────────────────
+
+    #[test]
+    fn pipeline_no_pse_candidates_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.pse_candidates.is_empty(),
+            "pse_candidates must be empty when disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_pse_candidates_from_norm_and_topology_observations() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_norm_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let expected_min = r.norm_candidates.len()
+            + r.ambiguity_profiles.len()
+            + r.complement_void_hypotheses.len();
+        assert_eq!(
+            r.pse_candidates.len(),
+            expected_min,
+            "pse_candidates must cover all norm + topology sources"
+        );
+        // Confidence descending.
+        for window in r.pse_candidates.windows(2) {
+            assert!(
+                window[0].confidence >= window[1].confidence,
+                "pse_candidates must be sorted by confidence descending"
+            );
+        }
+        // All must be non-ZERO and carry pipeline policy_id.
+        for c in &r.pse_candidates {
+            assert_ne!(c.id, Digest::ZERO, "PSE candidate id must be non-ZERO");
+            assert_eq!(c.policy_id, policy().id, "PSE candidate must carry pipeline policy_id");
+            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-ZERO");
+        }
+    }
+
+    #[test]
+    fn pipeline_pse_candidates_are_deterministic() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_norm_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let ids1: Vec<_> = r1.pse_candidates.iter().map(|c| c.id).collect();
+        let ids2: Vec<_> = r2.pse_candidates.iter().map(|c| c.id).collect();
+        assert_eq!(ids1, ids2, "pse_candidates must be deterministic");
+        assert_eq!(r1.report_id, r2.report_id, "pse_candidate_count must participate in report_id");
+    }
+
+    // ── Crystal candidates from accepted decisions (Step 5d) ─────────────────
+
+    #[test]
+    fn pipeline_no_crystal_candidates_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.crystal_candidates.is_empty(),
+            "crystal_candidates must be empty when disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_crystal_candidates_one_per_accepted_decision() {
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let accepted_count = r.hyphae_result.decisions.iter()
+            .filter(|d| d.outcome.is_accepted())
+            .count();
+        assert_eq!(
+            r.crystal_candidates.len(),
+            accepted_count,
+            "one crystal candidate per accepted decision"
+        );
+        for c in &r.crystal_candidates {
+            assert_ne!(c.candidate_id, Digest::ZERO, "candidate_id must be non-ZERO");
+            assert_eq!(c.support_score, Q16::ZERO, "support_score starts at zero (Pending)");
+            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-ZERO");
+        }
+    }
+
+    #[test]
+    fn pipeline_crystal_candidates_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for c in &r.crystal_candidates {
+            assert_eq!(c.policy_id, p.id, "crystal candidate must carry pipeline policy_id");
+        }
+        assert!(
+            r.verify_policy_consistency(),
+            "verify_policy_consistency must cover crystal_candidates"
+        );
+    }
+
+    // ── NormFitnessTrace from prior feedback (Step 5c) ───────────────────────
+
+    #[test]
+    fn pipeline_no_fitness_traces_when_no_prior_feedback() {
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert!(
+            r.norm_fitness_traces.is_empty(),
+            "norm_fitness_traces must be empty when prior_feedback is empty"
+        );
+    }
+
+    #[test]
+    fn pipeline_fitness_trace_built_from_matching_feedback() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let p = policy();
+        let opts_gen = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        // First run: generate candidates.
+        let r1 = run_dry_pipeline(&fixture_index(), &opts_gen, &p);
+        if r1.norm_candidates.is_empty() {
+            return; // no accepted decisions in this fixture — skip
+        }
+        let candidate = &r1.norm_candidates[0];
+        let energy = Q16::ratio(3, 4).unwrap();
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            candidate.candidate_id,
+            candidate.candidate_id,
+            FeedbackOutcome::Accepted,
+            energy,
+            p.id,
+            candidate.evidence_bundle_id,
+        );
+        // Second run: apply the feedback.
+        let opts_fb = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            prior_feedback: vec![feedback.clone()],
+            ..IntegrationRunOptions::report_only()
+        };
+        let r2 = run_dry_pipeline(&fixture_index(), &opts_fb, &p);
+        let trace = r2.norm_fitness_traces.iter()
+            .find(|t| t.candidate_id == candidate.candidate_id)
+            .expect("trace must exist for the candidate that received feedback");
+        assert_eq!(trace.observations.len(), 1);
+        assert_eq!(trace.latest_fitness(), energy);
+        assert_eq!(trace.observations[0].evidence_ref, feedback.id);
+        assert_eq!(trace.policy_id, p.id);
+    }
+
+    #[test]
+    fn pipeline_fitness_trace_skips_unmatched_feedback() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let p = policy();
+        // Build feedback with a random candidate_id that matches nothing.
+        let unrelated_id = Digest::of_bytes(b"unrelated-candidate");
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            unrelated_id,
+            unrelated_id,
+            FeedbackOutcome::Accepted,
+            Q16::ONE,
+            p.id,
+            Digest::of_bytes(b"ev"),
+        );
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            prior_feedback: vec![feedback],
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        assert!(
+            r.norm_fitness_traces.is_empty(),
+            "unmatched feedback must not produce traces"
+        );
+    }
+
+    #[test]
+    fn pipeline_surgery_workbench_tasks_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_surgery: true,
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for t in &r.surgery_workbench_tasks {
+            assert_eq!(t.policy_id, p.id, "surgery workbench task must carry pipeline policy_id");
+            assert_ne!(t.task_id, Digest::ZERO, "task_id must be non-ZERO");
+            assert_ne!(t.surgery_option_id, Digest::ZERO, "surgery_option_id must trace back to source option");
         }
     }
 }
