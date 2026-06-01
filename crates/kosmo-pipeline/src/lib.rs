@@ -30,8 +30,8 @@ use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
-    CubeDimensionProfile, HostTargetDelta, LpcmPassiveReport, MicroTopologyDiagnostic,
-    Fragment, FragmentField, FragmentKind, SourceCube,
+    CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
+    MicroTopologyDiagnostic, Fragment, FragmentField, FragmentKind, SourceCube,
     SeamGraph, SupportMassVector,
     diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
@@ -95,6 +95,7 @@ struct ReportContent {
     cartography_update_id: Digest,
     swarm_composite_id: Digest,
     void_fill_delta_id: Digest,
+    collapse_plan_id: Digest,
     policy_id: Digest,
     aggregate_id: Digest,
     metatron_count: u32,
@@ -117,6 +118,8 @@ pub struct IntegrationRunReport {
     pub swarm_composite: CompositeSupportCube,
     /// Phase 4: energy-ranked void-fill plan (always present; passive/advisory).
     pub void_fill_delta: HostTargetDelta,
+    /// Phase 4c: planning-only collapse plan derived from void-fill delta.
+    pub collapse_plan: HostTargetCollapsePlan,
     pub metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
     pub lpcm_reports: Vec<LpcmPassiveReport>,
     pub systemcube_export: Option<KcubeExportReport>,
@@ -131,6 +134,7 @@ impl IntegrationRunReport {
         cartography_update: CorpusCartographyUpdate,
         swarm_composite: CompositeSupportCube,
         void_fill_delta: HostTargetDelta,
+        collapse_plan: HostTargetCollapsePlan,
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         systemcube_export: Option<KcubeExportReport>,
@@ -143,6 +147,7 @@ impl IntegrationRunReport {
             cartography_update_id: cartography_update.update_id,
             swarm_composite_id: swarm_composite.composite_id,
             void_fill_delta_id: void_fill_delta.delta_id,
+            collapse_plan_id: collapse_plan.plan_id,
             policy_id: policy.id,
             aggregate_id: aggregated_gate.aggregate_id,
             metatron_count: metatron_diagnostics.len() as u32,
@@ -156,6 +161,7 @@ impl IntegrationRunReport {
             cartography_update,
             swarm_composite,
             void_fill_delta,
+            collapse_plan,
             metatron_diagnostics,
             lpcm_reports,
             systemcube_export,
@@ -174,7 +180,7 @@ impl IntegrationRunReport {
         format!(
             "IntegrationRunReport — policy={:.8} | final={:?} | \
              hyphae: {} | cartography: {} entities | \
-             swarm: {} cubes → {:?} | \
+             swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              metatron: {} | lpcm: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
@@ -182,6 +188,8 @@ impl IntegrationRunReport {
             self.cartography_update.added_entity_ids.len(),
             self.swarm_composite.source_cube_ids.len(),
             self.void_fill_delta.status,
+            self.collapse_plan.step_count(),
+            self.collapse_plan.status,
             self.metatron_diagnostics.len(),
             self.lpcm_reports.len(),
             scube,
@@ -202,6 +210,7 @@ impl IntegrationRunReport {
             && self.cartography_update.policy_id == pid
             && self.swarm_composite.policy_id == pid
             && self.void_fill_delta.policy_id == pid
+            && self.collapse_plan.policy_id == pid
             && self.aggregated_gate.policy_id == pid
             && self.metatron_diagnostics.iter().all(|d| d.policy_id == pid)
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
@@ -365,6 +374,9 @@ pub fn run_dry_pipeline(
     );
     agg.record("void_fill_plan", void_fill_delta.delta_id, GateResult::Pass);
 
+    // ── 4c. HostTargetCollapsePlan — planning-only, zero host writes ──────────
+    let collapse_plan = HostTargetCollapsePlan::from_delta(&void_fill_delta, policy.id);
+
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
         let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
@@ -399,6 +411,7 @@ pub fn run_dry_pipeline(
         cartography_update,
         swarm_composite,
         void_fill_delta,
+        collapse_plan,
         metatron_diagnostics,
         lpcm_reports,
         systemcube_export,
