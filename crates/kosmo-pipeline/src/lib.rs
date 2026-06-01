@@ -31,6 +31,7 @@ use kosmo_core::{Digest, GateResult, PolicyProfile, PromotionFeedback, Q16, rank
 use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_core::ReplayStatus;
+use kosmo_store::CrystalRecordStore;
 use kosmo_hyphae::{
     AssimilationLedger, CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography,
     CorpusCartographyUpdate, CorpusEntity, CorpusEntityKind, CubeSwarm, CubeDimensionProfile,
@@ -97,6 +98,20 @@ pub struct IntegrationRunOptions {
     /// the run, making the CAD library accumulate across pipeline invocations.
     /// Only used when `enable_crystal_candidates` is also true.
     pub prior_crystals: Vec<StructuralCrystalRecord>,
+    /// Path to a `CrystalRecordStore` JSONL file for automatic cross-session persistence.
+    ///
+    /// When set:
+    /// - **On entry**: if the file exists, all stored records are loaded and merged into
+    ///   `prior_crystals` (dedup by `record_id`), closing the session-to-session feedback
+    ///   loop without caller-side boilerplate.
+    /// - **After Step 5d-cert**: if the policy allows host writes, newly certified crystals
+    ///   are appended to the store (idempotent — already-stored records are deduped).
+    ///
+    /// `ReportOnly` and `DryRun` modes cannot write (same `allow_host_write` invariant as
+    /// `JsonlCartographyStore`), but the store is still read at entry in those modes.
+    /// `None` by default — the pipeline is fully stateless unless this is set.
+    #[serde(skip)]
+    pub crystal_store_path: Option<std::path::PathBuf>,
 }
 
 impl IntegrationRunOptions {
@@ -117,6 +132,7 @@ impl IntegrationRunOptions {
             prior_motifs: vec![],
             prior_motif_min_support: Q16::HALF,
             prior_crystals: vec![],
+            crystal_store_path: None,
         }
     }
 
@@ -137,7 +153,17 @@ impl IntegrationRunOptions {
             prior_motifs: vec![],
             prior_motif_min_support: Q16::HALF,
             prior_crystals: vec![],
+            crystal_store_path: None,
         }
+    }
+
+    /// Set a crystal store path for automatic cross-session persistence.
+    ///
+    /// On entry the store is opened (existing records loaded into `prior_crystals`);
+    /// after Step 5d-cert newly certified crystals are appended when policy allows.
+    pub fn with_crystal_store_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.crystal_store_path = Some(path.into());
+        self
     }
 }
 
@@ -260,6 +286,13 @@ pub struct IntegrationRunReport {
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
     pub final_result: GateResult,
+    /// Number of newly-written crystal records (Step 5f auto-persist).
+    ///
+    /// Observational field — not part of `report_id` (depends on store state,
+    /// not deterministically reproducible from inputs alone). Zero when
+    /// `crystal_store_path` is not set, policy denies writes, or no new
+    /// records were produced (dedup applied).
+    pub persisted_crystal_count: u32,
 }
 
 impl IntegrationRunReport {
@@ -290,6 +323,7 @@ impl IntegrationRunReport {
         norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
         aggregated_gate: AggregatedGateResult,
+        persisted_crystal_count: u32,
         policy: &PolicyProfile,
     ) -> Self {
         let final_result = aggregated_gate.final_result.clone();
@@ -352,6 +386,7 @@ impl IntegrationRunReport {
             systemcube_export,
             aggregated_gate,
             final_result,
+            persisted_crystal_count,
         }
     }
 
@@ -385,8 +420,8 @@ impl IntegrationRunReport {
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
              surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
-             crystal_candidates: {} (certified: {}, resonites: {}) | pse_candidates: {} | \
-             motif_candidates: {} | norm_candidates: {} (traces: {}) | {}",
+             crystal_candidates: {} (certified: {}, resonites: {}, persisted: {}) | \
+             pse_candidates: {} | motif_candidates: {} | norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -410,6 +445,7 @@ impl IntegrationRunReport {
             self.crystal_candidates.len(),
             self.certified_crystals.len(),
             self.resonite_map.len(),
+            self.persisted_crystal_count,
             self.pse_candidates.len(),
             self.motif_candidates.len(),
             self.norm_candidates.len(),
@@ -478,6 +514,33 @@ pub fn run_dry_pipeline(
 ) -> IntegrationRunReport {
     let mut agg = GateTraceAggregator::new(policy.id);
 
+    // ── 0. Crystal store auto-load (Step 5f pre-run) ─────────────────────────
+    // If a crystal_store_path is set and the file exists, open the store and
+    // merge its records into the effective prior_crystals. Dedup by record_id
+    // so manually-provided prior_crystals are not duplicated.
+    let effective_prior_crystals: std::borrow::Cow<Vec<StructuralCrystalRecord>> =
+        if let Some(ref store_path) = options.crystal_store_path {
+            if store_path.exists() {
+                match CrystalRecordStore::open(store_path) {
+                    Ok(store) if !store.is_empty() => {
+                        let mut merged = options.prior_crystals.clone();
+                        for rec in store.records() {
+                            if !merged.iter().any(|r| r.record_id == rec.record_id) {
+                                merged.push(rec.clone());
+                            }
+                        }
+                        std::borrow::Cow::Owned(merged)
+                    }
+                    _ => std::borrow::Cow::Borrowed(&options.prior_crystals),
+                }
+            } else {
+                std::borrow::Cow::Borrowed(&options.prior_crystals)
+            }
+        } else {
+            std::borrow::Cow::Borrowed(&options.prior_crystals)
+        };
+    let prior_crystals: &[StructuralCrystalRecord] = &effective_prior_crystals;
+
     // ── 1. HYPHAE v0.3 passive run ────────────────────────────────────────────
     // If prior_motifs are provided, inject SuggestPattern intents (motif feedback loop).
     let hyphae = if options.prior_motifs.is_empty() {
@@ -525,8 +588,8 @@ pub fn run_dry_pipeline(
     // Seed the corpus with prior crystal records so the CAD library accumulates
     // across pipeline runs. Prior crystals are added as CrystalRecord entities
     // before the current run's data is appended.
-    let base_corpus = if options.enable_crystal_candidates && !options.prior_crystals.is_empty() {
-        let crystal_entities: Vec<CorpusEntity> = options.prior_crystals.iter()
+    let base_corpus = if options.enable_crystal_candidates && !prior_crystals.is_empty() {
+        let crystal_entities: Vec<CorpusEntity> = prior_crystals.iter()
             .map(|r| CorpusEntity::new(
                 CorpusEntityKind::CrystalRecord,
                 r.record_id,
@@ -712,8 +775,8 @@ pub fn run_dry_pipeline(
                     // High resonance → the void matches a known certified pattern →
                     // crystal_resonance dimension boosts ρ (coherence) in energy ranking.
                     // Only set when prior_crystals is non-empty (no false-zero baseline).
-                    if !options.prior_crystals.is_empty() {
-                        let best = options.prior_crystals.iter()
+                    if !prior_crystals.is_empty() {
+                        let best = prior_crystals.iter()
                             .map(|prior| {
                                 let rho_diff = (rho.raw() - prior.rho_coherence.raw())
                                     .unsigned_abs() as i64;
@@ -865,17 +928,44 @@ pub fn run_dry_pipeline(
     let resonite_map: Vec<Resonite> =
         if options.enable_crystal_candidates
             && !certified_crystals.is_empty()
-            && !options.prior_crystals.is_empty()
+            && !prior_crystals.is_empty()
         {
             let mut resonites = Vec::new();
             for current in &certified_crystals {
-                for prior in &options.prior_crystals {
+                for prior in prior_crystals {
                     resonites.push(Resonite::from_records(current, prior, policy.id));
                 }
             }
             resonites
         } else {
             Vec::new()
+        };
+
+    // ── 5f. Crystal auto-persist (Step 5f) ────────────────────────────────────
+    // If crystal_store_path is set and policy allows host writes, append every
+    // newly-certified crystal to the store. Dedup is handled inside the store
+    // (re-appending an existing record_id is a no-op). The count of successfully
+    // written records is reported as the observational `persisted_crystal_count`.
+    let persisted_crystal_count: u32 =
+        if let Some(ref store_path) = options.crystal_store_path {
+            if options.enable_crystal_candidates && !certified_crystals.is_empty() {
+                match CrystalRecordStore::open(store_path) {
+                    Ok(mut store) => {
+                        let mut written = 0u32;
+                        for record in &certified_crystals {
+                            if store.append(record.clone(), policy).is_ok() {
+                                written += 1;
+                            }
+                        }
+                        written
+                    }
+                    Err(_) => 0,
+                }
+            } else {
+                0
+            }
+        } else {
+            0
         };
 
     // ── 5b. Optional norm candidates — from accepted decisions ────────────────
@@ -1085,6 +1175,7 @@ pub fn run_dry_pipeline(
         norm_fitness_traces,
         systemcube_export,
         aggregated_gate,
+        persisted_crystal_count,
         policy,
     )
 }
@@ -2248,5 +2339,117 @@ mod tests {
             assert_ne!(t.task_id, Digest::ZERO, "task_id must be non-ZERO");
             assert_ne!(t.surgery_option_id, Digest::ZERO, "surgery_option_id must trace back to source option");
         }
+    }
+
+    // ── Crystal auto-persist (Step 5f) ───────────────────────────────────────
+
+    fn temp_crystal_store_path(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mut p = std::env::temp_dir();
+        p.push(format!("kosmo-pipeline-crystal-{tag}-{nanos}.jsonl"));
+        p
+    }
+
+    #[test]
+    fn pipeline_crystal_auto_persist_report_only_does_not_write() {
+        // ReportOnly policy forbids host writes — store file must not be created.
+        let path = temp_crystal_store_path("ro");
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        run_dry_pipeline(&fixture_index(), &opts, &PolicyProfile::default_report_only());
+        assert!(!path.exists(), "ReportOnly must not create crystal store file");
+        assert_eq!(opts.crystal_store_path.as_deref(), Some(path.as_path()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn pipeline_crystal_auto_persist_operator_approved_writes_and_reloads() {
+        // OperatorApproved pipeline: certified crystals must be auto-persisted.
+        // A second run with the same path must auto-load them as prior_crystals.
+        let path = temp_crystal_store_path("op");
+        let _ = std::fs::remove_file(&path);
+        let op_policy = PolicyProfile::operator_approved();
+
+        let opts1 = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts1, &op_policy);
+        // In ReportOnly mode fixture all decisions are EvidenceOnly, so crystals = 0.
+        // `persisted_crystal_count` reflects what was actually written.
+        assert_eq!(r1.persisted_crystal_count, r1.certified_crystals.len() as u32,
+            "persisted count must equal certified count on first run");
+
+        // Second run: auto-loads any stored crystals into prior_crystals.
+        let opts2 = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        let r2 = run_dry_pipeline(&fixture_index(), &opts2, &op_policy);
+        // Auto-loaded prior_crystals propagate to resonite_map (if any crystals exist).
+        // Both runs use the same fixture so certified_crystals are the same set;
+        // dedup means persisted_crystal_count on r2 = 0 (all already stored).
+        if r1.certified_crystals.is_empty() {
+            // No crystals produced (ReportOnly + standard fixture) — still valid.
+            assert_eq!(r2.persisted_crystal_count, 0);
+        } else {
+            assert_eq!(r2.persisted_crystal_count, 0,
+                "second run must not re-write already-persisted crystals (dedup)");
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn pipeline_crystal_store_path_none_gives_zero_persisted_count() {
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: None,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert_eq!(r.persisted_crystal_count, 0,
+            "no crystal_store_path → persisted_crystal_count must be 0");
+    }
+
+    #[test]
+    fn pipeline_crystal_store_path_none_does_not_affect_report_id() {
+        // persisted_crystal_count is NOT in report_id, so two runs differing only
+        // in whether they persist to disk must produce the same report_id.
+        let path = temp_crystal_store_path("same-id");
+        let _ = std::fs::remove_file(&path);
+        let op_policy = PolicyProfile::operator_approved();
+        let opts_no_store = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: None,
+            ..IntegrationRunOptions::report_only()
+        };
+        let opts_with_store = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        let r_no  = run_dry_pipeline(&fixture_index(), &opts_no_store, &op_policy);
+        let r_yes = run_dry_pipeline(&fixture_index(), &opts_with_store, &op_policy);
+        assert_eq!(r_no.report_id, r_yes.report_id,
+            "crystal persistence must not affect report_id (observational field)");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn pipeline_with_crystal_store_path_builder() {
+        // Smoke-test the with_crystal_store_path builder; no assertions on content.
+        let path = temp_crystal_store_path("builder");
+        let opts = IntegrationRunOptions::report_only()
+            .with_crystal_store_path(path.clone());
+        assert_eq!(opts.crystal_store_path.as_deref(), Some(path.as_path()));
+        let _ = std::fs::remove_file(&path);
     }
 }

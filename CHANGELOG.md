@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **Pipeline Step 5f — crystal auto-persistence closes the session-to-session loop**
+
+  The pipeline now manages the CAD library feedback loop automatically. One call,
+  zero boilerplate — just set `crystal_store_path` in `IntegrationRunOptions`.
+
+  - `IntegrationRunOptions::crystal_store_path: Option<PathBuf>` — when set, the
+    pipeline opens the store at entry (loading any persisted records into the
+    effective `prior_crystals`) and appends newly-certified crystals after Step 5d-cert.
+  - `IntegrationRunOptions::with_crystal_store_path(path)` — fluent builder.
+  - `IntegrationRunReport::persisted_crystal_count: u32` — observational count of
+    newly-written records; NOT included in `report_id` (host-state dependent).
+  - Policy invariant preserved: `ReportOnly` and `DryRun` cannot write (store is
+    read-only in those modes); only `OperatorApproved` (or `allow_host_write`) writes.
+  - Dedup by `record_id` — re-running on the same workspace never grows the store
+    with duplicate records.
+  - 5 new pipeline tests (107 total); 2 new eval scenarios (143 total, 896 substrate tests).
+
 * **`CrystalRecordStore` — durable JSONL-backed CAD library persistence**
 
   Crystal records now survive across integration runs; the CAD library can be

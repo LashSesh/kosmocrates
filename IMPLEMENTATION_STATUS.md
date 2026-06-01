@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking und überlebt Sessions."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions und wird vollautomatisch befüllt."
 
-- **886 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 102) — 0 failures
-- **141/141 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **896 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 107) — 0 failures
+- **143/143 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,18 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Pipeline Step 5f — Crystal Auto-Persistence (2026-06-01)
+
+The full session-to-session CAD library loop is now automatic at the pipeline level.
+
+- [x] `IntegrationRunOptions::crystal_store_path: Option<PathBuf>` — opt-in store path (`#[serde(skip)]`)
+- [x] `IntegrationRunOptions::with_crystal_store_path(path)` — builder method
+- [x] **Step 5f pre-run**: on entry, if path exists, open store → merge records into effective `prior_crystals` (dedup by `record_id`)
+- [x] **Step 5f post-cert**: after Step 5d-cert, append certified crystals to store (policy-gated; ReportOnly/DryRun denied)
+- [x] `IntegrationRunReport::persisted_crystal_count: u32` — observational field, NOT in `report_id` hash
+- [x] `summary()` updated: `(certified: N, resonites: M, persisted: P)`
+- [x] 5 new pipeline tests (107 total); 2 new eval scenarios (143 total, 896 substrate tests)
 
 ### `CrystalRecordStore` — Durable CAD Library Persistence (2026-06-01)
 

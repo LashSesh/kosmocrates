@@ -3267,6 +3267,85 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX: Crystal auto-persist (Step 5f) ───────────────────────────────────
+
+    v.push(run_check("rx-pipeline-crystal-auto-persist-report-only-no-write", "RX:CrystalPersist", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let path = temp_store_path("eval-crystal-ro");
+        let _ = std::fs::remove_file(&path);
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![WorkspaceEntry {
+            path: "src/lib.rs".into(),
+            digest: Digest::of_bytes(b"x"),
+            size_bytes: 10,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: None,
+        }];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        run_dry_pipeline(&index, &opts, &policy);
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+            return Err("ReportOnly must not create crystal store file".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-crystal-auto-persist-persisted-count-is-observational", "RX:CrystalPersist", || {
+        // persisted_crystal_count must NOT affect report_id — it is observational.
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let path = temp_store_path("eval-crystal-obs");
+        let _ = std::fs::remove_file(&path);
+        let op_policy = PolicyProfile::operator_approved();
+        let entries = vec![WorkspaceEntry {
+            path: "src/lib.rs".into(),
+            digest: Digest::of_bytes(b"obs"),
+            size_bytes: 10,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: None,
+        }];
+        let index = WorkspaceIndex::from_entries("root".into(), entries, op_policy.id);
+
+        let opts_no_store = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: None,
+            ..IntegrationRunOptions::report_only()
+        };
+        let opts_with_store = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            crystal_store_path: Some(path.clone()),
+            ..IntegrationRunOptions::report_only()
+        };
+        let r_no  = run_dry_pipeline(&index, &opts_no_store,  &op_policy);
+        let r_yes = run_dry_pipeline(&index, &opts_with_store, &op_policy);
+        let _ = std::fs::remove_file(&path);
+
+        if r_no.report_id != r_yes.report_id {
+            return Err(format!(
+                "crystal persistence must not affect report_id: {:?} vs {:?}",
+                r_no.report_id, r_yes.report_id
+            ));
+        }
+        // persisted_crystal_count is always 0 or equal to certified count.
+        if r_yes.persisted_crystal_count > r_yes.certified_crystals.len() as u32 {
+            return Err(format!(
+                "persisted_crystal_count {} exceeds certified count {}",
+                r_yes.persisted_crystal_count, r_yes.certified_crystals.len()
+            ));
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {
