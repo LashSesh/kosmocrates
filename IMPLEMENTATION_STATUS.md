@@ -4,8 +4,21 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **682 substrate tests** (kosmo-core 339, kosmo-hyphae 144, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 46) — 0 failures
-- **85/85 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **695 substrate tests** (kosmo-core 339, kosmo-hyphae 147, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 49) — 0 failures
+- **89/89 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+
+### JsonlCartographyStore Persistence in Pipeline (2026-06-01)
+- [x] `CartographyEntryKind::CartographyUpdate` added to kosmo-core
+- [x] `kosmo-store` dep added to kosmo-pipeline
+- [x] `persist_cartography_update(update, path, scope, policy)` in new `persistence` module
+- [x] Policy-gated: fails with `PolicyDenied` if `allow_host_write == false`
+- [x] CROSS-006: `evidence_bundle_id = update.update_id` (non-ZERO content ref)
+- [x] 3 unit tests in persistence.rs; 2 new `RX:Pipeline` eval scenarios (89 total)
+
+### StructuralCrystalCandidate Energy Assessment (2026-06-01)
+- [x] `energy_assessment(gate)` added to `StructuralCrystalCandidate`
+- [x] taint = Q16::ONE (quarantined yields rejected at gate cascade, never candidates)
+- [x] 3 new crystal.rs unit tests; 2 new `RX:EnergyRanking` scenarios (87 total)
 
 ### Phase 4c HostTargetCollapsePlan Pipeline Weld (2026-06-01)
 - [x] `run_dry_pipeline` Step 4c: `HostTargetCollapsePlan::from_delta(&void_fill_delta, policy.id)` — zero-cost, no host writes

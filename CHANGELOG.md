@@ -15,6 +15,24 @@ note explicitly says so.
 
 ### Added
 
+* **JsonlCartographyStore persistence wired into pipeline** — closes the
+  last persistence gap; `CorpusCartographyUpdate` can now be durably stored.
+
+  - `CartographyEntryKind::CartographyUpdate` added to `kosmo-core`.
+  - `kosmo-pipeline` gains `kosmo-store` dep and a new `persistence` module.
+  - `persist_cartography_update(update, path, scope, policy)`: fail-closed on
+    `allow_host_write == false`; CROSS-006 satisfied (evidence = `update_id`);
+    commit labels `after_cartography_id` + `added_entity_count`.
+  - 3 unit tests, 2 new `RX:Pipeline` eval scenarios (89 total).
+
+* **StructuralCrystalCandidate gains `energy_assessment`** — last hyphae
+  candidate type to receive energy integration.
+
+  - ψ = `support_score` (ZERO at creation; gate factor collapses to zero if
+    the gate rejects). Taint = `Q16::ONE`: quarantined yields are rejected
+    at the gate cascade before candidacy (`IsNotQuarantined` constraint).
+  - 3 new `crystal.rs` unit tests, 2 new `RX:EnergyRanking` eval scenarios.
+
 * **Phase 4c: HostTargetCollapsePlan wired into run_dry_pipeline** —
   planning-only collapse plan now ships with every `IntegrationRunReport`.
 
