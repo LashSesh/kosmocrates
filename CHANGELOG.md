@@ -15,6 +15,29 @@ note explicitly says so.
 
 ### Added
 
+* **Surgery energy assessment + pipeline Step 3b** — closes the surgical
+  intervention planning chain from Metatron diagnostics.
+
+  - `TopologicalSurgeryOption::energy_assessment(gate)`: ψ = `confidence_score`,
+    `evidence_bundle_id = diagnostic_id` (CROSS-006 non-ZERO causal ref).
+  - Pipeline Step 3b derives surgery options from all Metatron diagnostics,
+    energy-ranks them via `rank_by_energy`, and stores the ranked slice in
+    `IntegrationRunReport.surgery_options`. Gated by `enable_surgery: bool`
+    (default false); requires `enable_metatron` to produce any output.
+  - `verify_policy_consistency()` now covers `surgery_options[i].policy_id`.
+  - 4 surgery unit tests, 3 new `RX:Pipeline` eval scenarios (94 total,
+    704 substrate tests).
+
+* **`from_host_and_composite` removed; `MorphogenicCorpusUpdate` as Step 4d** —
+
+  - `HostTargetDelta::from_host_and_composite` deleted (only callers were its
+    own tests; used raw `max_by_key` violating the energy invariant). Its two
+    tests migrated to `from_source_cubes` with real `SourceCube` objects.
+  - Pipeline Step 4d: `MorphogenicCorpusUpdate::skeleton(cartography_update_id,
+    collapse_plan_id, policy_id)` — planning skeleton of the post-collapse corpus.
+    Participates in `report_id`, `verify_policy_consistency()`, and `summary()`.
+  - 2 new `RX:Pipeline` eval scenarios.
+
 * **JsonlCartographyStore persistence wired into pipeline** — closes the
   last persistence gap; `CorpusCartographyUpdate` can now be durably stored.
 

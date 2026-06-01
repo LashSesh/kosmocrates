@@ -4,8 +4,22 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **695 substrate tests** (kosmo-core 339, kosmo-hyphae 147, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 49) — 0 failures
-- **89/89 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **704 substrate tests** (kosmo-core 339, kosmo-hyphae 150, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 49) — 0 failures
+- **94/94 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+
+### Surgery Energy Assessment + Pipeline Step 3b (2026-06-01)
+- [x] `TopologicalSurgeryOption::energy_assessment(gate)` — ψ=`confidence_score`; `evidence_bundle_id=diagnostic_id` (CROSS-006)
+- [x] Pipeline Step 3b: energy-ranked surgery options from Metatron diagnostics
+- [x] `IntegrationRunOptions.enable_surgery: bool` (default false; requires `enable_metatron`)
+- [x] `IntegrationRunReport.surgery_options: Vec<TopologicalSurgeryOption>` (energy-ranked)
+- [x] `verify_policy_consistency()` covers surgery options
+- [x] 4 new surgery.rs unit tests; 3 new `RX:Pipeline` eval scenarios (94 total)
+
+### from_host_and_composite removed + MorphogenicCorpusUpdate as Step 4d (2026-06-01)
+- [x] `HostTargetDelta::from_host_and_composite` removed (raw `max_by_key` violation); tests migrated to `from_source_cubes`
+- [x] Pipeline Step 4d: `MorphogenicCorpusUpdate::skeleton(cartography_update_id, collapse_plan_id, policy_id)`
+- [x] `IntegrationRunReport.morphogenic_update` + `verify_policy_consistency()` + `summary()` + `ReportContent`
+- [x] 2 new `RX:Pipeline` eval scenarios (91 total)
 
 ### JsonlCartographyStore Persistence in Pipeline (2026-06-01)
 - [x] `CartographyEntryKind::CartographyUpdate` added to kosmo-core
