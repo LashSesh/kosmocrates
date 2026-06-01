@@ -4,8 +4,16 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **704 substrate tests** (kosmo-core 339, kosmo-hyphae 150, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 49) — 0 failures
-- **94/94 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **709 substrate tests** (kosmo-core 339, kosmo-hyphae 155, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 49) — 0 failures
+- **96/96 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+
+### Void Priority Ranking — Pipeline Step 1b (2026-06-01)
+- [x] `HostVoid::energy_assessment(gate, policy_id)` — ψ=`severity`; `evidence_bundle_id=void_id` (CROSS-006 self-referential content address)
+- [x] `TopologicalVoidMap::priority_ranking(gate)` — severity-ordered void repair queue via `rank_by_energy`; ties broken by `void_id`
+- [x] Pipeline Step 1b: `void_priority_ranking: Vec<Digest>` in every `IntegrationRunReport`
+- [x] `ReportContent.void_priority_count` participates in `report_id`
+- [x] `summary()` reports `voids: N (priority ranked)`
+- [x] 5 new void_map.rs unit tests; 2 new `RX:Pipeline` eval scenarios (96 total, 709 substrate tests)
 
 ### Surgery Energy Assessment + Pipeline Step 3b (2026-06-01)
 - [x] `TopologicalSurgeryOption::energy_assessment(gate)` — ψ=`confidence_score`; `evidence_bundle_id=diagnostic_id` (CROSS-006)

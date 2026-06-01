@@ -15,6 +15,22 @@ note explicitly says so.
 
 ### Added
 
+* **Void priority ranking — pipeline Step 1b** — every `IntegrationRunReport`
+  now ships a severity-ordered void repair queue at zero extra I/O cost.
+
+  - `HostVoid::energy_assessment(gate, policy_id)`: ψ = `severity`; taint/phase
+    fixed at `Q16::ONE` (void detection has no coherence dimension at this level);
+    `evidence_bundle_id = void_id` — the void's own content address satisfies
+    CROSS-006 (non-ZERO evidence ref).
+  - `TopologicalVoidMap::priority_ranking(gate) -> Vec<Digest>`: ranks all voids
+    by energy D via `rank_by_energy`; ties broken deterministically by `void_id`.
+  - Pipeline Step 1b: `void_priority_ranking` is always computed after the HYPHAE
+    passive run and stored in `IntegrationRunReport`. `ReportContent` carries
+    `void_priority_count` so the void count participates in `report_id`.
+  - `summary()` now reports `voids: N (priority ranked)`.
+  - 5 new `void_map.rs` unit tests; 2 new `RX:Pipeline` eval scenarios (96 total,
+    709 substrate tests).
+
 * **Surgery energy assessment + pipeline Step 3b** — closes the surgical
   intervention planning chain from Metatron diagnostics.
 
