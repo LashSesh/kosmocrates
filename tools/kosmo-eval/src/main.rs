@@ -1724,6 +1724,86 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 5a MotifCandidate generation ──────────────────────
+
+    v.push(run_check("rx-pipeline-motif-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions::report_only();
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        if !r.motif_candidates.is_empty() {
+            return Err(format!(
+                "motif_candidates must be empty when disabled, got {}",
+                r.motif_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-motif-candidates-from-void-kind-frequency", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/alpha.rs".into(),
+                digest: Digest::of_bytes(b"alpha"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/beta.rs".into(),
+                digest: Digest::of_bytes(b"beta"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        if r.hyphae_result.host_cube.void_count() > 0 {
+            if r.motif_candidates.is_empty() {
+                return Err("motif_candidates must be non-empty when voids exist".into());
+            }
+            for c in &r.motif_candidates {
+                if !c.name.starts_with("motif:") {
+                    return Err(format!("motif name must start with 'motif:', got '{}'", c.name));
+                }
+                if c.motif_id == Digest::ZERO {
+                    return Err("motif_id must be non-ZERO (INVARIANT-007)".into());
+                }
+                if c.evidence_bundle_id == Digest::ZERO {
+                    return Err("evidence_bundle_id must be non-ZERO (CROSS-006)".into());
+                }
+                if c.support_score == Q16::ZERO {
+                    return Err("support_score must be > 0 for observed void kinds".into());
+                }
+                if c.policy_id != policy.id {
+                    return Err("motif candidate must carry pipeline policy_id".into());
+                }
+            }
+        }
+        // Determinism: two runs with same inputs must produce same report_id.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        if r.report_id != r2.report_id {
+            return Err("motif candidates must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
     v.push(run_check("rx-pipeline-norm-candidates-disabled-by-default", "RX:Pipeline", || {
         use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
         use kosmo_workbench::WorkspaceIndex;

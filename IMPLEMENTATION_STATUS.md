@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **780 substrate tests** (kosmo-core 339, kosmo-hyphae 176, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
-- **126/126 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **789 substrate tests** (kosmo-core 339, kosmo-hyphae 176, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 85) — 0 failures
+- **128/128 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,14 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Pipeline Step 5a: `MotifCandidate` from Void Kind Frequency (2026-06-01)
+- [x] `enable_motif_candidates: bool` in `IntegrationRunOptions` (default false); included in `all_layers()`
+- [x] Step 5a: one `MotifCandidate` per `HostVoidKind` variant observed; `support_score = kind_count / total_voids` (Q16 ratio); evidence = `hyphae.run_id` (CROSS-006: non-ZERO)
+- [x] `motif_candidate_count` in `ReportContent` — participates in `report_id` content-addressing (INVARIANT-007)
+- [x] `verify_policy_consistency()` covers `motif_candidates[i].policy_id`
+- [x] `summary()` reports `motif_candidates: N`
+- [x] 4 new pipeline tests (85 total); 2 new `RX:Pipeline` eval scenarios (128 total, 789 substrate tests)
 
 ### `ReduceDeficiency` Intents in Frontier + Spec §2.2 Yield Compliance (2026-06-01)
 - [x] `SourceFrontierGraph::from_void_map` now generates both `FillVoid` intents (one per void) and `ReduceDeficiency` intents (one per deficiency kind) from the derived `DeficiencyVector`

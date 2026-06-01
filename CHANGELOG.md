@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Pipeline Step 5a: `MotifCandidate` from void kind frequency** — closes the gap
+  between `MotifCandidate` (fully implemented with `energy_assessment`) and the
+  pipeline (which had no step to generate or expose them).
+
+  - `enable_motif_candidates: bool` in `IntegrationRunOptions` (default false;
+    included in `all_layers()`).
+  - Step 5a counts `HostVoidKind` occurrences, produces one `MotifCandidate` per
+    kind with `support_score = kind_count / total_voids` (Q16 ratio, no floats,
+    CROSS-007). Evidence = `hyphae.run_id` (CROSS-006: always non-ZERO).
+    Results are energy-ranked before inclusion in the report.
+  - `motif_candidate_count` participates in `report_id` (INVARIANT-007).
+  - `verify_policy_consistency()` and `summary()` updated.
+  - 4 new pipeline tests (85 total); 2 new `RX:Pipeline` eval scenarios (128 total,
+    789 substrate tests).
+
 * **`ReduceDeficiency` intents in frontier + spec §2.2 yield compliance** — closes
   the gap between the `DeficiencyVector` (already computed in Step 1c) and the
   `SourceFrontierGraph` (previously void-map-only), and ensures every yield

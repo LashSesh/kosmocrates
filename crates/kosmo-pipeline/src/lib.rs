@@ -34,10 +34,11 @@ use kosmo_hyphae::{
     CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography, CorpusCartographyUpdate,
     CubeSwarm, CubeDimensionProfile, DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta,
     LpcmPassiveReport, MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
-    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormFitnessTrace,
-    NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
-    StructuralCrystalCandidate, SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption,
-    TopologyAmbiguityProfile, diagnose_micrograph, lift_region, passive_run, HyphaeRunResult,
+    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, MotifCandidate,
+    NormFitnessTrace, NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube,
+    SeamGraph, StructuralCrystalCandidate, SupportMassVector, SurgeryWorkbenchTask,
+    TopologicalSurgeryOption, TopologyAmbiguityProfile, diagnose_micrograph, lift_region,
+    passive_run, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
@@ -67,6 +68,9 @@ pub struct IntegrationRunOptions {
     /// Derive and energy-rank surgery options from Metatron diagnostics.
     /// Only produces results when `enable_metatron` is also true.
     pub enable_surgery: bool,
+    /// Derive energy-ranked `MotifCandidate` objects from void kind frequency (Step 5a).
+    /// One candidate per recurring void kind; support_score = kind_count / total_voids.
+    pub enable_motif_candidates: bool,
     /// Generate energy-ranked `NormGeneCandidate` objects from accepted decisions.
     /// Initial fitness = `Q16::ONE`; evolves via `NormFitnessTrace` in later phases.
     pub enable_norm_candidates: bool,
@@ -91,6 +95,7 @@ impl IntegrationRunOptions {
             systemcube_capacity: 0,
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: false,
+            enable_motif_candidates: false,
             enable_norm_candidates: false,
             enable_crystal_candidates: false,
             enable_pse_candidates: false,
@@ -107,6 +112,7 @@ impl IntegrationRunOptions {
             systemcube_capacity,
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: true,
+            enable_motif_candidates: true,
             enable_norm_candidates: true,
             enable_crystal_candidates: true,
             enable_pse_candidates: true,
@@ -140,6 +146,7 @@ struct ReportContent {
     void_hypothesis_count: u32,
     crystal_candidate_count: u32,
     pse_candidate_count: u32,
+    motif_candidate_count: u32,
     norm_candidate_count: u32,
     norm_fitness_trace_count: u32,
     has_systemcube: bool,
@@ -199,6 +206,10 @@ pub struct IntegrationRunReport {
     /// norm candidates and topology observations. Ready for PSE evaluation.
     /// Empty when `enable_pse_candidates` is false.
     pub pse_candidates: Vec<PseBridgeCandidate>,
+    /// Energy-ranked motif candidates derived from void kind frequency (Step 5a).
+    /// One per recurring void kind; support_score = kind_count / total_voids.
+    /// Empty when `enable_motif_candidates` is false.
+    pub motif_candidates: Vec<MotifCandidate>,
     /// Energy-ranked norm gene candidates generated from accepted decisions.
     /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
     /// Empty when `enable_norm_candidates` is false.
@@ -233,6 +244,7 @@ impl IntegrationRunReport {
         complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
         crystal_candidates: Vec<StructuralCrystalCandidate>,
         pse_candidates: Vec<PseBridgeCandidate>,
+        motif_candidates: Vec<MotifCandidate>,
         norm_candidates: Vec<NormGeneCandidate>,
         norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
@@ -261,6 +273,7 @@ impl IntegrationRunReport {
             void_hypothesis_count: complement_void_hypotheses.len() as u32,
             crystal_candidate_count: crystal_candidates.len() as u32,
             pse_candidate_count: pse_candidates.len() as u32,
+            motif_candidate_count: motif_candidates.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
             norm_fitness_trace_count: norm_fitness_traces.len() as u32,
             has_systemcube: systemcube_export.is_some(),
@@ -286,6 +299,7 @@ impl IntegrationRunReport {
             complement_void_hypotheses,
             crystal_candidates,
             pse_candidates,
+            motif_candidates,
             norm_candidates,
             norm_fitness_traces,
             systemcube_export,
@@ -324,7 +338,7 @@ impl IntegrationRunReport {
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
              surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
-             crystal_candidates: {} | pse_candidates: {} | norm_candidates: {} (traces: {}) | {}",
+             crystal_candidates: {} | pse_candidates: {} | motif_candidates: {} | norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -347,6 +361,7 @@ impl IntegrationRunReport {
             self.complement_void_hypotheses.len(),
             self.crystal_candidates.len(),
             self.pse_candidates.len(),
+            self.motif_candidates.len(),
             self.norm_candidates.len(),
             self.norm_fitness_traces.len(),
             scube,
@@ -380,6 +395,7 @@ impl IntegrationRunReport {
             && self.complement_void_hypotheses.iter().all(|h| h.policy_id == pid)
             && self.crystal_candidates.iter().all(|c| c.policy_id == pid)
             && self.pse_candidates.iter().all(|c| c.policy_id == pid)
+            && self.motif_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_fitness_traces.iter().all(|t| t.policy_id == pid)
             && self
@@ -636,6 +652,46 @@ pub fn run_dry_pipeline(
         policy.id,
     );
 
+    // ── 5a. Optional motif candidates — from void kind frequency ─────────────
+    // One MotifCandidate per HostVoidKind that appears in the void map.
+    // support_score = kind_count / total_voids (frequency ratio, Q16 integer arithmetic).
+    // Evidence = hyphae run_id (the passive scan is the source of truth). Energy-ranked.
+    let motif_candidates: Vec<MotifCandidate> = if options.enable_motif_candidates {
+        let total = hyphae.host_cube.void_map.void_count() as u64;
+        if total == 0 {
+            Vec::new()
+        } else {
+            let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+            for v in &hyphae.host_cube.void_map.voids {
+                let kind_key = format!("{:?}", v.kind).split('{').next().unwrap_or("Unknown").trim().to_string();
+                *counts.entry(kind_key).or_insert(0) += 1;
+            }
+            let raw: Vec<MotifCandidate> = counts
+                .into_iter()
+                .map(|(kind_key, count)| {
+                    MotifCandidate::new(
+                        format!("motif:{}", kind_key),
+                        count,
+                        total,
+                        None,
+                        kosmo_core::TaintLabel::Unverified,
+                        hyphae.run_id,
+                        policy.id,
+                    )
+                })
+                .collect();
+            let assessments: Vec<_> = raw.iter()
+                .map(|c| c.energy_assessment(&GateResult::Pass))
+                .collect();
+            let ranked = rank_by_energy(&assessments);
+            ranked.iter()
+                .filter_map(|a| raw.iter().find(|c| c.motif_id == a.subject_id).cloned())
+                .collect()
+        }
+    } else {
+        Vec::new()
+    };
+
     // ── 5d. Optional crystal candidates — from accepted decisions ────────────
     // One StructuralCrystalCandidate per accepted decision; support_score = Q16::ZERO
     // (Pending certification). Collected to form an explicit certification work queue.
@@ -821,6 +877,7 @@ pub fn run_dry_pipeline(
         complement_void_hypotheses,
         crystal_candidates,
         pse_candidates,
+        motif_candidates,
         norm_candidates,
         norm_fitness_traces,
         systemcube_export,
@@ -1238,6 +1295,60 @@ mod tests {
         let ids1: Vec<_> = r1.lift_reports.iter().map(|r| r.report_id).collect();
         let ids2: Vec<_> = r2.lift_reports.iter().map(|r| r.report_id).collect();
         assert_eq!(ids1, ids2, "lift_reports must be deterministic");
+    }
+
+    // ── Motif candidates optional layer (Step 5a) ────────────────────────────
+
+    #[test]
+    fn pipeline_no_motif_candidates_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.motif_candidates.is_empty(), "motif_candidates must be empty when disabled");
+    }
+
+    #[test]
+    fn pipeline_motif_candidates_from_void_kind_frequency() {
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        if r.hyphae_result.host_cube.void_count() > 0 {
+            assert!(
+                !r.motif_candidates.is_empty(),
+                "motif_candidates must be non-empty when voids exist"
+            );
+            for c in &r.motif_candidates {
+                assert!(c.name.starts_with("motif:"), "candidate name must carry motif: prefix");
+                assert_ne!(c.motif_id, Digest::ZERO, "INVARIANT-007: motif_id must be non-ZERO");
+                assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+                assert_ne!(c.support_score, Q16::ZERO, "support_score must be > 0 for observed void kinds");
+            }
+        }
+    }
+
+    #[test]
+    fn pipeline_motif_candidates_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for c in &r.motif_candidates {
+            assert_eq!(c.policy_id, p.id, "motif candidate must carry pipeline policy_id");
+        }
+    }
+
+    #[test]
+    fn pipeline_motif_candidates_are_deterministic() {
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &p);
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &p);
+        assert_eq!(r1.report_id, r2.report_id, "motif candidates must be deterministic (INVARIANT-007)");
     }
 
     // ── Norm candidates optional layer ────────────────────────────────────────
