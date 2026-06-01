@@ -1669,6 +1669,79 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:EnergyRanking — StructuralCrystalCandidate energy_assessment ──────
+
+    v.push(run_check("rx-energy-crystal-candidate-content-addressed", "RX:EnergyRanking", || {
+        // energy_assessment on a StructuralCrystalCandidate must be deterministic
+        // (content-addressed) and must carry the correct subject_id + policy_id.
+        use kosmo_hyphae::{
+            AssimilationDecision, GateCascade, StructuralCrystalCandidate,
+            StructuralYield, StructuralYieldKind,
+        };
+        use kosmo_core::{
+            AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus,
+        };
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(d(b"ev"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill, Some(d(b"void")), None,
+            TaintLabel::Clean, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        let a1 = candidate.energy_assessment(&GateResult::Pass);
+        let a2 = candidate.energy_assessment(&GateResult::Pass);
+        if a1.id != a2.id {
+            return Err("crystal candidate energy_assessment must be deterministic".into());
+        }
+        if a1.subject_id != candidate.candidate_id {
+            return Err("subject_id must equal candidate_id".into());
+        }
+        if a1.policy_id != policy.id {
+            return Err("policy_id must match pipeline policy".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-crystal-candidate-reject-gate-zeroes-energy", "RX:EnergyRanking", || {
+        // A Reject gate must zero the energy of a crystal candidate (CROSS-010).
+        // A zero support_score candidate also yields zero energy.
+        use kosmo_hyphae::{
+            AssimilationDecision, GateCascade, StructuralCrystalCandidate,
+            StructuralYield, StructuralYieldKind,
+        };
+        use kosmo_core::{
+            AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus,
+        };
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(d(b"ev2"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill, Some(d(b"void2")), None,
+            TaintLabel::Clean, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        // Reject gate → zero energy
+        let reject_a = candidate.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        if !reject_a.kernel.is_zeroed() {
+            return Err("Reject gate must zero crystal candidate energy".into());
+        }
+        // support_score starts at Q16::ZERO → zero energy even with Pass gate
+        let pass_a = candidate.energy_assessment(&GateResult::Pass);
+        if !pass_a.kernel.is_zeroed() {
+            return Err("zero support_score must yield zero energy (CROSS-007 invariant)".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Topology — real lexical code-HDAG extraction ─────────────────────
 
     const TOPO_SAMPLE: &str = "\
