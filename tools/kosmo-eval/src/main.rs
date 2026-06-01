@@ -43,6 +43,7 @@ use kosmo_pse_bridge::{
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
 use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
 use kosmo_kcube::{KcubeArtifact, KcubeExecutor, kcube_file_name};
+use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, SystemCube};
 
 fn d(seed: &[u8]) -> Digest {
     Digest::of_bytes(seed)
@@ -1602,6 +1603,131 @@ fn it_builds() { assert!(true); }
         }
         if pkg.evidence_bundle_id != d(b"ev-bundle") {
             return Err("evidence_bundle_id mismatch after roundtrip".into());
+        }
+        // package_id in the write report must match the parsed package id
+        if report.package_id != pkg.id {
+            return Err("package_id in write report must equal parsed KcubePackage.id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:SystemCubeKcube — SystemCube → real .kcube archive weld ─────────────
+
+    v.push(run_check("rx-systemcube-kcube-blocked-default-policy", "RX:SystemCubeKcube", || {
+        // CROSS-010 analogue: default PolicyProfile must block systemcube materialization.
+        let dir = eval_tmp_dir("rx-sc-kcube-blocked");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = kosmo_core::PolicyProfile::default_report_only();
+        let export_policy = kosmo_core::KcubeExportPolicy::write_once(
+            d(b"pol"), d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::CartographyManifest],
+        );
+        let unit = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src"),
+            kosmo_core::AuthorityLabel::Operator,
+            kosmo_core::TaintLabel::Clean,
+            vec![d(b"ev")],
+            &policy,
+        );
+        let cube = SystemCube::new(d(b"host"), &kosmo_core::RunDescriptor::new(policy.id, "host"), &policy, vec![unit]);
+        let report = cube.export_to_kcube(&exec, 4, &export_policy, &policy, d(b"bundle"), 1);
+        if !report.outcome.is_skipped_report_only() {
+            return Err(format!("expected SkippedByReportOnly, got {:?}", report.outcome));
+        }
+        if report.written_bytes != 0 {
+            return Err("written_bytes must be 0 when blocked".into());
+        }
+        if report.evidence_bundle_id == Digest::ZERO {
+            return Err("CROSS-006: evidence must be bound even when blocked".into());
+        }
+        if !report.verify_id() {
+            return Err("skipped report must be content-addressed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-systemcube-kcube-writes-archive", "RX:SystemCubeKcube", || {
+        // Full chain: SystemCube → export_to_kcube → real .kcube file on disk.
+        let dir = eval_tmp_dir("rx-sc-kcube-write");
+        let exec = KcubeExecutor::new(&dir);
+        let base_policy = kosmo_core::PolicyProfile::default_report_only();
+        let op_policy = kosmo_core::PolicyProfile::operator_approved_with_systemcube();
+        let export_policy = kosmo_core::KcubeExportPolicy::write_once(
+            d(b"pol"), d(b"dir"),
+            vec![
+                kosmo_core::KcubeArtifactKind::CartographyManifest,
+                kosmo_core::KcubeArtifactKind::ValidationClosureReport,
+                kosmo_core::KcubeArtifactKind::StructuralCrystal,
+            ],
+        );
+        let unit = BlueprintUnit::new(
+            BlueprintUnitKind::CrystalReference,
+            d(b"crystal"),
+            kosmo_core::AuthorityLabel::Operator,
+            kosmo_core::TaintLabel::Clean,
+            vec![d(b"ev")],
+            &base_policy,
+        );
+        let run = kosmo_core::RunDescriptor::new(base_policy.id, "bench");
+        let cube = SystemCube::new(d(b"host"), &run, &base_policy, vec![unit]);
+        let report = cube.export_to_kcube(&exec, 4, &export_policy, &op_policy, d(b"bundle"), 1);
+        if !report.outcome.is_written() {
+            return Err(format!("expected Written, got {:?}", report.outcome));
+        }
+        if !report.roundtrip_passed() {
+            return Err("roundtrip must pass for a correct write".into());
+        }
+        if report.written_bytes == 0 {
+            return Err("written_bytes must be > 0".into());
+        }
+        if !report.verify_id() {
+            return Err("write report must be content-addressed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-systemcube-kcube-archive-parses-back", "RX:SystemCubeKcube", || {
+        // The written .kcube archive must parse back to a valid KcubePackage
+        // with the expected number of artifact entries.
+        let dir = eval_tmp_dir("rx-sc-kcube-parse");
+        let exec = KcubeExecutor::new(&dir);
+        let base_policy = kosmo_core::PolicyProfile::default_report_only();
+        let op_policy = kosmo_core::PolicyProfile::operator_approved_with_systemcube();
+        let export_policy = kosmo_core::KcubeExportPolicy::write_once(
+            d(b"pol"), d(b"dir"),
+            vec![
+                kosmo_core::KcubeArtifactKind::CartographyManifest,
+                kosmo_core::KcubeArtifactKind::ValidationClosureReport,
+                kosmo_core::KcubeArtifactKind::StructuralCrystal,
+            ],
+        );
+        let unit1 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary, d(b"s1"),
+            kosmo_core::AuthorityLabel::Operator, kosmo_core::TaintLabel::Clean,
+            vec![d(b"e1")], &base_policy,
+        );
+        let unit2 = BlueprintUnit::new(
+            BlueprintUnitKind::FiberDescriptor, d(b"s2"),
+            kosmo_core::AuthorityLabel::Operator, kosmo_core::TaintLabel::Clean,
+            vec![d(b"e2")], &base_policy,
+        );
+        let run = kosmo_core::RunDescriptor::new(base_policy.id, "parse-bench");
+        let cube = SystemCube::new(d(b"host"), &run, &base_policy, vec![unit1, unit2]);
+        let report = cube.export_to_kcube(&exec, 4, &export_policy, &op_policy, d(b"bundle"), 42);
+        if !report.outcome.is_written() {
+            return Err(format!("write failed: {:?}", report.outcome));
+        }
+        // Derive the same scope the weld uses: "systemcube-{first 16 hex chars of cube_id}"
+        let scope = format!("systemcube-{}", &cube.cube_id.to_hex()[..16]);
+        let fname = kcube_file_name(&scope, 42);
+        let pkg = exec.read(&fname).map_err(|e| format!("read error: {e}"))?;
+        if !pkg.verify_id() {
+            return Err("KcubePackage.verify_id() must pass after roundtrip read".into());
+        }
+        // manifest.json + export_report.json + 2 accepted crystal units = 4 artifacts
+        if pkg.entry_count() != 4 {
+            return Err(format!("expected 4 artifacts (manifest + report + 2 units), got {}", pkg.entry_count()));
         }
         // package_id in the write report must match the parsed package id
         if report.package_id != pkg.id {

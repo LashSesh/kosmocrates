@@ -22,6 +22,7 @@ kosmo-store = { path = "../../crates/kosmo-store" }
 kosmo-parseback = { path = "../../crates/kosmo-parseback" }
 kosmo-operator = { path = "../../crates/kosmo-operator" }
 kosmo-kcube = { path = "../../crates/kosmo-kcube" }
+kosmo-systemcube = { path = "../../crates/kosmo-systemcube" }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 

@@ -449,8 +449,40 @@ on disk (and reads it back for import/verify workflows).
 
 **Total: 673 substrate tests (was 646). 0 failures. 0 warnings. 65/65 eval scenarios pass.**
 
-## Open Blockers (KCUBE)
-None. Highest-priority remaining bridges, in order:
-1. Adopt `EnergyKernel` for `SourceCube`/`BlueprintUnit`/`NormGene` ranking (kernel available, legacy heuristics still alongside it).
+---
+
+# KOSMO-SCKCUBE-01 — SystemCube → .kcube Weld (2026-06-01)
+
+Closes the "Blueprint raus" vision link: `SystemCube` can now write a real
+`.kcube` archive to disk via the `KcubeExecutor`.
+
+### SC-1 — `SystemCube::export_to_kcube` + `PolicyProfile::operator_approved_with_systemcube`
+- [x] `SystemCube::export_to_kcube(executor, capacity, export_policy, op_policy, evidence_bundle_id, sequence) -> KcubeWriteReport`
+- [x] `SystemCube::to_kcube_artifacts` — serializes manifest, export assessment, and accepted blueprint units into `Vec<KcubeArtifact>`
+- [x] `PolicyProfile::operator_approved_with_systemcube` — new constructor enabling `allow_systemcube_materialization = true`
+- [x] Policy gate: `allow_systemcube_materialization = false` → `SkippedByReportOnly` without touching filesystem
+- [x] Artifact kinds: `CartographyManifest`, `ValidationClosureReport`, `StructuralCrystal` (one per accepted unit)
+- [x] CROSS-006: evidence bound in every report variant; INVARIANT-007: `verify_id()` passes on all outputs
+- [x] 5 new unit tests in `kosmo-systemcube`; `kosmo-systemcube` gains `kosmo-kcube` dependency
+
+### SC-2 — Empirical benchmark (`tools/kosmo-eval`)
+- [x] +3 `RX:SystemCubeKcube` scenarios: blocked by default policy, write creates archive, archive parses back
+- [x] 68/68 scenarios pass, EXIT 0
+
+| Phase | Crate | Tests |
+|---|---|---|
+| TE-1 | kosmo-core (energy) | 20 |
+| TE-2 | kosmo-hyphae (code_hdag) | 12 new (139 crate total) |
+| TE-3 | kosmo-eval (energy+topology) | 60 scenarios |
+| KC-1 | kosmo-kcube | 25 |
+| KC-2 | kosmo-eval (kcube) | 65 scenarios |
+| SC-1 | kosmo-systemcube (weld) | 5 new (41 crate total) |
+| SC-2 | kosmo-eval (systemcube-kcube) | 68 scenarios |
+
+**Total: 678 substrate tests (was 673). 0 failures. 0 warnings. 68/68 eval scenarios pass.**
+
+## Open Blockers (SCKCUBE)
+None. Remaining bridges in priority order:
+1. Adopt `EnergyKernel` for `SourceCube`/`BlueprintUnit`/`NormGene` ranking (kernel available; legacy heuristics still alongside it).
 2. Close the PSE feedback loop (`kosmo-pse-bridge` is candidate-only / one-directional; no path from PSE `SemanticCrystal` back to `CorpusCartography`/`NormGene`).
-3. Weld `SystemCube::export_dry_run` to the real `KcubeExecutor` — currently the export report and the archive write are separate operations.
+3. Cross-language materialization: weld the `.kcube` reader/importer to a consumer outside the Rust substrate.

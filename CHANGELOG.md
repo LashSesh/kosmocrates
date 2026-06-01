@@ -15,6 +15,30 @@ note explicitly says so.
 
 ### Added
 
+* **`SystemCube::export_to_kcube` weld** — closes the "Blueprint raus" vision
+  link by connecting the dry-run `KcubeExportReport` to the real
+  `KcubeExecutor`. The method runs `export_dry_run` first; if
+  `op_policy.allow_systemcube_materialization = false` it returns
+  `SkippedByReportOnly` without touching the filesystem; otherwise it
+  serializes the manifest, export assessment, and all accepted blueprint units
+  into a `.kcube` archive via `KcubeExecutor::write`.
+
+  `to_kcube_artifacts` produces three artifact kinds:
+  `CartographyManifest` (`manifest.json`), `ValidationClosureReport`
+  (`export_report.json`), and `StructuralCrystal` (one file per accepted
+  `BlueprintUnit` keyed by `unit_id` hex). 5 new unit tests in
+  `kosmo-systemcube`.
+
+* **`PolicyProfile::operator_approved_with_systemcube`** — new constructor in
+  `kosmo-core` that sets `allow_systemcube_materialization = true` alongside
+  the existing operator-approved gates (host write allowed, no network, Foundry
+  + ParseBack still required).
+
+* **`tools/kosmo-eval` extended to 68 scenarios** (was 65): 3 new
+  `RX:SystemCubeKcube` scenarios (blocked by default policy, write creates
+  archive, archive parses back with correct entry count). `kosmo-eval` now
+  depends on `kosmo-systemcube`.
+
 * **Unified tripolar energy kernel** (`kosmo-core::energy`) — the single,
   float-free, content-addressed selection core `D = ψ · ρ · ω`.
 

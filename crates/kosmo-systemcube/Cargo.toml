@@ -10,6 +10,7 @@ rust-version.workspace = true
 
 [dependencies]
 kosmo-core = { path = "../kosmo-core" }
+kosmo-kcube = { path = "../kosmo-kcube" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
