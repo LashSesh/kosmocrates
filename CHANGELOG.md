@@ -15,6 +15,26 @@ note explicitly says so.
 
 ### Added
 
+* **MotifCandidate policy alignment + SeamGraph seam coherence wired into ranking** —
+  two architectural gaps closed in one weld.
+
+  - `MotifCandidate` gains `policy_id: Digest` (aligns with all other substrate types);
+    content addressing (`motif_id`) now includes `policy_id`. `new()` signature updated;
+    `energy_assessment(gate)` added: ψ=`support_score`, taint factor from `self.taint`.
+    5 tests (3 updated, 2 new).
+  - `SourceCube::energy_assessment` gains a `seam_coherence: Q16` parameter; the
+    `EnergyFactors::seam` field is no longer hardcoded to `Q16::ONE`.
+  - `HostTargetDelta::from_source_cubes` gains `seam_map: &BTreeMap<Digest, Q16>`
+    (void_id → seam coherence). Each void's seam coherence multiplies its candidates'
+    energy; missing entries default to `Q16::ONE`. A cube with `support=1` but
+    `seam=0` collapses to zero energy.
+  - Pipeline Step 4b (CubeSwarm) moved after LPCM so LPCM seam data feeds the
+    void-fill ranking. `seam_map` built from `lpcm_reports`: coherence = fraction
+    of compatible seam edges per void (empty graph → `Q16::ONE`).
+  - **`tools/kosmo-eval` extended to 82 scenarios** (was 80): 2 new `RX:EnergyRanking`
+    scenarios (`rx-energy-motif-assessment-content-addressed`,
+    `rx-energy-seam-penalty-reduces-ranking`).
+
 * **Phase 4 CubeSwarm + HostTargetDelta wired into the pipeline** — closes the
   integration gap where `CubeSwarm` and `HostTargetDelta` existed but were never
   called from `run_dry_pipeline`.

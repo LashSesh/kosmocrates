@@ -163,6 +163,8 @@ impl SourceCube {
     /// - ψ (meaning) = `support_score` — goal-fit relevance to the targeted void.
     /// - ρ (coherence) = average dimension coverage from `dimension_profile`.
     /// - ω (phase) = `Q16::ONE` — no phase data at SourceCube level.
+    /// - `seam_coherence` — LPCM seam compatibility score for the targeted void
+    ///   (`Q16::ONE` when no seam analysis is available; lower = worse seam fit).
     /// - Taint factor derived from `self.taint`; gate/license/foundry from caller.
     ///
     /// Use `rank_by_energy` on the returned assessments to rank cubes by D.
@@ -171,6 +173,7 @@ impl SourceCube {
         gate: &GateResult,
         license: &LicenseStatus,
         foundry: FoundrySurvival,
+        seam_coherence: Q16,
     ) -> EnergyAssessment {
         let tripolar = TripolarEnergy::new(
             self.support_score,
@@ -182,7 +185,7 @@ impl SourceCube {
             taint: EnergyFactors::taint_factor(&self.taint),
             license: EnergyFactors::license_factor(license),
             foundry: EnergyFactors::foundry_factor(foundry),
-            seam: Q16::ONE,
+            seam: seam_coherence,
             contradiction: Q16::ONE,
         };
         EnergyAssessment::new(

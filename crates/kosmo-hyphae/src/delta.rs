@@ -1,6 +1,7 @@
 use crate::cube::SourceCube;
 use kosmo_core::{rank_by_energy, Digest, FoundrySurvival, GateResult, LicenseStatus, Q16};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The planned action for one void in the HostTargetDelta.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,20 +139,23 @@ impl HostTargetDelta {
     /// and candidates per void are ranked by [`rank_by_energy`]. The cube with
     /// the highest energy wins; ties are broken by `subject_id` for determinism.
     ///
-    /// Gate defaults to `Pass` (cubes in the swarm already passed intake);
-    /// license defaults to `NotApplicable` (planning context);
+    /// `seam_map`: per-void seam coherence scores from LPCM analysis
+    /// (`void_id → Q16`). Missing entries default to `Q16::ONE` (no penalty).
+    /// Gate defaults to `Pass`; license defaults to `NotApplicable`;
     /// foundry defaults to `Unavailable` (no Foundry run at planning stage).
     pub fn from_source_cubes(
         host_cube_id: Digest,
         host_void_ids: &[Digest],
         composite_cube_id: Digest,
         cubes: &[SourceCube],
+        seam_map: &BTreeMap<Digest, Q16>,
         policy_id: Digest,
     ) -> Self {
         let mut void_fills = Vec::new();
         let mut remaining_voids = Vec::new();
 
         for &void_id in host_void_ids {
+            let seam_coherence = seam_map.get(&void_id).copied().unwrap_or(Q16::ONE);
             let cube_assessments: Vec<_> = cubes
                 .iter()
                 .filter(|c| c.target_void_id == Some(void_id))
@@ -160,6 +164,7 @@ impl HostTargetDelta {
                         &GateResult::Pass,
                         &LicenseStatus::NotApplicable,
                         FoundrySurvival::Unavailable,
+                        seam_coherence,
                     );
                     (c.cube_id, a)
                 })

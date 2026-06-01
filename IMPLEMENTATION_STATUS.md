@@ -7,6 +7,13 @@
 - **680 substrate tests** (kosmo-core 339, kosmo-hyphae 142, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 41) — 0 failures
 - **72/72 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 
+### MotifCandidate Policy Alignment + SeamGraph → Energy Wiring (2026-06-01)
+- [x] `MotifCandidate` gains `policy_id` field, updated content addressing, `energy_assessment(gate)`
+- [x] `SourceCube::energy_assessment` gains `seam_coherence: Q16` parameter
+- [x] `HostTargetDelta::from_source_cubes` gains `seam_map: &BTreeMap<Digest, Q16>`
+- [x] Pipeline Step 4b moved after LPCM; seam_map built from lpcm_reports
+- [x] 2 new `RX:EnergyRanking` scenarios (82/82 total); 682 substrate tests, 0 failures
+
 ### Phase 4 CubeSwarm + HostTargetDelta Pipeline Integration (2026-06-01)
 - [x] `run_dry_pipeline` Step 2b: accepted decisions → SourceCubes → CubeSwarm → CompositeSupportCube
 - [x] `HostTargetDelta::from_source_cubes` called (energy-ranked, not raw Q16)

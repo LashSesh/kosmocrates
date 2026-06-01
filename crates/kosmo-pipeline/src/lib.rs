@@ -27,6 +27,7 @@ pub use materialization::{
 
 use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
 use kosmo_core::TaintLabel;
+use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
     CubeDimensionProfile, HostTargetDelta, LpcmPassiveReport, MicroTopologyDiagnostic,
@@ -258,48 +259,6 @@ pub fn run_dry_pipeline(
         GateResult::Pass,
     );
 
-    // ── 2b. Phase 4 CubeSwarm — energy-ranked void-fill plan ─────────────────
-    // Build SourceCubes from accepted decisions. intents and decisions are
-    // produced in lockstep by passive_run, so zip is safe.
-    let source_cubes: Vec<SourceCube> = hyphae
-        .frontier
-        .intents
-        .iter()
-        .zip(hyphae.decisions.iter())
-        .filter(|(_, d)| d.outcome.is_accepted())
-        .map(|(intent, decision)| {
-            SourceCube::new(
-                intent.target_void_id,
-                format!("intent:{}", &decision.yield_id.to_hex()[..16]),
-                CubeDimensionProfile::empty(),
-                Q16::ONE,
-                intent.taint.clone(),
-                decision.evidence_bundle_id,
-                policy.id,
-            )
-        })
-        .collect();
-
-    let swarm = CubeSwarm::new(policy.clone(), source_cubes.clone());
-    let (_workers, swarm_composite) = swarm.run();
-
-    let host_void_ids: Vec<Digest> = hyphae
-        .host_cube
-        .void_map
-        .voids
-        .iter()
-        .map(|v| v.void_id)
-        .collect();
-
-    let void_fill_delta = HostTargetDelta::from_source_cubes(
-        hyphae.host_cube.cube_id,
-        &host_void_ids,
-        swarm_composite.composite_id,
-        &source_cubes,
-        policy.id,
-    );
-    agg.record("void_fill_plan", void_fill_delta.delta_id, GateResult::Pass);
-
     // ── 3. Optional Metatron v0.4.1 diagnostics ───────────────────────────────
     let mut metatron_diagnostics: Vec<MicroTopologyDiagnostic> = Vec::new();
     if options.enable_metatron {
@@ -350,6 +309,61 @@ pub fn run_dry_pipeline(
             lpcm_reports.push(lpcm);
         }
     }
+
+    // ── 4b. Phase 4 CubeSwarm — energy-ranked void-fill plan ─────────────────
+    // Build seam_map from LPCM reports (when available): per-void seam coherence
+    // = fraction of seam edges that are compatible with the threshold.
+    let seam_map: BTreeMap<Digest, Q16> = lpcm_reports
+        .iter()
+        .map(|r| {
+            let total = r.seam_graph.edges.len() as u64;
+            let compatible = r
+                .seam_graph
+                .compatible_edges(options.lpcm_seam_threshold)
+                .len() as u64;
+            let coherence = if total == 0 {
+                Q16::ONE
+            } else {
+                Q16::ratio(compatible, total).unwrap_or(Q16::ONE)
+            };
+            (r.host_void_id, coherence)
+        })
+        .collect();
+
+    // Build SourceCubes from accepted decisions. intents and decisions are
+    // produced in lockstep by passive_run, so zip is safe.
+    let source_cubes: Vec<SourceCube> = hyphae
+        .frontier
+        .intents
+        .iter()
+        .zip(hyphae.decisions.iter())
+        .filter(|(_, d)| d.outcome.is_accepted())
+        .map(|(intent, decision)| {
+            SourceCube::new(
+                intent.target_void_id,
+                format!("intent:{}", &decision.yield_id.to_hex()[..16]),
+                CubeDimensionProfile::empty(),
+                Q16::ONE,
+                intent.taint.clone(),
+                decision.evidence_bundle_id,
+                policy.id,
+            )
+        })
+        .collect();
+
+    let swarm = CubeSwarm::new(policy.clone(), source_cubes.clone());
+    let (_workers, swarm_composite) = swarm.run();
+
+    let host_void_ids: Vec<Digest> = hyphae.host_cube.void_map.voids.iter().map(|v| v.void_id).collect();
+    let void_fill_delta = HostTargetDelta::from_source_cubes(
+        hyphae.host_cube.cube_id,
+        &host_void_ids,
+        swarm_composite.composite_id,
+        &source_cubes,
+        &seam_map,
+        policy.id,
+    );
+    agg.record("void_fill_plan", void_fill_delta.delta_id, GateResult::Pass);
 
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {

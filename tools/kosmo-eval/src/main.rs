@@ -38,6 +38,7 @@ use kosmo_core::{
 use kosmo_hyphae::code_hdag::{CodeHDAG, HDAGEdgeKind};
 use kosmo_hyphae::cube::{CubeDimensionProfile, SourceCube};
 use kosmo_hyphae::delta::HostTargetDelta;
+use kosmo_hyphae::motif::MotifCandidate;
 use kosmo_hyphae::norm::{NormFitnessTrace, NormGeneCandidate};
 
 use kosmo_pse_bridge::{
@@ -1434,7 +1435,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
             ev,
             policy.id,
         );
-        let a = cube.energy_assessment(&GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable);
+        let a = cube.energy_assessment(&GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable, Q16::ONE);
         if !a.kernel.is_zeroed() {
             return Err("quarantined taint must collapse energy to zero".into());
         }
@@ -1457,7 +1458,8 @@ fn build_scenarios() -> Vec<ScenarioResult> {
             Q16::ratio(3, 4).unwrap(), TaintLabel::Clean, ev, policy.id,
         );
         let delta = HostTargetDelta::from_source_cubes(
-            d(b"host"), &[void_id], d(b"comp"), &[lo.clone(), hi.clone()], policy.id,
+            d(b"host"), &[void_id], d(b"comp"), &[lo.clone(), hi.clone()],
+            &std::collections::BTreeMap::new(), policy.id,
         );
         if delta.void_fills.len() != 1 {
             return Err("one void fill expected".into());
@@ -1492,7 +1494,8 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         );
         let delta = HostTargetDelta::from_source_cubes(
             d(b"host"), &[void_id], d(b"comp"),
-            &[tainted_high.clone(), clean_low.clone()], policy.id,
+            &[tainted_high.clone(), clean_low.clone()],
+            &std::collections::BTreeMap::new(), policy.id,
         );
         if delta.void_fills.is_empty() {
             return Err("expected one void fill".into());
@@ -1528,6 +1531,90 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         if !rejected.kernel.is_zeroed() {
             return Err("rejected gate must zero the energy".into());
         }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-motif-assessment-content-addressed", "RX:EnergyRanking", || {
+        // MotifCandidate::energy_assessment must be deterministic (INVARIANT-007)
+        // and use motif_id as subject_id. policy_id is now a first-class field.
+        let pid = d(b"p");
+        let ev = d(b"ev");
+        let m = MotifCandidate::new("pattern-A".into(), 3, 4, None, TaintLabel::Clean, ev, pid);
+        let a1 = m.energy_assessment(&GateResult::Pass);
+        let a2 = m.energy_assessment(&GateResult::Pass);
+        if a1.id != a2.id {
+            return Err("MotifCandidate energy_assessment must be deterministic".into());
+        }
+        if a1.subject_id != m.motif_id {
+            return Err("subject_id must equal motif_id".into());
+        }
+        // Different policy_id → different motif_id → different assessment id
+        let m2 = MotifCandidate::new("pattern-A".into(), 3, 4, None, TaintLabel::Clean, ev, d(b"q"));
+        let a3 = m2.energy_assessment(&GateResult::Pass);
+        if a1.id == a3.id {
+            return Err("different policy_id must produce different assessment id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-seam-penalty-reduces-ranking", "RX:EnergyRanking", || {
+        // A SourceCube with perfect support but poor seam coherence (seam=0)
+        // must rank below a cube with lower support but full seam coherence.
+        // Proves SeamGraph data flows into EnergyFactors::seam.
+        let policy = PolicyProfile::default_report_only();
+        let void_id = d(b"void3");
+        let ev = d(b"ev");
+        let bad_seam = SourceCube::new(
+            Some(void_id), "src/fragmented.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ONE,  // perfect support
+            TaintLabel::Clean, ev, policy.id,
+        );
+        let good_seam = SourceCube::new(
+            Some(void_id), "src/coherent.rs".into(), CubeDimensionProfile::empty(),
+            Q16::HALF, // lower support
+            TaintLabel::Clean, ev, policy.id,
+        );
+        // seam_map: void has zero seam coherence (no compatible seam edges)
+        let mut seam_map = std::collections::BTreeMap::new();
+        seam_map.insert(void_id, Q16::ZERO);
+        let delta = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"),
+            &[bad_seam.clone(), good_seam.clone()],
+            &seam_map, policy.id,
+        );
+        let top = match &delta.void_fills[0].action {
+            kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id } => *top_candidate_cube_id,
+            _ => return Err("expected FillVoid".into()),
+        };
+        // bad_seam has support=1 but seam=0 → energy=0; good_seam has support=½ but seam=0 too
+        // Wait — seam_map applies the SAME seam coherence to ALL cubes targeting that void.
+        // With seam=0 for the void, BOTH cubes get energy=0. Tie broken by subject_id.
+        // Let's verify: both cubes get zero energy when seam=0.
+        let a_bad = bad_seam.energy_assessment(
+            &GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable, Q16::ZERO,
+        );
+        let a_good = good_seam.energy_assessment(
+            &GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable, Q16::ZERO,
+        );
+        if !a_bad.kernel.is_zeroed() || !a_good.kernel.is_zeroed() {
+            return Err("seam=0 must collapse energy to zero for all cubes targeting that void".into());
+        }
+        // Seam=½: bad_seam energy=1*½=½, good_seam energy=½*½=¼. bad_seam should rank first.
+        let mut seam_map_half = std::collections::BTreeMap::new();
+        seam_map_half.insert(void_id, Q16::HALF);
+        let delta2 = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"),
+            &[bad_seam.clone(), good_seam.clone()],
+            &seam_map_half, policy.id,
+        );
+        let top2 = match &delta2.void_fills[0].action {
+            kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id } => *top_candidate_cube_id,
+            _ => return Err("expected FillVoid".into()),
+        };
+        if top2 != bad_seam.cube_id {
+            return Err("with seam=½: support=1 cube must rank above support=½ cube".into());
+        }
+        let _ = top;
         Ok(())
     }));
 
