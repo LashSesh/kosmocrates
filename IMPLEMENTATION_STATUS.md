@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **775 substrate tests** (kosmo-core 339, kosmo-hyphae 170, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
-- **123/123 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **807 substrate tests** (kosmo-core 339, kosmo-hyphae 182, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 87) — 0 failures
+- **132/132 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,43 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `AssimilationLedger` — Content-Addressed Decision Audit Log (2026-06-01)
+- [x] `AssimilationLedger { ledger_id, run_id, events, policy_id }` — sequenced, content-addressed log of all `AssimilationDecision`s in a run (INVARIANT-007)
+- [x] Two-pass construction: placeholder `run_id` → get `ledger_id` → real `run_id` seals over `ledger_id`; makes `run_id` sensitive to decision outcomes
+- [x] `HyphaeRunResult.ledger: AssimilationLedger` — every passive run carries its full decision log
+- [x] `RunContent.ledger_id` participates in `run_id` content-addressing
+- [x] `ReportContent.hyphae_ledger_id` propagates ledger commitment into pipeline `report_id`
+- [x] 4 new hyphae tests (182 total); 1 new eval scenario `RX:Hyphae` (132 total, 807 substrate tests)
+
+### Motif Feedback Loop + `SuggestPattern` Yield Kind (2026-06-01)
+- [x] `yield_for_intent` now selects yield kind from intent kind: `SuggestPattern` → `StructuralYieldKind::MotifProposal`; `ReduceDeficiency` → `DeficiencyFill`; others → `DeficiencyFill`
+- [x] `SourceFrontierGraph::augmented_with_prior_motifs` — appends `SuggestPattern` intents for motifs meeting `min_support`; re-seals `graph_id`
+- [x] `passive_run_augmented(index, policy, additional_intents)` — augments frontier with extra intents before gate processing; `passive_run` delegates to it with empty slice (backward-compatible)
+- [x] `IntegrationRunOptions.prior_motifs: Vec<MotifCandidate>` + `prior_motif_min_support: Q16` — pipeline injects `SuggestPattern` intents from prior-run motifs, closing the cross-run feedback loop
+- [x] `MotifCandidate` → `PseBridgeCandidate::StructuralObservation` in Step 6b — motif support signal reaches PSE evaluation
+- [x] 2 new hyphae tests (178 total); 2 new pipeline tests (87 total); 3 new eval scenarios `RX:Hyphae`/`RX:Pipeline` (131 total, 803 substrate tests)
+
+### Pipeline Step 5a: `MotifCandidate` from Void Kind Frequency (2026-06-01)
+- [x] `enable_motif_candidates: bool` in `IntegrationRunOptions` (default false); included in `all_layers()`
+- [x] Step 5a: one `MotifCandidate` per `HostVoidKind` variant observed; `support_score = kind_count / total_voids` (Q16 ratio); evidence = `hyphae.run_id` (CROSS-006: non-ZERO)
+- [x] `motif_candidate_count` in `ReportContent` — participates in `report_id` content-addressing (INVARIANT-007)
+- [x] `verify_policy_consistency()` covers `motif_candidates[i].policy_id`
+- [x] `summary()` reports `motif_candidates: N`
+- [x] 4 new pipeline tests (85 total); 2 new `RX:Pipeline` eval scenarios (128 total, 789 substrate tests)
+
+### `ReduceDeficiency` Intents in Frontier + Spec §2.2 Yield Compliance (2026-06-01)
+- [x] `SourceFrontierGraph::from_void_map` now generates both `FillVoid` intents (one per void) and `ReduceDeficiency` intents (one per deficiency kind) from the derived `DeficiencyVector`
+- [x] `SourceFrontierGraph::from_void_map_and_deficiencies` — explicit constructor accepting a pre-computed `DeficiencyVector`
+- [x] `yield_for_intent` propagates `deficiency_kind_ref` from `ReduceDeficiency` intents, satisfying spec §2.2 (a yield must reference a void OR a deficiency)
+- [x] `ReduceDeficiency` yields are fully processed by the gate cascade → `AssimilationDecision` with non-ZERO id
+- [x] 4 new hyphae tests (176 total — 3 frontier, 1 run); 3 new `RX:Hyphae` eval scenarios (126 total, 780 substrate tests)
+
+### Hyphae `yield_for_intent` Taint/Authority Propagation (2026-06-01)
+- [x] `yield_for_intent` now propagates `intent.taint.clone()` and `intent.authority.clone()` — no hardcoded overrides
+- [x] A `TaintLabel::Clean` + `AuthorityLabel::Foundry` intent produces a yield that passes all gates → `Accepted` decision (fully open clean path)
+- [x] `TaintLabel::Unverified` + `AuthorityLabel::Agent` intent (the `from_void_map` default) still produces `EvidenceOnly` — backward-compatible
+- [x] 2 new hyphae tests (172 total); 1 new `RX:Hyphae` eval scenario (124 total, 777 substrate tests)
 
 ### Decision Taint Propagation to BlueprintUnit (2026-06-01)
 - [x] `AssimilationDecision.taint: TaintLabel` — propagated from `StructuralYield.taint` via `from_trace()`; participates in `decision_id` content-address

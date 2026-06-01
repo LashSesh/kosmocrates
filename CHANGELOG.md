@@ -15,6 +15,84 @@ note explicitly says so.
 
 ### Added
 
+* **`AssimilationLedger` — sequenced, content-addressed audit log of all decisions per run**
+  (INVARIANT-007 strengthened: `run_id` is now sensitive to decision outcomes, not just
+  decision count).
+
+  - `AssimilationLedger { ledger_id, run_id, events, policy_id }` added to
+    `kosmo-hyphae/assimilation`. Built via two-pass construction: a placeholder pass
+    derives `ledger_id` from the ordered event sequence, then the final `run_id` is
+    sealed with `ledger_id` in its content hash.
+  - `HyphaeRunResult.ledger: AssimilationLedger` — every passive run now carries its
+    full decision log.
+  - `RunContent.ledger_id` participates in `run_id` content-addressing.
+  - `ReportContent.hyphae_ledger_id` propagates the ledger commitment into the pipeline
+    `report_id`.
+  - 4 new hyphae tests (182 total); 1 new `RX:Hyphae` eval scenario (132 total).
+
+* **Motif feedback loop + `SuggestPattern` yield kind** — closes the cross-run feedback
+  loop so motifs observed in one pipeline run propagate as structural proposals
+  into the next run's frontier.
+
+  - `yield_for_intent` now selects `StructuralYieldKind::MotifProposal` for
+    `SuggestPattern` intents (previously always `DeficiencyFill`).
+  - `SourceFrontierGraph::augmented_with_prior_motifs` appends `SuggestPattern`
+    intents for motifs meeting a configurable `min_support` threshold.
+  - `passive_run_augmented(index, policy, additional_intents)` — backward-compatible
+    wrapper; `passive_run` delegates to it with an empty slice.
+  - `IntegrationRunOptions.prior_motifs: Vec<MotifCandidate>` and
+    `prior_motif_min_support: Q16` — pipeline uses them to inject intents at the
+    top of each run.
+  - `MotifCandidate` → `PseBridgeCandidate::StructuralObservation` in Step 6b.
+  - 2 new hyphae tests (178 total); 2 new pipeline tests (87 total); 3 new eval
+    scenarios (131 total, 803 substrate tests).
+
+* **Pipeline Step 5a: `MotifCandidate` from void kind frequency** — closes the gap
+  between `MotifCandidate` (fully implemented with `energy_assessment`) and the
+  pipeline (which had no step to generate or expose them).
+
+  - `enable_motif_candidates: bool` in `IntegrationRunOptions` (default false;
+    included in `all_layers()`).
+  - Step 5a counts `HostVoidKind` occurrences, produces one `MotifCandidate` per
+    kind with `support_score = kind_count / total_voids` (Q16 ratio, no floats,
+    CROSS-007). Evidence = `hyphae.run_id` (CROSS-006: always non-ZERO).
+    Results are energy-ranked before inclusion in the report.
+  - `motif_candidate_count` participates in `report_id` (INVARIANT-007).
+  - `verify_policy_consistency()` and `summary()` updated.
+  - 4 new pipeline tests (85 total); 2 new `RX:Pipeline` eval scenarios (128 total,
+    789 substrate tests).
+
+* **`ReduceDeficiency` intents in frontier + spec §2.2 yield compliance** — closes
+  the gap between the `DeficiencyVector` (already computed in Step 1c) and the
+  `SourceFrontierGraph` (previously void-map-only), and ensures every yield
+  produced from a `ReduceDeficiency` intent satisfies the spec §2.2 reference
+  invariant (a yield must reference a void OR a deficiency).
+
+  - `SourceFrontierGraph::from_void_map` now derives the `DeficiencyVector`
+    internally and appends one `ReduceDeficiency` intent per deficiency kind.
+    An empty void map still produces an empty frontier.
+  - `SourceFrontierGraph::from_void_map_and_deficiencies` exposed for callers
+    that already hold a pre-computed vector.
+  - `yield_for_intent` extracts `deficiency_kind_ref` from `ReduceDeficiency`
+    intents and passes it into `StructuralYield::new`; all other intent kinds
+    continue to produce `deficiency_kind_ref = None`.
+  - 4 new hyphae tests (176 total); 3 new `RX:Hyphae` eval scenarios (126 total,
+    780 substrate tests).
+
+* **`yield_for_intent` taint/authority propagation** — removes the last
+  hardcoded trust override in the passive HYPHAE run path, opening the clean
+  intent → Accepted decision path end-to-end.
+
+  - `yield_for_intent` now calls `intent.taint.clone()` and
+    `intent.authority.clone()` instead of hardcoding `TaintLabel::Synthetic` /
+    `AuthorityLabel::Agent`. The `from_void_map` default remains
+    `Unverified`/`Agent`, so all existing passive-run outcomes are unchanged.
+  - A `TaintLabel::Clean` + `AuthorityLabel::Foundry` intent now naturally
+    produces an `Accepted` decision under operator-approved policy — no special
+    casing needed anywhere in the gate stack.
+  - 2 new hyphae tests (172 total); 1 new `RX:Hyphae` eval scenario (124 total,
+    777 substrate tests).
+
 * **Decision taint propagation to BlueprintUnit** — closes the data flow gap
   between `StructuralYield.taint` and `BlueprintUnit`; every trust signal now
   travels through the full pipeline chain.

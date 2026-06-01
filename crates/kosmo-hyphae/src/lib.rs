@@ -35,7 +35,7 @@ pub mod surgery;
 pub mod swarm;
 pub mod void_map;
 
-pub use assimilation::{AssimilationDecision, AssimilationOutcome, NegativeEvidenceRecord};
+pub use assimilation::{AssimilationDecision, AssimilationLedger, AssimilationOutcome, NegativeEvidenceRecord};
 pub use code_hdag::{CodeHDAG, CodeObservation, HDAGEdge, HDAGEdgeKind, HDAGNode, ObservationKind};
 pub use collapse::{
     CollapseAction, CollapseStep, CollapsePlanStatus, HostTargetCollapsePlan,
@@ -66,7 +66,7 @@ pub use metatron::{
 };
 pub use motif::MotifCandidate;
 pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
-pub use run::{passive_run, HyphaeRunResult};
+pub use run::{passive_run, passive_run_augmented, HyphaeRunResult};
 pub use structural_yield::{StructuralYield, StructuralYieldKind};
 pub use surgery::{
     SurgeryBackedCollapseStep, SurgeryEffect, SurgeryPrecondition, SurgeryRisk,

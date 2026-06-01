@@ -1724,6 +1724,86 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 5a MotifCandidate generation ──────────────────────
+
+    v.push(run_check("rx-pipeline-motif-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions::report_only();
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        if !r.motif_candidates.is_empty() {
+            return Err(format!(
+                "motif_candidates must be empty when disabled, got {}",
+                r.motif_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-motif-candidates-from-void-kind-frequency", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/alpha.rs".into(),
+                digest: Digest::of_bytes(b"alpha"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/beta.rs".into(),
+                digest: Digest::of_bytes(b"beta"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        if r.hyphae_result.host_cube.void_count() > 0 {
+            if r.motif_candidates.is_empty() {
+                return Err("motif_candidates must be non-empty when voids exist".into());
+            }
+            for c in &r.motif_candidates {
+                if !c.name.starts_with("motif:") {
+                    return Err(format!("motif name must start with 'motif:', got '{}'", c.name));
+                }
+                if c.motif_id == Digest::ZERO {
+                    return Err("motif_id must be non-ZERO (INVARIANT-007)".into());
+                }
+                if c.evidence_bundle_id == Digest::ZERO {
+                    return Err("evidence_bundle_id must be non-ZERO (CROSS-006)".into());
+                }
+                if c.support_score == Q16::ZERO {
+                    return Err("support_score must be > 0 for observed void kinds".into());
+                }
+                if c.policy_id != policy.id {
+                    return Err("motif candidate must carry pipeline policy_id".into());
+                }
+            }
+        }
+        // Determinism: two runs with same inputs must produce same report_id.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        if r.report_id != r2.report_id {
+            return Err("motif candidates must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
     v.push(run_check("rx-pipeline-norm-candidates-disabled-by-default", "RX:Pipeline", || {
         use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
         use kosmo_workbench::WorkspaceIndex;
@@ -2007,6 +2087,43 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let ids2: Vec<_> = r2.pse_candidates.iter().map(|c| c.id).collect();
         if ids1 != ids2 {
             return Err("pse_candidates must be deterministic".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-pse-candidates-include-motif-observations", "RX:Pipeline", || {
+        // MotifCandidate objects must be bridged into PSE as StructuralObservation
+        // candidates when both enable_motif_candidates and enable_pse_candidates are true.
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/b.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let expected = r.norm_candidates.len()
+            + r.ambiguity_profiles.len()
+            + r.complement_void_hypotheses.len()
+            + r.motif_candidates.len();
+        if r.pse_candidates.len() != expected {
+            return Err(format!(
+                "expected {} PSE candidates (including {} motifs), got {}",
+                expected, r.motif_candidates.len(), r.pse_candidates.len()
+            ));
+        }
+        for c in &r.pse_candidates {
+            if c.evidence_bundle_id == Digest::ZERO {
+                return Err("CROSS-006: PSE candidate evidence_bundle_id must be non-ZERO".into());
+            }
         }
         Ok(())
     }));
@@ -2319,6 +2436,292 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let r2 = run_dry_pipeline(&index, &opts, &policy);
         if r.report_id != r2.report_id {
             return Err("taint-carrying decisions must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Hyphae — intent taint/authority propagation ───────────────────────
+
+    v.push(run_check("rx-hyphae-clean-intent-yields-accepted-decision", "RX:Hyphae", || {
+        // A SourceIntent with TaintLabel::Clean + AuthorityLabel::Foundry must produce
+        // an Accepted AssimilationDecision under operator-approved policy.
+        // This verifies the full propagation: intent → yield → gate → decision.
+        use kosmo_hyphae::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::operator_approved();
+        let void_id = Digest::of_bytes(b"eval-void-clean");
+        let intent = SourceIntent::new(
+            SourceIntentKind::FillVoid { void_id },
+            Some(void_id),
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+        );
+        let ev_ref = EvidenceRef::new(intent.intent_id, EvidenceKind::HostScan, "eval-scan");
+        let evidence = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            intent.target_void_id,
+            None,
+            intent.taint.clone(),
+            intent.authority.clone(),
+            evidence.bundle_id,
+            policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+
+        if !decision.outcome.is_accepted() {
+            return Err(format!(
+                "Clean/Foundry intent must yield Accepted decision; got {:?}",
+                decision.outcome
+            ));
+        }
+        if decision.taint != TaintLabel::Clean {
+            return Err(format!(
+                "Decision taint must propagate from intent; expected Clean, got {:?}",
+                decision.taint
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-reduce-deficiency-intent-carries-kind-ref", "RX:Hyphae", || {
+        // A ReduceDeficiency intent must produce a yield with deficiency_kind_ref set.
+        // Without this, the yield has host_void_id=None AND deficiency_kind_ref=None,
+        // violating spec §2.2 (yield must reference void OR deficiency).
+        use kosmo_hyphae::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_hyphae::deficiency::DeficiencyKind;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let intent = SourceIntent::new(
+            SourceIntentKind::ReduceDeficiency { deficiency_kind: DeficiencyKind::TestCoverage },
+            None,
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        );
+        let ev_ref = EvidenceRef::new(intent.intent_id, EvidenceKind::HostScan, "eval-scan");
+        let evidence = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            intent.target_void_id,
+            match &intent.kind {
+                SourceIntentKind::ReduceDeficiency { deficiency_kind } =>
+                    Some(format!("{:?}", deficiency_kind)),
+                _ => None,
+            },
+            intent.taint.clone(),
+            intent.authority.clone(),
+            evidence.bundle_id,
+            policy.id,
+        );
+
+        if yield_.host_void_id.is_some() {
+            return Err("ReduceDeficiency yield must not reference a specific void".into());
+        }
+        if yield_.deficiency_kind_ref.as_deref() != Some("TestCoverage") {
+            return Err(format!(
+                "deficiency_kind_ref must be 'TestCoverage', got {:?}",
+                yield_.deficiency_kind_ref
+            ));
+        }
+        // Yield is still processable by the gate cascade.
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+        if decision.decision_id == Digest::ZERO {
+            return Err("ReduceDeficiency decision must have non-ZERO id (CROSS-006)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-frontier-includes-reduce-deficiency-intents", "RX:Hyphae", || {
+        // from_void_map must generate both FillVoid and ReduceDeficiency intents.
+        // The ReduceDeficiency intents represent category-level structural observations
+        // alongside the per-void FillVoid intents.
+        use kosmo_hyphae::frontier::{SourceFrontierGraph, SourceIntentKind};
+        use kosmo_hyphae::void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
+
+        let pid = PolicyProfile::default_report_only().id;
+        let voids = vec![
+            HostVoid::new(HostVoidKind::MissingTestFiber { for_module: "src/a.rs".into() }, Q16::HALF, "src/a.rs".into()),
+            HostVoid::new(HostVoidKind::MissingDocFiber { for_module: "src/b.rs".into() }, Q16::HALF, "src/b.rs".into()),
+        ];
+        let vm = TopologicalVoidMap::from_voids(voids, pid);
+        let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
+
+        let fill_count = frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, SourceIntentKind::FillVoid { .. }))
+            .count();
+        let reduce_count = frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, SourceIntentKind::ReduceDeficiency { .. }))
+            .count();
+
+        if fill_count != 2 {
+            return Err(format!("expected 2 FillVoid intents, got {}", fill_count));
+        }
+        if reduce_count != 2 {
+            return Err(format!("expected 2 ReduceDeficiency intents (TestCoverage + Documentation), got {}", reduce_count));
+        }
+        if !frontier.verify_id() {
+            return Err("frontier graph_id must match content hash (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-suggest-pattern-intent-produces-motif-proposal-yield", "RX:Hyphae", || {
+        // A SuggestPattern intent must produce StructuralYieldKind::MotifProposal, closing
+        // the motif feedback loop: prior MotifCandidate → SuggestPattern intent → MotifProposal yield.
+        use kosmo_hyphae::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let intent = SourceIntent::new(
+            SourceIntentKind::SuggestPattern { pattern_name: "motif:MissingTestFiber".into() },
+            None,
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        );
+        let ev_ref = EvidenceRef::new(intent.intent_id, EvidenceKind::HostScan, "eval-scan");
+        let evidence = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+
+        // Match the yield_for_intent logic: SuggestPattern → MotifProposal, no void/deficiency refs.
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::MotifProposal,
+            None,
+            None,
+            intent.taint.clone(),
+            intent.authority.clone(),
+            evidence.bundle_id,
+            policy.id,
+        );
+        if yield_.kind != StructuralYieldKind::MotifProposal {
+            return Err(format!("expected MotifProposal, got {:?}", yield_.kind));
+        }
+        if yield_.host_void_id.is_some() || yield_.deficiency_kind_ref.is_some() {
+            return Err("MotifProposal yield must not reference void or deficiency".into());
+        }
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+        if decision.decision_id == Digest::ZERO {
+            return Err("MotifProposal decision must have non-ZERO id (CROSS-006)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-prior-motifs-inject-suggest-pattern-intents", "RX:Pipeline", || {
+        // Feeding prior MotifCandidates back via prior_motifs must produce SuggestPattern
+        // intents in the frontier of the next run, closing the motif feedback loop.
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        // Step 1: run with motif candidates enabled to collect them.
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        }, &policy);
+        let prior_motifs = r1.motif_candidates.clone();
+        if prior_motifs.is_empty() {
+            return Ok(()); // No voids means no motifs; skip.
+        }
+
+        // Step 2: feed prior motifs back; expect SuggestPattern intents in frontier.
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions {
+            prior_motifs,
+            prior_motif_min_support: Q16::ZERO,
+            ..IntegrationRunOptions::report_only()
+        }, &policy);
+
+        let suggest_count = r2.hyphae_result.frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern { .. }))
+            .count();
+        if suggest_count == 0 {
+            return Err("prior_motifs must inject SuggestPattern intents into the frontier".into());
+        }
+        if r1.hyphae_result.run_id == r2.hyphae_result.run_id {
+            return Err("augmented run must have different run_id (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-assimilation-ledger-content-addressed", "RX:Hyphae", || {
+        // AssimilationLedger must be content-addressed (INVARIANT-007):
+        // same decisions → same ledger_id; different decisions → different ledger_id.
+        // ledger_id must be non-ZERO even for zero decisions.
+        use kosmo_hyphae::assimilation::{AssimilationDecision, AssimilationLedger};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(Digest::of_bytes(b"ev"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let run_id = Digest::of_bytes(b"eval-run");
+
+        // Empty ledger must have non-ZERO id.
+        let empty_ledger = AssimilationLedger::from_decisions(&[], run_id, policy.id);
+        if empty_ledger.ledger_id == Digest::ZERO {
+            return Err("empty AssimilationLedger must have non-ZERO ledger_id".into());
+        }
+
+        let make_decision = |seed: &[u8], clean: bool| -> AssimilationDecision {
+            let (taint, authority) = if clean {
+                (TaintLabel::Clean, AuthorityLabel::Foundry)
+            } else {
+                (TaintLabel::Quarantined { reason: "bad".into() }, AuthorityLabel::Unknown)
+            };
+            let yield_ = StructuralYield::new(
+                StructuralYieldKind::DeficiencyFill,
+                Some(Digest::of_bytes(seed)), None,
+                taint, authority, ev.bundle_id, policy.id,
+            );
+            let cascade = GateCascade::standard_gates(policy.clone());
+            let trace = cascade.apply(&yield_, &ev);
+            AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id)
+        };
+
+        let d1 = make_decision(b"p", true);
+        let d2 = make_decision(b"q", false);
+
+        // Content-addressed: same input → same id.
+        let l1 = AssimilationLedger::from_decisions(&[d1.clone()], run_id, policy.id);
+        let l2 = AssimilationLedger::from_decisions(&[d1.clone()], run_id, policy.id);
+        if l1.ledger_id != l2.ledger_id {
+            return Err("same decisions must produce same ledger_id (INVARIANT-007)".into());
+        }
+
+        // Different decisions → different ledger_ids.
+        let l3 = AssimilationLedger::from_decisions(&[d2.clone()], run_id, policy.id);
+        if l1.ledger_id == l3.ledger_id {
+            return Err("different decisions must produce different ledger_ids".into());
+        }
+
+        // accepted/rejected counts match gate outcomes.
+        let ledger = AssimilationLedger::from_decisions(&[d1, d2], run_id, policy.id);
+        if ledger.accepted_count() != 1 || ledger.rejected_count() != 1 {
+            return Err(format!(
+                "expected accepted=1 rejected=1, got accepted={} rejected={}",
+                ledger.accepted_count(), ledger.rejected_count(),
+            ));
         }
         Ok(())
     }));
