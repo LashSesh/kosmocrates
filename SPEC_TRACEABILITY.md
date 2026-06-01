@@ -321,3 +321,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 | `RX:Pipeline` (46 scenarios including all energy-ranked pipeline outputs + Steps 1c, 3e, 3f, 5c, 5d, 5e, 6b) | ✅ |
 | `RX:BlueprintEnergy` (2 scenarios: accepted positive / opaque zero; tainted ranks below clean) | ✅ |
 | `RX:ContradictionEnergy` (2 scenarios: role conflict detected; independent sources zero energy) | ✅ |
+| `RX:Compatibility` (2 scenarios: clean units score=ONE; tainted unit reduces score + gap) | ✅ |

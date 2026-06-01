@@ -4,11 +4,12 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **764 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 49, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 77) — 0 failures
-- **118/118 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **769 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 77) — 0 failures
+- **120/120 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
+- **`CompatibilityProfileReport::from_units` — real gap detection (TaintedUnit, MissingSourceRef)** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
 - **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
@@ -16,6 +17,15 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### CompatibilityProfileReport Real Gap Detection (2026-06-01)
+- [x] `CompatibilityProfileReport::from_units(manifest_id, host_snapshot_id, policy, units)` — replaces `perfect()` stub in `export_dry_run`
+  - Accepted units only; `AcceptedWithTaint` → `TaintedUnit` gap, severity `Q16::HALF`; `source_ref == Digest::ZERO` → `MissingSourceRef` gap, severity `Q16::ONE`
+  - `compatibility_score = Q16::ONE − avg_gap_severity`, clamped to `[0, ONE]`
+  - All-clean manifest → score = `Q16::ONE`; empty accepted set → `EmptyManifest` status
+  - Gaps sorted by `unit_id`; deterministic regardless of input order (INVARIANT-007)
+- [x] `SystemCube::export_dry_run` now calls `from_units` — every `KcubeExportReport` carries real compatibility diagnostics
+- [x] 5 new `kosmo-systemcube` compatibility tests (54 total); 2 new `RX:Compatibility` eval scenarios (120 total, 769 substrate tests)
 
 ### ContradictionEnergyReport Real Detection (2026-06-01)
 - [x] `ContradictionEnergyReport::from_units(manifest_id, policy, units)` — replaces `zero_energy` stub

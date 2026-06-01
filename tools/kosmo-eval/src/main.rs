@@ -49,7 +49,10 @@ use kosmo_pse_bridge::{
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
 use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
 use kosmo_kcube::{KcubeArtifact, KcubeExecutor, kcube_file_name};
-use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, ContradictionEnergyReport, EnergyStatus, SystemCube};
+use kosmo_systemcube::{
+    BlueprintUnit, BlueprintUnitKind, CompatibilityProfileReport, CompatibilityStatus,
+    ContradictionEnergyReport, EnergyStatus, SystemCube,
+};
 use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
 use kosmo_workbench::WorkspaceIndex;
 
@@ -3191,6 +3194,79 @@ fn it_builds() { assert!(true); }
         let r2 = ContradictionEnergyReport::from_units(mid, &policy, &[u1, u2]);
         if r.report_id != r2.report_id {
             return Err("ContradictionEnergyReport must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Compatibility — CompatibilityProfileReport real gap detection ─────────
+
+    v.push(run_check("rx-compatibility-clean-units-score-one", "RX:Compatibility", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let hid = d(b"host");
+        let ev = d(b"ev");
+        let u1 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src1"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let u2 = BlueprintUnit::new(
+            BlueprintUnitKind::FiberDescriptor,
+            d(b"src2"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Clean,
+            vec![ev],
+            &policy,
+        );
+        let r = CompatibilityProfileReport::from_units(mid, hid, &policy, &[u1.clone(), u2.clone()]);
+        if r.status != CompatibilityStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.compatibility_score != Q16::ONE {
+            return Err(format!("all-clean units must yield score=ONE, got {}", r.compatibility_score.raw()));
+        }
+        if !r.gaps.is_empty() {
+            return Err(format!("expected 0 gaps, got {}", r.gaps.len()));
+        }
+        // report must be content-addressed
+        let r2 = CompatibilityProfileReport::from_units(mid, hid, &policy, &[u1, u2]);
+        if r.report_id != r2.report_id {
+            return Err("CompatibilityProfileReport must be deterministic (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-compatibility-tainted-unit-reduces-score", "RX:Compatibility", || {
+        let policy = PolicyProfile::default_report_only();
+        let mid = d(b"manifest");
+        let hid = d(b"host");
+        let ev = d(b"ev");
+        let tainted = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src1"),
+            kosmo_core::AuthorityLabel::Foundry,
+            TaintLabel::Synthetic,
+            vec![ev],
+            &policy,
+        );
+        let r = CompatibilityProfileReport::from_units(mid, hid, &policy, &[tainted]);
+        if r.status != CompatibilityStatus::Available {
+            return Err(format!("expected Available, got {:?}", r.status));
+        }
+        if r.gaps.len() != 1 {
+            return Err(format!("expected 1 gap, got {}", r.gaps.len()));
+        }
+        if r.gaps[0].gap_kind != "TaintedUnit" {
+            return Err(format!("expected TaintedUnit gap, got {}", r.gaps[0].gap_kind));
+        }
+        if r.gaps[0].severity != Q16::HALF {
+            return Err(format!("TaintedUnit severity must be HALF, got {}", r.gaps[0].severity.raw()));
+        }
+        if r.compatibility_score != Q16::HALF {
+            return Err(format!("one tainted unit must yield score=HALF, got {}", r.compatibility_score.raw()));
         }
         Ok(())
     }));

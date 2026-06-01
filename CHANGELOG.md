@@ -15,6 +15,18 @@ note explicitly says so.
 
 ### Added
 
+* **CompatibilityProfileReport real gap detection** — replaces the `perfect()` stub
+  in `SystemCube::export_dry_run` with unit-aware gap analysis; every
+  `KcubeExportReport` now carries real compatibility diagnostics.
+
+  - `CompatibilityProfileReport::from_units(manifest_id, host_snapshot_id, policy, units)`:
+    `AcceptedWithTaint` units produce a `TaintedUnit` gap (severity `Q16::HALF`);
+    `source_ref == Digest::ZERO` produces a `MissingSourceRef` gap (severity `Q16::ONE`).
+    `compatibility_score = Q16::ONE − avg_gap_severity`, clamped to `[0, ONE]`.
+    Gaps sorted by `unit_id`; opaque-rejected units excluded (INVARIANT-007).
+  - 5 new `kosmo-systemcube` tests (54 total); 2 new `RX:Compatibility` eval
+    scenarios (120 total, 769 substrate tests).
+
 * **ContradictionEnergyReport real pairwise detection** — replaces the `zero_energy`
   stub in `SystemCube::export_dry_run` with a deterministic, unit_id-ordered pairwise
   scan of accepted units; surfaces real `RoleConflict` and `Duplicate` signals.

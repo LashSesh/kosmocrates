@@ -175,10 +175,11 @@ impl SystemCube {
         let compatibility = if self.host_snapshot_id == Digest::ZERO {
             CompatibilityProfileReport::no_host_snapshot(self.manifest.manifest_id, policy)
         } else {
-            CompatibilityProfileReport::perfect(
+            CompatibilityProfileReport::from_units(
                 self.manifest.manifest_id,
                 self.host_snapshot_id,
                 policy,
+                &self.units,
             )
         };
 
