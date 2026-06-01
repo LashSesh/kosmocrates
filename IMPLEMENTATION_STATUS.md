@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek mit Strukturfingerabdruck und Resonanzmaß."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking."
 
-- **855 substrate tests** (kosmo-core 339, kosmo-hyphae 197, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 100) — 0 failures
-- **139/139 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **872 substrate tests** (kosmo-core 339, kosmo-hyphae 197, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 102) — 0 failures
+- **140/140 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,16 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Crystal-Boosted SourceCube Scoring — `crystal_resonance` Dimension (2026-06-01)
+
+The CAD library now actively influences energy ranking of current-run SourceCubes.
+
+- [x] Pipeline Step 2b: `crystal_resonance` dimension added to `CubeDimensionProfile` when `prior_crystals` is non-empty AND source content (HDAG) is available
+- [x] Best structural proximity to any prior crystal (same rho/omega formula as `Resonite::from_records`) used as the dimension value
+- [x] Only set when `> ZERO` — no false-zero baseline; runs without prior crystals are unchanged
+- [x] `crystal_resonance` contributes to ρ (coherence) in tripolar energy → pattern-matched voids rank higher
+- [x] 2 new pipeline tests (102 total); 1 new eval scenario (140 total, 872 substrate tests)
 
 ### Crystal Structural Fingerprint + Resonite Pipeline Wiring (2026-06-01)
 

@@ -3133,6 +3133,49 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    v.push(run_check("rx-pipeline-crystal-resonance-boost-absent-without-prior", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let source = "pub fn alpha() {}\npub fn beta() {}\n";
+        let entries = vec![
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(source.as_bytes()),
+                size_bytes: source.len() as u64,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: Some(source.to_string()),
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        let opts = IntegrationRunOptions::report_only();
+        let r = run_dry_pipeline(&index, &opts, &policy);
+
+        // crystal_resonance must be absent when no prior_crystals provided.
+        let boosted = r.source_cubes.iter().any(|c| {
+            c.dimension_profile.dimensions.contains_key("crystal_resonance")
+        });
+        if boosted {
+            return Err("crystal_resonance must not appear without prior_crystals".into());
+        }
+
+        // No prior crystals → resonite_map empty.
+        if !r.resonite_map.is_empty() {
+            return Err(format!(
+                "resonite_map must be empty without prior_crystals, got {}",
+                r.resonite_map.len()
+            ));
+        }
+
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency failed".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

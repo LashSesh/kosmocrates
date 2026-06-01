@@ -702,9 +702,33 @@ pub fn run_dry_pipeline(
         .map(|(intent, decision)| {
             let dims = if let Some(void_id) = intent.target_void_id {
                 if let Some(hdag) = hyphae.host_cube.hdag_by_void_id.get(&void_id) {
+                    let rho = hdag.rho_coherence();
+                    let omega = hdag.omega_phase();
                     let mut d = std::collections::BTreeMap::new();
-                    d.insert("rho_coherence".to_string(), hdag.rho_coherence());
-                    d.insert("omega_phase".to_string(), hdag.omega_phase());
+                    d.insert("rho_coherence".to_string(), rho);
+                    d.insert("omega_phase".to_string(), omega);
+                    // When prior crystals are available, compute the best structural
+                    // resonance between this void's HDAG and all prior crystal records.
+                    // High resonance → the void matches a known certified pattern →
+                    // crystal_resonance dimension boosts ρ (coherence) in energy ranking.
+                    // Only set when prior_crystals is non-empty (no false-zero baseline).
+                    if !options.prior_crystals.is_empty() {
+                        let best = options.prior_crystals.iter()
+                            .map(|prior| {
+                                let rho_diff = (rho.raw() - prior.rho_coherence.raw())
+                                    .unsigned_abs() as i64;
+                                let omega_diff = (omega.raw() - prior.omega_phase.raw())
+                                    .unsigned_abs() as i64;
+                                let rho_sim = (Q16::ONE.raw() - rho_diff).max(0);
+                                let omega_sim = (Q16::ONE.raw() - omega_diff).max(0);
+                                Q16::from_raw((rho_sim + omega_sim) / 2)
+                            })
+                            .max_by_key(|q| q.raw())
+                            .unwrap_or(Q16::ZERO);
+                        if best.raw() > 0 {
+                            d.insert("crystal_resonance".to_string(), best);
+                        }
+                    }
                     CubeDimensionProfile::from_raw_map(d)
                 } else {
                     CubeDimensionProfile::empty()
@@ -1939,6 +1963,41 @@ mod tests {
     }
 
     // ── Resonite map — Step 5e-resonite ──────────────────────────────────────
+
+    // ── Crystal-boosted SourceCube scoring (crystal_resonance dimension) ────
+
+    #[test]
+    fn pipeline_crystal_resonance_absent_without_prior_crystals() {
+        // crystal_resonance must not appear when no prior_crystals are provided.
+        let opts = IntegrationRunOptions::report_only();
+        let r = run_dry_pipeline(&content_fixture_index(), &opts, &policy());
+        let boosted = r.source_cubes.iter().any(|c| {
+            c.dimension_profile.dimensions.contains_key("crystal_resonance")
+        });
+        assert!(!boosted, "crystal_resonance must not appear without prior_crystals");
+    }
+
+    #[test]
+    fn pipeline_crystal_resonance_absent_without_hdag() {
+        // crystal_resonance requires source content (HDAG); file-presence-only entries
+        // cannot produce a structural resonance match.
+        let opts1 = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts1, &policy());
+        let prior = r1.certified_crystals.clone();
+        let opts2 = IntegrationRunOptions {
+            prior_crystals: prior,
+            ..IntegrationRunOptions::report_only()
+        };
+        // fixture_index has content: None → no HDAG → no crystal_resonance dim.
+        let r2 = run_dry_pipeline(&fixture_index(), &opts2, &policy());
+        let boosted = r2.source_cubes.iter().any(|c| {
+            c.dimension_profile.dimensions.contains_key("crystal_resonance")
+        });
+        assert!(!boosted, "crystal_resonance must not appear when entries lack source content");
+    }
 
     #[test]
     fn pipeline_resonite_map_empty_without_prior_crystals() {

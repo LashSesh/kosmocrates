@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **Crystal-boosted SourceCube scoring — `crystal_resonance` dimension**
+
+  Closes the CAD library feedback loop: prior certified crystal records now influence
+  the energy ranking of current-run SourceCubes via structural proximity.
+
+  - Pipeline Step 2b: when `prior_crystals` is non-empty and source content is available,
+    the best structural resonance between the current void's HDAG (rho/omega signals) and
+    every prior crystal record is computed and stored as `crystal_resonance` dimension in
+    the `CubeDimensionProfile`.
+  - Uses the same rho/omega proximity formula as `Resonite::from_records`; pure Q16
+    arithmetic, no floats (CROSS-007).
+  - The dimension contributes to `ρ (coherence)` in the tripolar energy assessment —
+    voids that match a known certified pattern rank higher in the void-fill plan.
+  - `crystal_resonance` only appears when both HDAG and prior_crystals are present
+    (no false-zero baseline: runs without prior crystals are unchanged).
+  - 2 new pipeline tests (102 total); 1 new eval scenario (140 total, 872 substrate tests).
+
 * **Crystal structural fingerprint + Resonite pipeline wiring (Step 5e-resonite)**
 
   Closes the loop between code structure and the CAD library: certified crystal records
