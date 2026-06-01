@@ -31,13 +31,13 @@ use kosmo_core::{Digest, GateResult, PolicyProfile, PromotionFeedback, Q16, rank
 use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_hyphae::{
-    CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
-    CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
+    CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography, CorpusCartographyUpdate,
+    CubeSwarm, CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
     MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
     MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormFitnessTrace,
     NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
-    SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption, diagnose_micrograph,
-    lift_region, passive_run, HyphaeRunResult,
+    SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption, TopologyAmbiguityProfile,
+    diagnose_micrograph, lift_region, passive_run, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
@@ -124,6 +124,8 @@ struct ReportContent {
     lpcm_count: u32,
     surgery_count: u32,
     surgery_workbench_task_count: u32,
+    ambiguity_profile_count: u32,
+    void_hypothesis_count: u32,
     norm_candidate_count: u32,
     norm_fitness_trace_count: u32,
     has_systemcube: bool,
@@ -166,6 +168,12 @@ pub struct IntegrationRunReport {
     /// Workbench-compatible surgery tasks derived 1:1 from `surgery_options`.
     /// In the same energy-ranked order. Empty when `surgery_options` is empty.
     pub surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
+    /// Energy-ranked topology ambiguity profiles from all Metatron diagnostics.
+    /// Most-confident ambiguity first. Empty when `enable_metatron` is false.
+    pub ambiguity_profiles: Vec<TopologyAmbiguityProfile>,
+    /// Energy-ranked complement void hypotheses from all Metatron diagnostics.
+    /// Most-confident hypothesis first. Empty when `enable_metatron` is false.
+    pub complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
     /// Energy-ranked norm gene candidates generated from accepted decisions.
     /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
     /// Empty when `enable_norm_candidates` is false.
@@ -195,6 +203,8 @@ impl IntegrationRunReport {
         lpcm_reports: Vec<LpcmPassiveReport>,
         surgery_options: Vec<TopologicalSurgeryOption>,
         surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
+        ambiguity_profiles: Vec<TopologyAmbiguityProfile>,
+        complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
         norm_candidates: Vec<NormGeneCandidate>,
         norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
@@ -218,6 +228,8 @@ impl IntegrationRunReport {
             lpcm_count: lpcm_reports.len() as u32,
             surgery_count: surgery_options.len() as u32,
             surgery_workbench_task_count: surgery_workbench_tasks.len() as u32,
+            ambiguity_profile_count: ambiguity_profiles.len() as u32,
+            void_hypothesis_count: complement_void_hypotheses.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
             norm_fitness_trace_count: norm_fitness_traces.len() as u32,
             has_systemcube: systemcube_export.is_some(),
@@ -238,6 +250,8 @@ impl IntegrationRunReport {
             lpcm_reports,
             surgery_options,
             surgery_workbench_tasks,
+            ambiguity_profiles,
+            complement_void_hypotheses,
             norm_candidates,
             norm_fitness_traces,
             systemcube_export,
@@ -258,7 +272,8 @@ impl IntegrationRunReport {
              hyphae: {} | cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
-             surgery: {} (tasks: {}) | norm_candidates: {} (traces: {}) | {}",
+             surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
+             norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -275,6 +290,8 @@ impl IntegrationRunReport {
             self.lpcm_reports.len(),
             self.surgery_options.len(),
             self.surgery_workbench_tasks.len(),
+            self.ambiguity_profiles.len(),
+            self.complement_void_hypotheses.len(),
             self.norm_candidates.len(),
             self.norm_fitness_traces.len(),
             scube,
@@ -303,6 +320,8 @@ impl IntegrationRunReport {
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
             && self.surgery_options.iter().all(|o| o.policy_id == pid)
             && self.surgery_workbench_tasks.iter().all(|t| t.policy_id == pid)
+            && self.ambiguity_profiles.iter().all(|a| a.policy_id == pid)
+            && self.complement_void_hypotheses.iter().all(|h| h.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_fitness_traces.iter().all(|t| t.policy_id == pid)
             && self
@@ -426,6 +445,34 @@ pub fn run_dry_pipeline(
         .iter()
         .map(SurgeryWorkbenchTask::from_option)
         .collect();
+
+    // ── 3f. Flatten + energy-rank ambiguity profiles and void hypotheses ────────
+    let ambiguity_profiles: Vec<TopologyAmbiguityProfile> = {
+        let raw: Vec<TopologyAmbiguityProfile> = metatron_diagnostics
+            .iter()
+            .flat_map(|d| d.ambiguities.iter().cloned())
+            .collect();
+        let assessments: Vec<_> = raw.iter()
+            .map(|a| a.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        ranked.iter()
+            .filter_map(|a| raw.iter().find(|p| p.profile_id == a.subject_id).cloned())
+            .collect()
+    };
+    let complement_void_hypotheses: Vec<ComplementVoidHypothesis> = {
+        let raw: Vec<ComplementVoidHypothesis> = metatron_diagnostics
+            .iter()
+            .flat_map(|d| d.void_hypotheses.iter().cloned())
+            .collect();
+        let assessments: Vec<_> = raw.iter()
+            .map(|h| h.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        ranked.iter()
+            .filter_map(|a| raw.iter().find(|h| h.hypothesis_id == a.subject_id).cloned())
+            .collect()
+    };
 
     // ── 4. Optional LPCM v0.4.2 passive reports ───────────────────────────────
     let mut lpcm_reports: Vec<LpcmPassiveReport> = Vec::new();
@@ -628,6 +675,8 @@ pub fn run_dry_pipeline(
         lpcm_reports,
         surgery_options,
         surgery_workbench_tasks,
+        ambiguity_profiles,
+        complement_void_hypotheses,
         norm_candidates,
         norm_fitness_traces,
         systemcube_export,
@@ -998,6 +1047,61 @@ mod tests {
         for c in &r.norm_candidates {
             assert_eq!(c.policy_id, p.id, "norm candidate must carry pipeline policy_id");
         }
+    }
+
+    // ── Ambiguity profiles + void hypotheses (Step 3f) ───────────────────────
+
+    #[test]
+    fn pipeline_no_ambiguity_profiles_when_metatron_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.ambiguity_profiles.is_empty(),
+            "ambiguity_profiles must be empty when Metatron is disabled"
+        );
+        assert!(
+            r.complement_void_hypotheses.is_empty(),
+            "complement_void_hypotheses must be empty when Metatron is disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_ambiguity_profiles_are_energy_ranked() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        // Determinism.
+        let ids1: Vec<_> = r1.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        let ids2: Vec<_> = r2.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        assert_eq!(ids1, ids2, "ambiguity_profiles must be deterministic");
+        // Energy order: confidence_score descending.
+        for window in r1.ambiguity_profiles.windows(2) {
+            assert!(
+                window[0].confidence_score >= window[1].confidence_score,
+                "ambiguity_profiles must be ranked by confidence_score descending"
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_ambiguity_profiles_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for a in &r.ambiguity_profiles {
+            assert_eq!(a.policy_id, p.id, "ambiguity profile must carry pipeline policy_id");
+            assert_ne!(a.profile_id, Digest::ZERO, "profile_id must be non-ZERO");
+        }
+        for h in &r.complement_void_hypotheses {
+            assert_eq!(h.policy_id, p.id, "void hypothesis must carry pipeline policy_id");
+            assert_ne!(h.hypothesis_id, Digest::ZERO, "hypothesis_id must be non-ZERO");
+        }
+        assert!(r.verify_policy_consistency(), "verify_policy_consistency must cover ambiguities + hypotheses");
     }
 
     // ── Surgery workbench tasks (Step 3e) ────────────────────────────────────

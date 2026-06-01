@@ -15,6 +15,19 @@ note explicitly says so.
 
 ### Added
 
+* **TopologyAmbiguityProfile + ComplementVoidHypothesis pipeline integration — Step 3f** —
+  surfaces previously discarded metatron M2 diagnostic details as energy-ranked
+  top-level collections in the report.
+
+  - Pipeline Step 3f: flatten `.ambiguities` and `.void_hypotheses` from all
+    `metatron_diagnostics`, energy-rank each by `confidence_score` (most-confident first).
+    Both collections are empty when `enable_metatron` is false.
+  - `IntegrationRunReport.ambiguity_profiles` + `.complement_void_hypotheses`; counts
+    participate in `report_id`. `verify_policy_consistency()` covers both. `summary()`
+    reports `ambiguities: N | void_hyp: M`.
+  - 3 new pipeline tests (68 total); 2 new `RX:Pipeline` eval scenarios (108 total,
+    747 substrate tests).
+
 * **NormFitnessTrace pipeline integration — Step 5c** — closes the full
   "Wissen zurück ins Substrat" loop: PSE promotion outcomes feed back into the
   substrate as fitness observations, which can re-rank norm gene candidates.

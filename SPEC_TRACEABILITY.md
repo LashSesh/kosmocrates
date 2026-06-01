@@ -106,8 +106,8 @@ Target crate: `crates/kosmo-hyphae`
 | `MicrographLiftReport` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MetatronRegionFingerprint` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MicroTopologyDiagnostic` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `TopologyAmbiguityProfile` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
-| `ComplementVoidHypothesis` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` |
+| `TopologyAmbiguityProfile` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` + energy-ranked in pipeline Step 3f |
+| `ComplementVoidHypothesis` + `energy_assessment` | Metatron v0.4.1 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/metatron.rs` + energy-ranked in pipeline Step 3f |
 | `MicroTopologyIndex` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
 | `MicroTopologyIndex` (assembled in pipeline Step 3d) | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` + `kosmo-pipeline/src/lib.rs` |
 | `lift_region()` M1 pipeline | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/metatron.rs` |
@@ -316,4 +316,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (38 scenarios including all energy-ranked pipeline outputs + Steps 3e, 5c) | ✅ |
+| `RX:Pipeline` (40 scenarios including all energy-ranked pipeline outputs + Steps 3e, 3f, 5c) | ✅ |

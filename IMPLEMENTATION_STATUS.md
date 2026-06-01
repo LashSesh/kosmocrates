@@ -4,12 +4,22 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **744 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 65) — 0 failures
-- **106/106 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **747 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 68) — 0 failures
+- **108/108 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
 - **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
+- **`TopologyAmbiguityProfile` + `ComplementVoidHypothesis` energy-ranked in pipeline Step 3f** ✅
+
+### TopologyAmbiguityProfile + ComplementVoidHypothesis Pipeline Integration — Step 3f (2026-06-01)
+- [x] Pipeline Step 3f: flatten `ambiguities` and `void_hypotheses` from all `metatron_diagnostics`; energy-rank each by `confidence_score` (most confident first)
+- [x] `IntegrationRunReport.ambiguity_profiles: Vec<TopologyAmbiguityProfile>` — empty when Metatron disabled
+- [x] `IntegrationRunReport.complement_void_hypotheses: Vec<ComplementVoidHypothesis>` — empty when Metatron disabled
+- [x] `ReportContent.ambiguity_profile_count` and `void_hypothesis_count` participate in `report_id`
+- [x] `verify_policy_consistency()` covers both collections
+- [x] `summary()` reports `ambiguities: N | void_hyp: M`
+- [x] 3 new pipeline tests (68 total); 2 new `RX:Pipeline` eval scenarios (108 total)
 
 ### NormFitnessTrace Pipeline Integration — Step 5c (2026-06-01)
 - [x] `prior_feedback: Vec<PromotionFeedback>` added to `IntegrationRunOptions` (default empty)

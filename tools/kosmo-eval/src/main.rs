@@ -1870,6 +1870,86 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 3f ambiguity profiles + void hypotheses ───────────
+
+    v.push(run_check("rx-pipeline-ambiguity-profiles-empty-without-metatron", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.ambiguity_profiles.is_empty() || !r.complement_void_hypotheses.is_empty() {
+            return Err(format!(
+                "ambiguity_profiles ({}) and complement_void_hypotheses ({}) must be empty without Metatron",
+                r.ambiguity_profiles.len(), r.complement_void_hypotheses.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-ambiguity-profiles-policy-consistent", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        for a in &r.ambiguity_profiles {
+            if a.policy_id != policy.id {
+                return Err("ambiguity profile policy_id mismatch".into());
+            }
+            if a.profile_id == Digest::ZERO {
+                return Err("CROSS-006: profile_id must be non-ZERO".into());
+            }
+        }
+        for h in &r.complement_void_hypotheses {
+            if h.policy_id != policy.id {
+                return Err("void hypothesis policy_id mismatch".into());
+            }
+            if h.hypothesis_id == Digest::ZERO {
+                return Err("CROSS-006: hypothesis_id must be non-ZERO".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover ambiguity_profiles and complement_void_hypotheses".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        let ids2: Vec<_> = r2.ambiguity_profiles.iter().map(|a| a.profile_id).collect();
+        if ids1 != ids2 {
+            return Err("ambiguity_profiles must be deterministic".into());
+        }
+        // Energy ordering: confidence_score descending.
+        for window in r.ambiguity_profiles.windows(2) {
+            if window[0].confidence_score < window[1].confidence_score {
+                return Err("ambiguity_profiles must be ranked by confidence_score descending".into());
+            }
+        }
+        // Counts participate in report_id.
+        if r.report_id != r2.report_id {
+            return Err("ambiguity/hypothesis counts must participate in report_id".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Pipeline — Step 5c NormFitnessTrace from prior feedback ───────────
 
     v.push(run_check("rx-pipeline-norm-fitness-traces-empty-without-feedback", "RX:Pipeline", || {
