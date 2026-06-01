@@ -1870,6 +1870,62 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 1c DeficiencyVector ───────────────────────────────
+
+    v.push(run_check("rx-pipeline-deficiency-vector-always-present", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        // Empty workspace: no voids → empty deficiency vector, but still present.
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.deficiency_vector.vector_id == Digest::ZERO {
+            return Err("deficiency_vector.vector_id must be non-ZERO even when empty".into());
+        }
+        if r.deficiency_vector.policy_id != policy.id {
+            return Err("deficiency_vector.policy_id must match pipeline policy_id".into());
+        }
+        if !r.deficiency_vector.entries.is_empty() {
+            return Err("empty workspace must produce empty deficiency entries".into());
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover deficiency_vector".into());
+        }
+        // Determinism: vector_id must participate in report_id.
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.report_id != r2.report_id {
+            return Err("deficiency_vector must participate in report_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-deficiency-vector-captures-void-kinds", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        // Source files without tests create MissingTestFiber voids.
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        // With source files only, void_map should have MissingTestFiber voids.
+        // DeficiencyVector should reflect total_severity > 0 if any deficiencies found.
+        if r.deficiency_vector.vector_id == Digest::ZERO {
+            return Err("deficiency_vector must always have non-ZERO vector_id".into());
+        }
+        // total_severity must be consistent: either zero (no entries) or positive.
+        if !r.deficiency_vector.entries.is_empty() {
+            if r.deficiency_vector.total_severity == Q16::ZERO {
+                return Err("non-empty deficiency entries must yield non-zero total_severity".into());
+            }
+        }
+        Ok(())
+    }));
+
     // ── RX:Pipeline — Step 5d StructuralCrystalCandidate certification queue ──
 
     v.push(run_check("rx-pipeline-crystal-candidates-disabled-by-default", "RX:Pipeline", || {

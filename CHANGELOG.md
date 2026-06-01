@@ -15,6 +15,16 @@ note explicitly says so.
 
 ### Added
 
+* **DeficiencyVector pipeline integration — Step 1c** — always-on diagnostic summary
+  of structural deficiencies derived from the host void map (test coverage gaps,
+  documentation gaps). Never requires an option flag.
+
+  - `IntegrationRunReport.deficiency_vector: DeficiencyVector` always present.
+    `deficiency_vector_id` participates in `report_id`. `verify_policy_consistency()`
+    covers `deficiency_vector.policy_id`. `summary()` reports `deficiency: N entries`.
+  - 3 new pipeline tests (74 total); 2 new `RX:Pipeline` eval scenarios (112 total,
+    753 substrate tests).
+
 * **StructuralCrystalCandidate pipeline integration — Step 5d** — surfaces the
   explicit certification work queue: one candidate per accepted decision, all
   starting with `support_score = Q16::ZERO` (Pending certification status).

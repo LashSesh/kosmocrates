@@ -4,14 +4,23 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **750 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 71) — 0 failures
-- **110/110 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **753 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 74) — 0 failures
+- **112/112 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
 - **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
 - **`TopologyAmbiguityProfile` + `ComplementVoidHypothesis` energy-ranked in pipeline Step 3f** ✅
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
+- **`DeficiencyVector` always-on pipeline Step 1c** ✅
+
+### DeficiencyVector Pipeline Integration — Step 1c (2026-06-01)
+- [x] Pipeline Step 1c: `DeficiencyVector::from_void_map(&hyphae.host_cube.void_map)` — always present (not gated on any option)
+- [x] `IntegrationRunReport.deficiency_vector: DeficiencyVector` — entries sorted by kind; `total_severity` is Q16 average
+- [x] `ReportContent.deficiency_vector_id` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `deficiency_vector.policy_id`
+- [x] `summary()` reports `deficiency: N entries (severity=...)`
+- [x] 3 new pipeline tests (74 total); 2 new `RX:Pipeline` eval scenarios (112 total)
 
 ### StructuralCrystalCandidate Pipeline Integration — Step 5d (2026-06-01)
 - [x] `enable_crystal_candidates: bool` in `IntegrationRunOptions` (default false)

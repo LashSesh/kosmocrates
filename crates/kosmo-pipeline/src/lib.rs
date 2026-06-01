@@ -32,8 +32,8 @@ use kosmo_core::TaintLabel;
 use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography, CorpusCartographyUpdate,
-    CubeSwarm, CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
-    MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
+    CubeSwarm, CubeDimensionProfile, DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta,
+    LpcmPassiveReport, MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
     MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormFitnessTrace,
     NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
     StructuralCrystalCandidate, SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption,
@@ -115,6 +115,7 @@ impl IntegrationRunOptions {
 #[derive(Serialize)]
 struct ReportContent {
     hyphae_run_id: Digest,
+    deficiency_vector_id: Digest,
     cartography_update_id: Digest,
     swarm_composite_id: Digest,
     void_fill_delta_id: Digest,
@@ -147,6 +148,9 @@ pub struct IntegrationRunReport {
     pub report_id: Digest,
     pub policy_id: Digest,
     pub hyphae_result: HyphaeRunResult,
+    /// Deficiency summary derived from the host void map (always present).
+    /// Entries sorted by kind; total_severity is the Q16 average.
+    pub deficiency_vector: DeficiencyVector,
     pub cartography_update: CorpusCartographyUpdate,
     /// Phase 4: merged support cube from all accepted SourceCubes.
     pub swarm_composite: CompositeSupportCube,
@@ -201,6 +205,7 @@ pub struct IntegrationRunReport {
 impl IntegrationRunReport {
     fn new(
         hyphae_result: HyphaeRunResult,
+        deficiency_vector: DeficiencyVector,
         cartography_update: CorpusCartographyUpdate,
         swarm_composite: CompositeSupportCube,
         void_fill_delta: HostTargetDelta,
@@ -225,6 +230,7 @@ impl IntegrationRunReport {
         let final_result = aggregated_gate.final_result.clone();
         let report_id = Digest::of(&ReportContent {
             hyphae_run_id: hyphae_result.run_id,
+            deficiency_vector_id: deficiency_vector.vector_id,
             cartography_update_id: cartography_update.update_id,
             swarm_composite_id: swarm_composite.composite_id,
             void_fill_delta_id: void_fill_delta.delta_id,
@@ -250,6 +256,7 @@ impl IntegrationRunReport {
             report_id,
             policy_id: policy.id,
             hyphae_result,
+            deficiency_vector,
             cartography_update,
             swarm_composite,
             void_fill_delta,
@@ -282,7 +289,8 @@ impl IntegrationRunReport {
         };
         format!(
             "IntegrationRunReport — policy={:.8} | final={:?} | \
-             hyphae: {} | cartography: {} entities | voids (priority): {} | \
+             hyphae: {} | deficiency: {} entries (severity={}) | \
+             cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
              surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
@@ -290,6 +298,8 @@ impl IntegrationRunReport {
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
+            self.deficiency_vector.entries.len(),
+            self.deficiency_vector.total_severity.raw(),
             self.cartography_update.added_entity_ids.len(),
             self.void_priority_ranking.len(),
             self.swarm_composite.source_cube_ids.len(),
@@ -323,6 +333,7 @@ impl IntegrationRunReport {
     pub fn verify_policy_consistency(&self) -> bool {
         let pid = self.policy_id;
         self.hyphae_result.policy_id == pid
+            && self.deficiency_vector.policy_id == pid
             && self.cartography_update.policy_id == pid
             && self.swarm_composite.policy_id == pid
             && self.void_fill_delta.policy_id == pid
@@ -390,6 +401,9 @@ pub fn run_dry_pipeline(
         .host_cube
         .void_map
         .priority_ranking(&GateResult::Pass);
+
+    // ── 1c. DeficiencyVector — derived from void_map, always present ─────────
+    let deficiency_vector = DeficiencyVector::from_void_map(&hyphae.host_cube.void_map);
 
     // ── 2. CorpusCartography update ───────────────────────────────────────────
     let corpus = CorpusCartography::empty(policy.id);
@@ -691,6 +705,7 @@ pub fn run_dry_pipeline(
 
     IntegrationRunReport::new(
         hyphae,
+        deficiency_vector,
         cartography_update,
         swarm_composite,
         void_fill_delta,
@@ -754,6 +769,32 @@ mod tests {
         let r2 = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
         assert_eq!(r1.report_id, r2.report_id);
         assert_ne!(r1.report_id, Digest::ZERO);
+    }
+
+    // ── DeficiencyVector Step 1c ──────────────────────────────────────────────
+
+    #[test]
+    fn pipeline_deficiency_vector_always_present() {
+        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert_ne!(r.deficiency_vector.vector_id, Digest::ZERO, "vector_id must be non-ZERO");
+        assert_eq!(r.deficiency_vector.policy_id, policy().id);
+    }
+
+    #[test]
+    fn pipeline_deficiency_vector_empty_for_empty_workspace() {
+        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.deficiency_vector.entries.is_empty(), "no deficiencies for empty workspace");
+    }
+
+    #[test]
+    fn pipeline_deficiency_vector_is_deterministic() {
+        let r1 = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert_eq!(
+            r1.deficiency_vector.vector_id,
+            r2.deficiency_vector.vector_id,
+            "deficiency_vector must be deterministic"
+        );
     }
 
     // ── Policy consistency (traceability) ─────────────────────────────────────

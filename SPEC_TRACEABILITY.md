@@ -51,7 +51,7 @@ Target crate: `crates/kosmo-hyphae`
 | `HostBinding` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/host.rs` |
 | `HostCube` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/host.rs` |
 | `TopologicalVoidMap` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/void_map.rs` |
-| `DeficiencyVector` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/deficiency.rs` |
+| `DeficiencyVector` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/deficiency.rs` + always-on in pipeline Step 1c |
 | `SourceIntent` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
 | `SourceFrontierGraph` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
 | `SourceEvidence` | HYPHAE v0.3 spec | ✅ `kosmo-hyphae/src/frontier.rs` |
@@ -316,4 +316,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (42 scenarios including all energy-ranked pipeline outputs + Steps 3e, 3f, 5c, 5d) | ✅ |
+| `RX:Pipeline` (44 scenarios including all energy-ranked pipeline outputs + Steps 1c, 3e, 3f, 5c, 5d) | ✅ |
