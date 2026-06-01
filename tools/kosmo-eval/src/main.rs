@@ -1339,7 +1339,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
         use kosmo_core::Digest;
         let entries = vec![
-            WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"), size_bytes: 10, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"), size_bytes: 10, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
@@ -1477,9 +1477,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
-                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -1507,11 +1507,11 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"),
-                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "b.rs".into(), digest: Digest::of_bytes(b"b"),
-                size_bytes: 80, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 80, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "c.rs".into(), digest: Digest::of_bytes(b"c"),
-                size_bytes: 60, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 60, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -1560,9 +1560,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "x.rs".into(), digest: Digest::of_bytes(b"x"),
-                size_bytes: 10, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 10, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "y.rs".into(), digest: Digest::of_bytes(b"y"),
-                size_bytes: 20, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 20, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
         let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
@@ -1593,6 +1593,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1613,12 +1614,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/lib_test.rs".into(),
                 digest: Digest::of_bytes(b"test"),
                 size_bytes: 50,
                 kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1663,6 +1666,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1686,12 +1690,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/lib_test.rs".into(),
                 digest: Digest::of_bytes(b"test"),
                 size_bytes: 50,
                 kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1736,6 +1742,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
@@ -1760,12 +1767,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"alpha"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/beta.rs".into(),
                 digest: Digest::of_bytes(b"beta"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
@@ -1814,6 +1823,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1837,12 +1847,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
             kosmo_workbench::WorkspaceEntry {
                 path: "src/lib_test.rs".into(),
                 digest: Digest::of_bytes(b"test"),
                 size_bytes: 50,
                 kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1890,6 +1902,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -1909,9 +1922,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -1989,9 +2002,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         // Source files without tests create MissingTestFiber voids.
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
-                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
@@ -2021,6 +2034,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2040,9 +2054,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2099,9 +2113,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/b.rs".into(), digest: Digest::of_bytes(b"b"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2140,6 +2154,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2159,9 +2174,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2212,6 +2227,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2231,9 +2247,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         let opts = IntegrationRunOptions {
@@ -2292,6 +2308,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
                 digest: Digest::of_bytes(b"lib"),
                 size_bytes: 100,
                 kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+                content: None,
             },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
@@ -2318,9 +2335,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
-                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
         // First: generate candidates.
@@ -2630,7 +2647,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
 
@@ -2785,9 +2802,9 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let policy = PolicyProfile::default_report_only();
         let entries = vec![
             WorkspaceEntry { path: "src/alpha.rs".into(), digest: Digest::of_bytes(b"a"),
-                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
             WorkspaceEntry { path: "src/beta.rs".into(), digest: Digest::of_bytes(b"b"),
-                size_bytes: 120, kind: WorkspaceEntryKind::SourceFile },
+                size_bytes: 120, kind: WorkspaceEntryKind::SourceFile, content: None },
         ];
         let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
 
@@ -2826,6 +2843,109 @@ fn build_scenarios() -> Vec<ScenarioResult> {
             if r1.report_id == r2.report_id {
                 return Err("prior_crystals must change report_id (corpus seeding)".into());
             }
+        }
+        Ok(())
+    }));
+
+    // ── RX:Hyphae — CodeHDAG extracted from source content ───────────────────
+
+    v.push(run_check("rx-hyphae-hdag-extracted-from-source-content", "RX:Hyphae", || {
+        use kosmo_hyphae::host::HostCube;
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+        let source = "pub fn foo() {}\npub fn bar() {}\npub fn baz() {}\n";
+        let entries = vec![
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(source.as_bytes()),
+                size_bytes: source.len() as u64,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: Some(source.to_string()),
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+
+        // Both MissingTestFiber and MissingDocFiber voids get HDAG entries.
+        if cube.hdag_by_void_id.len() != 2 {
+            return Err(format!(
+                "expected 2 HDAG entries (one per void), got {}",
+                cube.hdag_by_void_id.len()
+            ));
+        }
+        for (void_id, hdag) in &cube.hdag_by_void_id {
+            if hdag.definition_count() < 3 {
+                return Err(format!(
+                    "void {} HDAG must have >= 3 definitions, got {}",
+                    void_id.to_hex()[..8].to_string(), hdag.definition_count()
+                ));
+            }
+        }
+        // Cube without content must have no HDAG entries.
+        let no_content_entries = vec![
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+        ];
+        let no_content_index = WorkspaceIndex::from_entries("test-root".into(), no_content_entries, policy.id);
+        let cube_no = HostCube::from_workspace_index(&no_content_index, &policy);
+        if !cube_no.hdag_by_void_id.is_empty() {
+            return Err("cube without content must have empty hdag_by_void_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-hdag-severity-scales-with-definition-count", "RX:Hyphae", || {
+        use kosmo_hyphae::host::HostCube;
+        use kosmo_hyphae::void_map::HostVoidKind;
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        use kosmo_core::{Digest, PolicyProfile};
+
+        let policy = PolicyProfile::default_report_only();
+
+        let sparse_src = "// no functions\n";
+        let dense_src: String = (0..8).map(|i| format!("pub fn f{}() {{}}\n", i)).collect();
+
+        let make_cube = |source: &str| -> HostCube {
+            let entries = vec![
+                WorkspaceEntry {
+                    path: "src/lib.rs".into(),
+                    digest: Digest::of_bytes(source.as_bytes()),
+                    size_bytes: source.len() as u64,
+                    kind: WorkspaceEntryKind::SourceFile,
+                    content: Some(source.to_string()),
+                },
+            ];
+            HostCube::from_workspace_index(
+                &WorkspaceIndex::from_entries("test-root".into(), entries, policy.id),
+                &policy,
+            )
+        };
+
+        let sparse_cube = make_cube(sparse_src);
+        let dense_cube = make_cube(&dense_src);
+
+        let sev = |cube: &HostCube| {
+            cube.void_map.voids.iter()
+                .find(|v| matches!(&v.kind, HostVoidKind::MissingTestFiber { .. }))
+                .map(|v| v.severity.raw())
+                .unwrap_or(0)
+        };
+
+        let sev_sparse = sev(&sparse_cube);
+        let sev_dense = sev(&dense_cube);
+
+        if sev_dense <= sev_sparse {
+            return Err(format!(
+                "dense severity ({}) must exceed sparse severity ({})",
+                sev_dense, sev_sparse
+            ));
         }
         Ok(())
     }));

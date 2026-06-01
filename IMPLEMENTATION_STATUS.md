@@ -1,11 +1,11 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CodeHDAG als Struktursignal."
 
-- **815 substrate tests** (kosmo-core 339, kosmo-hyphae 186, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 91) — 0 failures
-- **134/134 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **825 substrate tests** (kosmo-core 339, kosmo-hyphae 191, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 94) — 0 failures
+- **136/136 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,20 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### CodeHDAG Pipeline Integration — Code-Structure-Aware Topology (2026-06-01)
+
+Deepens void detection and energy assessment from file-presence to code-structure. Controlled
+by `WorkspaceIndex::scan_path_with_content` — passive by default, opt-in via entry `content`.
+
+- [x] `WorkspaceEntry.content: Option<String>` (`#[serde(skip)]`) — source text for HDAG extraction; excluded from `index_id` (digest already content-addresses bytes)
+- [x] `WorkspaceIndex::scan_path_with_content(root, policy_id)` — populates `.content` for `.rs` source/test files (valid UTF-8 only)
+- [x] `HostCube.hdag_by_void_id: BTreeMap<Digest, CodeHDAG>` — HDAG keyed by void_id; `hdag_count` in `HostCubeContent` participates in `cube_id`
+- [x] `MissingTestFiber` severity scales with HDAG definition count: `HALF + HALF × min(N, 8) / 8`
+- [x] Pipeline Step 2b: `SourceCube.dimension_profile` enriched with `rho_coherence` + `omega_phase` from `CodeHDAG` when content available
+- [x] `IntegrationRunReport.source_cubes: Vec<SourceCube>` — SourceCubes exposed in report
+- [x] `CubeDimensionProfile::from_raw_map(BTreeMap<String, Q16>)` — new constructor for raw-key dimension maps
+- [x] 4 new `host.rs` HDAG tests; 1 `cube.rs` test; 3 pipeline SourceCube tests; 2 new eval scenarios `rx-hyphae-hdag-*` (136 total, 825 substrate tests)
 
 ### Crystal Certification Pipeline — `StructuralCrystalRecord` (2026-06-01)
 

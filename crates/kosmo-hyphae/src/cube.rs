@@ -29,6 +29,11 @@ impl CubeDimensionProfile {
         Self { profile_id, dimensions: BTreeMap::new() }
     }
 
+    pub fn from_raw_map(dimensions: BTreeMap<String, Q16>) -> Self {
+        let profile_id = Self::compute_id(&dimensions);
+        Self { profile_id, dimensions }
+    }
+
     pub fn with_dimension(mut self, kind: &DeficiencyKind, score: Q16) -> Self {
         self.dimensions.insert(format!("{:?}", kind), score);
         self.profile_id = Self::compute_id(&self.dimensions);
@@ -202,6 +207,18 @@ mod tests {
     use super::*;
     use crate::deficiency::DeficiencyKind;
     use kosmo_core::{Digest, Q16, TaintLabel};
+
+    #[test]
+    fn dimension_profile_from_raw_map_is_content_addressed() {
+        let mut m = BTreeMap::new();
+        m.insert("rho_coherence".to_string(), Q16::HALF);
+        m.insert("omega_phase".to_string(), Q16::ratio(1, 4).unwrap());
+        let p1 = CubeDimensionProfile::from_raw_map(m.clone());
+        let p2 = CubeDimensionProfile::from_raw_map(m);
+        assert_eq!(p1.profile_id, p2.profile_id);
+        assert_ne!(p1.profile_id, Digest::ZERO);
+        assert_eq!(p1.dimensions.len(), 2);
+    }
 
     #[test]
     fn dimension_profile_empty_is_content_addressed() {

@@ -226,7 +226,7 @@ mod tests {
             path: path.into(),
             digest: Digest::of_bytes(path.as_bytes()),
             size_bytes: 100,
-            kind: WorkspaceEntryKind::SourceFile,
+            kind: WorkspaceEntryKind::SourceFile, content: None,
         }
     }
 

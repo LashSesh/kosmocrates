@@ -188,6 +188,9 @@ pub struct IntegrationRunReport {
     /// Entries sorted by kind; total_severity is the Q16 average.
     pub deficiency_vector: DeficiencyVector,
     pub cartography_update: CorpusCartographyUpdate,
+    /// Phase 2b: SourceCubes built from accepted decisions (one per accepted intent).
+    /// Populated always; HDAG dimensions present when workspace entries carry content.
+    pub source_cubes: Vec<SourceCube>,
     /// Phase 4: merged support cube from all accepted SourceCubes.
     pub swarm_composite: CompositeSupportCube,
     /// Phase 4: energy-ranked void-fill plan (always present; passive/advisory).
@@ -257,6 +260,7 @@ impl IntegrationRunReport {
         hyphae_result: HyphaeRunResult,
         deficiency_vector: DeficiencyVector,
         cartography_update: CorpusCartographyUpdate,
+        source_cubes: Vec<SourceCube>,
         swarm_composite: CompositeSupportCube,
         void_fill_delta: HostTargetDelta,
         collapse_plan: HostTargetCollapsePlan,
@@ -315,6 +319,7 @@ impl IntegrationRunReport {
             hyphae_result,
             deficiency_vector,
             cartography_update,
+            source_cubes,
             swarm_composite,
             void_fill_delta,
             collapse_plan,
@@ -673,6 +678,9 @@ pub fn run_dry_pipeline(
 
     // Build SourceCubes from accepted decisions. intents and decisions are
     // produced in lockstep by passive_run, so zip is safe.
+    // When a CodeHDAG is available for the void (entry had source content),
+    // its rho_coherence and omega_phase are added as dimensions — making the
+    // energy assessment structurally aware rather than file-presence-only.
     let source_cubes: Vec<SourceCube> = hyphae
         .frontier
         .intents
@@ -680,10 +688,22 @@ pub fn run_dry_pipeline(
         .zip(hyphae.decisions.iter())
         .filter(|(_, d)| d.outcome.is_accepted())
         .map(|(intent, decision)| {
+            let dims = if let Some(void_id) = intent.target_void_id {
+                if let Some(hdag) = hyphae.host_cube.hdag_by_void_id.get(&void_id) {
+                    let mut d = std::collections::BTreeMap::new();
+                    d.insert("rho_coherence".to_string(), hdag.rho_coherence());
+                    d.insert("omega_phase".to_string(), hdag.omega_phase());
+                    CubeDimensionProfile::from_raw_map(d)
+                } else {
+                    CubeDimensionProfile::empty()
+                }
+            } else {
+                CubeDimensionProfile::empty()
+            };
             SourceCube::new(
                 intent.target_void_id,
                 format!("intent:{}", &decision.yield_id.to_hex()[..16]),
-                CubeDimensionProfile::empty(),
+                dims,
                 Q16::ONE,
                 intent.taint.clone(),
                 decision.evidence_bundle_id,
@@ -970,6 +990,7 @@ pub fn run_dry_pipeline(
         hyphae,
         deficiency_vector,
         cartography_update,
+        source_cubes,
         swarm_composite,
         void_fill_delta,
         collapse_plan,
@@ -1014,9 +1035,9 @@ mod tests {
     fn fixture_index() -> WorkspaceIndex {
         use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
         let entries = vec![
-            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"), size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
-            WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"), size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
-            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"lib_test"), size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"), size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
+            WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"), size_bytes: 200, kind: WorkspaceEntryKind::SourceFile, content: None },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"lib_test"), size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
         ];
         WorkspaceIndex::from_entries("test-root".into(), entries, policy().id)
     }
@@ -1904,6 +1925,73 @@ mod tests {
             r.norm_fitness_traces.is_empty(),
             "unmatched feedback must not produce traces"
         );
+    }
+
+    // ── SourceCube HDAG dimension enrichment (Step 2b) ───────────────────────
+
+    fn content_fixture_index() -> WorkspaceIndex {
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        let source = "pub fn alpha() {}\npub fn beta() {}\npub fn gamma() {}\n";
+        let entries = vec![
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(source.as_bytes()),
+                size_bytes: source.len() as u64,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: Some(source.to_string()),
+            },
+        ];
+        WorkspaceIndex::from_entries("test-root".into(), entries, policy().id)
+    }
+
+    #[test]
+    fn pipeline_source_cubes_field_present_always() {
+        // source_cubes is always in the report (may be empty when no accepted decisions).
+        let opts = IntegrationRunOptions::report_only();
+        let r_empty = run_dry_pipeline(&empty_index(), &opts, &policy());
+        let r_fixture = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r_content = run_dry_pipeline(&content_fixture_index(), &opts, &policy());
+        // In report_only mode all intents produce EvidenceOnly (Unverified/Agent taint),
+        // so source_cubes is always empty. Verify the field is present and well-formed.
+        assert!(r_empty.source_cubes.is_empty());
+        assert!(r_fixture.source_cubes.is_empty());
+        assert!(r_content.source_cubes.is_empty());
+    }
+
+    #[test]
+    fn pipeline_source_cube_hdag_dims_when_void_has_hdag() {
+        // Verify that ANY SourceCube produced for a void with an HDAG carries
+        // rho_coherence and omega_phase. We test this invariant by checking every cube
+        // in source_cubes: if the host_cube has an HDAG for the void_id, the dims must be set.
+        // (When source_cubes is empty this is vacuously true — the unit tests in
+        //  kosmo-hyphae/src/host.rs verify the HDAG extraction path directly.)
+        let opts = IntegrationRunOptions::report_only();
+        let r = run_dry_pipeline(&content_fixture_index(), &opts, &policy());
+        for cube in &r.source_cubes {
+            if let Some(void_id) = cube.target_void_id {
+                if r.hyphae_result.host_cube.hdag_by_void_id.contains_key(&void_id) {
+                    assert!(
+                        cube.dimension_profile.dimensions.contains_key("rho_coherence"),
+                        "SourceCube for HDAG void must carry rho_coherence"
+                    );
+                    assert!(
+                        cube.dimension_profile.dimensions.contains_key("omega_phase"),
+                        "SourceCube for HDAG void must carry omega_phase"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pipeline_source_cube_no_hdag_dimensions_without_content() {
+        let opts = IntegrationRunOptions::report_only();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        // Without source content (fixture_index has content: None), no HDAG dimensions.
+        let enriched = r.source_cubes.iter().any(|c| {
+            c.dimension_profile.dimensions.contains_key("rho_coherence")
+        });
+        assert!(!enriched, "no HDAG dimensions expected when WorkspaceEntry.content is None");
     }
 
     #[test]

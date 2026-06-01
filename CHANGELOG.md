@@ -15,6 +15,29 @@ note explicitly says so.
 
 ### Added
 
+* **CodeHDAG pipeline integration — code-structure-aware void severity and SourceCube dimensions**
+
+  Topology observation deepened from file-presence to code-structure. When workspace entries
+  carry source content (via `scan_path_with_content`), the pipeline now extracts `CodeHDAG`
+  per source file and wires structural signals into the hyphae + pipeline layers.
+
+  - `WorkspaceEntry.content: Option<String>` (`#[serde(skip)]`) — source text for HDAG
+    extraction; excluded from `index_id` content-addressing (digest already addresses bytes).
+  - `WorkspaceIndex::scan_path_with_content(root, policy_id)` — scans `.rs` source/test
+    files and populates `content` for HDAG extraction.
+  - `HostCube.hdag_by_void_id: BTreeMap<Digest, CodeHDAG>` — HDAG keyed by void_id;
+    `hdag_count` participates in `cube_id` so enriched cubes differ from file-only cubes.
+  - `MissingTestFiber` severity scales with HDAG definition count:
+    `HALF + HALF × min(N, 8) / 8` (more definitions → higher urgency for test coverage).
+  - Pipeline Step 2b: accepted-decision `SourceCube` dimensions now include
+    `rho_coherence` and `omega_phase` from the CodeHDAG when content is available.
+  - `IntegrationRunReport.source_cubes: Vec<SourceCube>` — SourceCubes are now exposed
+    in the report for downstream inspection and testing.
+  - `CubeDimensionProfile::from_raw_map(BTreeMap<String, Q16>)` — new constructor for
+    raw-key dimension maps (used by the HDAG enrichment path).
+  - 4 new `host.rs` tests + 4 `cube.rs` tests; 3 new pipeline tests; 2 new eval scenarios
+    (`rx-hyphae-hdag-extracted-from-source-content`, `rx-hyphae-hdag-severity-scales-with-definition-count`).
+
 * **Crystal certification pipeline — `StructuralCrystalRecord` + cross-run CAD library accumulation**
 
   - `ConstraintProgram::from_candidate(candidate, replay_status)` — evaluates the standard

@@ -26,12 +26,20 @@ pub enum WorkspaceEntryKind {
 }
 
 /// One file in the workspace, content-addressed.
+///
+/// `content` is the raw UTF-8 source text — populated only when the workspace
+/// was built via `scan_path_with_content` or constructed with content explicitly.
+/// It is intentionally excluded from `index_id` content-addressing (`#[serde(skip)]`);
+/// the `digest` already content-addresses the file bytes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorkspaceEntry {
     pub path: String,
     pub digest: Digest,
     pub size_bytes: u64,
     pub kind: WorkspaceEntryKind,
+    /// Source text for HDAG extraction. Not included in `index_id`.
+    #[serde(skip)]
+    pub content: Option<String>,
 }
 
 /// Internal content struct for deterministic hashing — Serialize only.
@@ -82,6 +90,8 @@ impl WorkspaceIndex {
     ///
     /// Safe to call in `ReportOnly` mode — reads files, never writes.
     /// Files larger than 1 MB and excluded directories are skipped.
+    /// Entry `content` fields are always `None`; use `scan_path_with_content`
+    /// when HDAG extraction is needed.
     pub fn scan_path(
         root: &str,
         policy_id: Digest,
@@ -90,7 +100,24 @@ impl WorkspaceIndex {
         if !root_path.exists() {
             return Err(WorkspaceError::PathNotFound(root.to_string()));
         }
-        let entries = collect_entries(root_path, root_path, 0)?;
+        let entries = collect_entries(root_path, root_path, 0, false)?;
+        Ok(Self::from_entries(root.to_string(), entries, policy_id))
+    }
+
+    /// Like `scan_path` but populates `entry.content` for source/test `.rs` files.
+    ///
+    /// Enables `HostCube::from_workspace_index` to extract `CodeHDAG`s and produce
+    /// code-structure-aware void severity and SourceCube dimensions. Files that are
+    /// not valid UTF-8 get `content = None`.
+    pub fn scan_path_with_content(
+        root: &str,
+        policy_id: Digest,
+    ) -> Result<Self, WorkspaceError> {
+        let root_path = Path::new(root);
+        if !root_path.exists() {
+            return Err(WorkspaceError::PathNotFound(root.to_string()));
+        }
+        let entries = collect_entries(root_path, root_path, 0, true)?;
         Ok(Self::from_entries(root.to_string(), entries, policy_id))
     }
 
@@ -124,6 +151,7 @@ fn collect_entries(
     base: &Path,
     current: &Path,
     depth: u32,
+    with_content: bool,
 ) -> Result<Vec<WorkspaceEntry>, WorkspaceError> {
     if depth > MAX_SCAN_DEPTH {
         return Ok(vec![]);
@@ -142,25 +170,28 @@ fn collect_entries(
             if EXCLUDED_DIRS.contains(&name.as_str()) {
                 continue;
             }
-            entries.extend(collect_entries(base, &path, depth + 1)?);
+            entries.extend(collect_entries(base, &path, depth + 1, with_content)?);
         } else if path.is_file() {
             let meta = std::fs::metadata(&path).map_err(WorkspaceError::Io)?;
             if meta.len() > MAX_FILE_BYTES {
                 continue;
             }
-            let content = std::fs::read(&path).map_err(WorkspaceError::Io)?;
-            let digest = Digest::of_bytes(&content);
+            let raw_bytes = std::fs::read(&path).map_err(WorkspaceError::Io)?;
+            let digest = Digest::of_bytes(&raw_bytes);
             let rel = path
                 .strip_prefix(base)
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default()
                 .to_string();
-            entries.push(WorkspaceEntry {
-                kind: classify_entry(&rel),
-                path: rel,
-                digest,
-                size_bytes: meta.len(),
-            });
+            let kind = classify_entry(&rel);
+            let content = if with_content
+                && matches!(kind, WorkspaceEntryKind::SourceFile | WorkspaceEntryKind::TestFile)
+            {
+                String::from_utf8(raw_bytes).ok()
+            } else {
+                None
+            };
+            entries.push(WorkspaceEntry { kind, path: rel, digest, size_bytes: meta.len(), content });
         }
     }
     Ok(entries)
@@ -214,6 +245,7 @@ mod tests {
             digest: Digest::of_bytes(content),
             size_bytes: content.len() as u64,
             kind: classify_entry(path),
+            content: None,
         }
     }
 
