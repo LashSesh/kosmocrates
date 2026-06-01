@@ -1795,6 +1795,81 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 3e SurgeryWorkbenchTask conversion ────────────────
+
+    v.push(run_check("rx-pipeline-surgery-workbench-tasks-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.surgery_workbench_tasks.is_empty() {
+            return Err(format!(
+                "surgery_workbench_tasks must be empty when surgery disabled, got {}",
+                r.surgery_workbench_tasks.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-surgery-workbench-tasks-match-surgery-options", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_surgery: true,
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        // 1:1 correspondence with surgery_options.
+        if r.surgery_workbench_tasks.len() != r.surgery_options.len() {
+            return Err(format!(
+                "surgery_workbench_tasks.len()={} must equal surgery_options.len()={}",
+                r.surgery_workbench_tasks.len(), r.surgery_options.len()
+            ));
+        }
+        // All workbench tasks must carry the pipeline policy_id.
+        for t in &r.surgery_workbench_tasks {
+            if t.policy_id != policy.id {
+                return Err("surgery workbench task policy_id mismatch".into());
+            }
+            if t.task_id == Digest::ZERO {
+                return Err("surgery workbench task_id must be non-ZERO".into());
+            }
+            if t.surgery_option_id == Digest::ZERO {
+                return Err("surgery_option_id must trace back to source option".into());
+            }
+        }
+        // verify_policy_consistency() must cover surgery_workbench_tasks.
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include surgery_workbench_tasks".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.surgery_workbench_tasks.iter().map(|t| t.task_id).collect();
+        let ids2: Vec<_> = r2.surgery_workbench_tasks.iter().map(|t| t.task_id).collect();
+        if ids1 != ids2 {
+            return Err("surgery_workbench_tasks must be deterministic across runs".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {

@@ -15,6 +15,19 @@ note explicitly says so.
 
 ### Added
 
+* **SurgeryWorkbenchTask pipeline integration — Step 3e** — every energy-ranked
+  `TopologicalSurgeryOption` now converts into a workbench-compatible task immediately
+  after Step 3b, closing the surgery → workbench gap.
+
+  - Pipeline Step 3e: `surgery_options.iter().map(SurgeryWorkbenchTask::from_option).collect()`;
+    tasks are in the same energy-ranked order as the source options. Empty when
+    `surgery_options` is empty (i.e., `enable_surgery` or `enable_metatron` is false).
+  - `IntegrationRunReport.surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>`;
+    `surgery_workbench_task_count` participates in `report_id`. `verify_policy_consistency()`
+    covers all task `policy_id` fields. `summary()` reports `surgery: N (tasks: M)`.
+  - 3 new pipeline tests (62 total); 2 new `RX:Pipeline` eval scenarios (104 total,
+    741 substrate tests).
+
 * **MicroTopologyIndex pipeline integration — Step 3d** — closes the last metatron
   integration gap; `MicroTopologyIndex` existed in the spec but was never assembled.
 

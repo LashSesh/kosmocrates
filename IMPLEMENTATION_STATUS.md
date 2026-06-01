@@ -4,10 +4,19 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **738 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 59) — 0 failures
-- **102/102 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **741 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 62) — 0 failures
+- **104/104 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
+- **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
+
+### SurgeryWorkbenchTask Pipeline Integration — Step 3e (2026-06-01)
+- [x] Pipeline Step 3e: `surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>` — 1:1 from `surgery_options` via `SurgeryWorkbenchTask::from_option()`; same energy-ranked order
+- [x] `IntegrationRunReport.surgery_workbench_tasks` (empty when `surgery_options` is empty)
+- [x] `ReportContent.surgery_workbench_task_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `surgery_workbench_tasks[i].policy_id`
+- [x] `summary()` reports `surgery: N (tasks: M)`
+- [x] 3 new pipeline tests (62 total); 2 new `RX:Pipeline` eval scenarios (104 total)
 
 ### MicroTopologyIndex Pipeline Integration — Step 3d (2026-06-01)
 - [x] Pipeline Step 3d: fold `(micrograph, fingerprint, diagnostic)` triples into `MicroTopologyIndex` after metatron loop

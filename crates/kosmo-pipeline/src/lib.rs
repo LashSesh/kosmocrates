@@ -36,7 +36,7 @@ use kosmo_hyphae::{
     MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
     MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormGeneCandidate,
     Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph, SupportMassVector,
-    TopologicalSurgeryOption, diagnose_micrograph, lift_region,
+    SurgeryWorkbenchTask, TopologicalSurgeryOption, diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
 };
 use kosmo_systemcube::{
@@ -118,6 +118,7 @@ struct ReportContent {
     lift_report_count: u32,
     lpcm_count: u32,
     surgery_count: u32,
+    surgery_workbench_task_count: u32,
     norm_candidate_count: u32,
     has_systemcube: bool,
 }
@@ -156,6 +157,9 @@ pub struct IntegrationRunReport {
     /// Energy-ranked surgery options derived from Metatron diagnostics.
     /// Empty when `enable_surgery` or `enable_metatron` is false.
     pub surgery_options: Vec<TopologicalSurgeryOption>,
+    /// Workbench-compatible surgery tasks derived 1:1 from `surgery_options`.
+    /// In the same energy-ranked order. Empty when `surgery_options` is empty.
+    pub surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
     /// Energy-ranked norm gene candidates generated from accepted decisions.
     /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
     /// Empty when `enable_norm_candidates` is false.
@@ -180,6 +184,7 @@ impl IntegrationRunReport {
         lift_reports: Vec<MicrographLiftReport>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         surgery_options: Vec<TopologicalSurgeryOption>,
+        surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
         norm_candidates: Vec<NormGeneCandidate>,
         systemcube_export: Option<KcubeExportReport>,
         aggregated_gate: AggregatedGateResult,
@@ -201,6 +206,7 @@ impl IntegrationRunReport {
             lift_report_count: lift_reports.len() as u32,
             lpcm_count: lpcm_reports.len() as u32,
             surgery_count: surgery_options.len() as u32,
+            surgery_workbench_task_count: surgery_workbench_tasks.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
             has_systemcube: systemcube_export.is_some(),
         });
@@ -219,6 +225,7 @@ impl IntegrationRunReport {
             lift_reports,
             lpcm_reports,
             surgery_options,
+            surgery_workbench_tasks,
             norm_candidates,
             systemcube_export,
             aggregated_gate,
@@ -238,7 +245,7 @@ impl IntegrationRunReport {
              hyphae: {} | cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
-             surgery: {} | norm_candidates: {} | {}",
+             surgery: {} (tasks: {}) | norm_candidates: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -254,6 +261,7 @@ impl IntegrationRunReport {
             self.lift_reports.len(),
             self.lpcm_reports.len(),
             self.surgery_options.len(),
+            self.surgery_workbench_tasks.len(),
             self.norm_candidates.len(),
             scube,
         )
@@ -280,6 +288,7 @@ impl IntegrationRunReport {
             && self.metatron_index.policy_id == pid
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
             && self.surgery_options.iter().all(|o| o.policy_id == pid)
+            && self.surgery_workbench_tasks.iter().all(|t| t.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
             && self
                 .systemcube_export
@@ -396,6 +405,12 @@ pub fn run_dry_pipeline(
         } else {
             Vec::new()
         };
+
+    // ── 3e. Surgery workbench tasks — 1:1 from ranked surgery options ─────────
+    let surgery_workbench_tasks: Vec<SurgeryWorkbenchTask> = surgery_options
+        .iter()
+        .map(SurgeryWorkbenchTask::from_option)
+        .collect();
 
     // ── 4. Optional LPCM v0.4.2 passive reports ───────────────────────────────
     let mut lpcm_reports: Vec<LpcmPassiveReport> = Vec::new();
@@ -580,6 +595,7 @@ pub fn run_dry_pipeline(
         lift_reports,
         lpcm_reports,
         surgery_options,
+        surgery_workbench_tasks,
         norm_candidates,
         systemcube_export,
         aggregated_gate,
@@ -953,6 +969,48 @@ mod tests {
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for c in &r.norm_candidates {
             assert_eq!(c.policy_id, p.id, "norm candidate must carry pipeline policy_id");
+        }
+    }
+
+    // ── Surgery workbench tasks (Step 3e) ────────────────────────────────────
+
+    #[test]
+    fn pipeline_no_surgery_workbench_tasks_when_surgery_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.surgery_workbench_tasks.is_empty(),
+            "surgery_workbench_tasks must be empty when surgery is disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_surgery_workbench_tasks_match_surgery_options_count() {
+        let opts = IntegrationRunOptions {
+            enable_surgery: true,
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert_eq!(
+            r.surgery_workbench_tasks.len(),
+            r.surgery_options.len(),
+            "surgery_workbench_tasks must be 1:1 with surgery_options"
+        );
+    }
+
+    #[test]
+    fn pipeline_surgery_workbench_tasks_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_surgery: true,
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for t in &r.surgery_workbench_tasks {
+            assert_eq!(t.policy_id, p.id, "surgery workbench task must carry pipeline policy_id");
+            assert_ne!(t.task_id, Digest::ZERO, "task_id must be non-ZERO");
+            assert_ne!(t.surgery_option_id, Digest::ZERO, "surgery_option_id must trace back to source option");
         }
     }
 }

@@ -123,7 +123,7 @@ Target crate: `crates/kosmo-hyphae`
 | `SurgeryRisk` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
 | `TopologicalSurgeryOption` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
 | `SurgeryBackedCollapseStep` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
-| `SurgeryWorkbenchTask` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` |
+| `SurgeryWorkbenchTask` | Metatron v0.4.1 spec | ✅ `kosmo-hyphae/src/surgery.rs` + assembled in pipeline Step 3e |
 
 ## MVP-6 / Phase 8 — LPCM v0.4.2
 
@@ -316,4 +316,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (34 scenarios including all energy-ranked pipeline outputs) | ✅ |
+| `RX:Pipeline` (36 scenarios including all energy-ranked pipeline outputs + Step 3e) | ✅ |
