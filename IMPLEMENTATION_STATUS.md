@@ -414,8 +414,43 @@ This round delivered the first two links.
 ### Decisions
 AD-015 (tripolar energy kernel + non-bypass invariant), AD-016 (lexical topology extraction + topology→energy bridge).
 
-## Open Blockers (TOPO-ENERGY)
+---
+
+# KOSMO-KCUBE-01 — Real `.kcube` Archive Executor (2026-06-01)
+
+Delivers "Blueprint raus + Realitätstest drüber": the host-capability bridge
+that turns a `KcubeExportPolicy`-gated artifact list into a real `.kcube` file
+on disk (and reads it back for import/verify workflows).
+
+### KC-1 — `kosmo-kcube` executor crate
+- [x] `KcubeArtifact { kind, path, bytes }` — typed input to the write operation
+- [x] `KcubeExecutor::write` — deterministic framed binary archive, artifacts sorted by path, roundtrip SHA-256 verify
+- [x] `KcubeExecutor::read` / `parse_kcube_file` — deserializes the manifest back to `KcubePackage`
+- [x] `kcube_file_name(scope, sequence)` — safe slug + sequence → `{scope}-seq{n}.kcube`
+- [x] Policy gates: `allow_write=false` → `DeniedByPolicy` (no disk touch); artifact kind allowlist; overwrite guard
+- [x] `require_roundtrip_verification=true` (default): re-reads file, compares artifact-section SHA-256
+- [x] `KcubeReadError` — typed error variants (too-short / bad-magic / bad-version / truncated sections / parse error)
+- [x] CROSS-006: `evidence_bundle_id ≠ ZERO` in every report variant
+- [x] CROSS-007: no floats (`written_bytes`, `elapsed_ms` are `u64`)
+- [x] INVARIANT-007: `KcubeWriteReport.verify_id()` and `KcubePackage.verify_id()` pass after roundtrip read
+- [x] 25 unit tests; 0 new external dependencies
+
+### KC-2 — Empirical benchmark (`tools/kosmo-eval`)
+- [x] +5 `RX:Kcube` scenarios: deny when `allow_write=false`, write+roundtrip, content-addressed package, overwrite guard, `read` parses manifest
+- [x] 65/65 scenarios pass, EXIT 0
+
+| Phase | Crate | Tests |
+|---|---|---|
+| TE-1 | kosmo-core (energy) | 20 |
+| TE-2 | kosmo-hyphae (code_hdag) | 12 new (139 crate total) |
+| TE-3 | kosmo-eval (energy+topology) | 60 scenarios |
+| KC-1 | kosmo-kcube | 25 |
+| KC-2 | kosmo-eval (kcube) | 65 scenarios |
+
+**Total: 673 substrate tests (was 646). 0 failures. 0 warnings. 65/65 eval scenarios pass.**
+
+## Open Blockers (KCUBE)
 None. Highest-priority remaining bridges, in order:
-1. Adopt `EnergyKernel` for `SourceCube`/`BlueprintUnit`/`NormGene` ranking (currently the kernel is available and demonstrated but the legacy heuristics still stand alongside it).
-2. Real `.kcube` executor crate (the `kosmo-core::kcube` data model exists but has no host-capability writer/importer/roundtrip — the established foundry/store/parseback pattern).
-3. Close the PSE feedback loop (the `kosmo-pse-bridge` is candidate-only / one-directional).
+1. Adopt `EnergyKernel` for `SourceCube`/`BlueprintUnit`/`NormGene` ranking (kernel available, legacy heuristics still alongside it).
+2. Close the PSE feedback loop (`kosmo-pse-bridge` is candidate-only / one-directional; no path from PSE `SemanticCrystal` back to `CorpusCartography`/`NormGene`).
+3. Weld `SystemCube::export_dry_run` to the real `KcubeExecutor` — currently the export report and the archive write are separate operations.

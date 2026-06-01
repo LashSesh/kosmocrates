@@ -42,6 +42,7 @@ use kosmo_pse_bridge::{
 
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
 use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
+use kosmo_kcube::{KcubeArtifact, KcubeExecutor, kcube_file_name};
 
 fn d(seed: &[u8]) -> Digest {
     Digest::of_bytes(seed)
@@ -1443,7 +1444,181 @@ fn it_builds() { assert!(true); }
         Ok(())
     }));
 
+    // ── RX:Kcube — real .kcube archive executor ──────────────────────────────
+
+    v.push(run_check("rx-kcube-denied-when-write-false", "RX:Kcube", || {
+        // CROSS-010 analogue: allow_write=false must never produce a written file.
+        let dir = eval_tmp_dir("rx-kcube-deny");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::report_only(d(b"pol"), d(b"dir"));
+        let art = KcubeArtifact::new(
+            kosmo_core::KcubeArtifactKind::StructuralCrystal,
+            "c.bin",
+            b"data".to_vec(),
+        );
+        let report = exec.write("scope", vec![art], &policy, d(b"ev-bundle"), 1);
+        if report.outcome.is_written() {
+            return Err("allow_write=false must not produce Written outcome".into());
+        }
+        if report.written_bytes != 0 {
+            return Err("written_bytes must be 0 when denied".into());
+        }
+        if !report.verify_id() {
+            return Err("DeniedByPolicy report must be content-addressed".into());
+        }
+        // evidence must be bound even in denied reports (CROSS-006)
+        if report.evidence_bundle_id == Digest::ZERO {
+            return Err("evidence_bundle_id must be non-zero even in denied reports".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-write-and-roundtrip-passes", "RX:Kcube", || {
+        // Real file write: the archive is created and roundtrip verification passes.
+        let dir = eval_tmp_dir("rx-kcube-write");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::StructuralCrystal],
+        );
+        let artifacts = vec![
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::StructuralCrystal, "c1.bin", b"crystal-a".to_vec()),
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::StructuralCrystal, "c2.bin", b"crystal-b".to_vec()),
+        ];
+        let report = exec.write("bench-scope", artifacts, &policy, d(b"ev-bundle"), 1);
+        if !report.outcome.is_written() {
+            return Err(format!("expected Written, got {:?}", report.outcome));
+        }
+        if !report.roundtrip_passed() {
+            return Err("roundtrip verification must pass for a correct write".into());
+        }
+        if report.written_bytes == 0 {
+            return Err("written_bytes must be > 0".into());
+        }
+        if !report.verify_id() {
+            return Err("KcubeWriteReport must be content-addressed".into());
+        }
+        // File must exist on disk
+        let fname = kcube_file_name("bench-scope", 1);
+        if !dir.join(&fname).exists() {
+            return Err(format!("expected .kcube file {fname} to exist on disk"));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-package-content-addressed", "RX:Kcube", || {
+        // The KcubePackage stored in the written archive verifies its own id
+        // (INVARIANT-007) and its package_digest matches the artifact section SHA-256.
+        let dir = eval_tmp_dir("rx-kcube-pkg-ca");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::EvidenceBundle],
+        );
+        let art = KcubeArtifact::new(
+            kosmo_core::KcubeArtifactKind::EvidenceBundle,
+            "bundle.json",
+            b"{\"ev\":1}".to_vec(),
+        );
+        let report = exec.write("ca-scope", vec![art], &policy, d(b"ev-bundle"), 9);
+        if !report.outcome.is_written() {
+            return Err(format!("write failed: {:?}", report.outcome));
+        }
+        let fname = kcube_file_name("ca-scope", 9);
+        let pkg = exec.read(&fname)
+            .map_err(|e| format!("read failed: {e}"))?;
+        if !pkg.verify_id() {
+            return Err("KcubePackage.verify_id() must pass after roundtrip read".into());
+        }
+        if pkg.scope != "ca-scope" {
+            return Err(format!("scope mismatch: {:?}", pkg.scope));
+        }
+        if pkg.entry_count() != 1 {
+            return Err(format!("expected 1 entry, got {}", pkg.entry_count()));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-overwrite-denied-by-default", "RX:Kcube", || {
+        // A second write with the same sequence must be blocked when allow_overwrite=false.
+        let dir = eval_tmp_dir("rx-kcube-overwrite");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::StructuralCrystal],
+        );
+        let mk_art = || vec![KcubeArtifact::new(
+            kosmo_core::KcubeArtifactKind::StructuralCrystal, "c.bin", b"v1".to_vec(),
+        )];
+        let r1 = exec.write("over-scope", mk_art(), &policy, d(b"ev"), 3);
+        if !r1.outcome.is_written() {
+            return Err(format!("first write failed: {:?}", r1.outcome));
+        }
+        let r2 = exec.write("over-scope", mk_art(), &policy, d(b"ev"), 3);
+        if r2.outcome.is_written() {
+            return Err("second write to same sequence must be blocked (allow_overwrite=false)".into());
+        }
+        if r2.outcome.is_failure_class()
+            && !matches!(r2.outcome, kosmo_core::KcubeWriteOutcome::DeniedByPolicy { .. })
+        {
+            return Err(format!("expected DeniedByPolicy, got {:?}", r2.outcome));
+        }
+        if !r2.verify_id() {
+            return Err("overwrite-denied report must be content-addressed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-read-parses-manifest", "RX:Kcube", || {
+        // KcubeExecutor::read returns the correctly-parsed KcubePackage from disk.
+        let dir = eval_tmp_dir("rx-kcube-read");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![
+                kosmo_core::KcubeArtifactKind::StructuralCrystal,
+                kosmo_core::KcubeArtifactKind::EvidenceBundle,
+            ],
+        );
+        let artifacts = vec![
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::StructuralCrystal, "a.bin", b"aaa".to_vec()),
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::EvidenceBundle,   "b.json", b"{}".to_vec()),
+        ];
+        let report = exec.write("read-scope", artifacts, &policy, d(b"ev-bundle"), 77);
+        if !report.outcome.is_written() {
+            return Err(format!("write failed: {:?}", report.outcome));
+        }
+        let fname = kcube_file_name("read-scope", 77);
+        let pkg = exec.read(&fname).map_err(|e| format!("read error: {e}"))?;
+        if pkg.entry_count() != 2 {
+            return Err(format!("expected 2 entries, got {}", pkg.entry_count()));
+        }
+        if pkg.created_at_sequence != 77 {
+            return Err(format!("sequence mismatch: {}", pkg.created_at_sequence));
+        }
+        if pkg.evidence_bundle_id != d(b"ev-bundle") {
+            return Err("evidence_bundle_id mismatch after roundtrip".into());
+        }
+        // package_id in the write report must match the parsed package id
+        if report.package_id != pkg.id {
+            return Err("package_id in write report must equal parsed KcubePackage.id".into());
+        }
+        Ok(())
+    }));
+
     v
+}
+
+/// Unique temp path for an eval scenario's working directory.
+fn eval_tmp_dir(tag: &str) -> std::path::PathBuf {
+    let p = std::env::temp_dir().join("kosmo-eval-kcube").join(tag);
+    std::fs::remove_dir_all(&p).ok();
+    std::fs::create_dir_all(&p).unwrap();
+    p
 }
 
 /// Unique temp path for a benchmark store scenario.

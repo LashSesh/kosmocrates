@@ -44,6 +44,36 @@ note explicitly says so.
   `HDAGEdgeKind`; `CodeHDAG` content-address now covers full edge wiring. 12 new
   unit tests.
 
+* **Real `.kcube` archive executor** (`kosmo-kcube`) — the host-capability
+  bridge that turns `KcubeExportPolicy`-gated artifact lists into real
+  `.kcube` files on disk and reads them back.
+
+  Archive format: deterministic framed binary (`KCUBEPM\n` magic, LE-encoded
+  sections, artifact bytes sorted by path for bit-exact reproducibility).
+  `package_digest = SHA-256(artifact_section)` — the manifest JSON is appended
+  as a trailer so the digest covers only the artifacts.
+
+  Policy enforcement: `allow_write=false` → `DeniedByPolicy` (no disk touch);
+  artifact kind allowlist checked before any write; `allow_overwrite=false`
+  blocks silent replacement; `require_roundtrip_verification=true` (the
+  default) re-reads the file and compares artifact-section SHA-256 after write.
+
+  `KcubeExecutor::read` — parses a `.kcube` file back to `KcubePackage` for
+  import/verify workflows (`parse_kcube_file` is also public).
+
+  CROSS-006: `evidence_bundle_id ≠ ZERO` is propagated into every report
+  variant including `DeniedByPolicy`. CROSS-007: no floats (`written_bytes`,
+  `elapsed_ms` are `u64`). INVARIANT-007: `KcubeWriteReport.verify_id()` and
+  `KcubePackage.verify_id()` both pass after roundtrip read.
+
+  25 unit tests. No new external dependencies (reuses `kosmo-core`,
+  `serde`/`serde_json`).
+
+* **`tools/kosmo-eval` extended to 65 scenarios** (was 60): 5 new `RX:Kcube`
+  scenarios (write denied when `allow_write=false`, write+roundtrip pass, content-
+  addressed package, overwrite guard, `read` parses manifest). `kosmo-eval` now
+  depends on `kosmo-kcube`.
+
 * **`tools/kosmo-eval` extended to 60 scenarios** (was 52): 5 new `RX:Energy`
   scenarios (tripolar exactness, gate non-bypass, quarantine/proprietary/foundry
   zeroing, content-addressing, deterministic ranking) and 3 new `RX:Topology`

@@ -1227,6 +1227,7 @@ dependencies = [
  "kosmo-core",
  "kosmo-foundry",
  "kosmo-hyphae",
+ "kosmo-kcube",
  "kosmo-operator",
  "kosmo-parseback",
  "kosmo-pse-bridge",
@@ -1253,6 +1254,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "kosmo-kcube"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

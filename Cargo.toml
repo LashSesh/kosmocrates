@@ -81,6 +81,7 @@ members = [
     "tools/nxalien-cli",
     "tools/pse-paper-bench",
     "tools/kosmo-eval",
+    "crates/kosmo-kcube",
 ]
 
 [workspace.package]

@@ -1,0 +1,14 @@
+[package]
+name = "kosmo-kcube"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Real .kcube archive executor — writes and reads portable blueprint archives under a KcubeExportPolicy, producing content-addressed KcubeWriteReports with roundtrip verification."
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
