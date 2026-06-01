@@ -4,13 +4,23 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **747 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 68) — 0 failures
-- **108/108 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **750 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 71) — 0 failures
+- **110/110 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
 - **`NormFitnessTrace` from prior feedback wired as pipeline Step 5c** ✅ — "Wissen zurück ins Substrat" loop closed
 - **`TopologyAmbiguityProfile` + `ComplementVoidHypothesis` energy-ranked in pipeline Step 3f** ✅
+- **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
+
+### StructuralCrystalCandidate Pipeline Integration — Step 5d (2026-06-01)
+- [x] `enable_crystal_candidates: bool` in `IntegrationRunOptions` (default false)
+- [x] Pipeline Step 5d: one `StructuralCrystalCandidate::from_decision(&decision)` per accepted decision; all start `support_score = Q16::ZERO` (Pending certification)
+- [x] `IntegrationRunReport.crystal_candidates: Vec<StructuralCrystalCandidate>` — explicit certification work queue
+- [x] `ReportContent.crystal_candidate_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `crystal_candidates[i].policy_id`
+- [x] `summary()` reports `crystal_candidates: N`
+- [x] 3 new pipeline tests (71 total); 2 new `RX:Pipeline` eval scenarios (110 total)
 
 ### TopologyAmbiguityProfile + ComplementVoidHypothesis Pipeline Integration — Step 3f (2026-06-01)
 - [x] Pipeline Step 3f: flatten `ambiguities` and `void_hypotheses` from all `metatron_diagnostics`; energy-rank each by `confidence_score` (most confident first)

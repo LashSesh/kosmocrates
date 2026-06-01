@@ -1870,6 +1870,78 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 5d StructuralCrystalCandidate certification queue ──
+
+    v.push(run_check("rx-pipeline-crystal-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.crystal_candidates.is_empty() {
+            return Err(format!(
+                "crystal_candidates must be empty when disabled, got {}",
+                r.crystal_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-crystal-candidates-one-per-accepted-decision", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let accepted = r.hyphae_result.decisions.iter().filter(|d| d.outcome.is_accepted()).count();
+        if r.crystal_candidates.len() != accepted {
+            return Err(format!(
+                "expected {} crystal candidates (= accepted decisions), got {}",
+                accepted, r.crystal_candidates.len()
+            ));
+        }
+        for c in &r.crystal_candidates {
+            if c.policy_id != policy.id {
+                return Err("crystal candidate policy_id mismatch".into());
+            }
+            if c.candidate_id == Digest::ZERO {
+                return Err("candidate_id must be non-ZERO".into());
+            }
+            if c.support_score != Q16::ZERO {
+                return Err("support_score must be ZERO at creation (Pending certification)".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include crystal_candidates".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.crystal_candidates.iter().map(|c| c.candidate_id).collect();
+        let ids2: Vec<_> = r2.crystal_candidates.iter().map(|c| c.candidate_id).collect();
+        if ids1 != ids2 {
+            return Err("crystal_candidates must be deterministic".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Pipeline — Step 3f ambiguity profiles + void hypotheses ───────────
 
     v.push(run_check("rx-pipeline-ambiguity-profiles-empty-without-metatron", "RX:Pipeline", || {

@@ -85,7 +85,7 @@ Target crate: `crates/kosmo-hyphae`
 | `CorpusEntity` / `CorpusRelation` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
 | `CorpusCartographyUpdate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
 | `CartographyPrecheck` / `ReplayManifest` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/corpus.rs` |
-| `StructuralCrystalCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
+| `StructuralCrystalCandidate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` + certification work queue in pipeline Step 5d |
 | `ConstraintProgram` / `AssimilationCertificate` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
 | `StructuralCrystalRecord` / `Resonite` + `energy_assessment` | HYPHAE v0.4 spec + KOSMO-TOPO-ENERGY-01 | ✅ `kosmo-hyphae/src/crystal.rs` |
 | `DualFabricGateCascade` | HYPHAE v0.4 spec | ✅ `kosmo-hyphae/src/crystal.rs` |
@@ -316,4 +316,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (40 scenarios including all energy-ranked pipeline outputs + Steps 3e, 3f, 5c) | ✅ |
+| `RX:Pipeline` (42 scenarios including all energy-ranked pipeline outputs + Steps 3e, 3f, 5c, 5d) | ✅ |

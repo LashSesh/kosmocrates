@@ -15,6 +15,17 @@ note explicitly says so.
 
 ### Added
 
+* **StructuralCrystalCandidate pipeline integration — Step 5d** — surfaces the
+  explicit certification work queue: one candidate per accepted decision, all
+  starting with `support_score = Q16::ZERO` (Pending certification status).
+
+  - `enable_crystal_candidates: bool` in `IntegrationRunOptions` (default false).
+    `IntegrationRunReport.crystal_candidates`; count participates in `report_id`.
+    `verify_policy_consistency()` covers candidate `policy_id` fields. `summary()`
+    reports `crystal_candidates: N`.
+  - 3 new pipeline tests (71 total); 2 new `RX:Pipeline` eval scenarios (110 total,
+    750 substrate tests).
+
 * **TopologyAmbiguityProfile + ComplementVoidHypothesis pipeline integration — Step 3f** —
   surfaces previously discarded metatron M2 diagnostic details as energy-ranked
   top-level collections in the report.

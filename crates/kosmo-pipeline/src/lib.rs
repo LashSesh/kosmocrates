@@ -36,8 +36,8 @@ use kosmo_hyphae::{
     MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
     MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormFitnessTrace,
     NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
-    SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption, TopologyAmbiguityProfile,
-    diagnose_micrograph, lift_region, passive_run, HyphaeRunResult,
+    StructuralCrystalCandidate, SupportMassVector, SurgeryWorkbenchTask, TopologicalSurgeryOption,
+    TopologyAmbiguityProfile, diagnose_micrograph, lift_region, passive_run, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
@@ -69,6 +69,9 @@ pub struct IntegrationRunOptions {
     /// Generate energy-ranked `NormGeneCandidate` objects from accepted decisions.
     /// Initial fitness = `Q16::ONE`; evolves via `NormFitnessTrace` in later phases.
     pub enable_norm_candidates: bool,
+    /// Collect `StructuralCrystalCandidate` objects from accepted decisions (Step 5d).
+    /// Candidates start with `support_score = Q16::ZERO` (pending certification).
+    pub enable_crystal_candidates: bool,
     /// Prior `PromotionFeedback` records to ingest into `NormFitnessTrace` objects
     /// for each matching norm candidate (Step 5c). Empty by default.
     pub prior_feedback: Vec<PromotionFeedback>,
@@ -85,6 +88,7 @@ impl IntegrationRunOptions {
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: false,
             enable_norm_candidates: false,
+            enable_crystal_candidates: false,
             prior_feedback: vec![],
         }
     }
@@ -99,6 +103,7 @@ impl IntegrationRunOptions {
             lpcm_seam_threshold: Q16::ZERO,
             enable_surgery: true,
             enable_norm_candidates: true,
+            enable_crystal_candidates: true,
             prior_feedback: vec![],
         }
     }
@@ -126,6 +131,7 @@ struct ReportContent {
     surgery_workbench_task_count: u32,
     ambiguity_profile_count: u32,
     void_hypothesis_count: u32,
+    crystal_candidate_count: u32,
     norm_candidate_count: u32,
     norm_fitness_trace_count: u32,
     has_systemcube: bool,
@@ -174,6 +180,10 @@ pub struct IntegrationRunReport {
     /// Energy-ranked complement void hypotheses from all Metatron diagnostics.
     /// Most-confident hypothesis first. Empty when `enable_metatron` is false.
     pub complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
+    /// Structural crystal candidates from accepted decisions (Step 5d).
+    /// All start with `support_score = Q16::ZERO` (Pending certification).
+    /// Empty when `enable_crystal_candidates` is false.
+    pub crystal_candidates: Vec<StructuralCrystalCandidate>,
     /// Energy-ranked norm gene candidates generated from accepted decisions.
     /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
     /// Empty when `enable_norm_candidates` is false.
@@ -205,6 +215,7 @@ impl IntegrationRunReport {
         surgery_workbench_tasks: Vec<SurgeryWorkbenchTask>,
         ambiguity_profiles: Vec<TopologyAmbiguityProfile>,
         complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
+        crystal_candidates: Vec<StructuralCrystalCandidate>,
         norm_candidates: Vec<NormGeneCandidate>,
         norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
@@ -230,6 +241,7 @@ impl IntegrationRunReport {
             surgery_workbench_task_count: surgery_workbench_tasks.len() as u32,
             ambiguity_profile_count: ambiguity_profiles.len() as u32,
             void_hypothesis_count: complement_void_hypotheses.len() as u32,
+            crystal_candidate_count: crystal_candidates.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
             norm_fitness_trace_count: norm_fitness_traces.len() as u32,
             has_systemcube: systemcube_export.is_some(),
@@ -252,6 +264,7 @@ impl IntegrationRunReport {
             surgery_workbench_tasks,
             ambiguity_profiles,
             complement_void_hypotheses,
+            crystal_candidates,
             norm_candidates,
             norm_fitness_traces,
             systemcube_export,
@@ -273,7 +286,7 @@ impl IntegrationRunReport {
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
              surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
-             norm_candidates: {} (traces: {}) | {}",
+             crystal_candidates: {} | norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -292,6 +305,7 @@ impl IntegrationRunReport {
             self.surgery_workbench_tasks.len(),
             self.ambiguity_profiles.len(),
             self.complement_void_hypotheses.len(),
+            self.crystal_candidates.len(),
             self.norm_candidates.len(),
             self.norm_fitness_traces.len(),
             scube,
@@ -322,6 +336,7 @@ impl IntegrationRunReport {
             && self.surgery_workbench_tasks.iter().all(|t| t.policy_id == pid)
             && self.ambiguity_profiles.iter().all(|a| a.policy_id == pid)
             && self.complement_void_hypotheses.iter().all(|h| h.policy_id == pid)
+            && self.crystal_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_fitness_traces.iter().all(|t| t.policy_id == pid)
             && self
@@ -575,6 +590,19 @@ pub fn run_dry_pipeline(
         policy.id,
     );
 
+    // ── 5d. Optional crystal candidates — from accepted decisions ────────────
+    // One StructuralCrystalCandidate per accepted decision; support_score = Q16::ZERO
+    // (Pending certification). Collected to form an explicit certification work queue.
+    let crystal_candidates: Vec<StructuralCrystalCandidate> =
+        if options.enable_crystal_candidates {
+            hyphae.decisions.iter()
+                .filter(|d| d.outcome.is_accepted())
+                .map(StructuralCrystalCandidate::from_decision)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
     // ── 5b. Optional norm candidates — from accepted decisions ────────────────
     // One NormGeneCandidate per accepted decision: name derived from void/yield,
     // initial fitness = Q16::ONE (just accepted). Evidence = decision's evidence_bundle_id
@@ -677,6 +705,7 @@ pub fn run_dry_pipeline(
         surgery_workbench_tasks,
         ambiguity_profiles,
         complement_void_hypotheses,
+        crystal_candidates,
         norm_candidates,
         norm_fitness_traces,
         systemcube_export,
@@ -1127,6 +1156,56 @@ mod tests {
             r.surgery_workbench_tasks.len(),
             r.surgery_options.len(),
             "surgery_workbench_tasks must be 1:1 with surgery_options"
+        );
+    }
+
+    // ── Crystal candidates from accepted decisions (Step 5d) ─────────────────
+
+    #[test]
+    fn pipeline_no_crystal_candidates_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.crystal_candidates.is_empty(),
+            "crystal_candidates must be empty when disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_crystal_candidates_one_per_accepted_decision() {
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let accepted_count = r.hyphae_result.decisions.iter()
+            .filter(|d| d.outcome.is_accepted())
+            .count();
+        assert_eq!(
+            r.crystal_candidates.len(),
+            accepted_count,
+            "one crystal candidate per accepted decision"
+        );
+        for c in &r.crystal_candidates {
+            assert_ne!(c.candidate_id, Digest::ZERO, "candidate_id must be non-ZERO");
+            assert_eq!(c.support_score, Q16::ZERO, "support_score starts at zero (Pending)");
+            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-ZERO");
+        }
+    }
+
+    #[test]
+    fn pipeline_crystal_candidates_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for c in &r.crystal_candidates {
+            assert_eq!(c.policy_id, p.id, "crystal candidate must carry pipeline policy_id");
+        }
+        assert!(
+            r.verify_policy_consistency(),
+            "verify_policy_consistency must cover crystal_candidates"
         );
     }
 
