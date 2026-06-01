@@ -1,4 +1,5 @@
-use kosmo_core::{Digest, Q16};
+use crate::cube::SourceCube;
+use kosmo_core::{rank_by_energy, Digest, FoundrySurvival, GateResult, LicenseStatus, Q16};
 use serde::{Deserialize, Serialize};
 
 /// The planned action for one void in the HostTargetDelta.
@@ -123,6 +124,66 @@ impl HostTargetDelta {
                     candidate_cube_ids,
                     best_support_score: best.1,
                     action: DeltaAction::FillVoid { top_candidate_cube_id: best.0 },
+                });
+            }
+        }
+
+        Self::new(host_cube_id, composite_cube_id, void_fills, remaining_voids, policy_id)
+    }
+
+    /// Build a `HostTargetDelta` from real `SourceCube` objects using the
+    /// tripolar energy kernel for ranking — the energy-correct path.
+    ///
+    /// Each cube's energy is computed via [`SourceCube::energy_assessment`]
+    /// and candidates per void are ranked by [`rank_by_energy`]. The cube with
+    /// the highest energy wins; ties are broken by `subject_id` for determinism.
+    ///
+    /// Gate defaults to `Pass` (cubes in the swarm already passed intake);
+    /// license defaults to `NotApplicable` (planning context);
+    /// foundry defaults to `Unavailable` (no Foundry run at planning stage).
+    pub fn from_source_cubes(
+        host_cube_id: Digest,
+        host_void_ids: &[Digest],
+        composite_cube_id: Digest,
+        cubes: &[SourceCube],
+        policy_id: Digest,
+    ) -> Self {
+        let mut void_fills = Vec::new();
+        let mut remaining_voids = Vec::new();
+
+        for &void_id in host_void_ids {
+            let cube_assessments: Vec<_> = cubes
+                .iter()
+                .filter(|c| c.target_void_id == Some(void_id))
+                .map(|c| {
+                    let a = c.energy_assessment(
+                        &GateResult::Pass,
+                        &LicenseStatus::NotApplicable,
+                        FoundrySurvival::Unavailable,
+                    );
+                    (c.cube_id, a)
+                })
+                .collect();
+
+            if cube_assessments.is_empty() {
+                remaining_voids.push(void_id);
+            } else {
+                let assessments: Vec<_> = cube_assessments.iter().map(|(_, a)| a.clone()).collect();
+                let ranked = rank_by_energy(&assessments);
+                let top = ranked.first().unwrap();
+                let top_cube_id = cube_assessments
+                    .iter()
+                    .find(|(_, a)| a.id == top.id)
+                    .map(|(cid, _)| *cid)
+                    .unwrap();
+                let mut candidate_cube_ids: Vec<Digest> =
+                    cube_assessments.iter().map(|(cid, _)| *cid).collect();
+                candidate_cube_ids.sort();
+                void_fills.push(VoidFillDelta {
+                    void_id,
+                    candidate_cube_ids,
+                    best_support_score: top.energy,
+                    action: DeltaAction::FillVoid { top_candidate_cube_id: top_cube_id },
                 });
             }
         }

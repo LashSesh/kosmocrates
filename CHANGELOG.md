@@ -15,6 +15,25 @@ note explicitly says so.
 
 ### Added
 
+* **Energy kernel adoption in selection paths** — closes the gap where
+  `SourceCube` and `NormGeneCandidate` ranked by raw Q16 scores instead of
+  the unified tripolar energy kernel (as called out in the `kosmo-core::energy`
+  module-level doc).
+
+  - `SourceCube::energy_assessment(gate, license, foundry)` — ψ=`support_score`,
+    ρ=average dimension-profile coverage (coherence), ω=1; taint factor from
+    `self.taint`. Returns a content-addressed [`EnergyAssessment`].
+  - `NormGeneCandidate::energy_assessment(gate)` — ψ=`fitness_score`, ρ=ω=1;
+    gate-collapsed fail-closed (CROSS-010 analogue). Returns an `EnergyAssessment`.
+  - `HostTargetDelta::from_source_cubes` — the energy-correct companion to
+    `from_host_and_composite`. Groups `SourceCube`s by `target_void_id`, calls
+    `energy_assessment` on each, then uses `rank_by_energy` to pick the top
+    candidate per void. A quarantined cube with `support_score=1.0` loses to a
+    clean cube with `support_score=0.5` — the kernel overrides raw Q16.
+  - **`tools/kosmo-eval` extended to 76 scenarios** (was 72): 4 new
+    `RX:EnergyRanking` scenarios (quarantine zeroes energy, ranking picks best,
+    taint beats higher raw score, norm candidate content-addressed assessment).
+
 * **PSE feedback loop — "Wissen zurück ins Substrat"** — closes the final
   vision link by routing `PromotionOutcome` back into substrate fitness tracking.
 

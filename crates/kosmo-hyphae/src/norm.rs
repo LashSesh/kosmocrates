@@ -1,4 +1,7 @@
-use kosmo_core::{Digest, PromotionFeedback, Q16};
+use kosmo_core::{
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, PromotionFeedback, Q16, TripolarEnergy,
+};
 use serde::{Deserialize, Serialize};
 
 /// Serialize-only for NormGeneCandidate content-addressing.
@@ -45,6 +48,32 @@ impl NormGeneCandidate {
     /// Fitness above threshold is a metric — it does NOT confer trust.
     pub fn exceeds_fitness_threshold(&self, threshold: Q16) -> bool {
         self.fitness_score.exceeds(threshold)
+    }
+
+    /// Build an [`EnergyAssessment`] for this candidate using the tripolar kernel.
+    ///
+    /// - ψ (meaning) = `fitness_score` — accumulated fitness from PSE feedback.
+    /// - ρ (coherence) = `Q16::ONE` — no coherence data at NormGeneCandidate level.
+    /// - ω (phase) = `Q16::ONE` — no phase data at NormGeneCandidate level.
+    /// - Gate factor from caller; taint = Clean; license = NotApplicable.
+    ///
+    /// Use `rank_by_energy` on the returned assessments to rank candidates by D.
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.fitness_score, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.candidate_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.evidence_bundle_id,
+        )
     }
 }
 

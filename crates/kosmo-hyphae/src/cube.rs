@@ -1,5 +1,8 @@
 use crate::deficiency::DeficiencyKind;
-use kosmo_core::{Digest, Q16, TaintLabel};
+use kosmo_core::{
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, Q16, TaintLabel, TripolarEnergy,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -114,6 +117,16 @@ pub struct SourceCube {
     pub policy_id: Digest,
 }
 
+/// Average Q16 coverage across all dimensions in a profile.
+/// Returns `Q16::ONE` when the profile is empty — unconstrained means no penalty.
+fn average_profile_coverage(profile: &CubeDimensionProfile) -> Q16 {
+    if profile.dimensions.is_empty() {
+        return Q16::ONE;
+    }
+    let sum: i64 = profile.dimensions.values().map(|v| v.raw()).sum();
+    Q16::from_raw(sum / profile.dimensions.len() as i64)
+}
+
 impl SourceCube {
     pub fn new(
         target_void_id: Option<Digest>,
@@ -143,6 +156,41 @@ impl SourceCube {
             evidence_bundle_id,
             policy_id,
         }
+    }
+
+    /// Build an [`EnergyAssessment`] for this cube using the tripolar kernel.
+    ///
+    /// - ψ (meaning) = `support_score` — goal-fit relevance to the targeted void.
+    /// - ρ (coherence) = average dimension coverage from `dimension_profile`.
+    /// - ω (phase) = `Q16::ONE` — no phase data at SourceCube level.
+    /// - Taint factor derived from `self.taint`; gate/license/foundry from caller.
+    ///
+    /// Use `rank_by_energy` on the returned assessments to rank cubes by D.
+    pub fn energy_assessment(
+        &self,
+        gate: &GateResult,
+        license: &LicenseStatus,
+        foundry: FoundrySurvival,
+    ) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(
+            self.support_score,
+            average_profile_coverage(&self.dimension_profile),
+            Q16::ONE,
+        );
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: EnergyFactors::taint_factor(&self.taint),
+            license: EnergyFactors::license_factor(license),
+            foundry: EnergyFactors::foundry_factor(foundry),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.cube_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.evidence_bundle_id,
+        )
     }
 }
 

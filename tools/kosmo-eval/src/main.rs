@@ -36,7 +36,9 @@ use kosmo_core::{
 };
 
 use kosmo_hyphae::code_hdag::{CodeHDAG, HDAGEdgeKind};
-use kosmo_hyphae::norm::NormFitnessTrace;
+use kosmo_hyphae::cube::{CubeDimensionProfile, SourceCube};
+use kosmo_hyphae::delta::HostTargetDelta;
+use kosmo_hyphae::norm::{NormFitnessTrace, NormGeneCandidate};
 
 use kosmo_pse_bridge::{
     PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
@@ -1348,6 +1350,119 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         }
         if r1.len() != 2 {
             return Err("ranking must preserve every candidate".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:EnergyRanking — kernel adoption in SourceCube and NormGeneCandidate ─
+
+    v.push(run_check("rx-energy-source-cube-quarantine-zeroes-energy", "RX:EnergyRanking", || {
+        // A SourceCube with Quarantined taint must produce zero energy — the
+        // taint_factor collapses D to zero even with perfect support_score (CROSS-007).
+        let policy = PolicyProfile::default_report_only();
+        let ev = d(b"ev");
+        let cube = SourceCube::new(
+            Some(d(b"void")),
+            "src/dangerous.rs".into(),
+            CubeDimensionProfile::empty(),
+            Q16::ONE,
+            TaintLabel::Quarantined { reason: "test".into() },
+            ev,
+            policy.id,
+        );
+        let a = cube.energy_assessment(&GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable);
+        if !a.kernel.is_zeroed() {
+            return Err("quarantined taint must collapse energy to zero".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-source-cube-ranking-picks-best", "RX:EnergyRanking", || {
+        // HostTargetDelta::from_source_cubes must select the cube with higher
+        // energy as the top candidate for a void — not the cube with higher
+        // cube_id or insertion order.
+        let policy = PolicyProfile::default_report_only();
+        let void_id = d(b"void");
+        let ev = d(b"ev");
+        let lo = SourceCube::new(
+            Some(void_id), "src/low.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ratio(1, 4).unwrap(), TaintLabel::Clean, ev, policy.id,
+        );
+        let hi = SourceCube::new(
+            Some(void_id), "src/high.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ratio(3, 4).unwrap(), TaintLabel::Clean, ev, policy.id,
+        );
+        let delta = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"), &[lo.clone(), hi.clone()], policy.id,
+        );
+        if delta.void_fills.len() != 1 {
+            return Err("one void fill expected".into());
+        }
+        let fill = &delta.void_fills[0];
+        if fill.action != (kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id: hi.cube_id }) {
+            return Err(format!("wrong top candidate: expected hi cube, got {:?}", fill.action));
+        }
+        if fill.candidate_cube_ids.len() != 2 {
+            return Err("both cubes must appear in candidate_cube_ids".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-taint-beats-higher-raw-score", "RX:EnergyRanking", || {
+        // A clean cube with lower support_score must rank above a tainted cube
+        // with higher raw support_score — proving energy kernel overrides raw Q16.
+        let policy = PolicyProfile::default_report_only();
+        let void_id = d(b"void2");
+        let ev = d(b"ev");
+        let tainted_high = SourceCube::new(
+            Some(void_id), "src/tainted.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ONE,  // highest raw score
+            TaintLabel::Quarantined { reason: "legacy".into() },
+            ev, policy.id,
+        );
+        let clean_low = SourceCube::new(
+            Some(void_id), "src/clean.rs".into(), CubeDimensionProfile::empty(),
+            Q16::HALF, // lower raw score
+            TaintLabel::Clean,
+            ev, policy.id,
+        );
+        let delta = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"),
+            &[tainted_high.clone(), clean_low.clone()], policy.id,
+        );
+        if delta.void_fills.is_empty() {
+            return Err("expected one void fill".into());
+        }
+        let top = match &delta.void_fills[0].action {
+            kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id } => *top_candidate_cube_id,
+            _ => return Err("expected FillVoid".into()),
+        };
+        if top != clean_low.cube_id {
+            return Err("clean cube with lower raw score must beat quarantined cube with higher raw score".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-norm-candidate-assessment-content-addressed", "RX:EnergyRanking", || {
+        // NormGeneCandidate::energy_assessment must be content-addressed:
+        // same inputs → same assessment id.
+        let pid = d(b"p");
+        let ev_id = d(b"e");
+        let cand = NormGeneCandidate::new(
+            "test-norm".into(), "desc".into(), Q16::HALF, ev_id, pid,
+        );
+        let a1 = cand.energy_assessment(&GateResult::Pass);
+        let a2 = cand.energy_assessment(&GateResult::Pass);
+        if a1.id != a2.id {
+            return Err("energy_assessment must be deterministic (INVARIANT-007)".into());
+        }
+        if a1.subject_id != cand.candidate_id {
+            return Err("assessment subject_id must be candidate_id".into());
+        }
+        // Rejected gate collapses energy to zero (CROSS-010 analogue).
+        let rejected = cand.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        if !rejected.kernel.is_zeroed() {
+            return Err("rejected gate must zero the energy".into());
         }
         Ok(())
     }));
