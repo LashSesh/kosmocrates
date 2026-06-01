@@ -1926,6 +1926,88 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Step 6b PSE bridge candidates ──────────────────────────
+
+    v.push(run_check("rx-pipeline-pse-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.pse_candidates.is_empty() {
+            return Err(format!(
+                "pse_candidates must be empty when disabled, got {}",
+                r.pse_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-pse-candidates-cover-norm-and-topology", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"test"),
+                size_bytes: 50, kind: WorkspaceEntryKind::TestFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_norm_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let expected = r.norm_candidates.len()
+            + r.ambiguity_profiles.len()
+            + r.complement_void_hypotheses.len();
+        if r.pse_candidates.len() != expected {
+            return Err(format!(
+                "expected {} PSE candidates (norm + ambiguities + void_hyp), got {}",
+                expected, r.pse_candidates.len()
+            ));
+        }
+        // Confidence descending.
+        for window in r.pse_candidates.windows(2) {
+            if window[0].confidence < window[1].confidence {
+                return Err("pse_candidates must be sorted by confidence descending".into());
+            }
+        }
+        for c in &r.pse_candidates {
+            if c.policy_id != policy.id {
+                return Err("PSE candidate policy_id mismatch".into());
+            }
+            if c.id == Digest::ZERO {
+                return Err("PSE candidate id must be non-ZERO".into());
+            }
+            if c.evidence_bundle_id == Digest::ZERO {
+                return Err("CROSS-006: PSE candidate evidence_bundle_id must be non-ZERO".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include pse_candidates".into());
+        }
+        // Determinism.
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        let ids1: Vec<_> = r.pse_candidates.iter().map(|c| c.id).collect();
+        let ids2: Vec<_> = r2.pse_candidates.iter().map(|c| c.id).collect();
+        if ids1 != ids2 {
+            return Err("pse_candidates must be deterministic".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Pipeline — Step 5d StructuralCrystalCandidate certification queue ──
 
     v.push(run_check("rx-pipeline-crystal-candidates-disabled-by-default", "RX:Pipeline", || {

@@ -42,6 +42,7 @@ use kosmo_hyphae::{
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
 };
+use kosmo_pse_bridge::{PseBridgeCandidate, PseBridgeCandidateKind};
 use kosmo_workbench::WorkspaceIndex;
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +73,9 @@ pub struct IntegrationRunOptions {
     /// Collect `StructuralCrystalCandidate` objects from accepted decisions (Step 5d).
     /// Candidates start with `support_score = Q16::ZERO` (pending certification).
     pub enable_crystal_candidates: bool,
+    /// Convert norm + topology candidates into `PseBridgeCandidate` objects (Step 6b).
+    /// Produces a flat, confidence-ranked list ready for PSE evaluation.
+    pub enable_pse_candidates: bool,
     /// Prior `PromotionFeedback` records to ingest into `NormFitnessTrace` objects
     /// for each matching norm candidate (Step 5c). Empty by default.
     pub prior_feedback: Vec<PromotionFeedback>,
@@ -89,6 +93,7 @@ impl IntegrationRunOptions {
             enable_surgery: false,
             enable_norm_candidates: false,
             enable_crystal_candidates: false,
+            enable_pse_candidates: false,
             prior_feedback: vec![],
         }
     }
@@ -104,6 +109,7 @@ impl IntegrationRunOptions {
             enable_surgery: true,
             enable_norm_candidates: true,
             enable_crystal_candidates: true,
+            enable_pse_candidates: true,
             prior_feedback: vec![],
         }
     }
@@ -133,6 +139,7 @@ struct ReportContent {
     ambiguity_profile_count: u32,
     void_hypothesis_count: u32,
     crystal_candidate_count: u32,
+    pse_candidate_count: u32,
     norm_candidate_count: u32,
     norm_fitness_trace_count: u32,
     has_systemcube: bool,
@@ -188,6 +195,10 @@ pub struct IntegrationRunReport {
     /// All start with `support_score = Q16::ZERO` (Pending certification).
     /// Empty when `enable_crystal_candidates` is false.
     pub crystal_candidates: Vec<StructuralCrystalCandidate>,
+    /// Flat confidence-ranked PSE bridge candidates (Step 6b) assembled from
+    /// norm candidates and topology observations. Ready for PSE evaluation.
+    /// Empty when `enable_pse_candidates` is false.
+    pub pse_candidates: Vec<PseBridgeCandidate>,
     /// Energy-ranked norm gene candidates generated from accepted decisions.
     /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
     /// Empty when `enable_norm_candidates` is false.
@@ -221,6 +232,7 @@ impl IntegrationRunReport {
         ambiguity_profiles: Vec<TopologyAmbiguityProfile>,
         complement_void_hypotheses: Vec<ComplementVoidHypothesis>,
         crystal_candidates: Vec<StructuralCrystalCandidate>,
+        pse_candidates: Vec<PseBridgeCandidate>,
         norm_candidates: Vec<NormGeneCandidate>,
         norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
@@ -248,6 +260,7 @@ impl IntegrationRunReport {
             ambiguity_profile_count: ambiguity_profiles.len() as u32,
             void_hypothesis_count: complement_void_hypotheses.len() as u32,
             crystal_candidate_count: crystal_candidates.len() as u32,
+            pse_candidate_count: pse_candidates.len() as u32,
             norm_candidate_count: norm_candidates.len() as u32,
             norm_fitness_trace_count: norm_fitness_traces.len() as u32,
             has_systemcube: systemcube_export.is_some(),
@@ -272,6 +285,7 @@ impl IntegrationRunReport {
             ambiguity_profiles,
             complement_void_hypotheses,
             crystal_candidates,
+            pse_candidates,
             norm_candidates,
             norm_fitness_traces,
             systemcube_export,
@@ -294,7 +308,7 @@ impl IntegrationRunReport {
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
              morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
              surgery: {} (tasks: {}) | ambiguities: {} | void_hyp: {} | \
-             crystal_candidates: {} | norm_candidates: {} (traces: {}) | {}",
+             crystal_candidates: {} | pse_candidates: {} | norm_candidates: {} (traces: {}) | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -316,6 +330,7 @@ impl IntegrationRunReport {
             self.ambiguity_profiles.len(),
             self.complement_void_hypotheses.len(),
             self.crystal_candidates.len(),
+            self.pse_candidates.len(),
             self.norm_candidates.len(),
             self.norm_fitness_traces.len(),
             scube,
@@ -348,6 +363,7 @@ impl IntegrationRunReport {
             && self.ambiguity_profiles.iter().all(|a| a.policy_id == pid)
             && self.complement_void_hypotheses.iter().all(|h| h.policy_id == pid)
             && self.crystal_candidates.iter().all(|c| c.policy_id == pid)
+            && self.pse_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
             && self.norm_fitness_traces.iter().all(|t| t.policy_id == pid)
             && self
@@ -700,6 +716,54 @@ pub fn run_dry_pipeline(
         None
     };
 
+    // ── 6b. PSE bridge candidates — flatten + confidence-rank ─────────────────
+    // Converts norm candidates and topology observations into PseBridgeCandidate
+    // objects, ready for PSE evaluation via validate_candidate().
+    let pse_candidates: Vec<PseBridgeCandidate> = if options.enable_pse_candidates {
+        let mut raw: Vec<PseBridgeCandidate> = Vec::new();
+        // NormGeneCandidate → StructuralObservation
+        for c in &norm_candidates {
+            raw.push(PseBridgeCandidate::new(
+                PseBridgeCandidateKind::StructuralObservation,
+                c.candidate_id,
+                &format!("norm:{}", &c.name[..c.name.len().min(32)]),
+                c.fitness_score,
+                hyphae.run_id,
+                c.evidence_bundle_id,
+                policy.id,
+            ));
+        }
+        // TopologyAmbiguityProfile → TopologyObservation
+        for a in &ambiguity_profiles {
+            raw.push(PseBridgeCandidate::new(
+                PseBridgeCandidateKind::TopologyObservation,
+                a.profile_id,
+                &format!("ambiguity:{:?}", a.ambiguity_kind),
+                a.confidence_score,
+                hyphae.run_id,
+                a.micrograph_id,
+                policy.id,
+            ));
+        }
+        // ComplementVoidHypothesis → TopologyObservation
+        for h in &complement_void_hypotheses {
+            raw.push(PseBridgeCandidate::new(
+                PseBridgeCandidateKind::TopologyObservation,
+                h.hypothesis_id,
+                &format!("void_hyp:{}", &h.hypothesized_void_kind[..h.hypothesized_void_kind.len().min(24)]),
+                h.confidence_score,
+                hyphae.run_id,
+                h.hypothesis_id,
+                policy.id,
+            ));
+        }
+        // Sort by confidence descending (deterministic: stable sort, then by id).
+        raw.sort_by(|a, b| b.confidence.cmp(&a.confidence).then(a.id.cmp(&b.id)));
+        raw
+    } else {
+        Vec::new()
+    };
+
     // ── 6. Aggregate gate results ─────────────────────────────────────────────
     let aggregated_gate = agg.aggregate();
 
@@ -721,6 +785,7 @@ pub fn run_dry_pipeline(
         ambiguity_profiles,
         complement_void_hypotheses,
         crystal_candidates,
+        pse_candidates,
         norm_candidates,
         norm_fitness_traces,
         systemcube_export,
@@ -1198,6 +1263,65 @@ mod tests {
             r.surgery_options.len(),
             "surgery_workbench_tasks must be 1:1 with surgery_options"
         );
+    }
+
+    // ── PSE bridge candidates (Step 6b) ──────────────────────────────────────
+
+    #[test]
+    fn pipeline_no_pse_candidates_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(
+            r.pse_candidates.is_empty(),
+            "pse_candidates must be empty when disabled"
+        );
+    }
+
+    #[test]
+    fn pipeline_pse_candidates_from_norm_and_topology_observations() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_norm_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let expected_min = r.norm_candidates.len()
+            + r.ambiguity_profiles.len()
+            + r.complement_void_hypotheses.len();
+        assert_eq!(
+            r.pse_candidates.len(),
+            expected_min,
+            "pse_candidates must cover all norm + topology sources"
+        );
+        // Confidence descending.
+        for window in r.pse_candidates.windows(2) {
+            assert!(
+                window[0].confidence >= window[1].confidence,
+                "pse_candidates must be sorted by confidence descending"
+            );
+        }
+        // All must be non-ZERO and carry pipeline policy_id.
+        for c in &r.pse_candidates {
+            assert_ne!(c.id, Digest::ZERO, "PSE candidate id must be non-ZERO");
+            assert_eq!(c.policy_id, policy().id, "PSE candidate must carry pipeline policy_id");
+            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-ZERO");
+        }
+    }
+
+    #[test]
+    fn pipeline_pse_candidates_are_deterministic() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_norm_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let ids1: Vec<_> = r1.pse_candidates.iter().map(|c| c.id).collect();
+        let ids2: Vec<_> = r2.pse_candidates.iter().map(|c| c.id).collect();
+        assert_eq!(ids1, ids2, "pse_candidates must be deterministic");
+        assert_eq!(r1.report_id, r2.report_id, "pse_candidate_count must participate in report_id");
     }
 
     // ── Crystal candidates from accepted decisions (Step 5d) ─────────────────

@@ -220,8 +220,9 @@ Target: `crates/kosmo-pse-bridge/src/lib.rs`
 
 | Type / Module | Status |
 |---|---|
-| `PseBridgeCandidate`, `PseBridgePolicy`, `PromotionRequest`, `PromotionOutcome` | ✅ |
+| `PseBridgeCandidate`, `PseBridgeCandidateKind`, `PseBridgePolicy`, `PromotionRequest`, `PromotionOutcome` | ✅ |
 | `validate_candidate` | ✅ |
+| `PseBridgeCandidate` assembled from pipeline observations in Step 6b (`kosmo-pipeline`) | ✅ |
 
 ### R8 — Controlled Acquisition
 Target: `kosmo-core/src/acquisition.rs`
@@ -316,4 +317,4 @@ Target: `tools/kosmo-eval/src/main.rs`
 |---|---|
 | `RX:Energy` (5 scenarios) | ✅ |
 | `RX:Topology` (3 scenarios) | ✅ |
-| `RX:Pipeline` (44 scenarios including all energy-ranked pipeline outputs + Steps 1c, 3e, 3f, 5c, 5d) | ✅ |
+| `RX:Pipeline` (46 scenarios including all energy-ranked pipeline outputs + Steps 1c, 3e, 3f, 5c, 5d, 6b) | ✅ |

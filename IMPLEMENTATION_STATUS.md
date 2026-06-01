@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **753 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 74) — 0 failures
-- **112/112 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **756 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 77) — 0 failures
+- **114/114 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`MicroTopologyIndex` assembled in pipeline** ✅
 - **`SurgeryWorkbenchTask` conversion wired as pipeline Step 3e** ✅
@@ -13,6 +13,17 @@
 - **`TopologyAmbiguityProfile` + `ComplementVoidHypothesis` energy-ranked in pipeline Step 3f** ✅
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
+- **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### PseBridgeCandidate Pipeline Integration — Step 6b (2026-06-01)
+- [x] `enable_pse_candidates: bool` in `IntegrationRunOptions` (default false)
+- [x] Pipeline Step 6b: collects `PseBridgeCandidate` from `norm_candidates` (kind=`StructuralObservation`, ψ=`fitness_score`, evidence=`evidence_bundle_id`) and from `ambiguity_profiles` + `complement_void_hypotheses` (kind=`TopologyObservation`, ψ=`confidence_score`); sorted by confidence desc, then by id for determinism
+- [x] `IntegrationRunReport.pse_candidates: Vec<PseBridgeCandidate>` — PSE submission work queue
+- [x] `ReportContent.pse_candidate_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `pse_candidates[i].policy_id`
+- [x] `summary()` reports `pse_candidates: N`
+- [x] `kosmo-pse-bridge` added as dep to `kosmo-pipeline`
+- [x] 3 new pipeline tests (77 total); 2 new `RX:Pipeline` eval scenarios (114 total, 756 substrate tests)
 
 ### DeficiencyVector Pipeline Integration — Step 1c (2026-06-01)
 - [x] Pipeline Step 1c: `DeficiencyVector::from_void_map(&hyphae.host_cube.void_map)` — always present (not gated on any option)

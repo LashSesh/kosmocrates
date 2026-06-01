@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **PseBridgeCandidate pipeline integration — Step 6b** — surfaces all actionable
+  pipeline observations as PSE-ready candidates, completing the observation→submission
+  funnel without gating any decisions on PSE acceptance (CROSS-010).
+
+  - `enable_pse_candidates: bool` in `IntegrationRunOptions` (default false). When
+    enabled, norm candidates become `StructuralObservation` candidates (ψ=`fitness_score`,
+    evidence=`evidence_bundle_id`) and ambiguity profiles + void hypotheses become
+    `TopologyObservation` candidates (ψ=`confidence_score`). All are sorted by confidence
+    descending, with `id` as deterministic tie-break.
+  - `IntegrationRunReport.pse_candidates: Vec<PseBridgeCandidate>`; count participates
+    in `report_id`. `verify_policy_consistency()` covers all candidate `policy_id`
+    fields. `summary()` reports `pse_candidates: N`.
+  - 3 new pipeline tests (77 total); 2 new `RX:Pipeline` eval scenarios (114 total,
+    756 substrate tests).
+
 * **DeficiencyVector pipeline integration — Step 1c** — always-on diagnostic summary
   of structural deficiencies derived from the host void map (test coverage gaps,
   documentation gaps). Never requires an option flag.
