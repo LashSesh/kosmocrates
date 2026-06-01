@@ -4,8 +4,17 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **709 substrate tests** (kosmo-core 339, kosmo-hyphae 155, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 49) — 0 failures
-- **96/96 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **712 substrate tests** (kosmo-core 339, kosmo-hyphae 155, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 52) — 0 failures
+- **98/98 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+
+### NormGeneCandidate Pipeline Integration — Step 5b (2026-06-01)
+- [x] `enable_norm_candidates: bool` in `IntegrationRunOptions` (default false)
+- [x] Pipeline Step 5b: one `NormGeneCandidate` per accepted decision; initial `fitness_score = Q16::ONE`; `evidence_bundle_id = decision.evidence_bundle_id` (CROSS-006)
+- [x] `IntegrationRunReport.norm_candidates: Vec<NormGeneCandidate>` (energy-ranked)
+- [x] `ReportContent.norm_candidate_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `norm_candidates[i].policy_id`
+- [x] `summary()` reports `norm_candidates` count
+- [x] 3 new pipeline unit tests (52 total); 2 new `RX:Pipeline` eval scenarios (98 total)
 
 ### Void Priority Ranking — Pipeline Step 1b (2026-06-01)
 - [x] `HostVoid::energy_assessment(gate, policy_id)` — ψ=`severity`; `evidence_bundle_id=void_id` (CROSS-006 self-referential content address)

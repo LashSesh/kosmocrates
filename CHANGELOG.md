@@ -15,6 +15,24 @@ note explicitly says so.
 
 ### Added
 
+* **NormGeneCandidate pipeline integration — Step 5b** — closes the last
+  hyphae-to-pipeline integration gap; norm gene candidates are now generated
+  and ranked as part of every full pipeline run.
+
+  - `IntegrationRunOptions.enable_norm_candidates: bool` (default false).
+  - Pipeline Step 5b: for each accepted assimilation decision, a
+    `NormGeneCandidate` is created with `fitness_score = Q16::ONE` (initial
+    fitness; `NormFitnessTrace` evolves this via feedback in later phases).
+    `evidence_bundle_id = decision.evidence_bundle_id` (CROSS-006: non-ZERO
+    causal ref — traces back to the original evidence that justified acceptance).
+    All candidates are energy-ranked via `rank_by_energy` before being stored.
+  - `IntegrationRunReport.norm_candidates: Vec<NormGeneCandidate>`; count
+    participates in `report_id` (content-addressed).
+  - `verify_policy_consistency()` extended to cover `norm_candidates[i].policy_id`.
+  - `summary()` reports `norm_candidates: N`.
+  - 3 new pipeline unit tests (52 total); 2 new `RX:Pipeline` eval scenarios
+    (98 total, 712 substrate tests).
+
 * **Void priority ranking — pipeline Step 1b** — every `IntegrationRunReport`
   now ships a severity-ordered void repair queue at zero extra I/O cost.
 
