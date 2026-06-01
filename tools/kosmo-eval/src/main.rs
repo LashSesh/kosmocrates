@@ -1411,6 +1411,45 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Phase 4d MorphogenicCorpusUpdate skeleton ─────────────
+
+    v.push(run_check("rx-pipeline-morphogenic-update-is-content-addressed", "RX:Pipeline", || {
+        // MorphogenicCorpusUpdate in the report must be deterministic and must
+        // link cartography_update_id + collapse_plan_id.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r1.morphogenic_update.update_id != r2.morphogenic_update.update_id {
+            return Err("morphogenic_update must be deterministic".into());
+        }
+        if r1.morphogenic_update.update_id == Digest::ZERO {
+            return Err("morphogenic_update.update_id must be non-zero".into());
+        }
+        // Structural integrity: must link to the correct sub-artifacts
+        if r1.morphogenic_update.cartography_update_id != r1.cartography_update.update_id {
+            return Err("morphogenic_update.cartography_update_id must equal cartography_update.update_id".into());
+        }
+        if r1.morphogenic_update.collapse_plan_id != r1.collapse_plan.plan_id {
+            return Err("morphogenic_update.collapse_plan_id must equal collapse_plan.plan_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-morphogenic-update-carries-policy-id", "RX:Pipeline", || {
+        // morphogenic_update.policy_id must participate in verify_policy_consistency().
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.morphogenic_update.policy_id != policy.id {
+            return Err("morphogenic_update.policy_id must match pipeline policy".into());
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include morphogenic_update.policy_id".into());
+        }
+        Ok(())
+    }));
+
     // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
 
     v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {

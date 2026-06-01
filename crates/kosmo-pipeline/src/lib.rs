@@ -33,8 +33,8 @@ use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
     CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
-    MicroTopologyDiagnostic, Fragment, FragmentField, FragmentKind, SourceCube,
-    SeamGraph, SupportMassVector,
+    MicroTopologyDiagnostic, MorphogenicCorpusUpdate, Fragment, FragmentField, FragmentKind,
+    SourceCube, SeamGraph, SupportMassVector,
     diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
 };
@@ -98,6 +98,7 @@ struct ReportContent {
     swarm_composite_id: Digest,
     void_fill_delta_id: Digest,
     collapse_plan_id: Digest,
+    morphogenic_update_id: Digest,
     policy_id: Digest,
     aggregate_id: Digest,
     metatron_count: u32,
@@ -122,6 +123,9 @@ pub struct IntegrationRunReport {
     pub void_fill_delta: HostTargetDelta,
     /// Phase 4c: planning-only collapse plan derived from void-fill delta.
     pub collapse_plan: HostTargetCollapsePlan,
+    /// Phase 4d: morphogenic skeleton — records what the corpus would look like
+    /// after the collapse plan executes (planning only; no mutation).
+    pub morphogenic_update: MorphogenicCorpusUpdate,
     pub metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
     pub lpcm_reports: Vec<LpcmPassiveReport>,
     pub systemcube_export: Option<KcubeExportReport>,
@@ -137,6 +141,7 @@ impl IntegrationRunReport {
         swarm_composite: CompositeSupportCube,
         void_fill_delta: HostTargetDelta,
         collapse_plan: HostTargetCollapsePlan,
+        morphogenic_update: MorphogenicCorpusUpdate,
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         systemcube_export: Option<KcubeExportReport>,
@@ -150,6 +155,7 @@ impl IntegrationRunReport {
             swarm_composite_id: swarm_composite.composite_id,
             void_fill_delta_id: void_fill_delta.delta_id,
             collapse_plan_id: collapse_plan.plan_id,
+            morphogenic_update_id: morphogenic_update.update_id,
             policy_id: policy.id,
             aggregate_id: aggregated_gate.aggregate_id,
             metatron_count: metatron_diagnostics.len() as u32,
@@ -164,6 +170,7 @@ impl IntegrationRunReport {
             swarm_composite,
             void_fill_delta,
             collapse_plan,
+            morphogenic_update,
             metatron_diagnostics,
             lpcm_reports,
             systemcube_export,
@@ -183,7 +190,7 @@ impl IntegrationRunReport {
             "IntegrationRunReport — policy={:.8} | final={:?} | \
              hyphae: {} | cartography: {} entities | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
-             metatron: {} | lpcm: {} | {}",
+             morphogenic: {:.8} | metatron: {} | lpcm: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
@@ -192,6 +199,7 @@ impl IntegrationRunReport {
             self.void_fill_delta.status,
             self.collapse_plan.step_count(),
             self.collapse_plan.status,
+            hex_prefix(&self.morphogenic_update.update_id),
             self.metatron_diagnostics.len(),
             self.lpcm_reports.len(),
             scube,
@@ -213,6 +221,7 @@ impl IntegrationRunReport {
             && self.swarm_composite.policy_id == pid
             && self.void_fill_delta.policy_id == pid
             && self.collapse_plan.policy_id == pid
+            && self.morphogenic_update.policy_id == pid
             && self.aggregated_gate.policy_id == pid
             && self.metatron_diagnostics.iter().all(|d| d.policy_id == pid)
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
@@ -379,6 +388,15 @@ pub fn run_dry_pipeline(
     // ── 4c. HostTargetCollapsePlan — planning-only, zero host writes ──────────
     let collapse_plan = HostTargetCollapsePlan::from_delta(&void_fill_delta, policy.id);
 
+    // ── 4d. MorphogenicCorpusUpdate skeleton — corpus state after collapse ────
+    // Skeleton only: records what the corpus would look like if the collapse plan
+    // executed. No mutation; planning artifact derived from steps 2 + 4c.
+    let morphogenic_update = MorphogenicCorpusUpdate::skeleton(
+        cartography_update.update_id,
+        collapse_plan.plan_id,
+        policy.id,
+    );
+
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
         let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
@@ -414,6 +432,7 @@ pub fn run_dry_pipeline(
         swarm_composite,
         void_fill_delta,
         collapse_plan,
+        morphogenic_update,
         metatron_diagnostics,
         lpcm_reports,
         systemcube_export,
