@@ -33,7 +33,8 @@ use std::collections::BTreeMap;
 use kosmo_hyphae::{
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
     CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
-    MicrographLiftReport, MicroTopologyDiagnostic, MorphogenicCorpusUpdate, NormGeneCandidate,
+    MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
+    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormGeneCandidate,
     Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph, SupportMassVector,
     TopologicalSurgeryOption, diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
@@ -113,6 +114,7 @@ struct ReportContent {
     policy_id: Digest,
     aggregate_id: Digest,
     metatron_count: u32,
+    metatron_index_id: Digest,
     lift_report_count: u32,
     lpcm_count: u32,
     surgery_count: u32,
@@ -141,6 +143,9 @@ pub struct IntegrationRunReport {
     /// after the collapse plan executes (planning only; no mutation).
     pub morphogenic_update: MorphogenicCorpusUpdate,
     pub metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
+    /// Content-addressed index of all micrographs, fingerprints, and diagnostics from
+    /// the metatron run. Empty-index (zero-state) when `enable_metatron` is false.
+    pub metatron_index: MicroTopologyIndex,
     /// Lift reports from M1 (one per void), energy-ranked by loss_ratio (most lossy first).
     /// Populated when `enable_metatron` is true; empty otherwise.
     pub lift_reports: Vec<MicrographLiftReport>,
@@ -171,6 +176,7 @@ impl IntegrationRunReport {
         morphogenic_update: MorphogenicCorpusUpdate,
         void_priority_ranking: Vec<Digest>,
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
+        metatron_index: MicroTopologyIndex,
         lift_reports: Vec<MicrographLiftReport>,
         lpcm_reports: Vec<LpcmPassiveReport>,
         surgery_options: Vec<TopologicalSurgeryOption>,
@@ -191,6 +197,7 @@ impl IntegrationRunReport {
             policy_id: policy.id,
             aggregate_id: aggregated_gate.aggregate_id,
             metatron_count: metatron_diagnostics.len() as u32,
+            metatron_index_id: metatron_index.index_id,
             lift_report_count: lift_reports.len() as u32,
             lpcm_count: lpcm_reports.len() as u32,
             surgery_count: surgery_options.len() as u32,
@@ -208,6 +215,7 @@ impl IntegrationRunReport {
             morphogenic_update,
             void_priority_ranking,
             metatron_diagnostics,
+            metatron_index,
             lift_reports,
             lpcm_reports,
             surgery_options,
@@ -229,7 +237,7 @@ impl IntegrationRunReport {
             "IntegrationRunReport — policy={:.8} | final={:?} | \
              hyphae: {} | cartography: {} entities | voids (priority): {} | \
              swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
-             morphogenic: {:.8} | metatron: {} (lift_reports: {}) | lpcm: {} | \
+             morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
              surgery: {} | norm_candidates: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
@@ -242,6 +250,7 @@ impl IntegrationRunReport {
             self.collapse_plan.status,
             hex_prefix(&self.morphogenic_update.update_id),
             self.metatron_diagnostics.len(),
+            hex_prefix(&self.metatron_index.index_id),
             self.lift_reports.len(),
             self.lpcm_reports.len(),
             self.surgery_options.len(),
@@ -268,6 +277,7 @@ impl IntegrationRunReport {
             && self.morphogenic_update.policy_id == pid
             && self.aggregated_gate.policy_id == pid
             && self.metatron_diagnostics.iter().all(|d| d.policy_id == pid)
+            && self.metatron_index.policy_id == pid
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
             && self.surgery_options.iter().all(|o| o.policy_id == pid)
             && self.norm_candidates.iter().all(|c| c.policy_id == pid)
@@ -335,6 +345,7 @@ pub fn run_dry_pipeline(
     // ── 3. Optional Metatron v0.4.1 diagnostics ───────────────────────────────
     let mut metatron_diagnostics: Vec<MicroTopologyDiagnostic> = Vec::new();
     let mut raw_lift_reports: Vec<MicrographLiftReport> = Vec::new();
+    let mut metatron_triples: Vec<(MetatronMicrograph, MetatronRegionFingerprint, MicroTopologyDiagnostic)> = Vec::new();
     if options.enable_metatron {
         for void in &hyphae.host_cube.void_map.voids {
             let ev_id = void.void_id;
@@ -346,11 +357,12 @@ pub fn run_dry_pipeline(
                 diag.diagnostic_id,
                 GateResult::Pass,
             );
-            metatron_diagnostics.push(diag);
+            metatron_diagnostics.push(diag.clone());
             raw_lift_reports.push(lift_report);
+            metatron_triples.push((micrograph, fingerprint, diag));
         }
     }
-    // Energy-rank lift reports by loss_ratio (most lossy first — highest D = most urgent to review).
+    // ── 3c. Energy-rank lift reports by loss_ratio (most lossy first) ─────────
     let lift_reports: Vec<MicrographLiftReport> = {
         let assessments: Vec<_> = raw_lift_reports.iter()
             .map(|r| r.energy_assessment(&GateResult::Pass))
@@ -360,6 +372,10 @@ pub fn run_dry_pipeline(
             .filter_map(|a| raw_lift_reports.iter().find(|r| r.report_id == a.subject_id).cloned())
             .collect()
     };
+    // ── 3d. MicroTopologyIndex — content-addressed index of all metatron output ─
+    let metatron_index: MicroTopologyIndex = metatron_triples
+        .iter()
+        .fold(MicroTopologyIndex::empty(policy.id), |idx, (m, f, d)| idx.add(m, f, d));
 
     // ── 3b. Optional surgery — energy-ranked options from Metatron diagnostics ─
     // Only runs when both Metatron and surgery are enabled; requires diagnostics.
@@ -560,6 +576,7 @@ pub fn run_dry_pipeline(
         morphogenic_update,
         void_priority_ranking,
         metatron_diagnostics,
+        metatron_index,
         lift_reports,
         lpcm_reports,
         surgery_options,
@@ -812,6 +829,51 @@ mod tests {
         let s = r.summary();
         assert!(!s.is_empty());
         assert!(s.contains("IntegrationRunReport"));
+    }
+
+    // ── MicroTopologyIndex from Metatron ──────────────────────────────────────
+
+    #[test]
+    fn pipeline_metatron_index_empty_when_metatron_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.metatron_index.micrograph_ids.is_empty(), "index must be empty when Metatron disabled");
+        assert!(r.metatron_index.diagnostic_ids.is_empty());
+    }
+
+    #[test]
+    fn pipeline_metatron_index_has_one_entry_per_void() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let void_count = r.hyphae_result.host_cube.void_count();
+        assert_eq!(r.metatron_index.micrograph_ids.len(), void_count, "one micrograph per void");
+        assert_eq!(r.metatron_index.diagnostic_ids.len(), void_count, "one diagnostic per void");
+        assert_ne!(r.metatron_index.index_id, Digest::ZERO, "index_id must be non-ZERO");
+    }
+
+    #[test]
+    fn pipeline_metatron_index_is_deterministic() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert_eq!(r1.metatron_index.index_id, r2.metatron_index.index_id, "metatron_index must be deterministic");
+    }
+
+    #[test]
+    fn pipeline_metatron_index_carries_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        assert_eq!(r.metatron_index.policy_id, p.id, "metatron_index must carry pipeline policy_id");
+        assert!(r.verify_policy_consistency(), "verify_policy_consistency must cover metatron_index");
     }
 
     // ── Lift reports from Metatron ────────────────────────────────────────────

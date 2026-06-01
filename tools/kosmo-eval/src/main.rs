@@ -1580,6 +1580,76 @@ fn build_scenarios() -> Vec<ScenarioResult> {
 
     // ── RX:Pipeline — Step 5b NormGeneCandidate generation ───────────────────
 
+    v.push(run_check("rx-pipeline-metatron-index-empty-without-metatron", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.metatron_index.micrograph_ids.is_empty() || !r.metatron_index.diagnostic_ids.is_empty() {
+            return Err("metatron_index must be empty when Metatron disabled".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-metatron-index-content-addressed", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib_test.rs".into(),
+                digest: Digest::of_bytes(b"test"),
+                size_bytes: 50,
+                kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts, &policy);
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        // Index must be deterministic and match void count.
+        if r1.metatron_index.index_id != r2.metatron_index.index_id {
+            return Err("metatron_index must be deterministic".into());
+        }
+        if r1.metatron_index.index_id == Digest::ZERO {
+            return Err("metatron_index.index_id must be non-ZERO".into());
+        }
+        let void_count = r1.hyphae_result.host_cube.void_count();
+        if r1.metatron_index.micrograph_ids.len() != void_count {
+            return Err(format!(
+                "expected {} micrograph IDs in index, got {}",
+                void_count, r1.metatron_index.micrograph_ids.len()
+            ));
+        }
+        // Index policy_id must match pipeline policy.
+        if r1.metatron_index.policy_id != policy.id {
+            return Err("metatron_index.policy_id mismatch".into());
+        }
+        // metatron_index_id must participate in report_id.
+        if r1.report_id != r2.report_id {
+            return Err("report_id must be deterministic (metatron_index participates)".into());
+        }
+        Ok(())
+    }));
+
     v.push(run_check("rx-pipeline-lift-reports-empty-without-metatron", "RX:Pipeline", || {
         use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
         use kosmo_workbench::WorkspaceIndex;
