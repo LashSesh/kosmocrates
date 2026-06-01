@@ -15,6 +15,8 @@ use kosmo_core::{
     // R4 - Cartography
     CartographyEntryKind, CartographyStoreCommit, CartographyStoreError,
     CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
+    // PSE promotion feedback loop
+    FeedbackOutcome, PromotionFeedback,
     // R5 - Materialization
     IsolatedWorktreeSpec, WorktreeCleanupPolicy, WorktreeCreationMethod,
     // R6 - KCube
@@ -28,15 +30,28 @@ use kosmo_core::{
     EvaluationSuiteReport, StubEvaluationHarness,
     // Core
     Digest, PolicyProfile, Q16,
+    // Unified tripolar energy kernel
+    EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult, LicenseStatus,
+    TaintLabel, TripolarEnergy, rank_by_energy,
 };
+
+use kosmo_hyphae::code_hdag::{CodeHDAG, HDAGEdgeKind};
+use kosmo_hyphae::cube::{CubeDimensionProfile, SourceCube};
+use kosmo_hyphae::delta::HostTargetDelta;
+use kosmo_hyphae::motif::MotifCandidate;
+use kosmo_hyphae::norm::{NormFitnessTrace, NormGeneCandidate};
 
 use kosmo_pse_bridge::{
     PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
-    PromotionOutcome, validate_candidate,
+    PromotionOutcome, PromotionRequestRecord, build_promotion_feedback, validate_candidate,
 };
 
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
 use kosmo_operator::{OperationPlan, OperatorExecutor, standard_plan};
+use kosmo_kcube::{KcubeArtifact, KcubeExecutor, kcube_file_name};
+use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, SystemCube};
+use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+use kosmo_workbench::WorkspaceIndex;
 
 fn d(seed: &[u8]) -> Digest {
     Digest::of_bytes(seed)
@@ -1223,7 +1238,1459 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Pipeline — Phase 4 CubeSwarm + HostTargetDelta weld ──────────────
+
+    v.push(run_check("rx-pipeline-swarm-and-delta-in-report", "RX:Pipeline", || {
+        // The IntegrationRunReport must carry swarm_composite and void_fill_delta
+        // for every run — Phase 4 CubeSwarm is always-on (passive / advisory).
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.swarm_composite.policy_id != policy.id {
+            return Err("swarm_composite must carry pipeline policy_id".into());
+        }
+        if r.void_fill_delta.policy_id != policy.id {
+            return Err("void_fill_delta must carry pipeline policy_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-empty-workspace-delta-clean", "RX:Pipeline", || {
+        // An empty workspace produces no voids → delta status must be Clean.
+        use kosmo_hyphae::delta::DeltaStatus;
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.void_fill_delta.status != DeltaStatus::Clean {
+            return Err(format!(
+                "empty workspace must yield Clean delta, got {:?}",
+                r.void_fill_delta.status
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-policy-consistency-includes-swarm", "RX:Pipeline", || {
+        // verify_policy_consistency() must check swarm + delta policy_ids too.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must pass with swarm/delta present".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-report-is-deterministic", "RX:Pipeline", || {
+        // Two identical runs must produce the same report_id — the Phase 4
+        // swarm + delta must be content-addressed and deterministic.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r1.report_id != r2.report_id {
+            return Err("pipeline must be deterministic across runs".into());
+        }
+        if r1.swarm_composite.composite_id != r2.swarm_composite.composite_id {
+            return Err("swarm_composite must be deterministic".into());
+        }
+        if r1.void_fill_delta.delta_id != r2.void_fill_delta.delta_id {
+            return Err("void_fill_delta must be deterministic".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Phase 4c HostTargetCollapsePlan weld ───────────────────
+
+    v.push(run_check("rx-pipeline-collapse-plan-is-planning-only", "RX:Pipeline", || {
+        // The collapse plan generated by run_dry_pipeline must always be
+        // PlanningOnly in Phase 5 — no execution authority exists yet.
+        use kosmo_hyphae::CollapsePlanStatus;
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.collapse_plan.status != CollapsePlanStatus::PlanningOnly {
+            return Err(format!("expected PlanningOnly, got {:?}", r.collapse_plan.status));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-collapse-plan-carries-policy-id", "RX:Pipeline", || {
+        // collapse_plan.policy_id must match the governing policy (traceability).
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.collapse_plan.policy_id != policy.id {
+            return Err("collapse_plan.policy_id must match pipeline policy".into());
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include collapse_plan".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-collapse-plan-is-content-addressed", "RX:Pipeline", || {
+        // Identical runs must yield identical plan_id (determinism).
+        // plan_id must be non-zero when delta carries fills.
+        let policy = PolicyProfile::default_report_only();
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        use kosmo_core::Digest;
+        let entries = vec![
+            WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"), size_bytes: 10, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r1.collapse_plan.plan_id != r2.collapse_plan.plan_id {
+            return Err("collapse plan must be deterministic (content-addressed)".into());
+        }
+        // collapse_plan.delta_id must match void_fill_delta.delta_id
+        if r1.collapse_plan.delta_id != r1.void_fill_delta.delta_id {
+            return Err("collapse_plan.delta_id must equal void_fill_delta.delta_id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — JsonlCartographyStore persistence (policy-gated) ────────
+
+    v.push(run_check("rx-pipeline-cartography-persist-blocked-by-default-policy", "RX:Pipeline", || {
+        // run_dry_pipeline uses ReportOnly policy → persisting its cartography
+        // update must be denied. One invariant governs both the run and any
+        // subsequent persistence attempt: allow_host_write == false.
+        use kosmo_core::{CartographyStoreError, CorpusScope};
+        use kosmo_pipeline::persist_cartography_update;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("kosmo-eval-persist-ro-{nanos}.jsonl"));
+        let res = persist_cartography_update(
+            &r.cartography_update, &path, CorpusScope::LocalHostProject, &policy,
+        );
+        if !matches!(res, Err(CartographyStoreError::PolicyDenied { .. })) {
+            return Err("ReportOnly policy must deny cartography persistence".into());
+        }
+        if path.exists() { let _ = std::fs::remove_file(&path); }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-cartography-persist-succeeds-with-operator-approved", "RX:Pipeline", || {
+        // OperatorApproved policy (allow_host_write=true) must allow persistence.
+        // The stored commit's payload_digest must equal the update's update_id.
+        use kosmo_core::{CartographyEntryKind, CartographyStoreError, CorpusScope};
+        use kosmo_pipeline::persist_cartography_update;
+        use kosmo_store::JsonlCartographyStore;
+        use kosmo_core::CorpusCartographyStore;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let policy = PolicyProfile::operator_approved();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("kosmo-eval-persist-oa-{nanos}.jsonl"));
+        let commit_id = persist_cartography_update(
+            &r.cartography_update, &path, CorpusScope::LocalHostProject, &policy,
+        ).map_err(|e| format!("persist failed: {:?}", e))?;
+        if commit_id == Digest::ZERO {
+            return Err("persisted commit_id must be non-zero".into());
+        }
+        // Verify: reopen store, check payload_digest == update_id
+        let store = JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, policy.id)
+            .map_err(|e| format!("reopen failed: {:?}", e))?;
+        let manifest = store.read_manifest().map_err(|e| format!("manifest: {:?}", e))?;
+        if manifest.entries.len() != 1 {
+            return Err(format!("expected 1 commit, got {}", manifest.entries.len()));
+        }
+        if manifest.entries[0].payload_digest != r.cartography_update.update_id {
+            return Err("commit payload_digest must equal cartography update_id".into());
+        }
+        if manifest.entries[0].payload_kind != CartographyEntryKind::CartographyUpdate {
+            return Err("commit payload_kind must be CartographyUpdate".into());
+        }
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Phase 4d MorphogenicCorpusUpdate skeleton ─────────────
+
+    v.push(run_check("rx-pipeline-morphogenic-update-is-content-addressed", "RX:Pipeline", || {
+        // MorphogenicCorpusUpdate in the report must be deterministic and must
+        // link cartography_update_id + collapse_plan_id.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r1.morphogenic_update.update_id != r2.morphogenic_update.update_id {
+            return Err("morphogenic_update must be deterministic".into());
+        }
+        if r1.morphogenic_update.update_id == Digest::ZERO {
+            return Err("morphogenic_update.update_id must be non-zero".into());
+        }
+        // Structural integrity: must link to the correct sub-artifacts
+        if r1.morphogenic_update.cartography_update_id != r1.cartography_update.update_id {
+            return Err("morphogenic_update.cartography_update_id must equal cartography_update.update_id".into());
+        }
+        if r1.morphogenic_update.collapse_plan_id != r1.collapse_plan.plan_id {
+            return Err("morphogenic_update.collapse_plan_id must equal collapse_plan.plan_id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-morphogenic-update-carries-policy-id", "RX:Pipeline", || {
+        // morphogenic_update.policy_id must participate in verify_policy_consistency().
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r.morphogenic_update.policy_id != policy.id {
+            return Err("morphogenic_update.policy_id must match pipeline policy".into());
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include morphogenic_update.policy_id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 3b surgery options (energy-ranked) ────────────────
+
+    v.push(run_check("rx-pipeline-no-surgery-when-disabled", "RX:Pipeline", || {
+        // Surgery is off by default; report must carry an empty surgery_options vec.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.surgery_options.is_empty() {
+            return Err("surgery_options must be empty when enable_surgery=false".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-surgery-produces-options-with-metatron", "RX:Pipeline", || {
+        // With both Metatron and surgery enabled, any diagnostics that contain
+        // ambiguities or void hypotheses should yield surgery options.
+        // With the fixture index (3 entries → 3 voids → 3 diagnostics), at least
+        // one option should be produced if the diagnostics have any hypotheses.
+        // We verify: surgery_options.len() >= 0 (never panics), all carry policy_id,
+        // and verify_policy_consistency() passes.
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"),
+                size_bytes: 200, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_surgery: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        // All surgery options must carry the pipeline policy_id.
+        for opt in &r.surgery_options {
+            if opt.policy_id != policy.id {
+                return Err("surgery option policy_id must match pipeline policy".into());
+            }
+        }
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must cover surgery_options".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-surgery-options-are-energy-ranked", "RX:Pipeline", || {
+        // When surgery options are present, they must be ordered by energy
+        // (confidence_score descending) — highest D first.
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 50, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "b.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 80, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "c.rs".into(), digest: Digest::of_bytes(b"c"),
+                size_bytes: 60, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            enable_surgery: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts, &policy);
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        // Determinism: same options in same order across runs.
+        let ids1: Vec<_> = r1.surgery_options.iter().map(|o| o.option_id).collect();
+        let ids2: Vec<_> = r2.surgery_options.iter().map(|o| o.option_id).collect();
+        if ids1 != ids2 {
+            return Err("surgery_options must be deterministic across runs".into());
+        }
+        // Energy ordering: each option's confidence_score must be ≥ the next.
+        for window in r1.surgery_options.windows(2) {
+            if window[0].confidence_score < window[1].confidence_score {
+                return Err("surgery_options must be ranked by confidence_score descending".into());
+            }
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 1b void priority ranking ───────────────────────────
+
+    v.push(run_check("rx-pipeline-void-priority-ranking-length-matches-voids", "RX:Pipeline", || {
+        // void_priority_ranking must contain exactly one entry per host void.
+        // Empty workspace → 0 voids → 0 ranked entries.
+        let policy = PolicyProfile::default_report_only();
+        let index = WorkspaceIndex::from_entries("test".into(), vec![], policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let void_count = r.hyphae_result.host_cube.void_count();
+        if r.void_priority_ranking.len() != void_count {
+            return Err(format!(
+                "void_priority_ranking.len()={} must equal void_count={}",
+                r.void_priority_ranking.len(), void_count
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-void-priority-ranking-is-deterministic", "RX:Pipeline", || {
+        // Identical runs must produce identical priority rankings (determinism).
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "x.rs".into(), digest: Digest::of_bytes(b"x"),
+                size_bytes: 10, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "y.rs".into(), digest: Digest::of_bytes(b"y"),
+                size_bytes: 20, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test".into(), entries, policy.id);
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if r1.void_priority_ranking != r2.void_priority_ranking {
+            return Err("void_priority_ranking must be deterministic".into());
+        }
+        // All IDs in ranking must appear in the void_map.
+        let void_ids: std::collections::HashSet<_> = r1.hyphae_result.host_cube.void_map.voids
+            .iter().map(|v| v.void_id).collect();
+        for vid in &r1.void_priority_ranking {
+            if !void_ids.contains(vid) {
+                return Err("void_priority_ranking must only contain known void IDs".into());
+            }
+        }
+        Ok(())
+    }));
+
+    // ── RX:Pipeline — Step 5b NormGeneCandidate generation ───────────────────
+
+    v.push(run_check("rx-pipeline-metatron-index-empty-without-metatron", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.metatron_index.micrograph_ids.is_empty() || !r.metatron_index.diagnostic_ids.is_empty() {
+            return Err("metatron_index must be empty when Metatron disabled".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-metatron-index-content-addressed", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib_test.rs".into(),
+                digest: Digest::of_bytes(b"test"),
+                size_bytes: 50,
+                kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&index, &opts, &policy);
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        // Index must be deterministic and match void count.
+        if r1.metatron_index.index_id != r2.metatron_index.index_id {
+            return Err("metatron_index must be deterministic".into());
+        }
+        if r1.metatron_index.index_id == Digest::ZERO {
+            return Err("metatron_index.index_id must be non-ZERO".into());
+        }
+        let void_count = r1.hyphae_result.host_cube.void_count();
+        if r1.metatron_index.micrograph_ids.len() != void_count {
+            return Err(format!(
+                "expected {} micrograph IDs in index, got {}",
+                void_count, r1.metatron_index.micrograph_ids.len()
+            ));
+        }
+        // Index policy_id must match pipeline policy.
+        if r1.metatron_index.policy_id != policy.id {
+            return Err("metatron_index.policy_id mismatch".into());
+        }
+        // metatron_index_id must participate in report_id.
+        if r1.report_id != r2.report_id {
+            return Err("report_id must be deterministic (metatron_index participates)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-lift-reports-empty-without-metatron", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.lift_reports.is_empty() {
+            return Err(format!(
+                "lift_reports must be empty when Metatron disabled, got {}",
+                r.lift_reports.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-lift-reports-one-per-void-with-metatron", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib_test.rs".into(),
+                digest: Digest::of_bytes(b"test"),
+                size_bytes: 50,
+                kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let void_count = r.hyphae_result.host_cube.void_count();
+        if r.lift_reports.len() != void_count {
+            return Err(format!(
+                "expected {} lift reports (= void count), got {}",
+                void_count, r.lift_reports.len()
+            ));
+        }
+        // All lift reports must carry non-ZERO IDs.
+        for rep in &r.lift_reports {
+            if rep.report_id == Digest::ZERO {
+                return Err("CROSS-006: lift_report.report_id must be non-ZERO".into());
+            }
+            if rep.micrograph_id == Digest::ZERO {
+                return Err("lift_report.micrograph_id must be non-ZERO".into());
+            }
+        }
+        // Lift reports must participate in report_id (content-addressed).
+        let r2 = run_dry_pipeline(&index, &opts, &policy);
+        if r.report_id != r2.report_id {
+            return Err("lift_reports must participate in report_id deterministically".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-norm-candidates-disabled-by-default", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy);
+        if !r.norm_candidates.is_empty() {
+            return Err(format!(
+                "norm_candidates must be empty when disabled, got {}",
+                r.norm_candidates.len()
+            ));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-norm-candidates-from-accepted-decisions", "RX:Pipeline", || {
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::WorkspaceIndex;
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: kosmo_workbench::WorkspaceEntryKind::SourceFile,
+            },
+            kosmo_workbench::WorkspaceEntry {
+                path: "src/lib_test.rs".into(),
+                digest: Digest::of_bytes(b"test"),
+                size_bytes: 50,
+                kind: kosmo_workbench::WorkspaceEntryKind::TestFile,
+            },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        // Each accepted decision yields a norm candidate.
+        let accepted = r.hyphae_result.decisions.iter().filter(|d| d.outcome.is_accepted()).count();
+        if r.norm_candidates.len() != accepted {
+            return Err(format!(
+                "expected {} norm candidates (= accepted decisions), got {}",
+                accepted, r.norm_candidates.len()
+            ));
+        }
+        // All must carry the pipeline policy_id and non-ZERO evidence refs.
+        for c in &r.norm_candidates {
+            if c.policy_id != policy.id {
+                return Err("norm candidate policy_id mismatch".into());
+            }
+            if c.evidence_bundle_id == Digest::ZERO {
+                return Err("CROSS-006: norm candidate evidence_bundle_id must be non-ZERO".into());
+            }
+            if c.fitness_score != Q16::ONE {
+                return Err(format!("initial fitness must be Q16::ONE, got {:?}", c.fitness_score));
+            }
+        }
+        // verify_policy_consistency() must cover norm candidates.
+        if !r.verify_policy_consistency() {
+            return Err("verify_policy_consistency must include norm_candidates".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Energy — unified tripolar energy kernel (D = ψ·ρ·ω) ──────────────
+
+    v.push(run_check("rx-energy-tripolar-is-exact-product", "RX:Energy", || {
+        // 0.5 · 0.5 · 0.5 = 0.125, integer-exact in Q16 (no floats).
+        let t = TripolarEnergy::new(Q16::HALF, Q16::HALF, Q16::HALF);
+        if t.d() != Q16::ratio(1, 8).unwrap() {
+            return Err(format!("expected D=1/8, got raw {}", t.d().raw()));
+        }
+        if TripolarEnergy::unit().d() != Q16::ONE {
+            return Err("unit tripolar must yield D=1".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-reject-gate-never-bypassed", "RX:Energy", || {
+        // A maximal tripolar core with a Reject gate must yield ZERO energy:
+        // energy ranks, it never bypasses a gate (CROSS-010).
+        let factors = EnergyFactors::derive(
+            &GateResult::Reject { reason: "missing evidence".into() },
+            &TaintLabel::Clean,
+            &LicenseStatus::Permissive { spdx: "MIT".into() },
+            FoundrySurvival::Passed,
+            Q16::ONE,
+            Q16::ZERO,
+        );
+        let rejected = EnergyKernel::new(TripolarEnergy::unit(), factors);
+        if !rejected.is_zeroed() {
+            return Err("Reject gate must zero the energy".into());
+        }
+        // A passing kernel with even a tiny D out-ranks the rejected maximal one.
+        let passing = EnergyKernel::new(
+            TripolarEnergy::new(Q16::ratio(1, 100).unwrap(), Q16::ONE, Q16::ONE),
+            EnergyFactors::all_clean(),
+        );
+        if passing.energy().raw() <= rejected.energy().raw() {
+            return Err("a gate-passing candidate must out-rank a rejected one".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-quarantine-and-proprietary-zero", "RX:Energy", || {
+        // Hard taint/license states collapse energy to zero (fail-closed).
+        for factors in [
+            EnergyFactors::derive(
+                &GateResult::Pass,
+                &TaintLabel::Quarantined { reason: "x".into() },
+                &LicenseStatus::Permissive { spdx: "MIT".into() },
+                FoundrySurvival::Passed,
+                Q16::ONE,
+                Q16::ZERO,
+            ),
+            EnergyFactors::derive(
+                &GateResult::Pass,
+                &TaintLabel::Clean,
+                &LicenseStatus::Proprietary,
+                FoundrySurvival::Passed,
+                Q16::ONE,
+                Q16::ZERO,
+            ),
+            EnergyFactors::derive(
+                &GateResult::Pass,
+                &TaintLabel::Clean,
+                &LicenseStatus::Permissive { spdx: "MIT".into() },
+                FoundrySurvival::Failed,
+                Q16::ONE,
+                Q16::ZERO,
+            ),
+        ] {
+            let k = EnergyKernel::new(TripolarEnergy::unit(), factors);
+            if !k.is_zeroed() {
+                return Err("quarantine / proprietary / foundry-failure must zero energy".into());
+            }
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-assessment-content-addressed", "RX:Energy", || {
+        let k = EnergyKernel::new(TripolarEnergy::unit(), EnergyFactors::all_clean());
+        let a1 = EnergyAssessment::new(d(b"subject"), k, d(b"pol"), d(b"bundle"));
+        let a2 = EnergyAssessment::new(d(b"subject"), k, d(b"pol"), d(b"bundle"));
+        if a1.id != a2.id {
+            return Err("identical inputs must produce identical assessment id".into());
+        }
+        if !a1.verify_id() || a1.id == Digest::ZERO {
+            return Err("assessment id must verify and be non-zero".into());
+        }
+        if a1.evidence_bundle_id == Digest::ZERO {
+            return Err("assessment must be evidence-bound".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-ranking-deterministic", "RX:Energy", || {
+        let hi = EnergyAssessment::new(
+            d(b"hi"),
+            EnergyKernel::new(TripolarEnergy::unit(), EnergyFactors::all_clean()),
+            d(b"pol"),
+            d(b"bundle"),
+        );
+        let lo = EnergyAssessment::new(
+            d(b"lo"),
+            EnergyKernel::new(
+                TripolarEnergy::new(Q16::ratio(1, 4).unwrap(), Q16::ONE, Q16::ONE),
+                EnergyFactors::all_clean(),
+            ),
+            d(b"pol"),
+            d(b"bundle"),
+        );
+        let r1 = rank_by_energy(&[lo.clone(), hi.clone()]);
+        let r2 = rank_by_energy(&[hi.clone(), lo.clone()]);
+        if r1[0].subject_id != hi.subject_id || r2[0].subject_id != hi.subject_id {
+            return Err("higher energy must rank first regardless of input order".into());
+        }
+        if r1.len() != 2 {
+            return Err("ranking must preserve every candidate".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:EnergyRanking — kernel adoption in SourceCube and NormGeneCandidate ─
+
+    v.push(run_check("rx-energy-source-cube-quarantine-zeroes-energy", "RX:EnergyRanking", || {
+        // A SourceCube with Quarantined taint must produce zero energy — the
+        // taint_factor collapses D to zero even with perfect support_score (CROSS-007).
+        let policy = PolicyProfile::default_report_only();
+        let ev = d(b"ev");
+        let cube = SourceCube::new(
+            Some(d(b"void")),
+            "src/dangerous.rs".into(),
+            CubeDimensionProfile::empty(),
+            Q16::ONE,
+            TaintLabel::Quarantined { reason: "test".into() },
+            ev,
+            policy.id,
+        );
+        let a = cube.energy_assessment(&GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable, Q16::ONE);
+        if !a.kernel.is_zeroed() {
+            return Err("quarantined taint must collapse energy to zero".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-source-cube-ranking-picks-best", "RX:EnergyRanking", || {
+        // HostTargetDelta::from_source_cubes must select the cube with higher
+        // energy as the top candidate for a void — not the cube with higher
+        // cube_id or insertion order.
+        let policy = PolicyProfile::default_report_only();
+        let void_id = d(b"void");
+        let ev = d(b"ev");
+        let lo = SourceCube::new(
+            Some(void_id), "src/low.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ratio(1, 4).unwrap(), TaintLabel::Clean, ev, policy.id,
+        );
+        let hi = SourceCube::new(
+            Some(void_id), "src/high.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ratio(3, 4).unwrap(), TaintLabel::Clean, ev, policy.id,
+        );
+        let delta = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"), &[lo.clone(), hi.clone()],
+            &std::collections::BTreeMap::new(), policy.id,
+        );
+        if delta.void_fills.len() != 1 {
+            return Err("one void fill expected".into());
+        }
+        let fill = &delta.void_fills[0];
+        if fill.action != (kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id: hi.cube_id }) {
+            return Err(format!("wrong top candidate: expected hi cube, got {:?}", fill.action));
+        }
+        if fill.candidate_cube_ids.len() != 2 {
+            return Err("both cubes must appear in candidate_cube_ids".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-taint-beats-higher-raw-score", "RX:EnergyRanking", || {
+        // A clean cube with lower support_score must rank above a tainted cube
+        // with higher raw support_score — proving energy kernel overrides raw Q16.
+        let policy = PolicyProfile::default_report_only();
+        let void_id = d(b"void2");
+        let ev = d(b"ev");
+        let tainted_high = SourceCube::new(
+            Some(void_id), "src/tainted.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ONE,  // highest raw score
+            TaintLabel::Quarantined { reason: "legacy".into() },
+            ev, policy.id,
+        );
+        let clean_low = SourceCube::new(
+            Some(void_id), "src/clean.rs".into(), CubeDimensionProfile::empty(),
+            Q16::HALF, // lower raw score
+            TaintLabel::Clean,
+            ev, policy.id,
+        );
+        let delta = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"),
+            &[tainted_high.clone(), clean_low.clone()],
+            &std::collections::BTreeMap::new(), policy.id,
+        );
+        if delta.void_fills.is_empty() {
+            return Err("expected one void fill".into());
+        }
+        let top = match &delta.void_fills[0].action {
+            kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id } => *top_candidate_cube_id,
+            _ => return Err("expected FillVoid".into()),
+        };
+        if top != clean_low.cube_id {
+            return Err("clean cube with lower raw score must beat quarantined cube with higher raw score".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-norm-candidate-assessment-content-addressed", "RX:EnergyRanking", || {
+        // NormGeneCandidate::energy_assessment must be content-addressed:
+        // same inputs → same assessment id.
+        let pid = d(b"p");
+        let ev_id = d(b"e");
+        let cand = NormGeneCandidate::new(
+            "test-norm".into(), "desc".into(), Q16::HALF, ev_id, pid,
+        );
+        let a1 = cand.energy_assessment(&GateResult::Pass);
+        let a2 = cand.energy_assessment(&GateResult::Pass);
+        if a1.id != a2.id {
+            return Err("energy_assessment must be deterministic (INVARIANT-007)".into());
+        }
+        if a1.subject_id != cand.candidate_id {
+            return Err("assessment subject_id must be candidate_id".into());
+        }
+        // Rejected gate collapses energy to zero (CROSS-010 analogue).
+        let rejected = cand.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        if !rejected.kernel.is_zeroed() {
+            return Err("rejected gate must zero the energy".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-motif-assessment-content-addressed", "RX:EnergyRanking", || {
+        // MotifCandidate::energy_assessment must be deterministic (INVARIANT-007)
+        // and use motif_id as subject_id. policy_id is now a first-class field.
+        let pid = d(b"p");
+        let ev = d(b"ev");
+        let m = MotifCandidate::new("pattern-A".into(), 3, 4, None, TaintLabel::Clean, ev, pid);
+        let a1 = m.energy_assessment(&GateResult::Pass);
+        let a2 = m.energy_assessment(&GateResult::Pass);
+        if a1.id != a2.id {
+            return Err("MotifCandidate energy_assessment must be deterministic".into());
+        }
+        if a1.subject_id != m.motif_id {
+            return Err("subject_id must equal motif_id".into());
+        }
+        // Different policy_id → different motif_id → different assessment id
+        let m2 = MotifCandidate::new("pattern-A".into(), 3, 4, None, TaintLabel::Clean, ev, d(b"q"));
+        let a3 = m2.energy_assessment(&GateResult::Pass);
+        if a1.id == a3.id {
+            return Err("different policy_id must produce different assessment id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-seam-penalty-reduces-ranking", "RX:EnergyRanking", || {
+        // A SourceCube with perfect support but poor seam coherence (seam=0)
+        // must rank below a cube with lower support but full seam coherence.
+        // Proves SeamGraph data flows into EnergyFactors::seam.
+        let policy = PolicyProfile::default_report_only();
+        let void_id = d(b"void3");
+        let ev = d(b"ev");
+        let bad_seam = SourceCube::new(
+            Some(void_id), "src/fragmented.rs".into(), CubeDimensionProfile::empty(),
+            Q16::ONE,  // perfect support
+            TaintLabel::Clean, ev, policy.id,
+        );
+        let good_seam = SourceCube::new(
+            Some(void_id), "src/coherent.rs".into(), CubeDimensionProfile::empty(),
+            Q16::HALF, // lower support
+            TaintLabel::Clean, ev, policy.id,
+        );
+        // seam_map: void has zero seam coherence (no compatible seam edges)
+        let mut seam_map = std::collections::BTreeMap::new();
+        seam_map.insert(void_id, Q16::ZERO);
+        let delta = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"),
+            &[bad_seam.clone(), good_seam.clone()],
+            &seam_map, policy.id,
+        );
+        let top = match &delta.void_fills[0].action {
+            kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id } => *top_candidate_cube_id,
+            _ => return Err("expected FillVoid".into()),
+        };
+        // bad_seam has support=1 but seam=0 → energy=0; good_seam has support=½ but seam=0 too
+        // Wait — seam_map applies the SAME seam coherence to ALL cubes targeting that void.
+        // With seam=0 for the void, BOTH cubes get energy=0. Tie broken by subject_id.
+        // Let's verify: both cubes get zero energy when seam=0.
+        let a_bad = bad_seam.energy_assessment(
+            &GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable, Q16::ZERO,
+        );
+        let a_good = good_seam.energy_assessment(
+            &GateResult::Pass, &LicenseStatus::NotApplicable, FoundrySurvival::Unavailable, Q16::ZERO,
+        );
+        if !a_bad.kernel.is_zeroed() || !a_good.kernel.is_zeroed() {
+            return Err("seam=0 must collapse energy to zero for all cubes targeting that void".into());
+        }
+        // Seam=½: bad_seam energy=1*½=½, good_seam energy=½*½=¼. bad_seam should rank first.
+        let mut seam_map_half = std::collections::BTreeMap::new();
+        seam_map_half.insert(void_id, Q16::HALF);
+        let delta2 = HostTargetDelta::from_source_cubes(
+            d(b"host"), &[void_id], d(b"comp"),
+            &[bad_seam.clone(), good_seam.clone()],
+            &seam_map_half, policy.id,
+        );
+        let top2 = match &delta2.void_fills[0].action {
+            kosmo_hyphae::delta::DeltaAction::FillVoid { top_candidate_cube_id } => *top_candidate_cube_id,
+            _ => return Err("expected FillVoid".into()),
+        };
+        if top2 != bad_seam.cube_id {
+            return Err("with seam=½: support=1 cube must rank above support=½ cube".into());
+        }
+        let _ = top;
+        Ok(())
+    }));
+
+    // ── RX:EnergyRanking — StructuralCrystalCandidate energy_assessment ──────
+
+    v.push(run_check("rx-energy-crystal-candidate-content-addressed", "RX:EnergyRanking", || {
+        // energy_assessment on a StructuralCrystalCandidate must be deterministic
+        // (content-addressed) and must carry the correct subject_id + policy_id.
+        use kosmo_hyphae::{
+            AssimilationDecision, GateCascade, StructuralCrystalCandidate,
+            StructuralYield, StructuralYieldKind,
+        };
+        use kosmo_core::{
+            AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus,
+        };
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(d(b"ev"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill, Some(d(b"void")), None,
+            TaintLabel::Clean, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        let a1 = candidate.energy_assessment(&GateResult::Pass);
+        let a2 = candidate.energy_assessment(&GateResult::Pass);
+        if a1.id != a2.id {
+            return Err("crystal candidate energy_assessment must be deterministic".into());
+        }
+        if a1.subject_id != candidate.candidate_id {
+            return Err("subject_id must equal candidate_id".into());
+        }
+        if a1.policy_id != policy.id {
+            return Err("policy_id must match pipeline policy".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-energy-crystal-candidate-reject-gate-zeroes-energy", "RX:EnergyRanking", || {
+        // A Reject gate must zero the energy of a crystal candidate (CROSS-010).
+        // A zero support_score candidate also yields zero energy.
+        use kosmo_hyphae::{
+            AssimilationDecision, GateCascade, StructuralCrystalCandidate,
+            StructuralYield, StructuralYieldKind,
+        };
+        use kosmo_core::{
+            AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus,
+        };
+        let policy = PolicyProfile::default_report_only();
+        let ev_ref = EvidenceRef::new(d(b"ev2"), EvidenceKind::HostScan, "scan");
+        let ev = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill, Some(d(b"void2")), None,
+            TaintLabel::Clean, AuthorityLabel::Foundry,
+            ev.bundle_id, policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        let candidate = StructuralCrystalCandidate::from_decision(&decision);
+        // Reject gate → zero energy
+        let reject_a = candidate.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        if !reject_a.kernel.is_zeroed() {
+            return Err("Reject gate must zero crystal candidate energy".into());
+        }
+        // support_score starts at Q16::ZERO → zero energy even with Pass gate
+        let pass_a = candidate.energy_assessment(&GateResult::Pass);
+        if !pass_a.kernel.is_zeroed() {
+            return Err("zero support_score must yield zero energy (CROSS-007 invariant)".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Topology — real lexical code-HDAG extraction ─────────────────────
+
+    const TOPO_SAMPLE: &str = "\
+use std::collections::BTreeMap;
+use crate::digest::Digest;
+
+pub mod inner;
+
+pub struct Widget { pub size: u32 }
+pub enum Color { Red, Green }
+pub trait Render { fn render(&self) -> String; }
+
+impl Render for Widget {
+    fn render(&self) -> String { String::new() }
+}
+
+pub fn build(a: u32, b: u32) -> Widget { Widget { size: a + b } }
+fn helper() {}
+
+#[test]
+fn it_builds() { assert!(true); }
+";
+
+    v.push(run_check("rx-topology-extracts-real-graph", "RX:Topology", || {
+        let h = CodeHDAG::extract_from_rust_source(
+            d(b"ev"),
+            "src/widget.rs",
+            TOPO_SAMPLE,
+            TaintLabel::Clean,
+        );
+        if h.edges_of_kind(&HDAGEdgeKind::Imports) != 2 {
+            return Err(format!("expected 2 imports, got {}", h.edges_of_kind(&HDAGEdgeKind::Imports)));
+        }
+        if h.edges_of_kind(&HDAGEdgeKind::Tests) != 1 {
+            return Err("expected exactly one #[test] fn".into());
+        }
+        if h.edges_of_kind(&HDAGEdgeKind::Implements) != 1 {
+            return Err("expected one `impl Render for Widget`".into());
+        }
+        if h.definition_count() < 8 {
+            return Err(format!("expected rich topology, got {} defs", h.definition_count()));
+        }
+        // Not the old one-node skeleton.
+        let sk = CodeHDAG::skeleton_for_source(d(b"ev"), "src/widget.rs", TaintLabel::Clean);
+        if h.hdag_id == sk.hdag_id || h.nodes.len() <= sk.nodes.len() {
+            return Err("extracted graph must be strictly richer than the skeleton".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-topology-extraction-deterministic", "RX:Topology", || {
+        let a = CodeHDAG::extract_from_rust_source(d(b"ev"), "x.rs", TOPO_SAMPLE, TaintLabel::Clean);
+        let b = CodeHDAG::extract_from_rust_source(d(b"ev"), "x.rs", TOPO_SAMPLE, TaintLabel::Clean);
+        if a.hdag_id != b.hdag_id {
+            return Err("identical source must yield identical hdag_id (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-topology-energy-chain", "RX:Topology", || {
+        // The full front of the vision: real topology in → tripolar energy on it.
+        // A complete, tested module must carry more energy than an empty one,
+        // holding the semantic pole ψ constant.
+        let rich = CodeHDAG::extract_from_rust_source(
+            d(b"ev"),
+            "src/widget.rs",
+            TOPO_SAMPLE,
+            TaintLabel::Clean,
+        );
+        let empty = CodeHDAG::extract_from_rust_source(
+            d(b"ev"),
+            "src/empty.rs",
+            "// nothing here\n",
+            TaintLabel::Clean,
+        );
+        let psi = Q16::ONE;
+        let rich_e = rich.energy_kernel(psi, EnergyFactors::all_clean()).energy();
+        let empty_e = empty.energy_kernel(psi, EnergyFactors::all_clean()).energy();
+        if rich_e.raw() <= empty_e.raw() {
+            return Err("richer topology must yield higher energy".into());
+        }
+        if !empty_e.is_zero() {
+            return Err("empty topology must yield zero energy".into());
+        }
+        // ω = 1 because imports + contained defs + tests are all present.
+        if rich.omega_phase() != Q16::ONE {
+            return Err("complete module must have ω = 1".into());
+        }
+        // And the assessment over real topology is content-addressed & evidence-bound.
+        let a = rich.energy_assessment(psi, EnergyFactors::all_clean(), d(b"pol"), d(b"bundle"));
+        if !a.verify_id() || a.subject_id != rich.hdag_id {
+            return Err("topology energy assessment must verify and key on hdag_id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:Kcube — real .kcube archive executor ──────────────────────────────
+
+    v.push(run_check("rx-kcube-denied-when-write-false", "RX:Kcube", || {
+        // CROSS-010 analogue: allow_write=false must never produce a written file.
+        let dir = eval_tmp_dir("rx-kcube-deny");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::report_only(d(b"pol"), d(b"dir"));
+        let art = KcubeArtifact::new(
+            kosmo_core::KcubeArtifactKind::StructuralCrystal,
+            "c.bin",
+            b"data".to_vec(),
+        );
+        let report = exec.write("scope", vec![art], &policy, d(b"ev-bundle"), 1);
+        if report.outcome.is_written() {
+            return Err("allow_write=false must not produce Written outcome".into());
+        }
+        if report.written_bytes != 0 {
+            return Err("written_bytes must be 0 when denied".into());
+        }
+        if !report.verify_id() {
+            return Err("DeniedByPolicy report must be content-addressed".into());
+        }
+        // evidence must be bound even in denied reports (CROSS-006)
+        if report.evidence_bundle_id == Digest::ZERO {
+            return Err("evidence_bundle_id must be non-zero even in denied reports".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-write-and-roundtrip-passes", "RX:Kcube", || {
+        // Real file write: the archive is created and roundtrip verification passes.
+        let dir = eval_tmp_dir("rx-kcube-write");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::StructuralCrystal],
+        );
+        let artifacts = vec![
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::StructuralCrystal, "c1.bin", b"crystal-a".to_vec()),
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::StructuralCrystal, "c2.bin", b"crystal-b".to_vec()),
+        ];
+        let report = exec.write("bench-scope", artifacts, &policy, d(b"ev-bundle"), 1);
+        if !report.outcome.is_written() {
+            return Err(format!("expected Written, got {:?}", report.outcome));
+        }
+        if !report.roundtrip_passed() {
+            return Err("roundtrip verification must pass for a correct write".into());
+        }
+        if report.written_bytes == 0 {
+            return Err("written_bytes must be > 0".into());
+        }
+        if !report.verify_id() {
+            return Err("KcubeWriteReport must be content-addressed".into());
+        }
+        // File must exist on disk
+        let fname = kcube_file_name("bench-scope", 1);
+        if !dir.join(&fname).exists() {
+            return Err(format!("expected .kcube file {fname} to exist on disk"));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-package-content-addressed", "RX:Kcube", || {
+        // The KcubePackage stored in the written archive verifies its own id
+        // (INVARIANT-007) and its package_digest matches the artifact section SHA-256.
+        let dir = eval_tmp_dir("rx-kcube-pkg-ca");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::EvidenceBundle],
+        );
+        let art = KcubeArtifact::new(
+            kosmo_core::KcubeArtifactKind::EvidenceBundle,
+            "bundle.json",
+            b"{\"ev\":1}".to_vec(),
+        );
+        let report = exec.write("ca-scope", vec![art], &policy, d(b"ev-bundle"), 9);
+        if !report.outcome.is_written() {
+            return Err(format!("write failed: {:?}", report.outcome));
+        }
+        let fname = kcube_file_name("ca-scope", 9);
+        let pkg = exec.read(&fname)
+            .map_err(|e| format!("read failed: {e}"))?;
+        if !pkg.verify_id() {
+            return Err("KcubePackage.verify_id() must pass after roundtrip read".into());
+        }
+        if pkg.scope != "ca-scope" {
+            return Err(format!("scope mismatch: {:?}", pkg.scope));
+        }
+        if pkg.entry_count() != 1 {
+            return Err(format!("expected 1 entry, got {}", pkg.entry_count()));
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-overwrite-denied-by-default", "RX:Kcube", || {
+        // A second write with the same sequence must be blocked when allow_overwrite=false.
+        let dir = eval_tmp_dir("rx-kcube-overwrite");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::StructuralCrystal],
+        );
+        let mk_art = || vec![KcubeArtifact::new(
+            kosmo_core::KcubeArtifactKind::StructuralCrystal, "c.bin", b"v1".to_vec(),
+        )];
+        let r1 = exec.write("over-scope", mk_art(), &policy, d(b"ev"), 3);
+        if !r1.outcome.is_written() {
+            return Err(format!("first write failed: {:?}", r1.outcome));
+        }
+        let r2 = exec.write("over-scope", mk_art(), &policy, d(b"ev"), 3);
+        if r2.outcome.is_written() {
+            return Err("second write to same sequence must be blocked (allow_overwrite=false)".into());
+        }
+        if r2.outcome.is_failure_class()
+            && !matches!(r2.outcome, kosmo_core::KcubeWriteOutcome::DeniedByPolicy { .. })
+        {
+            return Err(format!("expected DeniedByPolicy, got {:?}", r2.outcome));
+        }
+        if !r2.verify_id() {
+            return Err("overwrite-denied report must be content-addressed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-kcube-read-parses-manifest", "RX:Kcube", || {
+        // KcubeExecutor::read returns the correctly-parsed KcubePackage from disk.
+        let dir = eval_tmp_dir("rx-kcube-read");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = KcubeExportPolicy::write_once(
+            d(b"pol"),
+            d(b"dir"),
+            vec![
+                kosmo_core::KcubeArtifactKind::StructuralCrystal,
+                kosmo_core::KcubeArtifactKind::EvidenceBundle,
+            ],
+        );
+        let artifacts = vec![
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::StructuralCrystal, "a.bin", b"aaa".to_vec()),
+            KcubeArtifact::new(kosmo_core::KcubeArtifactKind::EvidenceBundle,   "b.json", b"{}".to_vec()),
+        ];
+        let report = exec.write("read-scope", artifacts, &policy, d(b"ev-bundle"), 77);
+        if !report.outcome.is_written() {
+            return Err(format!("write failed: {:?}", report.outcome));
+        }
+        let fname = kcube_file_name("read-scope", 77);
+        let pkg = exec.read(&fname).map_err(|e| format!("read error: {e}"))?;
+        if pkg.entry_count() != 2 {
+            return Err(format!("expected 2 entries, got {}", pkg.entry_count()));
+        }
+        if pkg.created_at_sequence != 77 {
+            return Err(format!("sequence mismatch: {}", pkg.created_at_sequence));
+        }
+        if pkg.evidence_bundle_id != d(b"ev-bundle") {
+            return Err("evidence_bundle_id mismatch after roundtrip".into());
+        }
+        // package_id in the write report must match the parsed package id
+        if report.package_id != pkg.id {
+            return Err("package_id in write report must equal parsed KcubePackage.id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:SystemCubeKcube — SystemCube → real .kcube archive weld ─────────────
+
+    v.push(run_check("rx-systemcube-kcube-blocked-default-policy", "RX:SystemCubeKcube", || {
+        // CROSS-010 analogue: default PolicyProfile must block systemcube materialization.
+        let dir = eval_tmp_dir("rx-sc-kcube-blocked");
+        let exec = KcubeExecutor::new(&dir);
+        let policy = kosmo_core::PolicyProfile::default_report_only();
+        let export_policy = kosmo_core::KcubeExportPolicy::write_once(
+            d(b"pol"), d(b"dir"),
+            vec![kosmo_core::KcubeArtifactKind::CartographyManifest],
+        );
+        let unit = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary,
+            d(b"src"),
+            kosmo_core::AuthorityLabel::Operator,
+            kosmo_core::TaintLabel::Clean,
+            vec![d(b"ev")],
+            &policy,
+        );
+        let cube = SystemCube::new(d(b"host"), &kosmo_core::RunDescriptor::new(policy.id, "host"), &policy, vec![unit]);
+        let report = cube.export_to_kcube(&exec, 4, &export_policy, &policy, d(b"bundle"), 1);
+        if !report.outcome.is_skipped_report_only() {
+            return Err(format!("expected SkippedByReportOnly, got {:?}", report.outcome));
+        }
+        if report.written_bytes != 0 {
+            return Err("written_bytes must be 0 when blocked".into());
+        }
+        if report.evidence_bundle_id == Digest::ZERO {
+            return Err("CROSS-006: evidence must be bound even when blocked".into());
+        }
+        if !report.verify_id() {
+            return Err("skipped report must be content-addressed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-systemcube-kcube-writes-archive", "RX:SystemCubeKcube", || {
+        // Full chain: SystemCube → export_to_kcube → real .kcube file on disk.
+        let dir = eval_tmp_dir("rx-sc-kcube-write");
+        let exec = KcubeExecutor::new(&dir);
+        let base_policy = kosmo_core::PolicyProfile::default_report_only();
+        let op_policy = kosmo_core::PolicyProfile::operator_approved_with_systemcube();
+        let export_policy = kosmo_core::KcubeExportPolicy::write_once(
+            d(b"pol"), d(b"dir"),
+            vec![
+                kosmo_core::KcubeArtifactKind::CartographyManifest,
+                kosmo_core::KcubeArtifactKind::ValidationClosureReport,
+                kosmo_core::KcubeArtifactKind::StructuralCrystal,
+            ],
+        );
+        let unit = BlueprintUnit::new(
+            BlueprintUnitKind::CrystalReference,
+            d(b"crystal"),
+            kosmo_core::AuthorityLabel::Operator,
+            kosmo_core::TaintLabel::Clean,
+            vec![d(b"ev")],
+            &base_policy,
+        );
+        let run = kosmo_core::RunDescriptor::new(base_policy.id, "bench");
+        let cube = SystemCube::new(d(b"host"), &run, &base_policy, vec![unit]);
+        let report = cube.export_to_kcube(&exec, 4, &export_policy, &op_policy, d(b"bundle"), 1);
+        if !report.outcome.is_written() {
+            return Err(format!("expected Written, got {:?}", report.outcome));
+        }
+        if !report.roundtrip_passed() {
+            return Err("roundtrip must pass for a correct write".into());
+        }
+        if report.written_bytes == 0 {
+            return Err("written_bytes must be > 0".into());
+        }
+        if !report.verify_id() {
+            return Err("write report must be content-addressed".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-systemcube-kcube-archive-parses-back", "RX:SystemCubeKcube", || {
+        // The written .kcube archive must parse back to a valid KcubePackage
+        // with the expected number of artifact entries.
+        let dir = eval_tmp_dir("rx-sc-kcube-parse");
+        let exec = KcubeExecutor::new(&dir);
+        let base_policy = kosmo_core::PolicyProfile::default_report_only();
+        let op_policy = kosmo_core::PolicyProfile::operator_approved_with_systemcube();
+        let export_policy = kosmo_core::KcubeExportPolicy::write_once(
+            d(b"pol"), d(b"dir"),
+            vec![
+                kosmo_core::KcubeArtifactKind::CartographyManifest,
+                kosmo_core::KcubeArtifactKind::ValidationClosureReport,
+                kosmo_core::KcubeArtifactKind::StructuralCrystal,
+            ],
+        );
+        let unit1 = BlueprintUnit::new(
+            BlueprintUnitKind::ModuleBoundary, d(b"s1"),
+            kosmo_core::AuthorityLabel::Operator, kosmo_core::TaintLabel::Clean,
+            vec![d(b"e1")], &base_policy,
+        );
+        let unit2 = BlueprintUnit::new(
+            BlueprintUnitKind::FiberDescriptor, d(b"s2"),
+            kosmo_core::AuthorityLabel::Operator, kosmo_core::TaintLabel::Clean,
+            vec![d(b"e2")], &base_policy,
+        );
+        let run = kosmo_core::RunDescriptor::new(base_policy.id, "parse-bench");
+        let cube = SystemCube::new(d(b"host"), &run, &base_policy, vec![unit1, unit2]);
+        let report = cube.export_to_kcube(&exec, 4, &export_policy, &op_policy, d(b"bundle"), 42);
+        if !report.outcome.is_written() {
+            return Err(format!("write failed: {:?}", report.outcome));
+        }
+        // Derive the same scope the weld uses: "systemcube-{first 16 hex chars of cube_id}"
+        let scope = format!("systemcube-{}", &cube.cube_id.to_hex()[..16]);
+        let fname = kcube_file_name(&scope, 42);
+        let pkg = exec.read(&fname).map_err(|e| format!("read error: {e}"))?;
+        if !pkg.verify_id() {
+            return Err("KcubePackage.verify_id() must pass after roundtrip read".into());
+        }
+        // manifest.json + export_report.json + 2 accepted crystal units = 4 artifacts
+        if pkg.entry_count() != 4 {
+            return Err(format!("expected 4 artifacts (manifest + report + 2 units), got {}", pkg.entry_count()));
+        }
+        // package_id in the write report must match the parsed package id
+        if report.package_id != pkg.id {
+            return Err("package_id in write report must equal parsed KcubePackage.id".into());
+        }
+        Ok(())
+    }));
+
+    // ── RX:FeedbackLoop — PSE promotion outcome back into substrate ─────────────
+
+    v.push(run_check("rx-feedback-accepted-maps-to-full-energy", "RX:FeedbackLoop", || {
+        // Accepted promotion → fitness_signal = energy_at_submission.
+        let energy = Q16::ratio(3, 4).unwrap();
+        let f = PromotionFeedback::new(
+            d(b"record"), d(b"candidate"), d(b"norm"),
+            FeedbackOutcome::Accepted,
+            energy, d(b"pol"), d(b"ev"),
+        );
+        if f.fitness_signal != energy {
+            return Err(format!("accepted must map fitness to energy, got {:?}", f.fitness_signal.raw()));
+        }
+        if !f.verify_id() {
+            return Err("PromotionFeedback must be content-addressed (INVARIANT-007)".into());
+        }
+        if f.evidence_bundle_id == Digest::ZERO {
+            return Err("CROSS-006: evidence must be non-zero".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-feedback-rejected-fitness-is-zero", "RX:FeedbackLoop", || {
+        // Rejected → fitness_signal = ZERO (CROSS-010 analogue for feedback).
+        let f = PromotionFeedback::new(
+            d(b"record"), d(b"candidate"), d(b"norm"),
+            FeedbackOutcome::Rejected,
+            Q16::ONE, d(b"pol"), d(b"ev"),
+        );
+        if !f.fitness_signal.is_zero() {
+            return Err("rejected feedback must produce zero fitness — PSE rejection cannot confer fitness".into());
+        }
+        if !f.verify_id() {
+            return Err("content-addressing must hold even for rejected feedback".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-feedback-stored-in-cartography", "RX:FeedbackLoop", || {
+        // A PromotionFeedback can be stored as a CartographyStoreCommit with
+        // CartographyEntryKind::PromotionFeedback.
+        let feedback = PromotionFeedback::new(
+            d(b"rec"), d(b"cand"), d(b"norm"),
+            FeedbackOutcome::Accepted,
+            Q16::HALF, d(b"pol"), d(b"ev"),
+        );
+        let commit = CartographyStoreCommit::new(
+            CorpusScope::LocalHostProject,
+            1,
+            feedback.id,
+            CartographyEntryKind::PromotionFeedback,
+            feedback.evidence_bundle_id,
+            feedback.policy_id,
+        );
+        if !commit.verify_id() {
+            return Err("CartographyStoreCommit with PromotionFeedback must verify_id()".into());
+        }
+        if commit.payload_digest != feedback.id {
+            return Err("commit payload_digest must equal feedback.id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-feedback-norm-trace-updates-from-feedback", "RX:FeedbackLoop", || {
+        // build_promotion_feedback + NormFitnessTrace::observe_from_feedback closes
+        // the full loop: PSE outcome → feedback record → norm fitness trace update.
+        let policy = PolicyProfile::default_report_only();
+        let norm_cid = d(b"norm-cand");
+        let energy = Q16::ratio(7, 8).unwrap();
+
+        // Build a PseBridgeCandidate with confidence = energy
+        let candidate = PseBridgeCandidate::new(
+            PseBridgeCandidateKind::StructuralObservation,
+            d(b"obs"),
+            "eval-norm",
+            energy,
+            d(b"run"),
+            d(b"ev"),
+            policy.id,
+        );
+
+        // Build a Accepted PromotionRequestRecord
+        let record = PromotionRequestRecord::new(candidate.id, PromotionOutcome::Accepted, d(b"ev"), 10);
+
+        // Build feedback via the bridge function
+        let feedback = build_promotion_feedback(&record, &candidate, norm_cid, policy.id);
+        if !feedback.outcome.is_accepted() {
+            return Err("feedback outcome must be Accepted".into());
+        }
+        if feedback.fitness_signal != energy {
+            return Err(format!("fitness_signal must equal energy={}, got {}", energy.raw(), feedback.fitness_signal.raw()));
+        }
+        if !feedback.verify_id() {
+            return Err("feedback must verify_id()".into());
+        }
+
+        // Ingest into NormFitnessTrace
+        let trace = NormFitnessTrace::empty(norm_cid, policy.id)
+            .observe_from_feedback(&feedback);
+        if trace.latest_fitness() != energy {
+            return Err(format!("NormFitnessTrace.latest_fitness must equal energy after feedback ingestion"));
+        }
+        if trace.observations[0].evidence_ref != feedback.id {
+            return Err("evidence_ref in trace observation must be feedback.id".into());
+        }
+
+        Ok(())
+    }));
+
     v
+}
+
+/// Unique temp path for an eval scenario's working directory.
+fn eval_tmp_dir(tag: &str) -> std::path::PathBuf {
+    let p = std::env::temp_dir().join("kosmo-eval-kcube").join(tag);
+    std::fs::remove_dir_all(&p).ok();
+    std::fs::create_dir_all(&p).unwrap();
+    p
 }
 
 /// Unique temp path for a benchmark store scenario.

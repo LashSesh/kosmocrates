@@ -10,6 +10,7 @@ pub mod acquisition;
 pub mod authority;
 pub mod cartography;
 pub mod digest;
+pub mod energy;
 pub mod evaluation;
 pub mod evidence;
 pub mod fixed_point;
@@ -18,6 +19,7 @@ pub mod kcube;
 pub mod materialization;
 pub mod parseback;
 pub mod policy;
+pub mod promotion_feedback;
 pub mod run;
 pub mod validation;
 
@@ -32,6 +34,9 @@ pub use cartography::{
     CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
 };
 pub use digest::{canonical_bytes, Digest};
+pub use energy::{
+    rank_by_energy, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, TripolarEnergy,
+};
 pub use evidence::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
 pub use evaluation::{
     EvaluationCriteria, EvaluationDimension, EvaluationHarness, EvaluationMetrics,
@@ -58,6 +63,7 @@ pub use parseback::{
     ParseBackTopologyDelta, TopologyChangeKind,
 };
 pub use policy::{ImplementationMode, PolicyProfile, PolicyViolation};
+pub use promotion_feedback::{FeedbackOutcome, PromotionFeedback};
 pub use validation::{
     determine_closure_status, ValidationClosureReport, ValidationClosureStatus,
 };

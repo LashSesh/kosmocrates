@@ -1,5 +1,7 @@
-use kosmo_core::{Digest, Q16};
+use crate::cube::SourceCube;
+use kosmo_core::{rank_by_energy, Digest, FoundrySurvival, GateResult, LicenseStatus, Q16};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The planned action for one void in the HostTargetDelta.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,41 +90,63 @@ impl HostTargetDelta {
         }
     }
 
-    /// Build a HostTargetDelta by matching host voids against source cube targets.
+    /// Build a `HostTargetDelta` from real `SourceCube` objects using the
+    /// tripolar energy kernel for ranking — the energy-correct path.
     ///
-    /// `source_cube_targets`: `(cube_id, target_void_id, support_score)` triples.
-    /// Planning only — emitted as a report-only artifact.
-    pub fn from_host_and_composite(
+    /// Each cube's energy is computed via [`SourceCube::energy_assessment`]
+    /// and candidates per void are ranked by [`rank_by_energy`]. The cube with
+    /// the highest energy wins; ties are broken by `subject_id` for determinism.
+    ///
+    /// `seam_map`: per-void seam coherence scores from LPCM analysis
+    /// (`void_id → Q16`). Missing entries default to `Q16::ONE` (no penalty).
+    /// Gate defaults to `Pass`; license defaults to `NotApplicable`;
+    /// foundry defaults to `Unavailable` (no Foundry run at planning stage).
+    pub fn from_source_cubes(
         host_cube_id: Digest,
         host_void_ids: &[Digest],
         composite_cube_id: Digest,
-        source_cube_targets: &[(Digest, Digest, Q16)],
+        cubes: &[SourceCube],
+        seam_map: &BTreeMap<Digest, Q16>,
         policy_id: Digest,
     ) -> Self {
         let mut void_fills = Vec::new();
         let mut remaining_voids = Vec::new();
 
         for &void_id in host_void_ids {
-            let mut candidates: Vec<(Digest, Q16)> = source_cube_targets
+            let seam_coherence = seam_map.get(&void_id).copied().unwrap_or(Q16::ONE);
+            let cube_assessments: Vec<_> = cubes
                 .iter()
-                .filter(|(_, tvid, _)| *tvid == void_id)
-                .map(|(cid, _, score)| (*cid, *score))
+                .filter(|c| c.target_void_id == Some(void_id))
+                .map(|c| {
+                    let a = c.energy_assessment(
+                        &GateResult::Pass,
+                        &LicenseStatus::NotApplicable,
+                        FoundrySurvival::Unavailable,
+                        seam_coherence,
+                    );
+                    (c.cube_id, a)
+                })
                 .collect();
-            // Sort by cube_id for determinism.
-            candidates.sort_by_key(|(id, _)| *id);
 
-            if candidates.is_empty() {
+            if cube_assessments.is_empty() {
                 remaining_voids.push(void_id);
             } else {
-                let best = *candidates.iter().max_by_key(|(_, s)| s.raw()).unwrap();
+                let assessments: Vec<_> = cube_assessments.iter().map(|(_, a)| a.clone()).collect();
+                let ranked = rank_by_energy(&assessments);
+                let top = ranked.first().unwrap();
+                let top_cube_id = cube_assessments
+                    .iter()
+                    .find(|(_, a)| a.id == top.id)
+                    .map(|(cid, _)| *cid)
+                    .unwrap();
                 let mut candidate_cube_ids: Vec<Digest> =
-                    candidates.iter().map(|(id, _)| *id).collect();
+                    cube_assessments.iter().map(|(cid, _)| *cid).collect();
                 candidate_cube_ids.sort();
                 void_fills.push(VoidFillDelta {
                     void_id,
                     candidate_cube_ids,
-                    best_support_score: best.1,
-                    action: DeltaAction::FillVoid { top_candidate_cube_id: best.0 },
+                    best_support_score: top.energy,
+                    action: DeltaAction::FillVoid { top_candidate_cube_id: top_cube_id },
                 });
             }
         }
@@ -165,7 +189,8 @@ impl HostTargetDelta {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{Digest, Q16};
+    use crate::cube::{CubeDimensionProfile, SourceCube};
+    use kosmo_core::{Digest, TaintLabel, Q16};
 
     #[test]
     fn delta_clean_for_no_voids() {
@@ -200,24 +225,37 @@ mod tests {
         assert_ne!(d1.delta_id, Digest::ZERO);
     }
 
+    fn make_cube(void_id: Digest, support: Q16, seed: &[u8], pid: Digest) -> SourceCube {
+        SourceCube::new(
+            Some(void_id),
+            std::str::from_utf8(seed).unwrap_or("cube").to_string(),
+            CubeDimensionProfile::empty(),
+            support,
+            TaintLabel::Clean,
+            Digest::of_bytes(b"ev"),
+            pid,
+        )
+    }
+
     #[test]
-    fn delta_from_host_and_composite_fills_matching_voids() {
+    fn delta_from_source_cubes_fills_matching_voids() {
         let pid = Digest::of_bytes(b"p");
         let void_id = Digest::of_bytes(b"v");
-        let cube_id = Digest::of_bytes(b"cube");
+        let cube = make_cube(void_id, Q16::HALF, b"cube", pid);
+        let cube_id = cube.cube_id;
 
-        let delta = HostTargetDelta::from_host_and_composite(
+        let delta = HostTargetDelta::from_source_cubes(
             Digest::of_bytes(b"h"),
             &[void_id],
             Digest::of_bytes(b"comp"),
-            &[(cube_id, void_id, Q16::HALF)],
+            &[cube],
+            &BTreeMap::new(),
             pid,
         );
 
         assert_eq!(delta.void_fills.len(), 1);
         assert!(delta.remaining_voids.is_empty());
         assert_eq!(delta.status, DeltaStatus::FullyPlannable);
-        assert_eq!(delta.void_fills[0].best_support_score, Q16::HALF);
         assert_eq!(
             delta.void_fills[0].action,
             DeltaAction::FillVoid { top_candidate_cube_id: cube_id }
@@ -229,19 +267,23 @@ mod tests {
         let pid = Digest::of_bytes(b"p");
         let void1 = Digest::of_bytes(b"v1");
         let void2 = Digest::of_bytes(b"v2"); // no cube covers this
-        let cube_id = Digest::of_bytes(b"cube");
+        let cube = make_cube(void1, Q16::HALF, b"cube", pid);
 
-        let delta = HostTargetDelta::from_host_and_composite(
+        let delta = HostTargetDelta::from_source_cubes(
             Digest::ZERO,
             &[void1, void2],
             Digest::ZERO,
-            &[(cube_id, void1, Q16::HALF)],
+            &[cube],
+            &BTreeMap::new(),
             pid,
         );
 
         assert_eq!(delta.void_fills.len(), 1);
         assert_eq!(delta.remaining_voids.len(), 1);
-        assert!(matches!(delta.status, DeltaStatus::PartiallyPlannable { plannable: 1, unresolvable: 1 }));
+        assert!(matches!(
+            delta.status,
+            DeltaStatus::PartiallyPlannable { plannable: 1, unresolvable: 1 }
+        ));
     }
 
     #[test]

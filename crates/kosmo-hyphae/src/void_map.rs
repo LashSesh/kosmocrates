@@ -1,4 +1,7 @@
-use kosmo_core::{Digest, Q16};
+use kosmo_core::{
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, Q16, TripolarEnergy, rank_by_energy,
+};
 use serde::{Deserialize, Serialize};
 
 /// A named structural gap in the host topology.
@@ -48,6 +51,32 @@ impl HostVoid {
             location: &self.location,
         });
         self.void_id == expected
+    }
+
+    /// Build an [`EnergyAssessment`] for this void, ranking it by urgency.
+    ///
+    /// - ψ (meaning)  = `severity` — how urgent this void is (Q16 in [0,1]).
+    /// - ρ (coherence) = `Q16::ONE` — no structural coherence data at void level.
+    /// - ω (phase)    = `Q16::ONE` — no phase data at void level.
+    /// - `evidence_bundle_id` = `void_id`: the void's own content address,
+    ///   derived from `{kind, severity, location}` during workspace scan.
+    ///   Satisfies CROSS-006 (non-ZERO evidence ref).
+    pub fn energy_assessment(&self, gate: &GateResult, policy_id: Digest) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.severity, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.void_id,
+            EnergyKernel::new(tripolar, factors),
+            policy_id,
+            self.void_id, // evidence = void_id (content-addresses the detection)
+        )
     }
 }
 
@@ -102,6 +131,20 @@ impl TopologicalVoidMap {
         });
         self.map_id == expected
     }
+
+    /// Return void IDs ranked by severity (highest first) using the energy kernel.
+    ///
+    /// Ties are broken deterministically by `void_id` (content address). An
+    /// empty map returns an empty vec.
+    pub fn priority_ranking(&self, gate: &GateResult) -> Vec<Digest> {
+        let assessments: Vec<EnergyAssessment> = self.voids.iter()
+            .map(|v| v.energy_assessment(gate, self.policy_id))
+            .collect();
+        rank_by_energy(&assessments)
+            .into_iter()
+            .map(|a| a.subject_id)
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -141,5 +184,53 @@ mod tests {
         let vm = TopologicalVoidMap::empty(Digest::ZERO);
         assert_eq!(vm.void_count(), 0);
         assert!(vm.verify_id());
+    }
+
+    #[test]
+    fn host_void_energy_assessment_content_addressed() {
+        let pid = Digest::of_bytes(b"p");
+        let v = HostVoid::new(HostVoidKind::Custom { description: "gap".into() }, Q16::HALF, "x".into());
+        let a1 = v.energy_assessment(&GateResult::Pass, pid);
+        let a2 = v.energy_assessment(&GateResult::Pass, pid);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, v.void_id);
+        assert_eq!(a1.evidence_bundle_id, v.void_id, "evidence_bundle_id must equal void_id");
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn host_void_reject_gate_zeroes_energy() {
+        let pid = Digest::of_bytes(b"p");
+        let v = HostVoid::new(HostVoidKind::Custom { description: "gap".into() }, Q16::ONE, "x".into());
+        let a = v.energy_assessment(&GateResult::Reject { reason: "test".into() }, pid);
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero void energy");
+    }
+
+    #[test]
+    fn void_map_priority_ranking_orders_by_severity() {
+        let pid = Digest::of_bytes(b"p");
+        let high = HostVoid::new(HostVoidKind::Custom { description: "high".into() }, Q16::ONE, "h".into());
+        let low  = HostVoid::new(HostVoidKind::Custom { description: "low".into() },  Q16::ratio(1, 4).unwrap(), "l".into());
+        let mid  = HostVoid::new(HostVoidKind::Custom { description: "mid".into() },  Q16::HALF, "m".into());
+        let high_id = high.void_id;
+        let mid_id  = mid.void_id;
+        let low_id  = low.void_id;
+        let vm = TopologicalVoidMap::from_voids(vec![low, mid, high], pid);
+        let ranking = vm.priority_ranking(&GateResult::Pass);
+        assert_eq!(ranking.len(), 3);
+        assert_eq!(ranking[0], high_id, "highest severity void must rank first");
+        assert_eq!(ranking[1], mid_id,  "mid severity void must rank second");
+        assert_eq!(ranking[2], low_id,  "lowest severity void must rank last");
+    }
+
+    #[test]
+    fn void_map_priority_ranking_deterministic() {
+        let pid = Digest::of_bytes(b"p");
+        let v1 = HostVoid::new(HostVoidKind::Custom { description: "a".into() }, Q16::HALF, "a".into());
+        let v2 = HostVoid::new(HostVoidKind::Custom { description: "b".into() }, Q16::HALF, "b".into());
+        let vm = TopologicalVoidMap::from_voids(vec![v1, v2], pid);
+        let r1 = vm.priority_ranking(&GateResult::Pass);
+        let r2 = vm.priority_ranking(&GateResult::Pass);
+        assert_eq!(r1, r2, "priority_ranking must be deterministic");
     }
 }

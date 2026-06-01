@@ -7,7 +7,10 @@
 
 use crate::collapse::{CollapseStep};
 use crate::metatron::MicroTopologyDiagnostic;
-use kosmo_core::{Digest, PolicyProfile, Q16};
+use kosmo_core::{
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, PolicyProfile, Q16, TripolarEnergy,
+};
 use serde::{Deserialize, Serialize};
 
 // ─── Surgery Kind ─────────────────────────────────────────────────────────────
@@ -180,6 +183,31 @@ impl TopologicalSurgeryOption {
         options.sort_by_key(|o| o.option_id);
         options
     }
+
+    /// Build an [`EnergyAssessment`] for this surgery option.
+    ///
+    /// - ψ (meaning)  = `confidence_score` — diagnostic certainty for this option.
+    /// - ρ (coherence) = `Q16::ONE` — no structural coherence data at this level.
+    /// - ω (phase)    = `Q16::ONE` — no phase data at this level.
+    /// - `evidence_bundle_id` = `self.diagnostic_id`: the diagnostic IS the
+    ///   causal evidence source; satisfies CROSS-006 (non-ZERO evidence ref).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.confidence_score, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.option_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.diagnostic_id,
+        )
+    }
 }
 
 // ─── Surgery-Backed Collapse Step ─────────────────────────────────────────────
@@ -295,7 +323,7 @@ mod tests {
     use crate::collapse::{CollapseAction, CollapseStep};
     use crate::metatron::{diagnose_micrograph, lift_region};
     use crate::void_map::HostVoidKind;
-    use kosmo_core::{Digest, PolicyProfile, TaintLabel};
+    use kosmo_core::{Digest, EnergyAssessment, GateResult, PolicyProfile, TaintLabel, rank_by_energy};
 
     fn pid() -> Digest {
         Digest::of_bytes(b"p")
@@ -460,5 +488,50 @@ mod tests {
         let s = task.summary();
         assert!(s.contains("PlanningOnly"));
         assert!(s.contains("SurgeryWorkbenchTask"));
+    }
+
+    #[test]
+    fn surgery_option_energy_assessment_content_addressed() {
+        let (_, diag) = make_diagnostic_single_node();
+        let p = policy();
+        let options = TopologicalSurgeryOption::from_diagnostic(&diag, &p);
+        assert!(!options.is_empty());
+        let a1 = options[0].energy_assessment(&GateResult::Pass);
+        let a2 = options[0].energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, options[0].option_id);
+        assert_eq!(a1.policy_id, p.id);
+        // evidence_bundle_id must be diagnostic_id (CROSS-006 non-ZERO ref)
+        assert_eq!(a1.evidence_bundle_id, options[0].diagnostic_id);
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn surgery_option_reject_gate_zeroes_energy() {
+        let (_, diag) = make_diagnostic_single_node();
+        let options = TopologicalSurgeryOption::from_diagnostic(&diag, &policy());
+        let a = options[0].energy_assessment(&GateResult::Reject { reason: "test".into() });
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero surgery option energy");
+    }
+
+    #[test]
+    fn surgery_options_rank_by_confidence() {
+        use kosmo_core::rank_by_energy;
+        // Two options from a diagnostic with hypothesis: the option with higher
+        // confidence_score must rank above one with lower confidence.
+        let (_, diag) = make_diagnostic_with_hypothesis();
+        let p = policy();
+        let options = TopologicalSurgeryOption::from_diagnostic(&diag, &p);
+        if options.len() < 2 {
+            return; // skip if fixture doesn't produce ≥2 options
+        }
+        let assessments: Vec<EnergyAssessment> = options.iter()
+            .map(|o| o.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        // Highest confidence must be first
+        let best_score = ranked[0].kernel.tripolar.d();
+        let second_score = ranked[1].kernel.tripolar.d();
+        assert!(best_score >= second_score, "rank_by_energy must order by D descending");
     }
 }

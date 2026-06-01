@@ -1,4 +1,7 @@
-use kosmo_core::{Digest, Q16};
+use kosmo_core::{
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, PromotionFeedback, Q16, TripolarEnergy,
+};
 use serde::{Deserialize, Serialize};
 
 /// Serialize-only for NormGeneCandidate content-addressing.
@@ -45,6 +48,32 @@ impl NormGeneCandidate {
     /// Fitness above threshold is a metric — it does NOT confer trust.
     pub fn exceeds_fitness_threshold(&self, threshold: Q16) -> bool {
         self.fitness_score.exceeds(threshold)
+    }
+
+    /// Build an [`EnergyAssessment`] for this candidate using the tripolar kernel.
+    ///
+    /// - ψ (meaning) = `fitness_score` — accumulated fitness from PSE feedback.
+    /// - ρ (coherence) = `Q16::ONE` — no coherence data at NormGeneCandidate level.
+    /// - ω (phase) = `Q16::ONE` — no phase data at NormGeneCandidate level.
+    /// - Gate factor from caller; taint = Clean; license = NotApplicable.
+    ///
+    /// Use `rank_by_energy` on the returned assessments to rank candidates by D.
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.fitness_score, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.candidate_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.evidence_bundle_id,
+        )
     }
 }
 
@@ -100,6 +129,14 @@ impl NormFitnessTrace {
     /// Latest fitness observation, or `Q16::ZERO` if no observations yet.
     pub fn latest_fitness(&self) -> Q16 {
         self.observations.last().map(|o| o.fitness).unwrap_or(Q16::ZERO)
+    }
+
+    /// Append a fitness observation derived from a `PromotionFeedback` record.
+    ///
+    /// Uses `feedback.fitness_signal` as the observation value and `feedback.id`
+    /// as the evidence reference — closing the "Wissen zurück ins Substrat" loop.
+    pub fn observe_from_feedback(self, feedback: &PromotionFeedback) -> Self {
+        self.observe(feedback.fitness_signal, feedback.id)
     }
 
     /// Integer-averaged fitness across all observations (no floats — CROSS-007).
@@ -171,6 +208,55 @@ mod tests {
             .observe(Q16::HALF, ev_id);
         // avg(HALF, HALF) = HALF — no float division
         assert_eq!(trace.average_fitness(), Q16::HALF);
+    }
+
+    #[test]
+    fn observe_from_feedback_accepted_raises_fitness() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let energy = Q16::ratio(3, 4).unwrap();
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            Digest::of_bytes(b"candidate"),
+            cid,
+            FeedbackOutcome::Accepted,
+            energy,
+            pid,
+            Digest::of_bytes(b"ev"),
+        );
+        let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
+        assert_eq!(trace.observations.len(), 1);
+        assert_eq!(trace.latest_fitness(), energy);
+    }
+
+    #[test]
+    fn observe_from_feedback_rejected_sets_zero_fitness() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"rec"), Digest::of_bytes(b"cand"),
+            cid, FeedbackOutcome::Rejected,
+            Q16::ONE, pid, Digest::of_bytes(b"ev"),
+        );
+        let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
+        assert!(trace.latest_fitness().is_zero(),
+            "rejected feedback must produce zero fitness (CROSS-010 analogue)");
+    }
+
+    #[test]
+    fn observe_from_feedback_uses_feedback_id_as_evidence_ref() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"rec"), Digest::of_bytes(b"cand"),
+            cid, FeedbackOutcome::Deferred,
+            Q16::ONE, pid, Digest::of_bytes(b"ev"),
+        );
+        let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
+        assert_eq!(trace.observations[0].evidence_ref, feedback.id);
     }
 
     #[test]

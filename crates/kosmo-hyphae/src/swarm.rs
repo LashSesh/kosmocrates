@@ -1,5 +1,8 @@
 use crate::cube::SourceCube;
-use kosmo_core::{Digest, PolicyProfile, Q16};
+use kosmo_core::{
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, PolicyProfile, Q16, TripolarEnergy,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -78,6 +81,31 @@ impl CubeMandorla {
         });
         Self { mandorla_id, cube_ids, overlap_score, policy_id }
     }
+
+    /// Build an [`EnergyAssessment`] for this mandorla using the tripolar kernel.
+    ///
+    /// - ψ (meaning)   = `overlap_score` — how much the constituent cubes overlap.
+    /// - ρ (coherence) = `Q16::ONE` — no additional coherence data at mandorla level.
+    /// - ω (phase)     = `Q16::ONE` — no phase data at mandorla level.
+    /// - `evidence_bundle_id` = `mandorla_id` (self-referential content address —
+    ///   satisfies CROSS-006 non-ZERO evidence ref).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.overlap_score, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.mandorla_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.mandorla_id,
+        )
+    }
 }
 
 /// Serialize-only for CompositeSupportCube content-addressing.
@@ -138,6 +166,31 @@ impl CompositeSupportCube {
             mandorla_ids,
             policy_id,
         }
+    }
+
+    /// Build an [`EnergyAssessment`] for this composite using the tripolar kernel.
+    ///
+    /// - ψ (meaning)   = `aggregate_support` — integer-averaged support across all cubes.
+    /// - ρ (coherence) = `Q16::ONE` — no additional coherence data at composite level.
+    /// - ω (phase)     = `Q16::ONE` — no phase data at composite level.
+    /// - `evidence_bundle_id` = `composite_id` (self-referential content address —
+    ///   satisfies CROSS-006 non-ZERO evidence ref).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.aggregate_support, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.composite_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.composite_id,
+        )
     }
 }
 
@@ -200,7 +253,7 @@ impl CubeSwarm {
 mod tests {
     use super::*;
     use crate::cube::{CubeDimensionProfile, SourceCube};
-    use kosmo_core::{Digest, PolicyProfile, Q16, TaintLabel};
+    use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, TaintLabel};
 
     fn make_cube(void_id: Digest, path: &str, policy_id: Digest) -> SourceCube {
         SourceCube::new(
@@ -292,5 +345,55 @@ mod tests {
         let w2 = SourceCubeWorker::for_cube(&cube, policy.id);
         assert_eq!(w1.worker_id, w2.worker_id);
         assert_ne!(w1.worker_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn cube_mandorla_energy_assessment_content_addressed() {
+        let pid = Digest::of_bytes(b"p");
+        let m = CubeMandorla::from_cubes(
+            vec![Digest::of_bytes(b"a"), Digest::of_bytes(b"b")],
+            Q16::HALF,
+            pid,
+        );
+        let a1 = m.energy_assessment(&GateResult::Pass);
+        let a2 = m.energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, m.mandorla_id);
+        assert_eq!(a1.evidence_bundle_id, m.mandorla_id, "self-referential evidence must equal mandorla_id");
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn cube_mandorla_reject_gate_zeroes_energy() {
+        let pid = Digest::of_bytes(b"p");
+        let m = CubeMandorla::from_cubes(vec![Digest::of_bytes(b"a")], Q16::ONE, pid);
+        let a = m.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero mandorla energy");
+    }
+
+    #[test]
+    fn composite_support_cube_energy_assessment_content_addressed() {
+        let policy = PolicyProfile::default_report_only();
+        let void_id = Digest::of_bytes(b"v");
+        let cubes = vec![make_cube(void_id, "src/a.rs", policy.id)];
+        let swarm = CubeSwarm::new(policy.clone(), cubes);
+        let (_, composite) = swarm.run();
+        let a1 = composite.energy_assessment(&GateResult::Pass);
+        let a2 = composite.energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, composite.composite_id);
+        assert_eq!(a1.evidence_bundle_id, composite.composite_id, "self-referential evidence");
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn composite_support_cube_reject_gate_zeroes_energy() {
+        let policy = PolicyProfile::default_report_only();
+        let void_id = Digest::of_bytes(b"v");
+        let cubes = vec![make_cube(void_id, "src/a.rs", policy.id)];
+        let swarm = CubeSwarm::new(policy, cubes);
+        let (_, composite) = swarm.run();
+        let a = composite.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero composite energy");
     }
 }

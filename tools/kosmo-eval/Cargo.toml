@@ -15,11 +15,16 @@ publish = false
 
 [dependencies]
 kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-hyphae = { path = "../../crates/kosmo-hyphae" }
 kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
 kosmo-foundry = { path = "../../crates/kosmo-foundry" }
 kosmo-store = { path = "../../crates/kosmo-store" }
 kosmo-parseback = { path = "../../crates/kosmo-parseback" }
 kosmo-operator = { path = "../../crates/kosmo-operator" }
+kosmo-kcube = { path = "../../crates/kosmo-kcube" }
+kosmo-systemcube = { path = "../../crates/kosmo-systemcube" }
+kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
+kosmo-workbench = { path = "../../crates/kosmo-workbench" }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 

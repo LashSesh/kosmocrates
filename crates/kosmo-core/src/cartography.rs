@@ -1,5 +1,5 @@
 use crate::digest::Digest;
-use crate::evidence::{EvidenceBundle, EvidenceRef, ReplayStatus};
+use crate::evidence::ReplayStatus;
 use crate::policy::PolicyProfile;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,6 +34,12 @@ pub enum CartographyEntryKind {
     SourceFrontierGraph,
     CorpusEntry,
     EvidenceSummary,
+    /// Feedback from a PSE promotion outcome — carries knowledge back into the
+    /// corpus (the "Wissen zurück ins Substrat" record).
+    PromotionFeedback,
+    /// A `CorpusCartographyUpdate` produced by a pipeline run, recording the
+    /// delta between the corpus state before and after the run.
+    CartographyUpdate,
     Custom(String),
 }
 
@@ -424,7 +430,7 @@ impl CartographyStorageManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence::{EvidenceBundle, EvidenceKind, ReplayStatus};
+    use crate::evidence::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
     use crate::policy::{ImplementationMode, PolicyProfile};
 
     fn d(seed: &[u8]) -> Digest {

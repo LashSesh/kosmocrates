@@ -136,6 +136,30 @@ impl PolicyProfile {
         })
     }
 
+    /// Operator-approved profile with SystemCube materialization enabled.
+    ///
+    /// Use when a `SystemCube` must be exported to a real `.kcube` archive on
+    /// disk.  All other gates remain closed: no network, no memory promotion,
+    /// no synthetic source cubes, Foundry and ParseBack still required.
+    pub fn operator_approved_with_systemcube() -> Self {
+        Self::from_content(PolicyContent {
+            mode: ImplementationMode::OperatorApproved,
+            allow_network: false,
+            allow_external_acquisition: false,
+            allow_acquired_repo_execution: false,
+            allow_host_write: true,
+            allow_context_injection_from_external: false,
+            allow_synthetic_sourcecube: false,
+            allow_metatron_surgery_planning: true,
+            allow_lpcm_materialization: false,
+            allow_systemcube_materialization: true,
+            allow_memory_promotion: false,
+            require_foundry_for_executable_effects: true,
+            require_parseback_for_topology_changes: true,
+            require_operator_approval_for_materialization: true,
+        })
+    }
+
     fn from_content(c: PolicyContent) -> Self {
         let id = Digest::of(&c);
         Self {

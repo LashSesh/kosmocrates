@@ -150,3 +150,23 @@ different purposes and must not be conflated.
 **Decision:** `OperationReport.report_id = SHA256(JCS({plan_id, foundry_report_id, parseback_report_id, closure_report_id, elapsed_ms, persisted}))`. It does not include the full sub-report payloads, only their IDs.
 
 **Rationale:** Content-addressing by ID rather than payload keeps the OperationReport lightweight while preserving INVARIANT-007 (identical inputs → identical ID). Any change in any sub-report cascades up through its ID to change the operation report ID.
+
+---
+
+## AD-015 — Unified tripolar energy kernel (`D = ψ · ρ · ω`) in `kosmo-core`
+
+**Decision:** Add `kosmo-core::energy` with `TripolarEnergy { psi, rho, omega }`, `EnergyFactors` (gate/taint/license/foundry/seam/contradiction), `EnergyKernel`, a content-addressed evidence-bound `EnergyAssessment`, and `rank_by_energy`. The selection energy is `D · ∏ factors`, computed entirely in `Q16` integer arithmetic. This is the single ranking core the substrate's previously-fragmented heuristics (`SourceCube.support_score`, LPCM support-mass majority, SystemCube D-density, `NormGene` fitness) can converge onto.
+
+**Rationale:** The vision requires one consistent "tripolar energy" selection kernel rather than per-layer heuristics. The PSE retrieval layer already uses `D = ψ·ρ·ω` (`pse-adapter-il::score_tripolar`) but in `f64`; the kosmo substrate keeps it in `Q16` because the value participates in gate-adjacent selection and CROSS-007 forbids floats there. The kernel is additive — it does not rip out existing scores, so adoption is incremental and low-risk.
+
+**Hard invariant (non-bypass, CROSS-010):** Energy *ranks*; it never *gates*. The module exposes no method turning an energy value into a decision or policy escalation. The only gate interaction is the `gate` factor, a floor enforcer: a `Reject` `GateResult` forces that factor to zero, so a rejected candidate's energy is zero and can never out-rank a passing one — but a high `D` can never flip a `Reject` into an `Accept`. Selection by energy is always a choice *among* candidates that have independently passed their gates. This is enforced by tests (`energy_ranks_but_never_bypasses_gate`, `rx-energy-reject-gate-never-bypassed`).
+
+---
+
+## AD-016 — Real code topology via dependency-free lexical extraction
+
+**Decision:** Upgrade `kosmo-hyphae::code_hdag` from the one-node skeleton to a real extractor, `CodeHDAG::extract_from_rust_source`, that lexically scans Rust source line-by-line and emits real nodes (modules, imports, fn/type/test definitions) and edges (`Imports`, `Contains`, `Tests`, `Implements`). It uses no parser dependency (`syn`/`tree-sitter`); each observation's `fragment_digest` is bound to its `location:line:text` so the graph is content-addressed down to the source line.
+
+**Rationale:** The first link of the vision chain ("echte Topologie rein") was missing — topology was crate/file-skeletal everywhere. A full AST parser would add a heavy dependency and would be slow for the pre/post diff use case. A lexical extractor captures the structurally meaningful skeleton (module/import/definition graph) cheaply, deterministically (INVARIANT-007), and wasm-portably, while honestly *not* claiming to resolve macros, multi-line signatures, or call graphs.
+
+**Topology → energy bridge:** `CodeHDAG::rho_coherence()` and `omega_phase()` derive the structural poles ρ and ω of the tripolar energy directly from the extracted graph (test coverage of definitions; presence of imports/definitions/tests). The semantic pole ψ is **not** derived from syntax — meaning cannot come from structure alone, so the caller supplies it. The derivations feed ranking only and never act as a gate.

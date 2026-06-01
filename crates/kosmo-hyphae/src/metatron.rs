@@ -10,7 +10,10 @@
 //! Fingerprint equality does NOT imply semantic equivalence.
 
 use crate::void_map::HostVoidKind;
-use kosmo_core::{Digest, PolicyProfile, Q16, TaintLabel};
+use kosmo_core::{
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, PolicyProfile, Q16, TaintLabel, TripolarEnergy,
+};
 use serde::{Deserialize, Serialize};
 
 // ─── Topology Region Reference ────────────────────────────────────────────────
@@ -192,6 +195,30 @@ impl SemanticLossRecord {
     pub fn is_lossless(&self) -> bool {
         self.loss_ratio == Q16::ZERO
     }
+
+    /// Build an [`EnergyAssessment`] for this loss record.
+    ///
+    /// - ψ (meaning)   = `loss_ratio` — high ψ means high semantic loss (most lossy lifts rank first).
+    /// - ρ (coherence) = `Q16::ONE` — no additional coherence data at loss record level.
+    /// - ω (phase)     = `Q16::ONE` — no phase data at loss record level.
+    /// - `evidence_bundle_id` = `region_id` — the HDAG region being projected (CROSS-006).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.loss_ratio, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.loss_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.region_id,
+        )
+    }
 }
 
 // ─── Metatron Micrograph ───────────────────────────────────────────────────────
@@ -303,6 +330,30 @@ impl MicrographLiftReport {
             loss_ratio,
             policy_id: micrograph.policy_id,
         }
+    }
+
+    /// Build an [`EnergyAssessment`] for this lift report.
+    ///
+    /// - ψ (meaning)   = `loss_ratio` — high ψ means high semantic loss (most lossy lifts rank first).
+    /// - ρ (coherence) = `Q16::ONE` — no additional coherence data at lift report level.
+    /// - ω (phase)     = `Q16::ONE` — no phase data at lift report level.
+    /// - `evidence_bundle_id` = `micrograph_id` — the lifted micrograph is the causal source (CROSS-006).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.loss_ratio, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.report_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.micrograph_id,
+        )
     }
 }
 
@@ -457,6 +508,30 @@ impl TopologyAmbiguityProfile {
             policy_id,
         }
     }
+
+    /// Build an [`EnergyAssessment`] for this ambiguity profile.
+    ///
+    /// - ψ (meaning)   = `confidence_score` — how confident the most likely interpretation is.
+    /// - ρ (coherence) = `Q16::ONE` — no additional coherence data at ambiguity level.
+    /// - ω (phase)     = `Q16::ONE` — no phase data at ambiguity level.
+    /// - `evidence_bundle_id` = `micrograph_id` — the micrograph containing this ambiguity (CROSS-006).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.confidence_score, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        EnergyAssessment::new(
+            self.profile_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            self.micrograph_id,
+        )
+    }
 }
 
 // ─── Complement Void Hypothesis ────────────────────────────────────────────────
@@ -508,6 +583,35 @@ impl ComplementVoidHypothesis {
             evidence_ids,
             policy_id,
         }
+    }
+
+    /// Build an [`EnergyAssessment`] for this void hypothesis.
+    ///
+    /// - ψ (meaning)   = `confidence_score` — how confident the hypothesis is (higher = more actionable).
+    /// - ρ (coherence) = `Q16::ONE` — no additional coherence data at hypothesis level.
+    /// - ω (phase)     = `Q16::ONE` — no phase data at hypothesis level.
+    /// - `evidence_bundle_id` = first non-ZERO entry in `evidence_ids`, else `micrograph_id` (CROSS-006).
+    pub fn energy_assessment(&self, gate: &GateResult) -> EnergyAssessment {
+        let tripolar = TripolarEnergy::new(self.confidence_score, Q16::ONE, Q16::ONE);
+        let factors = EnergyFactors {
+            gate: EnergyFactors::gate_factor(gate),
+            taint: Q16::ONE,
+            license: EnergyFactors::license_factor(&LicenseStatus::NotApplicable),
+            foundry: EnergyFactors::foundry_factor(FoundrySurvival::Unavailable),
+            seam: Q16::ONE,
+            contradiction: Q16::ONE,
+        };
+        let evidence_bundle_id = self.evidence_ids
+            .iter()
+            .find(|&&id| id != Digest::ZERO)
+            .copied()
+            .unwrap_or(self.micrograph_id);
+        EnergyAssessment::new(
+            self.hypothesis_id,
+            EnergyKernel::new(tripolar, factors),
+            self.policy_id,
+            evidence_bundle_id,
+        )
     }
 }
 
@@ -767,7 +871,7 @@ pub fn diagnose_micrograph(
 mod tests {
     use super::*;
     use crate::void_map::HostVoidKind;
-    use kosmo_core::{Digest, PolicyProfile, Q16, TaintLabel};
+    use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, TaintLabel};
 
     fn pid() -> Digest {
         Digest::of_bytes(b"p")
@@ -930,5 +1034,111 @@ mod tests {
         let p2 = RegionExtractionProfile::standard();
         assert_eq!(p1.profile_id, p2.profile_id);
         assert_ne!(p1.profile_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn semantic_loss_record_energy_assessment_content_addressed() {
+        let region_id = Digest::of_bytes(b"r");
+        let loss = SemanticLossRecord::new(region_id, vec![Digest::of_bytes(b"n")], 0, 4, pid());
+        let a1 = loss.energy_assessment(&GateResult::Pass);
+        let a2 = loss.energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, loss.loss_id);
+        assert_eq!(a1.evidence_bundle_id, loss.region_id, "evidence must be region_id");
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn semantic_loss_record_reject_gate_zeroes_energy() {
+        let region_id = Digest::of_bytes(b"r");
+        let loss = SemanticLossRecord::new(region_id, vec![Digest::of_bytes(b"n")], 0, 1, pid());
+        let a = loss.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero loss energy");
+    }
+
+    #[test]
+    fn micrograph_lift_report_energy_assessment_content_addressed() {
+        let policy = PolicyProfile::default_report_only();
+        let (_, _, report) = lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
+        let a1 = report.energy_assessment(&GateResult::Pass);
+        let a2 = report.energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, report.report_id);
+        assert_eq!(a1.evidence_bundle_id, report.micrograph_id, "evidence must be micrograph_id");
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn micrograph_lift_report_reject_gate_zeroes_energy() {
+        let policy = PolicyProfile::default_report_only();
+        let (_, _, report) = lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
+        let a = report.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero lift report energy");
+    }
+
+    #[test]
+    fn topology_ambiguity_energy_assessment_content_addressed() {
+        let policy = PolicyProfile::default_report_only();
+        let (micrograph, _, _) = lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
+        let profile = TopologyAmbiguityProfile::new(
+            micrograph.micrograph_id,
+            AmbiguityKind::Structural,
+            2,
+            Q16::HALF,
+            policy.id,
+        );
+        let a1 = profile.energy_assessment(&GateResult::Pass);
+        let a2 = profile.energy_assessment(&GateResult::Pass);
+        assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
+        assert_eq!(a1.subject_id, profile.profile_id);
+        assert_eq!(a1.evidence_bundle_id, profile.micrograph_id, "evidence must be micrograph_id");
+        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn topology_ambiguity_reject_gate_zeroes_energy() {
+        let policy = PolicyProfile::default_report_only();
+        let profile = TopologyAmbiguityProfile::new(
+            Digest::of_bytes(b"m"),
+            AmbiguityKind::Semantic,
+            3,
+            Q16::ONE,
+            policy.id,
+        );
+        let a = profile.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        assert!(a.kernel.is_zeroed(), "Reject gate must zero ambiguity energy");
+    }
+
+    #[test]
+    fn complement_void_hypothesis_energy_assessment_with_evidence() {
+        let policy = PolicyProfile::default_report_only();
+        let ev1 = Digest::of_bytes(b"e1");
+        let hypothesis = ComplementVoidHypothesis::new(
+            Digest::of_bytes(b"m"),
+            &HostVoidKind::Custom { description: "gap".into() },
+            Q16::HALF,
+            vec![ev1],
+            policy.id,
+        );
+        let a = hypothesis.energy_assessment(&GateResult::Pass);
+        assert_eq!(a.subject_id, hypothesis.hypothesis_id);
+        assert_eq!(a.evidence_bundle_id, ev1, "first non-ZERO evidence_id must be used");
+        assert_ne!(a.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+    }
+
+    #[test]
+    fn complement_void_hypothesis_falls_back_to_micrograph_id_when_no_evidence() {
+        let policy = PolicyProfile::default_report_only();
+        let micrograph_id = Digest::of_bytes(b"m");
+        let hypothesis = ComplementVoidHypothesis::new(
+            micrograph_id,
+            &HostVoidKind::Custom { description: "gap".into() },
+            Q16::HALF,
+            vec![],
+            policy.id,
+        );
+        let a = hypothesis.energy_assessment(&GateResult::Pass);
+        assert_eq!(a.evidence_bundle_id, micrograph_id, "fallback to micrograph_id when no evidence");
+        assert_ne!(a.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
     }
 }

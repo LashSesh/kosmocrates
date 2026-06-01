@@ -18,23 +18,25 @@
 
 pub mod aggregator;
 pub mod materialization;
+pub mod persistence;
 
 pub use aggregator::{AggregatedGateResult, GateTraceAggregator, LayerGateSummary};
 pub use materialization::{
     MaterializationOutcome, MaterializationPlan, OperatorApprovalToken,
     ParseBackExpectation, WorkbenchMaterializationTask, simulate_foundry_check,
 };
+pub use persistence::persist_cartography_update;
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
+use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, rank_by_energy};
 use kosmo_core::TaintLabel;
+use std::collections::BTreeMap;
 use kosmo_hyphae::{
-    CorpusCartography,
-    CorpusCartographyUpdate,
-    LpcmPassiveReport,
-    MicroTopologyDiagnostic,
-    Fragment, FragmentField, FragmentKind,
-    SeamGraph, SupportMassVector,
-    diagnose_micrograph, lift_region,
+    CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CubeSwarm,
+    CubeDimensionProfile, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
+    MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport,
+    MicroTopologyDiagnostic, MicroTopologyIndex, MorphogenicCorpusUpdate, NormGeneCandidate,
+    Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph, SupportMassVector,
+    TopologicalSurgeryOption, diagnose_micrograph, lift_region,
     passive_run, HyphaeRunResult,
 };
 use kosmo_systemcube::{
@@ -61,6 +63,12 @@ pub struct IntegrationRunOptions {
     pub systemcube_capacity: u32,
     /// Q16 seam compatibility threshold for LPCM reports.
     pub lpcm_seam_threshold: Q16,
+    /// Derive and energy-rank surgery options from Metatron diagnostics.
+    /// Only produces results when `enable_metatron` is also true.
+    pub enable_surgery: bool,
+    /// Generate energy-ranked `NormGeneCandidate` objects from accepted decisions.
+    /// Initial fitness = `Q16::ONE`; evolves via `NormFitnessTrace` in later phases.
+    pub enable_norm_candidates: bool,
 }
 
 impl IntegrationRunOptions {
@@ -72,6 +80,8 @@ impl IntegrationRunOptions {
             enable_systemcube: false,
             systemcube_capacity: 0,
             lpcm_seam_threshold: Q16::ZERO,
+            enable_surgery: false,
+            enable_norm_candidates: false,
         }
     }
 
@@ -83,6 +93,8 @@ impl IntegrationRunOptions {
             enable_systemcube: true,
             systemcube_capacity,
             lpcm_seam_threshold: Q16::ZERO,
+            enable_surgery: true,
+            enable_norm_candidates: true,
         }
     }
 }
@@ -94,10 +106,19 @@ impl IntegrationRunOptions {
 struct ReportContent {
     hyphae_run_id: Digest,
     cartography_update_id: Digest,
+    swarm_composite_id: Digest,
+    void_fill_delta_id: Digest,
+    collapse_plan_id: Digest,
+    morphogenic_update_id: Digest,
+    void_priority_count: u32,
     policy_id: Digest,
     aggregate_id: Digest,
     metatron_count: u32,
+    metatron_index_id: Digest,
+    lift_report_count: u32,
     lpcm_count: u32,
+    surgery_count: u32,
+    norm_candidate_count: u32,
     has_systemcube: bool,
 }
 
@@ -112,8 +133,33 @@ pub struct IntegrationRunReport {
     pub policy_id: Digest,
     pub hyphae_result: HyphaeRunResult,
     pub cartography_update: CorpusCartographyUpdate,
+    /// Phase 4: merged support cube from all accepted SourceCubes.
+    pub swarm_composite: CompositeSupportCube,
+    /// Phase 4: energy-ranked void-fill plan (always present; passive/advisory).
+    pub void_fill_delta: HostTargetDelta,
+    /// Phase 4c: planning-only collapse plan derived from void-fill delta.
+    pub collapse_plan: HostTargetCollapsePlan,
+    /// Phase 4d: morphogenic skeleton — records what the corpus would look like
+    /// after the collapse plan executes (planning only; no mutation).
+    pub morphogenic_update: MorphogenicCorpusUpdate,
     pub metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
+    /// Content-addressed index of all micrographs, fingerprints, and diagnostics from
+    /// the metatron run. Empty-index (zero-state) when `enable_metatron` is false.
+    pub metatron_index: MicroTopologyIndex,
+    /// Lift reports from M1 (one per void), energy-ranked by loss_ratio (most lossy first).
+    /// Populated when `enable_metatron` is true; empty otherwise.
+    pub lift_reports: Vec<MicrographLiftReport>,
+    /// Void IDs ranked by severity (highest first) via energy kernel.
+    /// Gives operators a prioritized repair order. Never empty when voids exist.
+    pub void_priority_ranking: Vec<Digest>,
     pub lpcm_reports: Vec<LpcmPassiveReport>,
+    /// Energy-ranked surgery options derived from Metatron diagnostics.
+    /// Empty when `enable_surgery` or `enable_metatron` is false.
+    pub surgery_options: Vec<TopologicalSurgeryOption>,
+    /// Energy-ranked norm gene candidates generated from accepted decisions.
+    /// Initial fitness = Q16::ONE; evolves via NormFitnessTrace in later phases.
+    /// Empty when `enable_norm_candidates` is false.
+    pub norm_candidates: Vec<NormGeneCandidate>,
     pub systemcube_export: Option<KcubeExportReport>,
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
@@ -124,8 +170,17 @@ impl IntegrationRunReport {
     fn new(
         hyphae_result: HyphaeRunResult,
         cartography_update: CorpusCartographyUpdate,
+        swarm_composite: CompositeSupportCube,
+        void_fill_delta: HostTargetDelta,
+        collapse_plan: HostTargetCollapsePlan,
+        morphogenic_update: MorphogenicCorpusUpdate,
+        void_priority_ranking: Vec<Digest>,
         metatron_diagnostics: Vec<MicroTopologyDiagnostic>,
+        metatron_index: MicroTopologyIndex,
+        lift_reports: Vec<MicrographLiftReport>,
         lpcm_reports: Vec<LpcmPassiveReport>,
+        surgery_options: Vec<TopologicalSurgeryOption>,
+        norm_candidates: Vec<NormGeneCandidate>,
         systemcube_export: Option<KcubeExportReport>,
         aggregated_gate: AggregatedGateResult,
         policy: &PolicyProfile,
@@ -134,10 +189,19 @@ impl IntegrationRunReport {
         let report_id = Digest::of(&ReportContent {
             hyphae_run_id: hyphae_result.run_id,
             cartography_update_id: cartography_update.update_id,
+            swarm_composite_id: swarm_composite.composite_id,
+            void_fill_delta_id: void_fill_delta.delta_id,
+            collapse_plan_id: collapse_plan.plan_id,
+            morphogenic_update_id: morphogenic_update.update_id,
+            void_priority_count: void_priority_ranking.len() as u32,
             policy_id: policy.id,
             aggregate_id: aggregated_gate.aggregate_id,
             metatron_count: metatron_diagnostics.len() as u32,
+            metatron_index_id: metatron_index.index_id,
+            lift_report_count: lift_reports.len() as u32,
             lpcm_count: lpcm_reports.len() as u32,
+            surgery_count: surgery_options.len() as u32,
+            norm_candidate_count: norm_candidates.len() as u32,
             has_systemcube: systemcube_export.is_some(),
         });
         Self {
@@ -145,8 +209,17 @@ impl IntegrationRunReport {
             policy_id: policy.id,
             hyphae_result,
             cartography_update,
+            swarm_composite,
+            void_fill_delta,
+            collapse_plan,
+            morphogenic_update,
+            void_priority_ranking,
             metatron_diagnostics,
+            metatron_index,
+            lift_reports,
             lpcm_reports,
+            surgery_options,
+            norm_candidates,
             systemcube_export,
             aggregated_gate,
             final_result,
@@ -162,14 +235,26 @@ impl IntegrationRunReport {
         };
         format!(
             "IntegrationRunReport — policy={:.8} | final={:?} | \
-             hyphae: {} | cartography: {} entities | \
-             metatron: {} | lpcm: {} | {}",
+             hyphae: {} | cartography: {} entities | voids (priority): {} | \
+             swarm: {} cubes → {:?} | collapse: {} steps ({:?}) | \
+             morphogenic: {:.8} | metatron: {} (index: {:.8}, lift: {}) | lpcm: {} | \
+             surgery: {} | norm_candidates: {} | {}",
             hex_prefix(&self.policy_id),
             self.final_result,
             self.hyphae_result.summary(),
             self.cartography_update.added_entity_ids.len(),
+            self.void_priority_ranking.len(),
+            self.swarm_composite.source_cube_ids.len(),
+            self.void_fill_delta.status,
+            self.collapse_plan.step_count(),
+            self.collapse_plan.status,
+            hex_prefix(&self.morphogenic_update.update_id),
             self.metatron_diagnostics.len(),
+            hex_prefix(&self.metatron_index.index_id),
+            self.lift_reports.len(),
             self.lpcm_reports.len(),
+            self.surgery_options.len(),
+            self.norm_candidates.len(),
             scube,
         )
     }
@@ -186,9 +271,16 @@ impl IntegrationRunReport {
         let pid = self.policy_id;
         self.hyphae_result.policy_id == pid
             && self.cartography_update.policy_id == pid
+            && self.swarm_composite.policy_id == pid
+            && self.void_fill_delta.policy_id == pid
+            && self.collapse_plan.policy_id == pid
+            && self.morphogenic_update.policy_id == pid
             && self.aggregated_gate.policy_id == pid
             && self.metatron_diagnostics.iter().all(|d| d.policy_id == pid)
+            && self.metatron_index.policy_id == pid
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
+            && self.surgery_options.iter().all(|o| o.policy_id == pid)
+            && self.norm_candidates.iter().all(|c| c.policy_id == pid)
             && self
                 .systemcube_export
                 .as_ref()
@@ -234,6 +326,13 @@ pub fn run_dry_pipeline(
     };
     agg.record("hyphae", hyphae.run_id, hyphae_gate);
 
+    // ── 1b. Void priority ranking — severity-ordered repair queue ─────────────
+    // Computed once from the void_map; always present, costs only a sort.
+    let void_priority_ranking = hyphae
+        .host_cube
+        .void_map
+        .priority_ranking(&GateResult::Pass);
+
     // ── 2. CorpusCartography update ───────────────────────────────────────────
     let corpus = CorpusCartography::empty(policy.id);
     let (_, cartography_update) = corpus.update_from_run(&hyphae);
@@ -245,10 +344,12 @@ pub fn run_dry_pipeline(
 
     // ── 3. Optional Metatron v0.4.1 diagnostics ───────────────────────────────
     let mut metatron_diagnostics: Vec<MicroTopologyDiagnostic> = Vec::new();
+    let mut raw_lift_reports: Vec<MicrographLiftReport> = Vec::new();
+    let mut metatron_triples: Vec<(MetatronMicrograph, MetatronRegionFingerprint, MicroTopologyDiagnostic)> = Vec::new();
     if options.enable_metatron {
         for void in &hyphae.host_cube.void_map.voids {
             let ev_id = void.void_id;
-            let (micrograph, fingerprint, _loss) =
+            let (micrograph, fingerprint, lift_report) =
                 lift_region(void.void_id, vec![void.void_id], ev_id, TaintLabel::Synthetic, policy);
             let diag = diagnose_micrograph(&micrograph, &fingerprint, Some(&void.kind), policy);
             agg.record(
@@ -256,9 +357,45 @@ pub fn run_dry_pipeline(
                 diag.diagnostic_id,
                 GateResult::Pass,
             );
-            metatron_diagnostics.push(diag);
+            metatron_diagnostics.push(diag.clone());
+            raw_lift_reports.push(lift_report);
+            metatron_triples.push((micrograph, fingerprint, diag));
         }
     }
+    // ── 3c. Energy-rank lift reports by loss_ratio (most lossy first) ─────────
+    let lift_reports: Vec<MicrographLiftReport> = {
+        let assessments: Vec<_> = raw_lift_reports.iter()
+            .map(|r| r.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        ranked.iter()
+            .filter_map(|a| raw_lift_reports.iter().find(|r| r.report_id == a.subject_id).cloned())
+            .collect()
+    };
+    // ── 3d. MicroTopologyIndex — content-addressed index of all metatron output ─
+    let metatron_index: MicroTopologyIndex = metatron_triples
+        .iter()
+        .fold(MicroTopologyIndex::empty(policy.id), |idx, (m, f, d)| idx.add(m, f, d));
+
+    // ── 3b. Optional surgery — energy-ranked options from Metatron diagnostics ─
+    // Only runs when both Metatron and surgery are enabled; requires diagnostics.
+    let surgery_options: Vec<TopologicalSurgeryOption> =
+        if options.enable_surgery && options.enable_metatron {
+            let raw: Vec<TopologicalSurgeryOption> = metatron_diagnostics
+                .iter()
+                .flat_map(|diag| TopologicalSurgeryOption::from_diagnostic(diag, policy))
+                .collect();
+            let assessments: Vec<_> = raw.iter()
+                .map(|o| o.energy_assessment(&GateResult::Pass))
+                .collect();
+            let ranked = rank_by_energy(&assessments);
+            // Reorder raw options to match energy ranking.
+            ranked.iter()
+                .filter_map(|a| raw.iter().find(|o| o.option_id == a.subject_id).cloned())
+                .collect()
+        } else {
+            Vec::new()
+        };
 
     // ── 4. Optional LPCM v0.4.2 passive reports ───────────────────────────────
     let mut lpcm_reports: Vec<LpcmPassiveReport> = Vec::new();
@@ -294,6 +431,113 @@ pub fn run_dry_pipeline(
         }
     }
 
+    // ── 4b. Phase 4 CubeSwarm — energy-ranked void-fill plan ─────────────────
+    // Build seam_map from LPCM reports (when available): per-void seam coherence
+    // = fraction of seam edges that are compatible with the threshold.
+    let seam_map: BTreeMap<Digest, Q16> = lpcm_reports
+        .iter()
+        .map(|r| {
+            let total = r.seam_graph.edges.len() as u64;
+            let compatible = r
+                .seam_graph
+                .compatible_edges(options.lpcm_seam_threshold)
+                .len() as u64;
+            let coherence = if total == 0 {
+                Q16::ONE
+            } else {
+                Q16::ratio(compatible, total).unwrap_or(Q16::ONE)
+            };
+            (r.host_void_id, coherence)
+        })
+        .collect();
+
+    // Build SourceCubes from accepted decisions. intents and decisions are
+    // produced in lockstep by passive_run, so zip is safe.
+    let source_cubes: Vec<SourceCube> = hyphae
+        .frontier
+        .intents
+        .iter()
+        .zip(hyphae.decisions.iter())
+        .filter(|(_, d)| d.outcome.is_accepted())
+        .map(|(intent, decision)| {
+            SourceCube::new(
+                intent.target_void_id,
+                format!("intent:{}", &decision.yield_id.to_hex()[..16]),
+                CubeDimensionProfile::empty(),
+                Q16::ONE,
+                intent.taint.clone(),
+                decision.evidence_bundle_id,
+                policy.id,
+            )
+        })
+        .collect();
+
+    let swarm = CubeSwarm::new(policy.clone(), source_cubes.clone());
+    let (_workers, swarm_composite) = swarm.run();
+
+    let host_void_ids: Vec<Digest> = hyphae.host_cube.void_map.voids.iter().map(|v| v.void_id).collect();
+    let void_fill_delta = HostTargetDelta::from_source_cubes(
+        hyphae.host_cube.cube_id,
+        &host_void_ids,
+        swarm_composite.composite_id,
+        &source_cubes,
+        &seam_map,
+        policy.id,
+    );
+    agg.record("void_fill_plan", void_fill_delta.delta_id, GateResult::Pass);
+
+    // ── 4c. HostTargetCollapsePlan — planning-only, zero host writes ──────────
+    let collapse_plan = HostTargetCollapsePlan::from_delta(&void_fill_delta, policy.id);
+
+    // ── 4d. MorphogenicCorpusUpdate skeleton — corpus state after collapse ────
+    // Skeleton only: records what the corpus would look like if the collapse plan
+    // executed. No mutation; planning artifact derived from steps 2 + 4c.
+    let morphogenic_update = MorphogenicCorpusUpdate::skeleton(
+        cartography_update.update_id,
+        collapse_plan.plan_id,
+        policy.id,
+    );
+
+    // ── 5b. Optional norm candidates — from accepted decisions ────────────────
+    // One NormGeneCandidate per accepted decision: name derived from void/yield,
+    // initial fitness = Q16::ONE (just accepted). Evidence = decision's evidence_bundle_id
+    // (causal chain: accepted decision → norm gene). Energy-ranked by fitness D.
+    let norm_candidates: Vec<NormGeneCandidate> = if options.enable_norm_candidates {
+        let raw: Vec<NormGeneCandidate> = hyphae
+            .frontier
+            .intents
+            .iter()
+            .zip(hyphae.decisions.iter())
+            .filter(|(_, d)| d.outcome.is_accepted())
+            .map(|(intent, decision)| {
+                let void_hex = intent.target_void_id
+                    .map(|id| id.to_hex()[..16].to_string())
+                    .unwrap_or_else(|| decision.yield_id.to_hex()[..16].to_string());
+                let name = format!("norm:void:{}", void_hex);
+                let description = format!(
+                    "Norm gene from accepted decision for void {}",
+                    void_hex
+                );
+                NormGeneCandidate::new(
+                    name,
+                    description,
+                    Q16::ONE,
+                    decision.evidence_bundle_id,
+                    policy.id,
+                )
+            })
+            .collect();
+        let assessments: Vec<_> = raw.iter()
+            .map(|c| c.energy_assessment(&GateResult::Pass))
+            .collect();
+        let ranked = rank_by_energy(&assessments);
+        ranked.iter()
+            .filter_map(|a| raw.iter().find(|c| c.candidate_id == a.subject_id).cloned())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
     let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
         let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
@@ -326,8 +570,17 @@ pub fn run_dry_pipeline(
     IntegrationRunReport::new(
         hyphae,
         cartography_update,
+        swarm_composite,
+        void_fill_delta,
+        collapse_plan,
+        morphogenic_update,
+        void_priority_ranking,
         metatron_diagnostics,
+        metatron_index,
+        lift_reports,
         lpcm_reports,
+        surgery_options,
+        norm_candidates,
         systemcube_export,
         aggregated_gate,
         policy,
@@ -416,6 +669,8 @@ mod tests {
             enable_systemcube: false,
             systemcube_capacity: 0,
             lpcm_seam_threshold: Q16::ZERO,
+            enable_surgery: false,
+            enable_norm_candidates: false,
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         assert_eq!(
@@ -574,5 +829,130 @@ mod tests {
         let s = r.summary();
         assert!(!s.is_empty());
         assert!(s.contains("IntegrationRunReport"));
+    }
+
+    // ── MicroTopologyIndex from Metatron ──────────────────────────────────────
+
+    #[test]
+    fn pipeline_metatron_index_empty_when_metatron_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.metatron_index.micrograph_ids.is_empty(), "index must be empty when Metatron disabled");
+        assert!(r.metatron_index.diagnostic_ids.is_empty());
+    }
+
+    #[test]
+    fn pipeline_metatron_index_has_one_entry_per_void() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let void_count = r.hyphae_result.host_cube.void_count();
+        assert_eq!(r.metatron_index.micrograph_ids.len(), void_count, "one micrograph per void");
+        assert_eq!(r.metatron_index.diagnostic_ids.len(), void_count, "one diagnostic per void");
+        assert_ne!(r.metatron_index.index_id, Digest::ZERO, "index_id must be non-ZERO");
+    }
+
+    #[test]
+    fn pipeline_metatron_index_is_deterministic() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert_eq!(r1.metatron_index.index_id, r2.metatron_index.index_id, "metatron_index must be deterministic");
+    }
+
+    #[test]
+    fn pipeline_metatron_index_carries_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        assert_eq!(r.metatron_index.policy_id, p.id, "metatron_index must carry pipeline policy_id");
+        assert!(r.verify_policy_consistency(), "verify_policy_consistency must cover metatron_index");
+    }
+
+    // ── Lift reports from Metatron ────────────────────────────────────────────
+
+    #[test]
+    fn pipeline_no_lift_reports_when_metatron_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.lift_reports.is_empty(), "lift_reports must be empty when Metatron is disabled");
+    }
+
+    #[test]
+    fn pipeline_lift_reports_one_per_void_when_metatron_enabled() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        assert_eq!(
+            r.lift_reports.len(),
+            r.hyphae_result.host_cube.void_count(),
+            "one lift report per host void"
+        );
+        for rep in &r.lift_reports {
+            assert_ne!(rep.report_id, Digest::ZERO, "lift_report.report_id must be non-ZERO");
+        }
+    }
+
+    #[test]
+    fn pipeline_lift_reports_are_deterministic() {
+        let opts = IntegrationRunOptions {
+            enable_metatron: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let ids1: Vec<_> = r1.lift_reports.iter().map(|r| r.report_id).collect();
+        let ids2: Vec<_> = r2.lift_reports.iter().map(|r| r.report_id).collect();
+        assert_eq!(ids1, ids2, "lift_reports must be deterministic");
+    }
+
+    // ── Norm candidates optional layer ────────────────────────────────────────
+
+    #[test]
+    fn pipeline_no_norm_candidates_when_disabled() {
+        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        assert!(r.norm_candidates.is_empty(), "norm_candidates must be empty when disabled");
+    }
+
+    #[test]
+    fn pipeline_norm_candidates_generated_from_accepted_decisions() {
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let accepted_count = r.hyphae_result.decisions.iter().filter(|d| d.outcome.is_accepted()).count();
+        assert_eq!(
+            r.norm_candidates.len(),
+            accepted_count,
+            "one norm candidate per accepted decision"
+        );
+        for c in &r.norm_candidates {
+            assert_eq!(c.fitness_score, Q16::ONE, "initial fitness must be Q16::ONE");
+            assert!(c.name.starts_with("norm:void:"), "candidate name must encode target void");
+            assert_ne!(c.candidate_id, Digest::ZERO, "candidate_id must be non-ZERO");
+            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        }
+    }
+
+    #[test]
+    fn pipeline_norm_candidates_carry_correct_policy_id() {
+        let opts = IntegrationRunOptions {
+            enable_norm_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let p = policy();
+        let r = run_dry_pipeline(&fixture_index(), &opts, &p);
+        for c in &r.norm_candidates {
+            assert_eq!(c.policy_id, p.id, "norm candidate must carry pipeline policy_id");
+        }
     }
 }

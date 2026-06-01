@@ -1,8 +1,122 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 11 — Operator-Approved Materialization** — COMPLETE  
-**All planned phases complete. Corpus fully implemented.**
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
+
+- **738 substrate tests** (kosmo-core 339, kosmo-hyphae 169, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 59) — 0 failures
+- **102/102 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
+- **`MicroTopologyIndex` assembled in pipeline** ✅
+
+### MicroTopologyIndex Pipeline Integration — Step 3d (2026-06-01)
+- [x] Pipeline Step 3d: fold `(micrograph, fingerprint, diagnostic)` triples into `MicroTopologyIndex` after metatron loop
+- [x] `IntegrationRunReport.metatron_index: MicroTopologyIndex` (empty-state when Metatron disabled)
+- [x] `ReportContent.metatron_index_id` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `metatron_index.policy_id`
+- [x] `summary()` reports `metatron_index.index_id` prefix
+- [x] 4 new pipeline tests (59 total); 2 new `RX:Pipeline` eval scenarios (102 total)
+
+### TopologyAmbiguityProfile + ComplementVoidHypothesis energy_assessment (2026-06-01)
+- [x] `TopologyAmbiguityProfile::energy_assessment(gate)` — ψ=`confidence_score`; `evidence_bundle_id=micrograph_id` (CROSS-006)
+- [x] `ComplementVoidHypothesis::energy_assessment(gate)` — ψ=`confidence_score`; evidence = first non-ZERO `evidence_ids` entry, else `micrograph_id` (CROSS-006)
+- [x] 4 new metatron.rs tests (169 hyphae tests total)
+
+### SemanticLossRecord + MicrographLiftReport energy_assessment + Pipeline Step 3c (2026-06-01)
+- [x] `SemanticLossRecord::energy_assessment(gate)` — ψ=`loss_ratio`; `evidence_bundle_id=region_id` (CROSS-006)
+- [x] `MicrographLiftReport::energy_assessment(gate)` — ψ=`loss_ratio`; `evidence_bundle_id=micrograph_id` (CROSS-006)
+- [x] Pipeline Step 3c: `lift_reports: Vec<MicrographLiftReport>` in `IntegrationRunReport` — one per void when Metatron enabled, energy-ranked by `loss_ratio`
+- [x] `ReportContent.lift_report_count` participates in `report_id`
+- [x] `summary()` reports lift_reports count alongside metatron diagnostics
+- [x] 4 new metatron.rs tests + 3 new pipeline tests; 2 new `RX:Pipeline` eval scenarios (100 total)
+
+### Resonite + CubeMandorla + CompositeSupportCube energy_assessment (2026-06-01)
+- [x] `Resonite::energy_assessment(gate)` — ψ=`resonance_score`; symmetric (r(a,b)≡r(b,a)); `evidence_bundle_id=resonite_id`
+- [x] `CubeMandorla::energy_assessment(gate)` — ψ=`overlap_score`; `evidence_bundle_id=mandorla_id`
+- [x] `CompositeSupportCube::energy_assessment(gate)` — ψ=`aggregate_support`; `evidence_bundle_id=composite_id`
+- [x] All three use self-referential content addresses as evidence (CROSS-006: no new fields needed)
+- [x] 3 crystal.rs tests + 4 swarm.rs tests (6 total new tests)
+
+### NormGeneCandidate Pipeline Integration — Step 5b (2026-06-01)
+- [x] `enable_norm_candidates: bool` in `IntegrationRunOptions` (default false)
+- [x] Pipeline Step 5b: one `NormGeneCandidate` per accepted decision; initial `fitness_score = Q16::ONE`; `evidence_bundle_id = decision.evidence_bundle_id` (CROSS-006)
+- [x] `IntegrationRunReport.norm_candidates: Vec<NormGeneCandidate>` (energy-ranked)
+- [x] `ReportContent.norm_candidate_count` participates in `report_id`
+- [x] `verify_policy_consistency()` covers `norm_candidates[i].policy_id`
+- [x] `summary()` reports `norm_candidates` count
+- [x] 3 new pipeline unit tests (52 total); 2 new `RX:Pipeline` eval scenarios (98 total)
+
+### Void Priority Ranking — Pipeline Step 1b (2026-06-01)
+- [x] `HostVoid::energy_assessment(gate, policy_id)` — ψ=`severity`; `evidence_bundle_id=void_id` (CROSS-006 self-referential content address)
+- [x] `TopologicalVoidMap::priority_ranking(gate)` — severity-ordered void repair queue via `rank_by_energy`; ties broken by `void_id`
+- [x] Pipeline Step 1b: `void_priority_ranking: Vec<Digest>` in every `IntegrationRunReport`
+- [x] `ReportContent.void_priority_count` participates in `report_id`
+- [x] `summary()` reports `voids: N (priority ranked)`
+- [x] 5 new void_map.rs unit tests; 2 new `RX:Pipeline` eval scenarios (96 total, 709 substrate tests)
+
+### Surgery Energy Assessment + Pipeline Step 3b (2026-06-01)
+- [x] `TopologicalSurgeryOption::energy_assessment(gate)` — ψ=`confidence_score`; `evidence_bundle_id=diagnostic_id` (CROSS-006)
+- [x] Pipeline Step 3b: energy-ranked surgery options from Metatron diagnostics
+- [x] `IntegrationRunOptions.enable_surgery: bool` (default false; requires `enable_metatron`)
+- [x] `IntegrationRunReport.surgery_options: Vec<TopologicalSurgeryOption>` (energy-ranked)
+- [x] `verify_policy_consistency()` covers surgery options
+- [x] 4 new surgery.rs unit tests; 3 new `RX:Pipeline` eval scenarios (94 total)
+
+### from_host_and_composite removed + MorphogenicCorpusUpdate as Step 4d (2026-06-01)
+- [x] `HostTargetDelta::from_host_and_composite` removed (raw `max_by_key` violation); tests migrated to `from_source_cubes`
+- [x] Pipeline Step 4d: `MorphogenicCorpusUpdate::skeleton(cartography_update_id, collapse_plan_id, policy_id)`
+- [x] `IntegrationRunReport.morphogenic_update` + `verify_policy_consistency()` + `summary()` + `ReportContent`
+- [x] 2 new `RX:Pipeline` eval scenarios (91 total)
+
+### JsonlCartographyStore Persistence in Pipeline (2026-06-01)
+- [x] `CartographyEntryKind::CartographyUpdate` added to kosmo-core
+- [x] `kosmo-store` dep added to kosmo-pipeline
+- [x] `persist_cartography_update(update, path, scope, policy)` in new `persistence` module
+- [x] Policy-gated: fails with `PolicyDenied` if `allow_host_write == false`
+- [x] CROSS-006: `evidence_bundle_id = update.update_id` (non-ZERO content ref)
+- [x] 3 unit tests in persistence.rs; 2 new `RX:Pipeline` eval scenarios (89 total)
+
+### StructuralCrystalCandidate Energy Assessment (2026-06-01)
+- [x] `energy_assessment(gate)` added to `StructuralCrystalCandidate`
+- [x] taint = Q16::ONE (quarantined yields rejected at gate cascade, never candidates)
+- [x] 3 new crystal.rs unit tests; 2 new `RX:EnergyRanking` scenarios (87 total)
+
+### Phase 4c HostTargetCollapsePlan Pipeline Weld (2026-06-01)
+- [x] `run_dry_pipeline` Step 4c: `HostTargetCollapsePlan::from_delta(&void_fill_delta, policy.id)` — zero-cost, no host writes
+- [x] `IntegrationRunReport` carries `collapse_plan: HostTargetCollapsePlan`
+- [x] `ReportContent` gains `collapse_plan_id` — collapse plan changes the report_id
+- [x] `verify_policy_consistency()` covers `collapse_plan.policy_id`
+- [x] `summary()` reports step count and `CollapsePlanStatus`
+- [x] 3 new `RX:Pipeline` eval scenarios (85 total): PlanningOnly status, policy traceability, content-addressing
+
+### MotifCandidate Policy Alignment + SeamGraph → Energy Wiring (2026-06-01)
+- [x] `MotifCandidate` gains `policy_id` field, updated content addressing, `energy_assessment(gate)`
+- [x] `SourceCube::energy_assessment` gains `seam_coherence: Q16` parameter
+- [x] `HostTargetDelta::from_source_cubes` gains `seam_map: &BTreeMap<Digest, Q16>`
+- [x] Pipeline Step 4b moved after LPCM; seam_map built from lpcm_reports
+- [x] 2 new `RX:EnergyRanking` scenarios (82/82 total); 682 substrate tests, 0 failures
+
+### Phase 4 CubeSwarm + HostTargetDelta Pipeline Integration (2026-06-01)
+- [x] `run_dry_pipeline` Step 2b: accepted decisions → SourceCubes → CubeSwarm → CompositeSupportCube
+- [x] `HostTargetDelta::from_source_cubes` called (energy-ranked, not raw Q16)
+- [x] `IntegrationRunReport` carries `swarm_composite` + `void_fill_delta`
+- [x] `verify_policy_consistency()` covers swarm + delta policy_ids
+- [x] 4 `RX:Pipeline` scenarios all pass (80/80 total)
+
+### Energy Kernel Adoption in Selection Paths (2026-06-01)
+- [x] `SourceCube::energy_assessment(gate, license, foundry)` — ψ=support_score, ρ=avg profile coverage
+- [x] `NormGeneCandidate::energy_assessment(gate)` — ψ=fitness_score, fail-closed gate
+- [x] `HostTargetDelta::from_source_cubes` replaces raw `.max_by_key` with `rank_by_energy`
+- [x] 4 `RX:EnergyRanking` scenarios all pass (76/76 total)
+- [x] Proven: quarantined taint beats higher raw support_score in ranking
+
+### PSE Feedback Loop — "Wissen zurück ins Substrat" (2026-06-01)
+- [x] `FeedbackOutcome` + `PromotionFeedback` in `kosmo-core` (circular dep avoidance)
+- [x] `fitness_signal` mapping: Accepted→energy, Deferred→¼, Rejected/Skipped→0
+- [x] `CartographyEntryKind::PromotionFeedback` variant
+- [x] `build_promotion_feedback` in `kosmo-pse-bridge`
+- [x] `NormFitnessTrace::observe_from_feedback` in `kosmo-hyphae`
+- [x] 4 `RX:FeedbackLoop` eval scenarios all pass (72/72 total)
 
 ## Completed Steps
 
@@ -371,3 +485,118 @@ Spec: `KOSMO_OPS_01_STATUS.md`. Branch: `claude/kosmo-ops-01-operationalization`
 
 ## Open Blockers
 None. KOSMO-OPS-01 staircase R0–RX is fully implemented.
+
+---
+
+# KOSMO-TOPO-ENERGY-01 — Real Topology In, Tripolar Energy On It (2026-05-31)
+
+Front of the production-machine vision chain:
+`real topology in → tripolar energy → (blueprint out → validation → feedback)`.
+This round delivered the first two links.
+
+### TE-1 — Unified tripolar energy kernel (`kosmo-core::energy`)
+- [x] `TripolarEnergy { psi, rho, omega }` — `D = ψ·ρ·ω`, Q16 integer arithmetic, no floats (CROSS-007)
+- [x] `EnergyFactors` — gate/taint/license/foundry/seam/contradiction, each `[0,1]`, derived fail-closed from `GateResult`/`TaintLabel`/`LicenseStatus`/`FoundrySurvival`
+- [x] `EnergyKernel` — `D · ∏ factors`; `EnergyAssessment` content-addressed + evidence-bound
+- [x] `rank_by_energy` — deterministic, tie-break on `subject_id`, never drops a candidate
+- [x] **Non-bypass invariant (CROSS-010):** `Reject` → gate factor 0 → energy 0; energy ranks but never gates
+- [x] 20 unit tests
+
+### TE-2 — Real code topology extraction (`kosmo-hyphae::code_hdag`)
+- [x] `CodeHDAG::extract_from_rust_source` — dependency-free lexical extractor
+- [x] Nodes: modules, imports, fn defs, type defs, tests; edges: `Imports`/`Contains`/`Tests`/`Implements`
+- [x] Content-addressed to `location:line:text`; deterministic (INVARIANT-007); new `Contains` edge kind; content-address now covers full edge wiring
+- [x] Topology→energy bridge: `rho_coherence()`, `omega_phase()`, `energy_kernel()`, `energy_assessment()` (ψ caller-supplied; ρ, ω derived from graph)
+- [x] 12 new unit tests
+
+### TE-3 — Empirical benchmark (`tools/kosmo-eval`)
+- [x] +5 `RX:Energy` scenarios (tripolar exactness, gate non-bypass, hard-state zeroing, content-addressing, deterministic ranking)
+- [x] +3 `RX:Topology` scenarios (real-graph extraction, deterministic extraction, full topology→energy chain)
+- [x] 60/60 scenarios pass, EXIT 0; `kosmo-eval` now depends on `kosmo-hyphae`
+
+### Maintenance
+- [x] Fixed two pre-existing `-D warnings` failures (unused imports in `cartography.rs` and `kosmo-operator`)
+
+| Phase | Crate | Tests |
+|---|---|---|
+| TE-1 | kosmo-core (energy) | 20 |
+| TE-2 | kosmo-hyphae (code_hdag) | 12 new (139 crate total) |
+| TE-3 | kosmo-eval | 60 scenarios |
+
+**Total: 646 substrate tests (was 614). 0 failures. 0 warnings. 60/60 eval scenarios pass.**
+
+### Decisions
+AD-015 (tripolar energy kernel + non-bypass invariant), AD-016 (lexical topology extraction + topology→energy bridge).
+
+---
+
+# KOSMO-KCUBE-01 — Real `.kcube` Archive Executor (2026-06-01)
+
+Delivers "Blueprint raus + Realitätstest drüber": the host-capability bridge
+that turns a `KcubeExportPolicy`-gated artifact list into a real `.kcube` file
+on disk (and reads it back for import/verify workflows).
+
+### KC-1 — `kosmo-kcube` executor crate
+- [x] `KcubeArtifact { kind, path, bytes }` — typed input to the write operation
+- [x] `KcubeExecutor::write` — deterministic framed binary archive, artifacts sorted by path, roundtrip SHA-256 verify
+- [x] `KcubeExecutor::read` / `parse_kcube_file` — deserializes the manifest back to `KcubePackage`
+- [x] `kcube_file_name(scope, sequence)` — safe slug + sequence → `{scope}-seq{n}.kcube`
+- [x] Policy gates: `allow_write=false` → `DeniedByPolicy` (no disk touch); artifact kind allowlist; overwrite guard
+- [x] `require_roundtrip_verification=true` (default): re-reads file, compares artifact-section SHA-256
+- [x] `KcubeReadError` — typed error variants (too-short / bad-magic / bad-version / truncated sections / parse error)
+- [x] CROSS-006: `evidence_bundle_id ≠ ZERO` in every report variant
+- [x] CROSS-007: no floats (`written_bytes`, `elapsed_ms` are `u64`)
+- [x] INVARIANT-007: `KcubeWriteReport.verify_id()` and `KcubePackage.verify_id()` pass after roundtrip read
+- [x] 25 unit tests; 0 new external dependencies
+
+### KC-2 — Empirical benchmark (`tools/kosmo-eval`)
+- [x] +5 `RX:Kcube` scenarios: deny when `allow_write=false`, write+roundtrip, content-addressed package, overwrite guard, `read` parses manifest
+- [x] 65/65 scenarios pass, EXIT 0
+
+| Phase | Crate | Tests |
+|---|---|---|
+| TE-1 | kosmo-core (energy) | 20 |
+| TE-2 | kosmo-hyphae (code_hdag) | 12 new (139 crate total) |
+| TE-3 | kosmo-eval (energy+topology) | 60 scenarios |
+| KC-1 | kosmo-kcube | 25 |
+| KC-2 | kosmo-eval (kcube) | 65 scenarios |
+
+**Total: 673 substrate tests (was 646). 0 failures. 0 warnings. 65/65 eval scenarios pass.**
+
+---
+
+# KOSMO-SCKCUBE-01 — SystemCube → .kcube Weld (2026-06-01)
+
+Closes the "Blueprint raus" vision link: `SystemCube` can now write a real
+`.kcube` archive to disk via the `KcubeExecutor`.
+
+### SC-1 — `SystemCube::export_to_kcube` + `PolicyProfile::operator_approved_with_systemcube`
+- [x] `SystemCube::export_to_kcube(executor, capacity, export_policy, op_policy, evidence_bundle_id, sequence) -> KcubeWriteReport`
+- [x] `SystemCube::to_kcube_artifacts` — serializes manifest, export assessment, and accepted blueprint units into `Vec<KcubeArtifact>`
+- [x] `PolicyProfile::operator_approved_with_systemcube` — new constructor enabling `allow_systemcube_materialization = true`
+- [x] Policy gate: `allow_systemcube_materialization = false` → `SkippedByReportOnly` without touching filesystem
+- [x] Artifact kinds: `CartographyManifest`, `ValidationClosureReport`, `StructuralCrystal` (one per accepted unit)
+- [x] CROSS-006: evidence bound in every report variant; INVARIANT-007: `verify_id()` passes on all outputs
+- [x] 5 new unit tests in `kosmo-systemcube`; `kosmo-systemcube` gains `kosmo-kcube` dependency
+
+### SC-2 — Empirical benchmark (`tools/kosmo-eval`)
+- [x] +3 `RX:SystemCubeKcube` scenarios: blocked by default policy, write creates archive, archive parses back
+- [x] 68/68 scenarios pass, EXIT 0
+
+| Phase | Crate | Tests |
+|---|---|---|
+| TE-1 | kosmo-core (energy) | 20 |
+| TE-2 | kosmo-hyphae (code_hdag) | 12 new (139 crate total) |
+| TE-3 | kosmo-eval (energy+topology) | 60 scenarios |
+| KC-1 | kosmo-kcube | 25 |
+| KC-2 | kosmo-eval (kcube) | 65 scenarios |
+| SC-1 | kosmo-systemcube (weld) | 5 new (41 crate total) |
+| SC-2 | kosmo-eval (systemcube-kcube) | 68 scenarios |
+
+**Total: 678 substrate tests (was 673). 0 failures. 0 warnings. 68/68 eval scenarios pass.**
+
+## Open Blockers (SCKCUBE)
+None. Remaining bridges in priority order:
+1. Adopt `EnergyKernel` for `SourceCube`/`BlueprintUnit`/`NormGene` ranking (kernel available; legacy heuristics still alongside it).
+2. Close the PSE feedback loop (`kosmo-pse-bridge` is candidate-only / one-directional; no path from PSE `SemanticCrystal` back to `CorpusCartography`/`NormGene`).
+3. Cross-language materialization: weld the `.kcube` reader/importer to a consumer outside the Rust substrate.

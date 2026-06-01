@@ -122,6 +122,34 @@ Identical inputs produce byte-identical outputs. All collections are
 sorted before hashing; all maps use `BTreeMap`; no `HashMap` or
 `HashSet` appears in any content-addressed path.
 
+### Unified tripolar energy — ranks but never gates
+
+`kosmo-core::energy` provides the single selection core `D = ψ · ρ · ω`
+(meaning · coherence · phase), in `Q16` integer arithmetic, modulated by
+six fail-closed `[0,1]` factors (gate, taint, license, foundry, seam,
+contradiction). It replaces the substrate's previously-fragmented
+heuristics with one consistent scalar.
+
+The hard invariant (CROSS-010): **energy ranks, it never gates.** A
+`Reject` `GateResult` forces the `gate` factor to zero, so a rejected
+candidate's energy is zero and can never out-rank a passing one — but a
+high `D` can never flip a `Reject` into an `Accept`. There is no method
+on the kernel that turns an energy value into a decision or policy
+escalation. Selection by energy is always a choice *among* gate-passed
+candidates.
+
+```rust
+let k = EnergyKernel::new(
+    TripolarEnergy::unit(),                 // D = 1, maximal
+    EnergyFactors::derive(
+        &GateResult::Reject { reason: "no evidence".into() },
+        &TaintLabel::Clean, &LicenseStatus::Permissive { spdx: "MIT".into() },
+        FoundrySurvival::Passed, Q16::ONE, Q16::ZERO,
+    ),
+);
+assert!(k.is_zeroed());                      // Reject ⇒ zero energy, always
+```
+
 ---
 
 ## Cross-cutting acceptance constraints
@@ -155,6 +183,7 @@ policy enforcement.
 |---|---|
 | `digest.rs` | `Digest` (SHA-256 newtype), `canonical_bytes` (JCS), `Digest::of<T>()` |
 | `fixed_point.rs` | `Q16` (i64 × 2^16), arithmetic ops, `from_ratio`, `ratio` |
+| `energy.rs` | `TripolarEnergy` (`D = ψ·ρ·ω`), `EnergyFactors`, `EnergyKernel`, `EnergyAssessment`, `rank_by_energy` — the unified selection core (ranks, never gates) |
 | `evidence.rs` | `EvidenceRef`, `EvidenceBundle`, `ReplayStatus` |
 | `authority.rs` | `AuthorityLabel`, `TaintLabel`, `LicenseStatus`, `CapabilityLock` |
 | `policy.rs` | `PolicyProfile`, `ImplementationMode`, `PolicyViolation` |
@@ -412,7 +441,9 @@ planning artifacts only — they have no live execution path:
 | AutonomousBounded mode | `ImplementationMode` variant exists; no issuing logic |
 | `.kcube` disk export | `KcubeExportMode::DryRun` — no actual file I/O |
 | Cross-session corpus persistence | ✅ `kosmo-store`: JSONL append-only store, `verify_integrity()` |
-| ParseBack topology scan | ✅ `kosmo-parseback`: `cargo metadata`, `CrateFingerprint`, INVARIANT-007 |
+| ParseBack topology scan (crate-level) | ✅ `kosmo-parseback`: `cargo metadata`, `CrateFingerprint`, INVARIANT-007 |
+| Intra-file code topology (module/import/fn/type/test graph) | ✅ `kosmo-hyphae::code_hdag::extract_from_rust_source` — lexical, dependency-free, content-addressed; ρ/ω feed the energy kernel |
+| Unified tripolar energy selection (`D = ψ·ρ·ω`) | ✅ `kosmo-core::energy` — Q16, content-addressed, ranks-never-gates |
 | R1→R2→R3 operator pipeline | ✅ `kosmo-operator`: `OperatorExecutor::execute()`, closure synthesis |
 | Empirical validation (52-scenario benchmark) | ✅ `tools/kosmo-eval`: EXIT 0, all 52 scenarios pass |
 
@@ -444,6 +475,8 @@ that the substrate's output quality warrants it.
 | `crates/kosmo-core/src/policy.rs` | `PolicyProfile`, `ImplementationMode`, `PolicyViolation` |
 | `crates/kosmo-core/src/fixed_point.rs` | `Q16` |
 | `crates/kosmo-core/src/digest.rs` | `Digest`, `canonical_bytes` |
+| `crates/kosmo-core/src/energy.rs` | `TripolarEnergy`, `EnergyFactors`, `EnergyKernel`, `EnergyAssessment`, `rank_by_energy` |
+| `crates/kosmo-hyphae/src/code_hdag.rs` | `CodeHDAG::extract_from_rust_source`, `rho_coherence`, `omega_phase`, `energy_kernel` |
 | `crates/kosmo-hyphae/src/run.rs` | `passive_run()`, `HyphaeRunResult` |
 | `crates/kosmo-hyphae/src/gates.rs` | `GateCascade` (5 gates, no short-circuit) |
 | `crates/kosmo-hyphae/src/lpcm.rs` | LPCM v0.4.2 full pipeline |
