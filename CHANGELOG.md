@@ -15,6 +15,18 @@ note explicitly says so.
 
 ### Added
 
+* **Phase 4c: HostTargetCollapsePlan wired into run_dry_pipeline** —
+  planning-only collapse plan now ships with every `IntegrationRunReport`.
+
+  - `run_dry_pipeline` Step 4c: `HostTargetCollapsePlan::from_delta(&void_fill_delta, policy.id)`.
+    Status is always `PlanningOnly` — no execution authority in Phase 5.
+  - `IntegrationRunReport` gains `collapse_plan: HostTargetCollapsePlan`.
+  - `ReportContent` gains `collapse_plan_id`; the collapse plan participates
+    in the report's content address — any plan change alters `report_id`.
+  - `verify_policy_consistency()` now asserts `collapse_plan.policy_id == policy.id`.
+  - `summary()` reports `collapse: N steps (PlanningOnly)`.
+  - 3 new `RX:Pipeline` eval scenarios; total 85 scenarios, 682 substrate tests.
+
 * **MotifCandidate policy alignment + SeamGraph seam coherence wired into ranking** —
   two architectural gaps closed in one weld.
 

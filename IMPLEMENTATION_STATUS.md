@@ -4,8 +4,16 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **680 substrate tests** (kosmo-core 339, kosmo-hyphae 142, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 41) — 0 failures
-- **72/72 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **682 substrate tests** (kosmo-core 339, kosmo-hyphae 144, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 46) — 0 failures
+- **85/85 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+
+### Phase 4c HostTargetCollapsePlan Pipeline Weld (2026-06-01)
+- [x] `run_dry_pipeline` Step 4c: `HostTargetCollapsePlan::from_delta(&void_fill_delta, policy.id)` — zero-cost, no host writes
+- [x] `IntegrationRunReport` carries `collapse_plan: HostTargetCollapsePlan`
+- [x] `ReportContent` gains `collapse_plan_id` — collapse plan changes the report_id
+- [x] `verify_policy_consistency()` covers `collapse_plan.policy_id`
+- [x] `summary()` reports step count and `CollapsePlanStatus`
+- [x] 3 new `RX:Pipeline` eval scenarios (85 total): PlanningOnly status, policy traceability, content-addressing
 
 ### MotifCandidate Policy Alignment + SeamGraph → Energy Wiring (2026-06-01)
 - [x] `MotifCandidate` gains `policy_id` field, updated content addressing, `energy_assessment(gate)`
