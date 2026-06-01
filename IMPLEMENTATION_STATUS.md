@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **789 substrate tests** (kosmo-core 339, kosmo-hyphae 176, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 85) — 0 failures
-- **128/128 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **803 substrate tests** (kosmo-core 339, kosmo-hyphae 178, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 87) — 0 failures
+- **131/131 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,14 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Motif Feedback Loop + `SuggestPattern` Yield Kind (2026-06-01)
+- [x] `yield_for_intent` now selects yield kind from intent kind: `SuggestPattern` → `StructuralYieldKind::MotifProposal`; `ReduceDeficiency` → `DeficiencyFill`; others → `DeficiencyFill`
+- [x] `SourceFrontierGraph::augmented_with_prior_motifs` — appends `SuggestPattern` intents for motifs meeting `min_support`; re-seals `graph_id`
+- [x] `passive_run_augmented(index, policy, additional_intents)` — augments frontier with extra intents before gate processing; `passive_run` delegates to it with empty slice (backward-compatible)
+- [x] `IntegrationRunOptions.prior_motifs: Vec<MotifCandidate>` + `prior_motif_min_support: Q16` — pipeline injects `SuggestPattern` intents from prior-run motifs, closing the cross-run feedback loop
+- [x] `MotifCandidate` → `PseBridgeCandidate::StructuralObservation` in Step 6b — motif support signal reaches PSE evaluation
+- [x] 2 new hyphae tests (178 total); 2 new pipeline tests (87 total); 3 new eval scenarios `RX:Hyphae`/`RX:Pipeline` (131 total, 803 substrate tests)
 
 ### Pipeline Step 5a: `MotifCandidate` from Void Kind Frequency (2026-06-01)
 - [x] `enable_motif_candidates: bool` in `IntegrationRunOptions` (default false); included in `all_layers()`

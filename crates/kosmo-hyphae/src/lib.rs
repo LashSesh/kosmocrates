@@ -66,7 +66,7 @@ pub use metatron::{
 };
 pub use motif::MotifCandidate;
 pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
-pub use run::{passive_run, HyphaeRunResult};
+pub use run::{passive_run, passive_run_augmented, HyphaeRunResult};
 pub use structural_yield::{StructuralYield, StructuralYieldKind};
 pub use surgery::{
     SurgeryBackedCollapseStep, SurgeryEffect, SurgeryPrecondition, SurgeryRisk,

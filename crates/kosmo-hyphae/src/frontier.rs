@@ -164,6 +164,38 @@ impl SourceFrontierGraph {
         Self::from_intents(intents, policy_id)
     }
 
+    /// Augment an existing frontier with `SuggestPattern` intents from prior-run motif candidates.
+    ///
+    /// Each motif candidate whose `support_score` exceeds `min_support` contributes one intent.
+    /// Intents carry the motif's taint and `AuthorityLabel::Agent { name: "hyphae-v0.3" }`.
+    /// Used to close the motif feedback loop across pipeline runs.
+    pub fn augmented_with_prior_motifs(
+        mut self,
+        motifs: &[crate::motif::MotifCandidate],
+        min_support: kosmo_core::Q16,
+        policy_id: Digest,
+    ) -> Self {
+        for motif in motifs {
+            if motif.support_score.at_least(min_support) {
+                self.intents.push(SourceIntent::new(
+                    SourceIntentKind::SuggestPattern { pattern_name: motif.name.clone() },
+                    None,
+                    motif.taint.clone(),
+                    AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+                ));
+            }
+        }
+        // Re-sort and re-seal the graph_id after augmentation.
+        self.intents.sort_by_key(|i| i.intent_id);
+        self.graph_id = Digest::of(&FrontierContent {
+            intent_ids: self.intents.iter().map(|i| i.intent_id).collect(),
+            evidence_ids: self.evidence.iter().map(|e| e.evidence_id).collect(),
+            policy_id,
+        });
+        self.policy_id = policy_id;
+        self
+    }
+
     pub fn verify_id(&self) -> bool {
         let expected = Digest::of(&FrontierContent {
             intent_ids: self.intents.iter().map(|i| i.intent_id).collect(),

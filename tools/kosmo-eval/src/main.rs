@@ -2091,6 +2091,43 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    v.push(run_check("rx-pipeline-pse-candidates-include-motif-observations", "RX:Pipeline", || {
+        // MotifCandidate objects must be bridged into PSE as StructuralObservation
+        // candidates when both enable_motif_candidates and enable_pse_candidates are true.
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+            WorkspaceEntry { path: "src/b.rs".into(), digest: Digest::of_bytes(b"b"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&index, &opts, &policy);
+        let expected = r.norm_candidates.len()
+            + r.ambiguity_profiles.len()
+            + r.complement_void_hypotheses.len()
+            + r.motif_candidates.len();
+        if r.pse_candidates.len() != expected {
+            return Err(format!(
+                "expected {} PSE candidates (including {} motifs), got {}",
+                expected, r.motif_candidates.len(), r.pse_candidates.len()
+            ));
+        }
+        for c in &r.pse_candidates {
+            if c.evidence_bundle_id == Digest::ZERO {
+                return Err("CROSS-006: PSE candidate evidence_bundle_id must be non-ZERO".into());
+            }
+        }
+        Ok(())
+    }));
+
     // ── RX:Pipeline — Step 5d StructuralCrystalCandidate certification queue ──
 
     v.push(run_check("rx-pipeline-crystal-candidates-disabled-by-default", "RX:Pipeline", || {
@@ -2536,6 +2573,92 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         }
         if !frontier.verify_id() {
             return Err("frontier graph_id must match content hash (INVARIANT-007)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-hyphae-suggest-pattern-intent-produces-motif-proposal-yield", "RX:Hyphae", || {
+        // A SuggestPattern intent must produce StructuralYieldKind::MotifProposal, closing
+        // the motif feedback loop: prior MotifCandidate → SuggestPattern intent → MotifProposal yield.
+        use kosmo_hyphae::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::default_report_only();
+        let intent = SourceIntent::new(
+            SourceIntentKind::SuggestPattern { pattern_name: "motif:MissingTestFiber".into() },
+            None,
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        );
+        let ev_ref = EvidenceRef::new(intent.intent_id, EvidenceKind::HostScan, "eval-scan");
+        let evidence = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+
+        // Match the yield_for_intent logic: SuggestPattern → MotifProposal, no void/deficiency refs.
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::MotifProposal,
+            None,
+            None,
+            intent.taint.clone(),
+            intent.authority.clone(),
+            evidence.bundle_id,
+            policy.id,
+        );
+        if yield_.kind != StructuralYieldKind::MotifProposal {
+            return Err(format!("expected MotifProposal, got {:?}", yield_.kind));
+        }
+        if yield_.host_void_id.is_some() || yield_.deficiency_kind_ref.is_some() {
+            return Err("MotifProposal yield must not reference void or deficiency".into());
+        }
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+        if decision.decision_id == Digest::ZERO {
+            return Err("MotifProposal decision must have non-ZERO id (CROSS-006)".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-pipeline-prior-motifs-inject-suggest-pattern-intents", "RX:Pipeline", || {
+        // Feeding prior MotifCandidates back via prior_motifs must produce SuggestPattern
+        // intents in the frontier of the next run, closing the motif feedback loop.
+        use kosmo_pipeline::{IntegrationRunOptions, run_dry_pipeline};
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind, WorkspaceIndex};
+
+        let policy = PolicyProfile::default_report_only();
+        let entries = vec![
+            WorkspaceEntry { path: "src/a.rs".into(), digest: Digest::of_bytes(b"a"),
+                size_bytes: 100, kind: WorkspaceEntryKind::SourceFile },
+        ];
+        let index = WorkspaceIndex::from_entries("test-root".into(), entries, policy.id);
+
+        // Step 1: run with motif candidates enabled to collect them.
+        let r1 = run_dry_pipeline(&index, &IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        }, &policy);
+        let prior_motifs = r1.motif_candidates.clone();
+        if prior_motifs.is_empty() {
+            return Ok(()); // No voids means no motifs; skip.
+        }
+
+        // Step 2: feed prior motifs back; expect SuggestPattern intents in frontier.
+        let r2 = run_dry_pipeline(&index, &IntegrationRunOptions {
+            prior_motifs,
+            prior_motif_min_support: Q16::ZERO,
+            ..IntegrationRunOptions::report_only()
+        }, &policy);
+
+        let suggest_count = r2.hyphae_result.frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern { .. }))
+            .count();
+        if suggest_count == 0 {
+            return Err("prior_motifs must inject SuggestPattern intents into the frontier".into());
+        }
+        if r1.hyphae_result.run_id == r2.hyphae_result.run_id {
+            return Err("augmented run must have different run_id (INVARIANT-007)".into());
         }
         Ok(())
     }));

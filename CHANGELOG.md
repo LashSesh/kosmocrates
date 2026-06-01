@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **Motif feedback loop + `SuggestPattern` yield kind** — closes the cross-run feedback
+  loop so motifs observed in one pipeline run propagate as structural proposals
+  into the next run's frontier.
+
+  - `yield_for_intent` now selects `StructuralYieldKind::MotifProposal` for
+    `SuggestPattern` intents (previously always `DeficiencyFill`).
+  - `SourceFrontierGraph::augmented_with_prior_motifs` appends `SuggestPattern`
+    intents for motifs meeting a configurable `min_support` threshold.
+  - `passive_run_augmented(index, policy, additional_intents)` — backward-compatible
+    wrapper; `passive_run` delegates to it with an empty slice.
+  - `IntegrationRunOptions.prior_motifs: Vec<MotifCandidate>` and
+    `prior_motif_min_support: Q16` — pipeline uses them to inject intents at the
+    top of each run.
+  - `MotifCandidate` → `PseBridgeCandidate::StructuralObservation` in Step 6b.
+  - 2 new hyphae tests (178 total); 2 new pipeline tests (87 total); 3 new eval
+    scenarios (131 total, 803 substrate tests).
+
 * **Pipeline Step 5a: `MotifCandidate` from void kind frequency** — closes the gap
   between `MotifCandidate` (fully implemented with `energy_assessment`) and the
   pipeline (which had no step to generate or expose them).

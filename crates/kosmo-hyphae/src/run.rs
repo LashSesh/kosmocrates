@@ -69,8 +69,31 @@ impl HyphaeRunResult {
 /// workspace. Returns a `HyphaeRunResult` with void map, deficiency vector,
 /// gate traces, and assimilation decisions.
 pub fn passive_run(index: &WorkspaceIndex, policy: &PolicyProfile) -> HyphaeRunResult {
+    passive_run_augmented(index, policy, vec![])
+}
+
+/// Run a HYPHAE v0.3 passive analysis with additional intents injected into the frontier.
+///
+/// Used by the pipeline to inject `SuggestPattern` intents from prior-run
+/// `MotifCandidate` objects, closing the motif feedback loop across pipeline runs.
+/// The base frontier (from void map) is built first; additional intents are appended
+/// before gate processing. All results appear in the returned `HyphaeRunResult`.
+pub fn passive_run_augmented(
+    index: &WorkspaceIndex,
+    policy: &PolicyProfile,
+    additional_intents: Vec<SourceIntent>,
+) -> HyphaeRunResult {
     let host_cube = HostCube::from_workspace_index(index, policy);
-    let frontier = SourceFrontierGraph::from_void_map(&host_cube.void_map, policy.id);
+    let base = SourceFrontierGraph::from_void_map(&host_cube.void_map, policy.id);
+
+    let frontier = if additional_intents.is_empty() {
+        base
+    } else {
+        let mut all_intents = base.intents;
+        all_intents.extend(additional_intents);
+        SourceFrontierGraph::from_intents(all_intents, policy.id)
+    };
+
     let cascade = GateCascade::standard_gates(policy.clone());
 
     let mut decisions = Vec::new();
@@ -131,21 +154,31 @@ fn synthetic_evidence_for_intent(intent: &SourceIntent, policy_id: Digest) -> Ev
 /// overrides. A `TaintLabel::Clean` + `AuthorityLabel::Foundry` intent produces
 /// a yield that passes all gates and yields an `Accepted` decision.
 ///
-/// For `ReduceDeficiency` intents, `deficiency_kind_ref` is populated from the
-/// intent kind so the yield satisfies spec §2.2 (must reference void OR deficiency).
+/// Yield kind is selected from intent kind:
+/// - `FillVoid` / `ReduceDeficiency` → `DeficiencyFill`
+/// - `SuggestPattern` → `MotifProposal`
+/// - `Custom` → `DeficiencyFill` (safe default)
+///
+/// For `ReduceDeficiency` intents, `deficiency_kind_ref` is populated so the
+/// yield satisfies spec §2.2 (must reference void OR deficiency).
 fn yield_for_intent(
     intent: &SourceIntent,
     evidence: &EvidenceBundle,
     policy_id: Digest,
 ) -> StructuralYield {
-    let deficiency_kind_ref = match &intent.kind {
-        crate::frontier::SourceIntentKind::ReduceDeficiency { deficiency_kind } => {
-            Some(format!("{:?}", deficiency_kind))
-        }
-        _ => None,
+    let (yield_kind, deficiency_kind_ref) = match &intent.kind {
+        crate::frontier::SourceIntentKind::ReduceDeficiency { deficiency_kind } => (
+            StructuralYieldKind::DeficiencyFill,
+            Some(format!("{:?}", deficiency_kind)),
+        ),
+        crate::frontier::SourceIntentKind::SuggestPattern { .. } => (
+            StructuralYieldKind::MotifProposal,
+            None,
+        ),
+        _ => (StructuralYieldKind::DeficiencyFill, None),
     };
     StructuralYield::new(
-        StructuralYieldKind::DeficiencyFill,
+        yield_kind,
         intent.target_void_id,
         deficiency_kind_ref,
         intent.taint.clone(),
@@ -351,5 +384,61 @@ mod tests {
             fill_count + reduce_count,
             "every intent must produce exactly one decision",
         );
+    }
+
+    #[test]
+    fn passive_run_augmented_adds_suggest_pattern_intents() {
+        use kosmo_core::TaintLabel;
+        use crate::frontier::{SourceIntent, SourceIntentKind};
+
+        let policy = PolicyProfile::default_report_only();
+        let index = make_index(vec![src("src/lib.rs")]);
+
+        let extra = vec![
+            SourceIntent::new(
+                SourceIntentKind::SuggestPattern { pattern_name: "motif:MissingTestFiber".into() },
+                None,
+                TaintLabel::Unverified,
+                kosmo_core::AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+            ),
+        ];
+        let base = passive_run(&index, &policy);
+        let augmented = passive_run_augmented(&index, &policy, extra);
+
+        assert_eq!(
+            augmented.total_yields(),
+            base.total_yields() + 1,
+            "one extra SuggestPattern intent must produce one extra decision",
+        );
+        let suggest_count = augmented.frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, SourceIntentKind::SuggestPattern { .. }))
+            .count();
+        assert_eq!(suggest_count, 1, "frontier must contain the injected SuggestPattern intent");
+        // run_id must differ since frontier_id differs (INVARIANT-007).
+        assert_ne!(base.run_id, augmented.run_id, "augmented run must have different run_id");
+    }
+
+    #[test]
+    fn yield_for_suggest_pattern_intent_uses_motif_proposal_kind() {
+        use kosmo_core::{AuthorityLabel, TaintLabel};
+        use crate::frontier::{SourceIntent, SourceIntentKind};
+
+        let policy = PolicyProfile::default_report_only();
+        let intent = SourceIntent::new(
+            SourceIntentKind::SuggestPattern { pattern_name: "motif:MissingTestFiber".into() },
+            None,
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        );
+        let evidence = synthetic_evidence_for_intent(&intent, policy.id);
+        let yield_ = yield_for_intent(&intent, &evidence, policy.id);
+
+        assert_eq!(
+            yield_.kind,
+            StructuralYieldKind::MotifProposal,
+            "SuggestPattern intent must produce MotifProposal yield",
+        );
+        assert!(yield_.host_void_id.is_none(), "MotifProposal yield has no specific void");
+        assert!(yield_.deficiency_kind_ref.is_none(), "MotifProposal yield has no deficiency ref");
     }
 }

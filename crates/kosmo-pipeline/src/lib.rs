@@ -38,7 +38,7 @@ use kosmo_hyphae::{
     NormFitnessTrace, NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube,
     SeamGraph, StructuralCrystalCandidate, SupportMassVector, SurgeryWorkbenchTask,
     TopologicalSurgeryOption, TopologyAmbiguityProfile, diagnose_micrograph, lift_region,
-    passive_run, HyphaeRunResult,
+    passive_run, passive_run_augmented, HyphaeRunResult,
 };
 use kosmo_systemcube::{
     BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
@@ -83,6 +83,13 @@ pub struct IntegrationRunOptions {
     /// Prior `PromotionFeedback` records to ingest into `NormFitnessTrace` objects
     /// for each matching norm candidate (Step 5c). Empty by default.
     pub prior_feedback: Vec<PromotionFeedback>,
+    /// Prior-run `MotifCandidate` objects to inject as `SuggestPattern` intents into the
+    /// frontier (closes the motif feedback loop across pipeline runs). Only motifs whose
+    /// `support_score` meets or exceeds `prior_motif_min_support` are included.
+    pub prior_motifs: Vec<MotifCandidate>,
+    /// Minimum support score threshold for `prior_motifs` → `SuggestPattern` intent promotion.
+    /// Defaults to `Q16::HALF` (motif must appear in ≥50% of scanned sources).
+    pub prior_motif_min_support: kosmo_core::Q16,
 }
 
 impl IntegrationRunOptions {
@@ -100,6 +107,8 @@ impl IntegrationRunOptions {
             enable_crystal_candidates: false,
             enable_pse_candidates: false,
             prior_feedback: vec![],
+            prior_motifs: vec![],
+            prior_motif_min_support: Q16::HALF,
         }
     }
 
@@ -117,6 +126,8 @@ impl IntegrationRunOptions {
             enable_crystal_candidates: true,
             enable_pse_candidates: true,
             prior_feedback: vec![],
+            prior_motifs: vec![],
+            prior_motif_min_support: Q16::HALF,
         }
     }
 }
@@ -427,7 +438,23 @@ pub fn run_dry_pipeline(
     let mut agg = GateTraceAggregator::new(policy.id);
 
     // ── 1. HYPHAE v0.3 passive run ────────────────────────────────────────────
-    let hyphae = passive_run(index, policy);
+    // If prior_motifs are provided, inject SuggestPattern intents (motif feedback loop).
+    let hyphae = if options.prior_motifs.is_empty() {
+        passive_run(index, policy)
+    } else {
+        let extra: Vec<_> = options.prior_motifs.iter()
+            .filter(|m| m.support_score.at_least(options.prior_motif_min_support))
+            .map(|m| kosmo_hyphae::frontier::SourceIntent::new(
+                kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern {
+                    pattern_name: m.name.clone(),
+                },
+                None,
+                m.taint.clone(),
+                kosmo_core::AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+            ))
+            .collect();
+        passive_run_augmented(index, policy, extra)
+    };
 
     // Record HYPHAE gate contribution: any rejected decision contributes Reject.
     let hyphae_gate = if hyphae.rejected_count > 0 {
@@ -845,6 +872,18 @@ pub fn run_dry_pipeline(
                 h.confidence_score,
                 hyphae.run_id,
                 h.hypothesis_id,
+                policy.id,
+            ));
+        }
+        // MotifCandidate → StructuralObservation
+        for m in &motif_candidates {
+            raw.push(PseBridgeCandidate::new(
+                PseBridgeCandidateKind::StructuralObservation,
+                m.motif_id,
+                &format!("motif:{}", &m.name[..m.name.len().min(32)]),
+                m.support_score,
+                hyphae.run_id,
+                m.evidence_bundle_id,
                 policy.id,
             ));
         }
@@ -1351,6 +1390,44 @@ mod tests {
         assert_eq!(r1.report_id, r2.report_id, "motif candidates must be deterministic (INVARIANT-007)");
     }
 
+    #[test]
+    fn pipeline_prior_motifs_inject_suggest_pattern_intents() {
+        use kosmo_core::TaintLabel;
+        let p = policy();
+        // First run: collect motif candidates.
+        let opts1 = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r1 = run_dry_pipeline(&fixture_index(), &opts1, &p);
+        let prior_motifs = r1.motif_candidates.clone();
+
+        if prior_motifs.is_empty() {
+            return; // No voids → no motifs → skip.
+        }
+        // Second run: feed prior motifs back via prior_motifs.
+        let opts2 = IntegrationRunOptions {
+            prior_motifs,
+            prior_motif_min_support: Q16::ZERO, // accept all
+            ..IntegrationRunOptions::report_only()
+        };
+        let r2 = run_dry_pipeline(&fixture_index(), &opts2, &p);
+
+        let suggest_count = r2.hyphae_result.frontier.intents.iter()
+            .filter(|i| matches!(&i.kind, kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern { .. }))
+            .count();
+        assert!(
+            suggest_count > 0,
+            "prior_motifs must inject SuggestPattern intents into the frontier"
+        );
+        // run_id differs because frontier_id changes (INVARIANT-007).
+        assert_ne!(
+            r1.hyphae_result.run_id,
+            r2.hyphae_result.run_id,
+            "augmented run must have different run_id due to extra intents"
+        );
+    }
+
     // ── Norm candidates optional layer ────────────────────────────────────────
 
     #[test]
@@ -1514,6 +1591,34 @@ mod tests {
             assert_ne!(c.id, Digest::ZERO, "PSE candidate id must be non-ZERO");
             assert_eq!(c.policy_id, policy().id, "PSE candidate must carry pipeline policy_id");
             assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-ZERO");
+        }
+    }
+
+    #[test]
+    fn pipeline_pse_candidates_include_motif_candidates() {
+        let opts = IntegrationRunOptions {
+            enable_motif_candidates: true,
+            enable_pse_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
+        let expected = r.norm_candidates.len()
+            + r.ambiguity_profiles.len()
+            + r.complement_void_hypotheses.len()
+            + r.motif_candidates.len();
+        assert_eq!(
+            r.pse_candidates.len(),
+            expected,
+            "pse_candidates must include motif candidates as StructuralObservations"
+        );
+        let motif_pse: Vec<_> = r.pse_candidates.iter()
+            .filter(|c| c.label.starts_with("motif:motif:"))
+            .collect();
+        if !r.motif_candidates.is_empty() {
+            assert!(
+                !motif_pse.is_empty(),
+                "motif-derived PSE candidates must have 'motif:motif:' label prefix"
+            );
         }
     }
 
