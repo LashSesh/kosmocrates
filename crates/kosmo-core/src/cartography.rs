@@ -34,6 +34,9 @@ pub enum CartographyEntryKind {
     SourceFrontierGraph,
     CorpusEntry,
     EvidenceSummary,
+    /// Feedback from a PSE promotion outcome — carries knowledge back into the
+    /// corpus (the "Wissen zurück ins Substrat" record).
+    PromotionFeedback,
     Custom(String),
 }
 

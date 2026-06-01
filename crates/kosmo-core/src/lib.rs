@@ -19,6 +19,7 @@ pub mod kcube;
 pub mod materialization;
 pub mod parseback;
 pub mod policy;
+pub mod promotion_feedback;
 pub mod run;
 pub mod validation;
 
@@ -62,6 +63,7 @@ pub use parseback::{
     ParseBackTopologyDelta, TopologyChangeKind,
 };
 pub use policy::{ImplementationMode, PolicyProfile, PolicyViolation};
+pub use promotion_feedback::{FeedbackOutcome, PromotionFeedback};
 pub use validation::{
     determine_closure_status, ValidationClosureReport, ValidationClosureStatus,
 };

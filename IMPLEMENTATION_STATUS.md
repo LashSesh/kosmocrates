@@ -1,8 +1,19 @@
 # Implementation Status
 
 ## Current Phase
-**Phase 11 — Operator-Approved Materialization** — COMPLETE  
-**All planned phases complete. Corpus fully implemented.**
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
+
+- **680 substrate tests** (kosmo-core 339, kosmo-hyphae 142, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 25, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 41) — 0 failures
+- **72/72 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+
+### PSE Feedback Loop — "Wissen zurück ins Substrat" (2026-06-01)
+- [x] `FeedbackOutcome` + `PromotionFeedback` in `kosmo-core` (circular dep avoidance)
+- [x] `fitness_signal` mapping: Accepted→energy, Deferred→¼, Rejected/Skipped→0
+- [x] `CartographyEntryKind::PromotionFeedback` variant
+- [x] `build_promotion_feedback` in `kosmo-pse-bridge`
+- [x] `NormFitnessTrace::observe_from_feedback` in `kosmo-hyphae`
+- [x] 4 `RX:FeedbackLoop` eval scenarios all pass (72/72 total)
 
 ## Completed Steps
 

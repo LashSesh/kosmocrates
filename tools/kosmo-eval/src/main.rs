@@ -15,6 +15,8 @@ use kosmo_core::{
     // R4 - Cartography
     CartographyEntryKind, CartographyStoreCommit, CartographyStoreError,
     CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
+    // PSE promotion feedback loop
+    FeedbackOutcome, PromotionFeedback,
     // R5 - Materialization
     IsolatedWorktreeSpec, WorktreeCleanupPolicy, WorktreeCreationMethod,
     // R6 - KCube
@@ -34,10 +36,11 @@ use kosmo_core::{
 };
 
 use kosmo_hyphae::code_hdag::{CodeHDAG, HDAGEdgeKind};
+use kosmo_hyphae::norm::NormFitnessTrace;
 
 use kosmo_pse_bridge::{
     PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
-    PromotionOutcome, validate_candidate,
+    PromotionOutcome, PromotionRequestRecord, build_promotion_feedback, validate_candidate,
 };
 
 use kosmo_parseback::{CrateFingerprint, ParseBackExecutor, TopologySnapshot, diff_snapshots};
@@ -1733,6 +1736,115 @@ fn it_builds() { assert!(true); }
         if report.package_id != pkg.id {
             return Err("package_id in write report must equal parsed KcubePackage.id".into());
         }
+        Ok(())
+    }));
+
+    // ── RX:FeedbackLoop — PSE promotion outcome back into substrate ─────────────
+
+    v.push(run_check("rx-feedback-accepted-maps-to-full-energy", "RX:FeedbackLoop", || {
+        // Accepted promotion → fitness_signal = energy_at_submission.
+        let energy = Q16::ratio(3, 4).unwrap();
+        let f = PromotionFeedback::new(
+            d(b"record"), d(b"candidate"), d(b"norm"),
+            FeedbackOutcome::Accepted,
+            energy, d(b"pol"), d(b"ev"),
+        );
+        if f.fitness_signal != energy {
+            return Err(format!("accepted must map fitness to energy, got {:?}", f.fitness_signal.raw()));
+        }
+        if !f.verify_id() {
+            return Err("PromotionFeedback must be content-addressed (INVARIANT-007)".into());
+        }
+        if f.evidence_bundle_id == Digest::ZERO {
+            return Err("CROSS-006: evidence must be non-zero".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-feedback-rejected-fitness-is-zero", "RX:FeedbackLoop", || {
+        // Rejected → fitness_signal = ZERO (CROSS-010 analogue for feedback).
+        let f = PromotionFeedback::new(
+            d(b"record"), d(b"candidate"), d(b"norm"),
+            FeedbackOutcome::Rejected,
+            Q16::ONE, d(b"pol"), d(b"ev"),
+        );
+        if !f.fitness_signal.is_zero() {
+            return Err("rejected feedback must produce zero fitness — PSE rejection cannot confer fitness".into());
+        }
+        if !f.verify_id() {
+            return Err("content-addressing must hold even for rejected feedback".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-feedback-stored-in-cartography", "RX:FeedbackLoop", || {
+        // A PromotionFeedback can be stored as a CartographyStoreCommit with
+        // CartographyEntryKind::PromotionFeedback.
+        let feedback = PromotionFeedback::new(
+            d(b"rec"), d(b"cand"), d(b"norm"),
+            FeedbackOutcome::Accepted,
+            Q16::HALF, d(b"pol"), d(b"ev"),
+        );
+        let commit = CartographyStoreCommit::new(
+            CorpusScope::LocalHostProject,
+            1,
+            feedback.id,
+            CartographyEntryKind::PromotionFeedback,
+            feedback.evidence_bundle_id,
+            feedback.policy_id,
+        );
+        if !commit.verify_id() {
+            return Err("CartographyStoreCommit with PromotionFeedback must verify_id()".into());
+        }
+        if commit.payload_digest != feedback.id {
+            return Err("commit payload_digest must equal feedback.id".into());
+        }
+        Ok(())
+    }));
+
+    v.push(run_check("rx-feedback-norm-trace-updates-from-feedback", "RX:FeedbackLoop", || {
+        // build_promotion_feedback + NormFitnessTrace::observe_from_feedback closes
+        // the full loop: PSE outcome → feedback record → norm fitness trace update.
+        let policy = PolicyProfile::default_report_only();
+        let norm_cid = d(b"norm-cand");
+        let energy = Q16::ratio(7, 8).unwrap();
+
+        // Build a PseBridgeCandidate with confidence = energy
+        let candidate = PseBridgeCandidate::new(
+            PseBridgeCandidateKind::StructuralObservation,
+            d(b"obs"),
+            "eval-norm",
+            energy,
+            d(b"run"),
+            d(b"ev"),
+            policy.id,
+        );
+
+        // Build a Accepted PromotionRequestRecord
+        let record = PromotionRequestRecord::new(candidate.id, PromotionOutcome::Accepted, d(b"ev"), 10);
+
+        // Build feedback via the bridge function
+        let feedback = build_promotion_feedback(&record, &candidate, norm_cid, policy.id);
+        if !feedback.outcome.is_accepted() {
+            return Err("feedback outcome must be Accepted".into());
+        }
+        if feedback.fitness_signal != energy {
+            return Err(format!("fitness_signal must equal energy={}, got {}", energy.raw(), feedback.fitness_signal.raw()));
+        }
+        if !feedback.verify_id() {
+            return Err("feedback must verify_id()".into());
+        }
+
+        // Ingest into NormFitnessTrace
+        let trace = NormFitnessTrace::empty(norm_cid, policy.id)
+            .observe_from_feedback(&feedback);
+        if trace.latest_fitness() != energy {
+            return Err(format!("NormFitnessTrace.latest_fitness must equal energy after feedback ingestion"));
+        }
+        if trace.observations[0].evidence_ref != feedback.id {
+            return Err("evidence_ref in trace observation must be feedback.id".into());
+        }
+
         Ok(())
     }));
 

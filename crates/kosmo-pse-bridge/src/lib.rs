@@ -15,7 +15,7 @@
 //! - It does NOT promote `CorpusCartography` to trusted memory.
 //! - In `ReportOnly` mode, all submission attempts produce `SkippedByReportOnly`.
 
-use kosmo_core::{Digest, EvidenceRef, ImplementationMode, PolicyProfile, Q16};
+use kosmo_core::{Digest, EvidenceRef, FeedbackOutcome, ImplementationMode, PolicyProfile, PromotionFeedback, Q16};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -423,6 +423,39 @@ pub fn validate_candidate(
     }
 
     Ok(())
+}
+
+/// Build a `PromotionFeedback` record from a `PromotionRequestRecord` and its
+/// associated `PseBridgeCandidate`.
+///
+/// Converts `PromotionOutcome` → `FeedbackOutcome` and derives `fitness_signal`
+/// from the outcome and `candidate.confidence` (the energy proxy at submission).
+///
+/// `norm_candidate_id` should be the `NormGeneCandidate.candidate_id` that
+/// originated this bridge candidate, or `Digest::ZERO` if none.
+pub fn build_promotion_feedback(
+    record: &PromotionRequestRecord,
+    candidate: &PseBridgeCandidate,
+    norm_candidate_id: Digest,
+    policy_id: Digest,
+) -> PromotionFeedback {
+    let outcome = match &record.outcome {
+        PromotionOutcome::Accepted => FeedbackOutcome::Accepted,
+        PromotionOutcome::Rejected { .. } => FeedbackOutcome::Rejected,
+        PromotionOutcome::Deferred => FeedbackOutcome::Deferred,
+        PromotionOutcome::SkippedByPolicy | PromotionOutcome::SkippedByReportOnly => {
+            FeedbackOutcome::Skipped
+        }
+    };
+    PromotionFeedback::new(
+        record.id,
+        candidate.id,
+        norm_candidate_id,
+        outcome,
+        candidate.confidence,
+        policy_id,
+        record.evidence_bundle_id,
+    )
 }
 
 #[cfg(test)]

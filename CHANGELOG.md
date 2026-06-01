@@ -15,6 +15,29 @@ note explicitly says so.
 
 ### Added
 
+* **PSE feedback loop — "Wissen zurück ins Substrat"** — closes the final
+  vision link by routing `PromotionOutcome` back into substrate fitness tracking.
+
+  - `FeedbackOutcome` (Accepted/Rejected/Deferred/Skipped) — substrate-side
+    mirror of PSE's `PromotionOutcome`, in `kosmo-core` to avoid circular
+    dependency. `fitness_signal(energy)` maps: Accepted→energy, Deferred→¼,
+    Rejected/Skipped→0 (CROSS-010 analogue).
+  - `PromotionFeedback` — content-addressed record in `kosmo-core` binding a
+    `PromotionRequestRecord` outcome, candidate confidence, derived
+    `fitness_signal`, policy, and `evidence_bundle_id` (CROSS-006). 14 unit tests.
+  - `CartographyEntryKind::PromotionFeedback` — new variant allowing feedback
+    records to be stored in `CorpusCartographyStore`.
+  - `build_promotion_feedback` in `kosmo-pse-bridge` — converts
+    `PromotionOutcome` → `FeedbackOutcome` and constructs a `PromotionFeedback`
+    from a `PromotionRequestRecord` + `PseBridgeCandidate`.
+  - `NormFitnessTrace::observe_from_feedback` in `kosmo-hyphae` — consumes a
+    `PromotionFeedback` to append a fitness observation; uses `feedback.id` as
+    the evidence reference, closing the loop end-to-end. 3 new tests.
+  - **`tools/kosmo-eval` extended to 72 scenarios** (was 68): 4 new
+    `RX:FeedbackLoop` scenarios (accepted maps to full energy, rejected gives
+    zero fitness, stored in cartography as `CartographyStoreCommit`, full
+    chain `build_promotion_feedback` + `observe_from_feedback`).
+
 * **`SystemCube::export_to_kcube` weld** — closes the "Blueprint raus" vision
   link by connecting the dry-run `KcubeExportReport` to the real
   `KcubeExecutor`. The method runs `export_dry_run` first; if

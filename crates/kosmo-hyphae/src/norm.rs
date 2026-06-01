@@ -1,4 +1,4 @@
-use kosmo_core::{Digest, Q16};
+use kosmo_core::{Digest, PromotionFeedback, Q16};
 use serde::{Deserialize, Serialize};
 
 /// Serialize-only for NormGeneCandidate content-addressing.
@@ -102,6 +102,14 @@ impl NormFitnessTrace {
         self.observations.last().map(|o| o.fitness).unwrap_or(Q16::ZERO)
     }
 
+    /// Append a fitness observation derived from a `PromotionFeedback` record.
+    ///
+    /// Uses `feedback.fitness_signal` as the observation value and `feedback.id`
+    /// as the evidence reference — closing the "Wissen zurück ins Substrat" loop.
+    pub fn observe_from_feedback(self, feedback: &PromotionFeedback) -> Self {
+        self.observe(feedback.fitness_signal, feedback.id)
+    }
+
     /// Integer-averaged fitness across all observations (no floats — CROSS-007).
     pub fn average_fitness(&self) -> Q16 {
         if self.observations.is_empty() {
@@ -171,6 +179,55 @@ mod tests {
             .observe(Q16::HALF, ev_id);
         // avg(HALF, HALF) = HALF — no float division
         assert_eq!(trace.average_fitness(), Q16::HALF);
+    }
+
+    #[test]
+    fn observe_from_feedback_accepted_raises_fitness() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let energy = Q16::ratio(3, 4).unwrap();
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"record"),
+            Digest::of_bytes(b"candidate"),
+            cid,
+            FeedbackOutcome::Accepted,
+            energy,
+            pid,
+            Digest::of_bytes(b"ev"),
+        );
+        let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
+        assert_eq!(trace.observations.len(), 1);
+        assert_eq!(trace.latest_fitness(), energy);
+    }
+
+    #[test]
+    fn observe_from_feedback_rejected_sets_zero_fitness() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"rec"), Digest::of_bytes(b"cand"),
+            cid, FeedbackOutcome::Rejected,
+            Q16::ONE, pid, Digest::of_bytes(b"ev"),
+        );
+        let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
+        assert!(trace.latest_fitness().is_zero(),
+            "rejected feedback must produce zero fitness (CROSS-010 analogue)");
+    }
+
+    #[test]
+    fn observe_from_feedback_uses_feedback_id_as_evidence_ref() {
+        use kosmo_core::{FeedbackOutcome, PromotionFeedback};
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let feedback = PromotionFeedback::new(
+            Digest::of_bytes(b"rec"), Digest::of_bytes(b"cand"),
+            cid, FeedbackOutcome::Deferred,
+            Q16::ONE, pid, Digest::of_bytes(b"ev"),
+        );
+        let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
+        assert_eq!(trace.observations[0].evidence_ref, feedback.id);
     }
 
     #[test]
