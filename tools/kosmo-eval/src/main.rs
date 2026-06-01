@@ -2323,6 +2323,56 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         Ok(())
     }));
 
+    // ── RX:Hyphae — intent taint/authority propagation ───────────────────────
+
+    v.push(run_check("rx-hyphae-clean-intent-yields-accepted-decision", "RX:Hyphae", || {
+        // A SourceIntent with TaintLabel::Clean + AuthorityLabel::Foundry must produce
+        // an Accepted AssimilationDecision under operator-approved policy.
+        // This verifies the full propagation: intent → yield → gate → decision.
+        use kosmo_hyphae::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
+        use kosmo_hyphae::gates::GateCascade;
+        use kosmo_hyphae::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
+
+        let policy = PolicyProfile::operator_approved();
+        let void_id = Digest::of_bytes(b"eval-void-clean");
+        let intent = SourceIntent::new(
+            SourceIntentKind::FillVoid { void_id },
+            Some(void_id),
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+        );
+        let ev_ref = EvidenceRef::new(intent.intent_id, EvidenceKind::HostScan, "eval-scan");
+        let evidence = EvidenceBundle::seal(vec![ev_ref], policy.id, ReplayStatus::Replayable);
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            intent.target_void_id,
+            None,
+            intent.taint.clone(),
+            intent.authority.clone(),
+            evidence.bundle_id,
+            policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+
+        if !decision.outcome.is_accepted() {
+            return Err(format!(
+                "Clean/Foundry intent must yield Accepted decision; got {:?}",
+                decision.outcome
+            ));
+        }
+        if decision.taint != TaintLabel::Clean {
+            return Err(format!(
+                "Decision taint must propagate from intent; expected Clean, got {:?}",
+                decision.taint
+            ));
+        }
+        Ok(())
+    }));
+
     // ── RX:BlueprintEnergy — BlueprintUnit energy_assessment ─────────────────
 
     v.push(run_check("rx-blueprint-energy-accepted-positive-opaque-zero", "RX:BlueprintEnergy", || {

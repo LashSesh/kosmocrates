@@ -125,7 +125,11 @@ fn synthetic_evidence_for_intent(intent: &SourceIntent, policy_id: Digest) -> Ev
     EvidenceBundle::seal(vec![ev_ref], policy_id, ReplayStatus::Replayable)
 }
 
-/// Build a `StructuralYield` from a `SourceIntent`.
+/// Build a `StructuralYield` from a `SourceIntent`, propagating its taint and authority.
+///
+/// The yield's trust level is derived entirely from the intent — no hardcoded
+/// overrides. A `TaintLabel::Clean` + `AuthorityLabel::Foundry` intent produces
+/// a yield that passes all gates and yields an `Accepted` decision.
 fn yield_for_intent(
     intent: &SourceIntent,
     evidence: &EvidenceBundle,
@@ -135,10 +139,8 @@ fn yield_for_intent(
         StructuralYieldKind::DeficiencyFill,
         intent.target_void_id,
         None,
-        // Yields synthesized from workspace analysis are Synthetic — gates will
-        // warn but not reject.
-        TaintLabel::Synthetic,
-        AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        intent.taint.clone(),
+        intent.authority.clone(),
         evidence.bundle_id,
         policy_id,
     )
@@ -231,5 +233,63 @@ mod tests {
         assert!(result.host_cube.has_deficiencies());
         let dv = &result.host_cube.deficiency_vector;
         assert!(!dv.entries.is_empty(), "deficiency vector must have entries for untested sources");
+    }
+
+    #[test]
+    fn yield_for_unverified_agent_intent_produces_evidence_only_decision() {
+        use kosmo_core::{AuthorityLabel, TaintLabel};
+        use crate::frontier::{SourceIntent, SourceIntentKind};
+        use crate::gates::GateCascade;
+        use crate::assimilation::AssimilationDecision;
+
+        let policy = PolicyProfile::default_report_only();
+        let void_id = Digest::of_bytes(b"void-unverified");
+        let intent = SourceIntent::new(
+            SourceIntentKind::FillVoid { void_id },
+            Some(void_id),
+            TaintLabel::Unverified,
+            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+        );
+        let evidence = synthetic_evidence_for_intent(&intent, policy.id);
+        let yield_ = yield_for_intent(&intent, &evidence, policy.id);
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+
+        assert!(
+            matches!(decision.outcome, crate::assimilation::AssimilationOutcome::EvidenceOnly { .. }),
+            "Unverified/Agent intent must produce EvidenceOnly in ReportOnly mode, got {:?}",
+            decision.outcome,
+        );
+        assert_eq!(decision.taint, TaintLabel::Unverified);
+    }
+
+    #[test]
+    fn yield_for_clean_foundry_intent_produces_accepted_decision() {
+        use kosmo_core::{AuthorityLabel, PolicyProfile, TaintLabel};
+        use crate::frontier::{SourceIntent, SourceIntentKind};
+        use crate::gates::GateCascade;
+        use crate::assimilation::AssimilationDecision;
+
+        let policy = PolicyProfile::operator_approved();
+        let void_id = Digest::of_bytes(b"void-clean");
+        let intent = SourceIntent::new(
+            SourceIntentKind::FillVoid { void_id },
+            Some(void_id),
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+        );
+        let evidence = synthetic_evidence_for_intent(&intent, policy.id);
+        let yield_ = yield_for_intent(&intent, &evidence, policy.id);
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &evidence);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
+
+        assert!(
+            decision.outcome.is_accepted(),
+            "Clean/Foundry intent must produce Accepted under operator-approved policy, got {:?}",
+            decision.outcome,
+        );
+        assert_eq!(decision.taint, TaintLabel::Clean);
     }
 }

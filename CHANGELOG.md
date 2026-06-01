@@ -15,6 +15,20 @@ note explicitly says so.
 
 ### Added
 
+* **`yield_for_intent` taint/authority propagation** — removes the last
+  hardcoded trust override in the passive HYPHAE run path, opening the clean
+  intent → Accepted decision path end-to-end.
+
+  - `yield_for_intent` now calls `intent.taint.clone()` and
+    `intent.authority.clone()` instead of hardcoding `TaintLabel::Synthetic` /
+    `AuthorityLabel::Agent`. The `from_void_map` default remains
+    `Unverified`/`Agent`, so all existing passive-run outcomes are unchanged.
+  - A `TaintLabel::Clean` + `AuthorityLabel::Foundry` intent now naturally
+    produces an `Accepted` decision under operator-approved policy — no special
+    casing needed anywhere in the gate stack.
+  - 2 new hyphae tests (172 total); 1 new `RX:Hyphae` eval scenario (124 total,
+    777 substrate tests).
+
 * **Decision taint propagation to BlueprintUnit** — closes the data flow gap
   between `StructuralYield.taint` and `BlueprintUnit`; every trust signal now
   travels through the full pipeline chain.

@@ -4,8 +4,8 @@
 **Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat."
 
-- **775 substrate tests** (kosmo-core 339, kosmo-hyphae 170, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
-- **123/123 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
+- **777 substrate tests** (kosmo-core 339, kosmo-hyphae 172, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 7, kosmo-pipeline 81) — 0 failures
+- **124/124 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
 - **`ContradictionEnergyReport::from_units` — real pairwise contradiction detection** ✅
@@ -19,6 +19,12 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Hyphae `yield_for_intent` Taint/Authority Propagation (2026-06-01)
+- [x] `yield_for_intent` now propagates `intent.taint.clone()` and `intent.authority.clone()` — no hardcoded overrides
+- [x] A `TaintLabel::Clean` + `AuthorityLabel::Foundry` intent produces a yield that passes all gates → `Accepted` decision (fully open clean path)
+- [x] `TaintLabel::Unverified` + `AuthorityLabel::Agent` intent (the `from_void_map` default) still produces `EvidenceOnly` — backward-compatible
+- [x] 2 new hyphae tests (172 total); 1 new `RX:Hyphae` eval scenario (124 total, 777 substrate tests)
 
 ### Decision Taint Propagation to BlueprintUnit (2026-06-01)
 - [x] `AssimilationDecision.taint: TaintLabel` — propagated from `StructuralYield.taint` via `from_trace()`; participates in `decision_id` content-address
