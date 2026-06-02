@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **994 substrate tests** (kosmo-core 360, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11) — 0 failures
+- **1012 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,21 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-core::attractor` — the wish as a fixed-point attractor (2026-06-02)
+
+Turns "the compressor converges" from a claim into a checkable contract. The wish is the attractor `x*`; the Run-1 distance `V` is a Lyapunov function (`V ≥ 0`, `V = ZERO` only at `x*`); a trajectory converges iff `V` is monotone non-increasing and reaches `ZERO`.
+
+**`kosmo-core::attractor`** — pure types over the Run-1 distance:
+- [x] `WishConvergenceTrace` — content-addressed, evidence-bound (CROSS-006) distance trajectory (`Vec<Q16>`, oldest first); derives `AttractorStatus` + `first_divergence`
+- [x] `AttractorStatus` = Converged / Converging / Stalled / Diverging / Indeterminate; `ConvergenceStep` = Contracting / Stalled / Diverging per transition
+- [x] Contraction invariant = intent-axis analogue of LPCM `monotone_contractive_filter`: a step increasing `V` is a regression → `is_contractive()` false, offending index recorded (fail-closed, the loop rejects the patch)
+- [x] `at_attractor()` + fixed-point stability (`f(x*) = x*`): extending a converged trace with `ZERO` stays converged
+- [x] `from_assessments(&[WishAssessment])` builds a trajectory from Run-1 output; mixed-wish → `Indeterminate` empty trace
+- [x] `MAX_STRICT_CONTRACTION_STEPS = 65537`: `Q16` discreteness bounds a strictly-contracting trajectory's length — finite convergence as a counting argument
+- [x] 18 tests (kosmo-core 360 → 378); ranks-never-gates; zero new deps
+
+**Next rung:** the pipeline-scan adapter — populate `ObservedTopology` from the live scan (parse-back snapshot + resolved voids), assess against a user `Wish`, feed `unmet_facets` into the synthesizer's action queue, and accumulate a `WishConvergenceTrace` across runs so the loop can refuse any step that diverges from the attractor.
 
 ### `kosmo-core::wish` — Wunsch-zu-System seed: intent as a measurable target (2026-06-02)
 

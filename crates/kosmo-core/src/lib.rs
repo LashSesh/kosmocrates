@@ -7,6 +7,7 @@
 //! substrate and below all HYPHAE, Workbench, and SystemCube layers.
 
 pub mod acquisition;
+pub mod attractor;
 pub mod authority;
 pub mod cartography;
 pub mod digest;
@@ -29,6 +30,9 @@ pub use acquisition::{
     LicenseCheckOutcome, SecretScanOutcome, SourceAcquisitionCapability,
 };
 pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
+pub use attractor::{
+    AttractorStatus, ConvergenceStep, WishConvergenceTrace, MAX_STRICT_CONTRACTION_STEPS,
+};
 pub use cartography::{
     CartographyEntryKind, CartographyIntegrityReport, CartographyIntegrityStatus,
     CartographyStoreCommit, CartographyStoreError, CartographyStorageManifest,

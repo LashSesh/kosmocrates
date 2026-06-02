@@ -15,6 +15,30 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-core::attractor` — the wish as a fixed-point attractor (convergence contract)**
+
+  Formalizes "the compressor converges". The wish is the attractor `x*`; the
+  Run-1 wish distance `V` is a Lyapunov function (`V ≥ 0`, `V = ZERO` only at
+  `x*`). A trajectory converges iff `V` is monotone non-increasing and reaches
+  `ZERO`.
+
+  - `WishConvergenceTrace` — content-addressed, evidence-bound record of a
+    distance trajectory (`distances: Vec<Q16>`, oldest first). Derives
+    `AttractorStatus` (Converged / Converging / Stalled / Diverging /
+    Indeterminate) and `first_divergence: Option<u32>`.
+  - Contraction invariant (intent-axis analogue of LPCM's
+    `monotone_contractive_filter`): a step that *increases* `V` is a regression —
+    `is_contractive()` is false and the offending index is recorded, fail-closed,
+    so the loop can reject the patch that moved away from the wish.
+  - `at_attractor()` (latest distance is `ZERO`) plus fixed-point stability
+    (`f(x*) = x*`): extending a converged trace with `ZERO` stays converged.
+  - `from_assessments(&[WishAssessment])` builds the trajectory directly from
+    Run-1 output; a mixed-wish slice yields an `Indeterminate`, empty trace.
+  - `MAX_STRICT_CONTRACTION_STEPS = 65537`: because `Q16` is a *discrete* lattice,
+    a strictly contracting trajectory over `[0, 1]` reaches the attractor in
+    bounded time — convergence is a counting argument, not an asymptotic hope.
+  - Ranks, never gates. 18 new tests; zero new dependencies.
+
 * **`kosmo-core::wish` — the Wunsch-zu-System seed: intent as a measurable target**
 
   The first rung of the wish-to-system arc. The substrate has always measured
