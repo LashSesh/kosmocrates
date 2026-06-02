@@ -15,6 +15,27 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-substrate` CLI binary — workspace topology analysis + ranked action queue**
+
+  A zero-dependency command-line binary that wraps the full pipeline and renders
+  results in a human-readable terminal UI, single-line summary, or structured JSON.
+
+  - `kosmo-substrate [OPTIONS] [PATH]` — analyses any Rust workspace or directory
+    and produces a priority-ranked action queue from the HYPHAE → Metatron →
+    SystemCube → Crystal → PSE pipeline.
+  - `--output text|json|summary` — rich ANSI terminal output (default), JSON report
+    dump, or CI-friendly single-line summary.
+  - `--store <path>` — persistent CAD library across invocations (tilde-expanded);
+    implies `--crystals`; parent directory created automatically.
+  - `--operator` — `OperatorApproved` policy (enables crystal persistence to store).
+  - `--all` / individual layer flags (`--metatron`, `--lpcm`, `--systemcube`,
+    `--surgery`, `--crystals`, `--norms`, `--motifs`, `--pse`).
+  - `--fail-on-reject` / `--fail-on-warn` — non-zero exit codes for CI gating.
+  - `--capacity <n>` — SystemCube D-density denominator.
+  - `WorkspacePipelineSession` drives repeated runs; `--session run #N` shown in header.
+  - Box-drawing header with ANSI-aware alignment (visual-width padding via `vlen()`).
+  - `tools/kosmo-substrate` added to workspace members.
+
 * **`ActionItem` / `IntegrationRunReport::action_items()` — CAM layer**
 
   The pipeline now completes the CAD/CAM metaphor by producing a single,

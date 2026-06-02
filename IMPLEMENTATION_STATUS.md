@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, und produziert priorisierte Arbeitsanweisungen."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — und ist jetzt als CLI-Binary nutzbar."
 
 - **927 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
@@ -19,6 +19,24 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-substrate` CLI Binary — Workspace Topology Analysis (2026-06-02)
+
+The full pipeline is now accessible as a standalone CLI binary — no Rust knowledge required to run it.
+
+- [x] `kosmo-substrate [OPTIONS] [PATH]` — zero external deps (manual arg parsing, raw ANSI, serde_json)
+- [x] `--output text` — rich terminal UI: box-drawing header, action queue, crystal CAD library section, void priority ranking, optional layers section; top-20 action items shown inline
+- [x] `--output json` — full `IntegrationRunReport` serialized as pretty-printed JSON
+- [x] `--output summary` — single-line CI-friendly output: `GATE | workspace=... | voids=N | actions=M | ...`
+- [x] `--store <path>` — persistent cross-session CAD library with tilde expansion; implies `--crystals`
+- [x] `--operator` — OperatorApproved policy (enables crystal persist); default is ReportOnly
+- [x] `--all` / `--metatron` / `--lpcm` / `--systemcube` / `--surgery` / `--crystals` / `--norms` / `--motifs` / `--pse`
+- [x] `--fail-on-reject` / `--fail-on-warn` — exit code 1 for CI gate integration
+- [x] `--capacity <n>` — SystemCube D-density denominator (default 100)
+- [x] `vlen()` — ANSI-aware visual-width measurement for correct box alignment with colored values
+- [x] `gate_str()`, `kind_label()`, `kind_color()` — colored terminal formatting
+- [x] `WorkspacePipelineSession` used internally; session run counter shown in header
+- [x] `tools/kosmo-substrate` registered as workspace member
 
 ### `ActionItem` — CAM Layer: Report → Ranked Actionable Directives (2026-06-01)
 
