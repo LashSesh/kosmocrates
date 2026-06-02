@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser — und ein geschlossener Agent-Loop synthetisiert, bewertet und protokolliert Patches autonom."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser — und ein geschlossener Agent-Loop synthetisiert mit Claude oder Cerebras, bewertet und protokolliert Patches autonom über `kosmo-run`."
 
-- **944 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-agent 8) — 0 failures
+- **958 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 8) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,28 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-synthesizer-llm` + `kosmo-run` — Real LLM Backends & Agent Runner (2026-06-02)
+
+The synthesizer trait gets two production backends and the agent loop gets a CLI driver — the "loslegen ohne forschen" entry point for the execution layer.
+
+**`kosmo-synthesizer-llm`** — Claude + OpenAI-compatible backends:
+- [x] `LlmSynthesizer` implements `ActionSynthesizer` over `LlmProvider::Anthropic` (Messages API) and `LlmProvider::OpenAiCompatible` (`/chat/completions`)
+- [x] `LlmConfig::claude()` / `::cerebras()` / `::openai_compatible()` + `with_model` / `with_max_tokens` / `with_temperature_milli` / `with_timeout_secs`
+- [x] `LlmSynthesizer::from_env()` — provider auto-detect (`ANTHROPIC_API_KEY`→Claude, `CEREBRAS_API_KEY`→Cerebras); `KOSMO_LLM_PROVIDER` / `_API_KEY` / `_MODEL` / `_BASE_URL` overrides
+- [x] Pure offline-testable core: `system_prompt()`, `build_user_prompt()`, `extract_json_object()` (brace-balanced, string-literal-aware, fence/prose tolerant), `parse_synthesis_response()`
+- [x] Wire schema: one JSON object `{ rationale, confidence_pct (int 0-100), test_hint, files:[{path,op,content}] }`; `confidence_pct` → `Q16::ratio` so no float crosses the boundary (CROSS-007 respected; temperature float lives only inside the outbound request body)
+- [x] Per-provider request body + headers + content extraction; 429/5xx retry with exponential backoff (4s/8s/16s); transient vs permanent `SynthesisError` classification
+- [x] Non-determinism is contained at the LLM call; returned `Patch`/`SynthesisResult` are content-addressed (INVARIANT-007)
+- [x] 14 tests (endpoints, per-provider bodies/extraction, prompt content, JSON extraction incl. braces-in-strings, confidence clamping/default, delete-op mapping, determinism, empty-key fast-fail) + 1 `#[ignore]` live Cerebras smoke test
+- [x] deps: `reqwest` (blocking, json); registered as workspace member
+
+**`tools/kosmo-run`** — the agent runner CLI:
+- [x] `kosmo-run [OPTIONS] [PATH]` — `--provider claude|cerebras|mock|env`, `--model`, `--max-steps`, `--min-confidence <pct>`, `--all`, `--capacity`, `--json`, `--no-color`
+- [x] Builds the synthesizer (env keys or flags), runs `AgentSession` dry-run, renders the ranked queue: per-step kind, confidence %, file/line/token counts, rationale, verify hint, per-file change kind, materialization status
+- [x] `--json` emits the full content-addressed `AgentRunReport`; exit code 2 when the pipeline gate rejects
+- [x] `mock` provider runs fully offline (no key) — instant "try the loop" path
+- [x] Dry-run only: report-only policy, no host writes; real materialization still deferred to a future `kosmo-materialize`
 
 ### `kosmo-synthesizer` + `kosmo-agent` — Closed-Loop Execution Layer (2026-06-02)
 

@@ -15,6 +15,34 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-synthesizer-llm` + `kosmo-run` — real LLM backends and the agent runner**
+
+  Turns the agent loop from a mock into a working tool driven by a real model.
+
+  - `kosmo-synthesizer-llm`: `LlmSynthesizer` implements `ActionSynthesizer`
+    over two wire protocols — **Claude** (Anthropic Messages API: `/v1/messages`,
+    `x-api-key` + `anthropic-version`, `content[0].text`) and any
+    **OpenAI-compatible** endpoint (`/chat/completions`, `Bearer` auth,
+    `choices[0].message.content`) covering **Cerebras** (the free-tier bridge),
+    OpenAI, Groq, Together, Ollama, …
+  - Pure, offline-tested core: `system_prompt`, `build_user_prompt`,
+    `extract_json_object` (brace-balanced, fence/prose tolerant, string-aware),
+    `parse_synthesis_response` — the model returns one JSON patch object
+    (`confidence_pct` integer → `Q16::ratio`, so no float crosses our boundary)
+  - `LlmConfig::claude()` / `::cerebras()` / `::openai_compatible()`;
+    `LlmSynthesizer::from_env()` with provider auto-detect (`ANTHROPIC_API_KEY`
+    → Claude, `CEREBRAS_API_KEY` → Cerebras) and `KOSMO_LLM_*` overrides;
+    temperature defaults to 0; 429/5xx retry with exponential backoff
+  - Non-determinism is contained: the LLM is the only non-deterministic step;
+    the returned `Patch`/`SynthesisResult` are content-addressed again
+  - `tools/kosmo-run`: the agent runner CLI — `kosmo-run [--provider
+    claude|cerebras|mock|env] [--model M] [--max-steps N] [--min-confidence P]
+    [--all] [--json] PATH`; renders the ranked queue, synthesized patches,
+    per-step confidence/lines/tokens, rationale and verify hint; dry-run only
+    (report-only policy, no host writes); `mock` provider runs offline with no key
+  - 14 synthesizer-llm tests (+1 ignored live Cerebras smoke test); both new
+    crates registered as workspace members
+
 * **`kosmo-agent` + `kosmo-synthesizer` — closed-loop execution layer**
 
   The agent/synthesis stack turns the pipeline's ranked `ActionItem` queue into

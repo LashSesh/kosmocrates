@@ -1,0 +1,26 @@
+[package]
+name = "kosmo-run"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates agent runner — drives the closed-loop pipeline→synthesize→materialize agent over a workspace using a Claude or Cerebras LLM backend"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "kosmo-run"
+path = "src/main.rs"
+
+[dependencies]
+kosmo-core            = { path = "../../crates/kosmo-core" }
+kosmo-pipeline        = { path = "../../crates/kosmo-pipeline" }
+kosmo-synthesizer     = { path = "../../crates/kosmo-synthesizer" }
+kosmo-synthesizer-llm = { path = "../../crates/kosmo-synthesizer-llm" }
+kosmo-agent           = { path = "../../crates/kosmo-agent" }
+serde_json            = { workspace = true }

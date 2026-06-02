@@ -1460,6 +1460,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-run"
+version = "0.1.0"
+dependencies = [
+ "kosmo-agent",
+ "kosmo-core",
+ "kosmo-pipeline",
+ "kosmo-synthesizer",
+ "kosmo-synthesizer-llm",
+ "serde_json",
+]
+
+[[package]]
 name = "kosmo-server"
 version = "0.1.0"
 dependencies = [
@@ -1497,6 +1509,18 @@ version = "0.1.0"
 dependencies = [
  "kosmo-core",
  "kosmo-pipeline",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kosmo-synthesizer-llm"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-pipeline",
+ "kosmo-synthesizer",
+ "reqwest",
  "serde",
  "serde_json",
 ]
