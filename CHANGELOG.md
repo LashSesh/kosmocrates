@@ -15,6 +15,34 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-core::wish` — the Wunsch-zu-System seed: intent as a measurable target**
+
+  The first rung of the wish-to-system arc. The substrate has always measured
+  voids against an *implicit* target — structural completeness. `Wish` makes the
+  target *explicit*, so the same convergence loop can later descend toward a
+  stated intent instead of merely "be structurally whole". This run ships only
+  the target and the ruler; wiring it into the agent loop is a later run.
+
+  - `Wish` — content-addressed (`id = SHA-256(JCS(content))`), evidence-bound
+    (CROSS-006) declaration of a desired topology: a de-duplicated, facet-sorted
+    set of `WishPredicate`s (each a `WishFacet` + `Q16` weight). Predicate order
+    never affects identity (deterministic replay).
+  - `WishFacet` / `WishFacetKind` — positive-only structural targets
+    (`Crate`, `Module`, `Symbol`, `Capability`, `Resolution`). "The bad thing
+    must be gone" is modelled as a `Resolution` facet the pipeline emits once a
+    void is closed — a wish is never satisfied by *absence* of evidence.
+  - `ObservedTopology` — the set of facets observed present in a workspace
+    (caller-supplied now; populated from the live pipeline in a later run).
+  - `assess_wish(wish, observed, evidence) -> WishAssessment` — pure,
+    deterministic distance function. `distance: Q16` is the weighted unmet
+    fraction (`ZERO` ⇒ realized, `ONE` ⇒ nothing met); `unmet_facets` is the
+    remaining **gradient** the agent loop must close. `WishClosureStatus` =
+    Realized / Approaching / Unstarted / Vacuous.
+  - Doctrine: the wish distance *ranks*, it never *gates* (CROSS-010 applied to
+    the intent axis) — it grants no capability and bypasses no policy.
+  - 21 new tests (content addressing, predicate order-independence, dedup,
+    fail-closed unmet, weighted distance, unit-interval bounds, evidence-bound).
+
 * **Git-commit-per-patch + PromotionFeedback loop — the compressor is live**
 
   Two orthogonal layers that close the full convergence cycle.

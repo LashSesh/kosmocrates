@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **973 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11) — 0 failures
+- **994 substrate tests** (kosmo-core 360, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,21 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-core::wish` — Wunsch-zu-System seed: intent as a measurable target (2026-06-02)
+
+The first rung of the wish-to-system arc. Until now the substrate measured voids against *implicit* structural completeness; `Wish` makes the target *explicit*, so the same convergence loop can later descend toward a stated intent instead of merely "be whole". This run ships the target type and the distance function only — wiring into the pipeline/agent loop is a later run.
+
+**`kosmo-core::wish`** — pure, dependency-free types + one pure function:
+- [x] `Wish` — content-addressed (`id = SHA-256(JCS(content))`), evidence-bound (CROSS-006) desired topology; predicates sorted by facet + de-duplicated, so predicate order never affects `id`
+- [x] `WishFacet` / `WishFacetKind` (`Crate`/`Module`/`Symbol`/`Capability`/`Resolution`) — positive-only targets; "the bad thing is gone" → a `Resolution` facet (a wish is never satisfied by absence of evidence)
+- [x] `WishPredicate` (`WishFacet` + `Q16` weight; `require` = unit weight, `weighted` clamps negatives to `ZERO`)
+- [x] `ObservedTopology` — caller-supplied set of present facets (live-pipeline adapter is a later run)
+- [x] `assess_wish(wish, observed, evidence) -> WishAssessment` — pure/deterministic; `distance: Q16` = weighted unmet fraction (`ZERO` ⇒ realized, `ONE` ⇒ nothing met); `unmet_facets` = remaining gradient; `WishClosureStatus` = Realized/Approaching/Unstarted/Vacuous
+- [x] Doctrine: distance *ranks*, never *gates* (CROSS-010 on the intent axis); fail-closed (a facet not positively observed is unmet)
+- [x] 21 tests (kosmo-core 339 → 360); zero new dependencies
+
+**Next rung:** an adapter that populates `ObservedTopology` from the live pipeline scan (parse-back snapshot + resolved-void set), then `assess_wish` against a user-supplied `Wish` so `unmet_facets` feeds the synthesizer's action queue — turning the repair loop into a build-toward-intent loop.
 
 ### Git-commit-per-patch + PromotionFeedback loop — Compressor live (2026-06-02)
 
