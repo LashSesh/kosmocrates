@@ -15,6 +15,20 @@ note explicitly says so.
 
 ### Added
 
+* **Distribution — `Dockerfile.kosmo`, `install.sh`, documentation**
+
+  Everything needed to ship the substrate tools to end users.
+
+  - `docker/Dockerfile.kosmo` — multi-stage (cargo-chef + debian-slim) image building
+    `kosmo-substrate` and `kosmo-server`; default entrypoint is `kosmo-substrate /workspace`;
+    override to `kosmo-server` for the browser UI; EXPOSE 7777; healthcheck on `/api/health`
+  - `install.sh` — bash install script; `./install.sh` (local path), `./install.sh --git`
+    (from upstream); checks for Rust, prints quickstart after install
+  - `SUBSTRATE.md` — new "Getting started" section covering all four entry points
+    (CLI, TUI, browser UI, REST API) with copy-paste examples
+  - `README.md` — quickstart updated with substrate tools block; "Where to go next"
+    table updated with four top-of-table substrate rows
+
 * **`kosmo-server` — HTTP server + embedded browser UI**
 
   A self-contained web server that exposes the pipeline over a REST API and serves
