@@ -1449,6 +1449,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "kosmo-core",
+ "kosmo-pipeline",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "kosmo-store"
 version = "0.1.0"
 dependencies = [

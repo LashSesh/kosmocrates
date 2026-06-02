@@ -15,6 +15,22 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-server` — HTTP server + embedded browser UI**
+
+  A self-contained web server that exposes the pipeline over a REST API and serves
+  an embedded single-page app — no build step, no npm, no external CDN.
+
+  - `GET /` — serves the embedded browser UI (GitHub-dark theme, vanilla JS + CSS)
+  - `GET /api/health` — version ping: `{ "status": "ok", "version": "..." }`
+  - `POST /api/analyse` — JSON body `{ "path": "...", "flags": { ... } }` → structured report
+  - Browser UI: path input, per-layer checkboxes, Analyse button with spinner;
+    renders gate badge, stats grid, action queue table (top 100), crystal CAD library
+    section, optional-layers summary, void priority ranking chips
+  - Action kind badges colour-coded by group (void=cyan, topology=yellow, pse/norm=green)
+  - `--port <n>` (default 7777), `--host <addr>` (default 127.0.0.1), `--open`
+  - Pipeline runs on a `spawn_blocking` thread; axum + tokio runtime
+  - `tools/kosmo-server` registered as workspace member
+
 * **`kosmo-tui` — interactive terminal dashboard (ratatui)**
 
   A full-screen TUI binary for navigating workspace topology results interactively.

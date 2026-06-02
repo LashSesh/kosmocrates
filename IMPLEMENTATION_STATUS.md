@@ -1,8 +1,8 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — und ist als interaktives Terminal-Dashboard navigierbar."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser."
 
 - **927 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
@@ -19,6 +19,21 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-server` — HTTP Server + Browser UI (2026-06-02)
+
+REST API server with embedded single-page app — the "jeder der das sieht" entry point.
+
+- [x] `GET /` — embedded browser UI (GitHub-dark theme, ~300 lines HTML/CSS/JS, no build step)
+- [x] `GET /api/health` — version ping
+- [x] `POST /api/analyse` — JSON request `{ path, flags }` → structured `AnalyseResponse` DTO
+- [x] `AnalyseResponse`: gate, stats, action queue rows (all), void ranking, optional layer counts, crystal counts
+- [x] Browser UI: path input + Enter key, per-layer checkboxes, spinner during request, elapsed time
+- [x] Gate badge coloured by result (Pass=green, Warn=yellow, Reject=red)
+- [x] Action queue table with kind badges colour-coded by group
+- [x] Crystal CAD library section + optional layers section + void ranking chips (conditional)
+- [x] `--port <n>` / `--host <addr>` / `--open`; pipeline on `spawn_blocking` thread
+- [x] `tools/kosmo-server` registered as workspace member; deps: `axum`, `tokio`, `serde`, `serde_json`
 
 ### `kosmo-tui` — Interactive Terminal Dashboard (2026-06-02)
 

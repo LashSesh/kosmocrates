@@ -83,6 +83,7 @@ members = [
     "tools/kosmo-eval",
     "tools/kosmo-substrate",
     "tools/kosmo-tui",
+    "tools/kosmo-server",
     "crates/kosmo-kcube",
 ]
 
