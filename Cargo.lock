@@ -1329,6 +1329,7 @@ dependencies = [
 name = "kosmo-substrate"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "kosmo-core",
  "kosmo-pipeline",
  "serde_json",

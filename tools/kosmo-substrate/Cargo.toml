@@ -21,3 +21,4 @@ path = "src/main.rs"
 kosmo-core = { path = "../../crates/kosmo-core" }
 kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
 serde_json = { workspace = true }
+chrono = { workspace = true }

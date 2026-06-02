@@ -42,6 +42,7 @@ struct Args {
 enum OutputFormat {
     Text,
     Json,
+    Markdown,
     Summary,
 }
 
@@ -99,10 +100,11 @@ fn parse_args() -> Result<Args, String> {
                     return Err("--output requires a format argument (text|json|summary)".into());
                 }
                 args.output = match raw[i].as_str() {
-                    "text"    => OutputFormat::Text,
-                    "json"    => OutputFormat::Json,
-                    "summary" => OutputFormat::Summary,
-                    other => return Err(format!("unknown output format '{other}'; use text, json, or summary")),
+                    "text"     => OutputFormat::Text,
+                    "json"     => OutputFormat::Json,
+                    "markdown" => OutputFormat::Markdown,
+                    "summary"  => OutputFormat::Summary,
+                    other => return Err(format!("unknown output format '{other}'; use text, json, markdown, or summary")),
                 };
             }
             "--capacity" => {
@@ -157,7 +159,7 @@ fn print_help() {
         "    --pse            Enable PSE bridge candidates\n",
         "    --operator       Use OperatorApproved policy (enables host writes/crystal persist)\n",
         "    --capacity <n>   SystemCube D-density denominator (default: 100)\n",
-        "    --output <fmt>   Output format: text (default) | json | summary\n",
+        "    --output <fmt>   Output format: text (default) | json | markdown | summary\n",
         "    --fail-on-reject Exit 1 if gate result is Reject\n",
         "    --fail-on-warn   Exit 1 if gate result is Reject or Warn\n",
         "    -h, --help       Print this help\n",
@@ -405,6 +407,163 @@ fn print_report_summary(path: &str, report: &IntegrationRunReport) {
     );
 }
 
+// ─── Markdown output ─────────────────────────────────────────────────────────
+
+fn kind_md(kind: &ActionItemKind) -> &'static str {
+    match kind {
+        ActionItemKind::FillVoid { .. }         => "FillVoid",
+        ActionItemKind::RepairTopology { .. }   => "RepairTopology",
+        ActionItemKind::PromoteToPse { .. }     => "PromoteToPse",
+        ActionItemKind::ReviewCrystal { .. }    => "ReviewCrystal",
+        ActionItemKind::ApplyNorm { .. }        => "ApplyNorm",
+    }
+}
+
+fn gate_md(r: &kosmo_core::GateResult) -> &'static str {
+    match r {
+        kosmo_core::GateResult::Pass           => "✅ Pass",
+        kosmo_core::GateResult::Warn { .. }    => "⚠️ Warn",
+        kosmo_core::GateResult::Reject { .. }  => "❌ Reject",
+        kosmo_core::GateResult::Downgrade{..}  => "⬇️ Downgrade",
+    }
+}
+
+fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u32) {
+    let policy_label = if report.policy_id == PolicyProfile::operator_approved().id {
+        "OperatorApproved"
+    } else {
+        "ReportOnly"
+    };
+    let generated = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string();
+
+    println!("# Kosmocrates Analysis Report\n");
+    println!("> **workspace:** `{path}`  ");
+    println!("> **policy:** {policy_label}  ");
+    println!("> **gate:** {}  ", gate_md(&report.final_result));
+    println!("> **report id:** `{}`  ", &report.report_id.to_hex()[..32]);
+    if run_count > 0 {
+        println!("> **session:** run #{run_count}  ");
+    }
+    println!("> **generated:** {generated}  ");
+    println!();
+    println!("---\n");
+
+    // ── Workspace ─────────────────────────────────────────────────────────────
+    let void_count = report.void_priority_ranking.len();
+    let def_sev = report.deficiency_vector.total_severity;
+    let source_count = report.hyphae_result.host_cube.void_map.voids.len()
+        + report.source_cubes.len();
+    println!("## Workspace\n");
+    println!("| Metric | Value |");
+    println!("|--------|-------|");
+    println!("| Source files | {source_count} |");
+    println!("| Voids detected | {void_count} |");
+    println!("| Total severity | {} |", q16_fmt(def_sev.raw()));
+    println!("| Deficiency entries | {} |", report.deficiency_vector.entries.len());
+    println!();
+
+    // ── Action queue ─────────────────────────────────────────────────────────
+    let items = report.action_items();
+    println!("## Action Queue ({} items)\n", items.len());
+    if items.is_empty() {
+        println!("_No actions — workspace is clean._\n");
+    } else {
+        println!("| # | Score | Kind | Description |");
+        println!("|---|------:|------|-------------|");
+        for (i, item) in items.iter().enumerate().take(50) {
+            let desc = item.description.replace('|', "\\|");
+            println!("| {} | {} | {} | {} |",
+                i + 1,
+                q16_fmt(item.priority_score.raw()),
+                kind_md(&item.kind),
+                desc,
+            );
+        }
+        if items.len() > 50 {
+            println!();
+            println!("_… {} more items. Use `--output json` for the full list._", items.len() - 50);
+        }
+        println!();
+    }
+
+    // ── Crystal CAD library ───────────────────────────────────────────────────
+    if !report.crystal_candidates.is_empty() || report.persisted_crystal_count > 0
+        || !report.resonite_map.is_empty()
+    {
+        println!("## Crystal CAD Library\n");
+        println!("| Metric | Value |");
+        println!("|--------|-------|");
+        println!("| Certified this run | {} |", report.certified_crystals.len());
+        println!("| Resonite pairs | {} |", report.resonite_map.len());
+        println!("| Persisted to store | {} |", report.persisted_crystal_count);
+        println!();
+    }
+
+    // ── Optional layers ───────────────────────────────────────────────────────
+    let has_opt = !report.metatron_diagnostics.is_empty()
+        || !report.lpcm_reports.is_empty()
+        || !report.surgery_options.is_empty()
+        || report.systemcube_export.is_some()
+        || !report.pse_candidates.is_empty()
+        || !report.norm_candidates.is_empty()
+        || !report.motif_candidates.is_empty();
+
+    if has_opt {
+        println!("## Optional Layers\n");
+        println!("| Layer | Details |");
+        println!("|-------|---------|");
+        if !report.metatron_diagnostics.is_empty() {
+            println!("| Metatron | {} diagnostics, {} lifts, {} ambiguities |",
+                report.metatron_diagnostics.len(),
+                report.lift_reports.len(),
+                report.ambiguity_profiles.len());
+        }
+        if !report.lpcm_reports.is_empty() {
+            println!("| LPCM | {} reports |", report.lpcm_reports.len());
+        }
+        if !report.surgery_options.is_empty() {
+            println!("| Surgery | {} options |", report.surgery_options.len());
+        }
+        if let Some(ref sc) = report.systemcube_export {
+            println!("| SystemCube | mode={:?}, compat={}, contradiction_energy={} |",
+                sc.mode,
+                q16_fmt(sc.compatibility.compatibility_score.raw()),
+                q16_fmt(sc.contradiction_energy.total_energy.raw()));
+        }
+        if !report.pse_candidates.is_empty() {
+            println!("| PSE Bridge | {} candidates |", report.pse_candidates.len());
+        }
+        if !report.norm_candidates.is_empty() {
+            println!("| Norm Candidates | {} genes, {} fitness traces |",
+                report.norm_candidates.len(),
+                report.norm_fitness_traces.len());
+        }
+        if !report.motif_candidates.is_empty() {
+            println!("| Motif Candidates | {} patterns |", report.motif_candidates.len());
+        }
+        println!();
+    }
+
+    // ── Void priority ranking ─────────────────────────────────────────────────
+    if !report.void_priority_ranking.is_empty() {
+        println!("## Void Priority Ranking\n");
+        for (i, vid) in report.void_priority_ranking.iter().enumerate().take(20) {
+            println!("{}. `{}`", i + 1, &vid.to_hex()[..16]);
+        }
+        if report.void_priority_ranking.len() > 20 {
+            println!();
+            println!("_… {} more voids._", report.void_priority_ranking.len() - 20);
+        }
+        println!();
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    println!("---");
+    println!();
+    println!("_Generated by [kosmo-substrate](https://github.com/LashSesh/kosmocrates) v{}_",
+        env!("CARGO_PKG_VERSION"));
+}
+
 // ─── Build options ────────────────────────────────────────────────────────────
 
 fn build_options(args: &Args) -> IntegrationRunOptions {
@@ -475,7 +634,7 @@ fn main() {
 
     let mut session = WorkspacePipelineSession::new(options, policy);
 
-    if args.output == OutputFormat::Text {
+    if args.output == OutputFormat::Text || args.output == OutputFormat::Markdown {
         eprintln!("{} {}…", dim("analysing"), cyan(&args.path));
     }
 
@@ -499,6 +658,9 @@ fn main() {
                     process::exit(2);
                 }
             }
+        }
+        OutputFormat::Markdown => {
+            print_report_markdown(&args.path, &report, session.run_count());
         }
         OutputFormat::Summary => {
             print_report_summary(&args.path, &report);
