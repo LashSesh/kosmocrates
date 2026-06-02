@@ -15,6 +15,27 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-intent` — connect the wish ruler to the real workspace**
+
+  The third rung of the wish-to-system arc. Runs 1–2 measured a wish against a
+  hand-supplied observation; this crate reads a **real** workspace and turns it
+  into one, then ties target + ruler + convergence contract together in a
+  stateful session.
+
+  - `observe_workspace(root)` / `observe_snapshot(&TopologySnapshot)` /
+    `facets_from_snapshot(...)` — read-only adapter (one `cargo metadata` via
+    `kosmo-parseback`) that turns crate topology into an `ObservedTopology` of
+    `Crate` facets. (`Module` / `Symbol` facets need a name-preserving source
+    extractor — a later run; the facet-set API merges them in without change.)
+  - `WishSession` — a descent toward a wish-attractor: each `observe(...)`
+    assesses the workspace (Run 1), appends the distance, and exposes a
+    `WishConvergenceTrace` (Run 2). `is_contractive()` / `at_attractor()` /
+    `is_converged()` surface the contract; a step that *raises* the distance is
+    flagged `Diverging`, fail-closed. Serializable, so a descent persists and
+    resumes across sessions.
+  - 8 tests incl. a live `cargo metadata` scan of the real workspace; depends
+    only on `kosmo-core` + `kosmo-parseback`.
+
 * **`kosmo-core::attractor` — the wish as a fixed-point attractor (convergence contract)**
 
   Formalizes "the compressor converges". The wish is the attractor `x*`; the

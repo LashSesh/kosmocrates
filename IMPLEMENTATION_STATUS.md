@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1012 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11) — 0 failures
+- **1020 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11, kosmo-intent 8) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,18 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-intent` — connect the wish ruler to the real workspace (2026-06-02)
+
+The third rung of the wish-to-system arc. Runs 1–2 measured a wish against a hand-supplied observation; this crate reads a *real* workspace and turns it into one, then ties target + ruler + convergence contract into a stateful session.
+
+**`kosmo-intent`** (new crate; deps: `kosmo-core` + `kosmo-parseback`):
+- [x] `facets_from_snapshot` / `observe_snapshot` / `observe_workspace(root)` — read-only adapter (one `cargo metadata` via `kosmo-parseback`) → `ObservedTopology` of `Crate` facets; crate names are scope-independent, so it uses `AffectedFilesOnly` for speed
+- [x] `WishSession` — stateful descent: `observe()` assesses (Run 1) + appends distance; `trace()` exposes the `WishConvergenceTrace` (Run 2); `is_contractive()` / `at_attractor()` / `is_converged()`; a rising distance is `Diverging` (fail-closed). Serde-round-trippable (persist & resume)
+- [x] Known boundary: `Module` / `Symbol` facets need a name-preserving source extractor (`CodeHDAG` keeps only node *labels*, not symbol names) — a later run; the facet-set API merges new sources without an interface change
+- [x] 8 tests incl. a live `cargo metadata` scan of the real workspace (graceful skip if cargo unavailable); ranks-never-gates
+
+**Next rung:** wire `WishSession` into the agent loop — feed `WishAssessment::unmet_facets` into the synthesizer's action queue so the loop builds *toward the wish*, and reject any patch that makes the session `Diverging` (enforce the contraction invariant live).
 
 ### `kosmo-core::attractor` — the wish as a fixed-point attractor (2026-06-02)
 

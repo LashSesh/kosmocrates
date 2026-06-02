@@ -89,6 +89,7 @@ members = [
     "crates/kosmo-synthesizer-llm",
     "crates/kosmo-agent",
     "crates/kosmo-materialize",
+    "crates/kosmo-intent",
     "tools/kosmo-run",
 ]
 
