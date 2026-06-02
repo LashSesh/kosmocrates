@@ -1,0 +1,21 @@
+[package]
+name = "kosmo-materialize"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates materializer — policy-gated patch application with backup/rollback and cargo validation, closing the agent's dry_run=false path"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+kosmo-core        = { path = "../kosmo-core" }
+kosmo-synthesizer = { path = "../kosmo-synthesizer" }
+kosmo-foundry     = { path = "../kosmo-foundry" }
+serde             = { workspace = true }
+serde_json        = { workspace = true }

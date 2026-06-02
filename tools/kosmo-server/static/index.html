@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kosmocrates</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;
+  --border:#30363d;--text:#e6edf3;--dim:#7d8590;
+  --cyan:#79c0ff;--green:#3fb950;--yellow:#d29922;
+  --red:#f85149;--purple:#bc8cff;--orange:#ffa657;
+  --radius:6px;--font:ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.6;min-height:100vh}
+a{color:var(--cyan);text-decoration:none}
+header{border-bottom:1px solid var(--border);padding:16px 24px;display:flex;align-items:center;gap:16px}
+.logo{font-size:18px;font-weight:700;color:var(--text)}
+.logo-hex{color:var(--cyan)}
+.subtitle{color:var(--dim);font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+h2{font-size:14px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px}
+h2 .count{color:var(--text);background:var(--surface2);border-radius:20px;padding:1px 8px;font-size:12px;margin-left:8px}
+
+/* Controls */
+.path-row{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.path-row label{color:var(--dim);font-size:12px}
+input[type=text]{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--font);font-size:14px;padding:8px 12px;outline:none;transition:border-color .15s}
+input[type=text]:focus{border-color:var(--cyan)}
+.flags{display:flex;flex-wrap:wrap;gap:10px 20px;margin-bottom:16px}
+.flag{display:flex;align-items:center;gap:6px;color:var(--dim);cursor:pointer;font-size:13px;user-select:none}
+.flag:hover{color:var(--text)}
+input[type=checkbox]{accent-color:var(--cyan);width:14px;height:14px;cursor:pointer}
+.actions-row{display:flex;align-items:center;gap:16px}
+button{background:var(--cyan);color:#0d1117;border:none;border-radius:var(--radius);font-family:var(--font);font-size:13px;font-weight:600;padding:8px 20px;cursor:pointer;transition:opacity .15s}
+button:hover{opacity:.85}
+button:disabled{opacity:.5;cursor:not-allowed}
+.status-msg{color:var(--dim);font-size:13px}
+
+/* Gate badge */
+.gate-row{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.gate-badge{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:15px;padding:4px 14px;border-radius:20px}
+.gate-badge.pass{background:rgba(63,185,80,.15);color:var(--green)}
+.gate-badge.warn{background:rgba(210,153,34,.15);color:var(--yellow)}
+.gate-badge.reject{background:rgba(248,81,73,.15);color:var(--red)}
+.gate-badge.downgrade{background:rgba(210,153,34,.15);color:var(--yellow)}
+.meta-list{display:flex;flex-wrap:wrap;gap:6px 24px;color:var(--dim);font-size:13px}
+.meta-list span{color:var(--text)}
+code{font-family:var(--font);font-size:12px;color:var(--dim)}
+
+/* Stats grid */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.stat-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;text-align:center}
+.stat-value{font-size:24px;font-weight:700;color:var(--text)}
+.stat-value.warn{color:var(--yellow)}
+.stat-value.ok{color:var(--green)}
+.stat-label{font-size:11px;color:var(--dim);margin-top:2px}
+
+/* Action table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
+tbody tr{border-bottom:1px solid var(--border)}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--surface2)}
+td{padding:7px 10px;vertical-align:top}
+td.num{color:var(--dim);text-align:right;width:48px}
+td.score{color:var(--dim);font-size:12px;white-space:nowrap;width:80px}
+td.kind{width:140px}
+td.target{color:var(--dim);font-size:12px;white-space:nowrap;width:140px}
+td.desc{word-break:break-word}
+
+/* Kind badges */
+.kind-badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.kind-void{background:rgba(121,192,255,.12);color:var(--cyan)}
+.kind-topology{background:rgba(210,153,34,.12);color:var(--yellow)}
+.kind-pse{background:rgba(63,185,80,.12);color:var(--green)}
+.kind-crystal{background:rgba(210,153,34,.12);color:var(--orange)}
+.kind-norm{background:rgba(63,185,80,.12);color:var(--green)}
+
+/* Void ranking */
+.void-list{display:flex;flex-wrap:wrap;gap:6px}
+.void-id{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:12px;color:var(--dim)}
+.void-id .rank{color:var(--dim);margin-right:6px}
+
+/* Optional layers */
+.layers-list{list-style:none;display:flex;flex-wrap:wrap;gap:8px 24px}
+.layers-list li{color:var(--dim);font-size:13px}
+.layers-list li strong{color:var(--text)}
+
+/* Error */
+.error-card{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:var(--radius);padding:16px 20px;margin-bottom:16px;color:var(--red);font-size:13px}
+
+.hidden{display:none}
+.more-note{color:var(--dim);font-size:12px;text-align:center;padding:12px 0 4px}
+
+/* Spinner */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="logo-hex">⬡</span> Kosmocrates</div>
+  <div class="subtitle">Workspace Topology Analysis</div>
+</header>
+
+<main>
+
+  <div class="card">
+    <div class="path-row">
+      <label for="path">Workspace path</label>
+      <input type="text" id="path" value="." placeholder="/path/to/rust/workspace" spellcheck="false"
+             onkeydown="if(event.key==='Enter')runAnalyse()">
+    </div>
+    <div class="flags">
+      <label class="flag"><input type="checkbox" id="f-all"> All layers</label>
+      <label class="flag"><input type="checkbox" id="f-crystals"> Crystals</label>
+      <label class="flag"><input type="checkbox" id="f-metatron"> Metatron</label>
+      <label class="flag"><input type="checkbox" id="f-lpcm"> LPCM</label>
+      <label class="flag"><input type="checkbox" id="f-systemcube"> SystemCube</label>
+      <label class="flag"><input type="checkbox" id="f-surgery"> Surgery</label>
+      <label class="flag"><input type="checkbox" id="f-norms"> Norms</label>
+      <label class="flag"><input type="checkbox" id="f-motifs"> Motifs</label>
+      <label class="flag"><input type="checkbox" id="f-pse"> PSE Bridge</label>
+      <label class="flag"><input type="checkbox" id="f-operator"> Operator policy</label>
+    </div>
+    <div class="actions-row">
+      <button id="btn" onclick="runAnalyse()">Analyse</button>
+      <span id="status" class="status-msg"></span>
+    </div>
+  </div>
+
+  <div id="error-box" class="error-card hidden"></div>
+  <div id="results"></div>
+
+</main>
+
+<script>
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function runAnalyse(){
+  const btn=document.getElementById('btn');
+  const status=document.getElementById('status');
+  const errBox=document.getElementById('error-box');
+
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Analysing…';
+  status.textContent='';
+  errBox.classList.add('hidden');
+
+  const flags={
+    all:    document.getElementById('f-all').checked,
+    crystals: document.getElementById('f-crystals').checked,
+    metatron: document.getElementById('f-metatron').checked,
+    lpcm:   document.getElementById('f-lpcm').checked,
+    systemcube: document.getElementById('f-systemcube').checked,
+    surgery: document.getElementById('f-surgery').checked,
+    norms:  document.getElementById('f-norms').checked,
+    motifs: document.getElementById('f-motifs').checked,
+    pse:    document.getElementById('f-pse').checked,
+    operator: document.getElementById('f-operator').checked,
+  };
+
+  const path=document.getElementById('path').value.trim()||'.';
+
+  try{
+    const t0=Date.now();
+    const resp=await fetch('/api/analyse',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({path,flags})
+    });
+    const elapsed=((Date.now()-t0)/1000).toFixed(2);
+
+    if(!resp.ok){
+      let msg='Analysis failed';
+      try{const j=await resp.json();msg=j.error||msg;}catch(_){}
+      errBox.textContent=msg;
+      errBox.classList.remove('hidden');
+      return;
+    }
+
+    const data=await resp.json();
+    status.textContent=`completed in ${elapsed}s`;
+    renderReport(data);
+  }catch(e){
+    errBox.textContent=e.message;
+    errBox.classList.remove('hidden');
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Analyse';
+  }
+}
+
+function gateClass(gate){
+  return{Pass:'pass',Warn:'warn',Reject:'reject',Downgrade:'downgrade'}[gate]||'warn';
+}
+function gateIcon(gate){
+  return{Pass:'✓',Warn:'⚠',Reject:'✗',Downgrade:'↓'}[gate]||'?';
+}
+
+function renderReport(d){
+  const gc=gateClass(d.gate);
+  let html=`
+  <div class="card">
+    <div class="gate-row">
+      <div class="gate-badge ${gc}">${gateIcon(d.gate)} ${esc(d.gate)}</div>
+    </div>
+    <div class="meta-list">
+      <div>workspace <span>${esc(d.path)}</span></div>
+      <div>policy <span>${esc(d.policy)}</span></div>
+      <div>report id <code>${esc(d.report_id)}</code></div>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-value">${d.source_count}</div><div class="stat-label">source files</div></div>
+    <div class="stat-card"><div class="stat-value${d.void_count>0?' warn':''}">${d.void_count}</div><div class="stat-label">voids detected</div></div>
+    <div class="stat-card"><div class="stat-value">${esc(d.total_severity)}</div><div class="stat-label">total severity</div></div>
+    <div class="stat-card"><div class="stat-value">${d.deficiency_entries}</div><div class="stat-label">deficiency entries</div></div>
+  </div>`;
+
+  // Action queue
+  if(d.action_items.length>0){
+    html+=`<div class="card">
+    <h2>Action Queue <span class="count">${d.action_items.length}</span></h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Score</th><th>Kind</th><th>Target</th><th>Description</th></tr></thead>
+      <tbody>`;
+    for(const item of d.action_items.slice(0,100)){
+      html+=`<tr>
+        <td class="num">${item.rank}</td>
+        <td class="score">${esc(item.score)}</td>
+        <td class="kind"><span class="kind-badge kind-${esc(item.kind_group)}">${esc(item.kind)}</span></td>
+        <td class="target"><code>${esc(item.target_id)}</code></td>
+        <td class="desc">${esc(item.description)}</td>
+      </tr>`;
+    }
+    html+='</tbody></table></div>';
+    if(d.action_items.length>100){
+      html+=`<p class="more-note">… ${d.action_items.length-100} more items</p>`;
+    }
+    html+='</div>';
+  }
+
+  // Crystal CAD library
+  if(d.certified_crystals>0||d.resonite_pairs>0||d.persisted_crystals>0){
+    html+=`<div class="card"><h2>Crystal CAD Library</h2>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value ok">${d.certified_crystals}</div><div class="stat-label">certified this run</div></div>
+      <div class="stat-card"><div class="stat-value">${d.resonite_pairs}</div><div class="stat-label">resonite pairs</div></div>
+      <div class="stat-card"><div class="stat-value ok">${d.persisted_crystals}</div><div class="stat-label">persisted to store</div></div>
+    </div></div>`;
+  }
+
+  // Optional layers
+  const layers=[];
+  if(d.metatron_diagnostics) layers.push(`<li><strong>${d.metatron_diagnostics}</strong> Metatron diagnostics</li>`);
+  if(d.surgery_options)       layers.push(`<li><strong>${d.surgery_options}</strong> surgery options</li>`);
+  if(d.pse_candidates)        layers.push(`<li><strong>${d.pse_candidates}</strong> PSE bridge candidates</li>`);
+  if(d.norm_candidates)       layers.push(`<li><strong>${d.norm_candidates}</strong> norm gene candidates</li>`);
+  if(d.motif_candidates)      layers.push(`<li><strong>${d.motif_candidates}</strong> motif patterns</li>`);
+  if(layers.length>0){
+    html+=`<div class="card"><h2>Optional Layers</h2>
+    <ul class="layers-list">${layers.join('')}</ul></div>`;
+  }
+
+  // Void ranking
+  if(d.void_ranking.length>0){
+    html+=`<div class="card"><h2>Void Priority Ranking <span class="count">top ${d.void_ranking.length}</span></h2>
+    <div class="void-list">`;
+    d.void_ranking.forEach((id,i)=>{
+      html+=`<div class="void-id"><span class="rank">${i+1}</span><code>${esc(id)}</code></div>`;
+    });
+    html+='</div></div>';
+  }
+
+  document.getElementById('results').innerHTML=html;
+}
+</script>
+</body>
+</html>

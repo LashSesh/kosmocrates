@@ -1409,6 +1409,19 @@ impl WorkspacePipelineSession {
     pub fn policy(&self) -> &PolicyProfile {
         &self.policy
     }
+
+    /// Extend the `prior_feedback` pool with newly observed outcomes.
+    ///
+    /// Records pushed here are injected into the next `run()` call, closing the
+    /// "Wissen zurück ins Substrat" loop at the pipeline layer: agent execution
+    /// outcomes flow back into norm-fitness scoring so the pipeline re-ranks
+    /// candidates on the next scan.
+    pub fn extend_prior_feedback(
+        &mut self,
+        feedback: impl IntoIterator<Item = kosmo_core::PromotionFeedback>,
+    ) {
+        self.options.prior_feedback.extend(feedback);
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

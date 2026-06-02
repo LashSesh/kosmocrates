@@ -1,0 +1,20 @@
+[package]
+name = "kosmo-synthesizer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates synthesizer — ActionSynthesizer trait and patch types for the agent execution layer"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+kosmo-core     = { path = "../kosmo-core" }
+kosmo-pipeline = { path = "../kosmo-pipeline" }
+serde          = { workspace = true }
+serde_json     = { workspace = true }

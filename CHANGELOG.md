@@ -15,6 +15,143 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-materialize` — the write/validate layer; agent loop closed**
+
+  Arms the agent's `dry_run = false` path: a `Patch` can now be applied to disk,
+  compiled/tested, and kept or rolled back — all policy-gated.
+
+  - `Materializer::materialize(patch, policy, validator, options)` with
+    fail-closed policy strategy: `ReportOnly` → no I/O; `DryRun` → **sandbox**
+    (copy workspace to temp, apply, validate, host untouched);
+    `OperatorApproved`/`AutonomousBounded` + `allow_host_write` → **in-place**
+    (back up touched files, apply, validate, **roll back on failure**)
+  - `MaterializeReport` content-addressed (outcome, applied-to-host, compile/test
+    results); CROSS-006 evidence never ZERO; `MaterializeOutcome` =
+    SkippedByPolicy / SandboxValidated / SandboxRejected / AppliedToHost / RolledBack
+  - `PatchValidator` trait with real `CargoFoundryValidator` (drives `cargo
+    check`/`cargo test` via `kosmo-foundry`'s hardened sandbox) and `AlwaysPass`
+    / `AlwaysFail` stubs; backup/restore round-trips create/modify/delete
+  - **`kosmo-agent` wired**: `AgentSession::with_validator(...)` makes the
+    non-dry-run branch really apply + validate via `kosmo-materialize`; failed
+    validation rolls the host back and records negative feedback
+  - **`kosmo-run --apply`**: escalates to `OperatorApproved` + `CargoFoundryValidator`
+    and writes validated patches to the workspace (rolling back any that fail
+    cargo); default remains dry-run with no writes
+  - 11 materialize tests + 2 new agent wiring tests; 0 failures
+
+* **`kosmo-synthesizer-llm` + `kosmo-run` — real LLM backends and the agent runner**
+
+  Turns the agent loop from a mock into a working tool driven by a real model.
+
+  - `kosmo-synthesizer-llm`: `LlmSynthesizer` implements `ActionSynthesizer`
+    over two wire protocols — **Claude** (Anthropic Messages API: `/v1/messages`,
+    `x-api-key` + `anthropic-version`, `content[0].text`) and any
+    **OpenAI-compatible** endpoint (`/chat/completions`, `Bearer` auth,
+    `choices[0].message.content`) covering **Cerebras** (the free-tier bridge),
+    OpenAI, Groq, Together, Ollama, …
+  - Pure, offline-tested core: `system_prompt`, `build_user_prompt`,
+    `extract_json_object` (brace-balanced, fence/prose tolerant, string-aware),
+    `parse_synthesis_response` — the model returns one JSON patch object
+    (`confidence_pct` integer → `Q16::ratio`, so no float crosses our boundary)
+  - `LlmConfig::claude()` / `::cerebras()` / `::openai_compatible()`;
+    `LlmSynthesizer::from_env()` with provider auto-detect (`ANTHROPIC_API_KEY`
+    → Claude, `CEREBRAS_API_KEY` → Cerebras) and `KOSMO_LLM_*` overrides;
+    temperature defaults to 0; 429/5xx retry with exponential backoff
+  - Non-determinism is contained: the LLM is the only non-deterministic step;
+    the returned `Patch`/`SynthesisResult` are content-addressed again
+  - `tools/kosmo-run`: the agent runner CLI — `kosmo-run [--provider
+    claude|cerebras|mock|env] [--model M] [--max-steps N] [--min-confidence P]
+    [--all] [--json] PATH`; renders the ranked queue, synthesized patches,
+    per-step confidence/lines/tokens, rationale and verify hint; dry-run only
+    (report-only policy, no host writes); `mock` provider runs offline with no key
+  - 14 synthesizer-llm tests (+1 ignored live Cerebras smoke test); both new
+    crates registered as workspace members
+
+* **`kosmo-agent` + `kosmo-synthesizer` — closed-loop execution layer**
+
+  The agent/synthesis stack turns the pipeline's ranked `ActionItem` queue into
+  a dry-run patch loop with content-addressed audit trail.
+
+  - `kosmo-synthesizer`: `ActionSynthesizer` trait (pluggable backend: LLM,
+    rule-based, mock); `SynthesisRequest` / `Patch` / `SynthesisResult` all
+    content-addressed (INVARIANT-007); `MockSynthesizer::confident()` (Q16 0.90)
+    and `::uncertain()` (Q16 0.30); `FileChange` with `Create`/`Modify`/`Delete`
+    kinds; `SynthesisError { recoverable }` for transient vs permanent errors
+  - `kosmo-agent`: `AgentSession::run(workspace)` — pipeline → synthesize →
+    dry_run materialize → feedback loop; `AgentOptions { max_steps,
+    min_confidence, dry_run, pipeline_options }`; `ExecutionFeedback` /
+    `MaterializationAttempt` / `AgentRunReport` all content-addressed;
+    confidence filter skips low-confidence results before materialization;
+    feedback accumulates across agent runs
+  - 9 synthesizer tests + 8 agent tests; 0 failures
+
+* **Distribution — `Dockerfile.kosmo`, `install.sh`, documentation**
+
+  Everything needed to ship the substrate tools to end users.
+
+  - `docker/Dockerfile.kosmo` — multi-stage (cargo-chef + debian-slim) image building
+    `kosmo-substrate` and `kosmo-server`; default entrypoint is `kosmo-substrate /workspace`;
+    override to `kosmo-server` for the browser UI; EXPOSE 7777; healthcheck on `/api/health`
+  - `install.sh` — bash install script; `./install.sh` (local path), `./install.sh --git`
+    (from upstream); checks for Rust, prints quickstart after install
+  - `SUBSTRATE.md` — new "Getting started" section covering all four entry points
+    (CLI, TUI, browser UI, REST API) with copy-paste examples
+  - `README.md` — quickstart updated with substrate tools block; "Where to go next"
+    table updated with four top-of-table substrate rows
+
+* **`kosmo-server` — HTTP server + embedded browser UI**
+
+  A self-contained web server that exposes the pipeline over a REST API and serves
+  an embedded single-page app — no build step, no npm, no external CDN.
+
+  - `GET /` — serves the embedded browser UI (GitHub-dark theme, vanilla JS + CSS)
+  - `GET /api/health` — version ping: `{ "status": "ok", "version": "..." }`
+  - `POST /api/analyse` — JSON body `{ "path": "...", "flags": { ... } }` → structured report
+  - Browser UI: path input, per-layer checkboxes, Analyse button with spinner;
+    renders gate badge, stats grid, action queue table (top 100), crystal CAD library
+    section, optional-layers summary, void priority ranking chips
+  - Action kind badges colour-coded by group (void=cyan, topology=yellow, pse/norm=green)
+  - `--port <n>` (default 7777), `--host <addr>` (default 127.0.0.1), `--open`
+  - Pipeline runs on a `spawn_blocking` thread; axum + tokio runtime
+  - `tools/kosmo-server` registered as workspace member
+
+* **`kosmo-tui` — interactive terminal dashboard (ratatui)**
+
+  A full-screen TUI binary for navigating workspace topology results interactively.
+
+  - Three-pane layout: action queue list (left) │ item detail (right) │ workspace stats (bottom)
+  - Scrollable action queue with scroll-position indicator (`N%`)
+  - Detail pane: kind (coloured), score, target ID, action ID, word-wrapped description,
+    norm name for `ApplyNorm` items
+  - Header bar: workspace path, policy, gate result (coloured), session run counter
+  - Status bar: full keybinding reference
+  - Keybindings: `q`/`Esc`=quit, `r`=rerun, `↑↓`/`jk`=navigate, `PgUp`/`PgDn`=page,
+    `g`=top, `G`=bottom, `Ctrl+c`=force quit
+  - `r` rerun: shows "Analysing…" frame, re-runs the full pipeline, resets selection to top
+  - Same flags as `kosmo-substrate`: `--store`, `--operator`, `--all`, per-layer flags, `--capacity`
+  - `tools/kosmo-tui` registered as workspace member; deps: `ratatui 0.29`, `crossterm 0.28`
+
+* **`kosmo-substrate` CLI binary — workspace topology analysis + ranked action queue**
+
+  A zero-dependency command-line binary that wraps the full pipeline and renders
+  results in a human-readable terminal UI, single-line summary, or structured JSON.
+
+  - `kosmo-substrate [OPTIONS] [PATH]` — analyses any Rust workspace or directory
+    and produces a priority-ranked action queue from the HYPHAE → Metatron →
+    SystemCube → Crystal → PSE pipeline.
+  - `--output text|json|summary` — rich ANSI terminal output (default), JSON report
+    dump, or CI-friendly single-line summary.
+  - `--store <path>` — persistent CAD library across invocations (tilde-expanded);
+    implies `--crystals`; parent directory created automatically.
+  - `--operator` — `OperatorApproved` policy (enables crystal persistence to store).
+  - `--all` / individual layer flags (`--metatron`, `--lpcm`, `--systemcube`,
+    `--surgery`, `--crystals`, `--norms`, `--motifs`, `--pse`).
+  - `--fail-on-reject` / `--fail-on-warn` — non-zero exit codes for CI gating.
+  - `--capacity <n>` — SystemCube D-density denominator.
+  - `WorkspacePipelineSession` drives repeated runs; `--session run #N` shown in header.
+  - Box-drawing header with ANSI-aware alignment (visual-width padding via `vlen()`).
+  - `tools/kosmo-substrate` added to workspace members.
+
 * **`ActionItem` / `IntegrationRunReport::action_items()` — CAM layer**
 
   The pipeline now completes the CAD/CAM metaphor by producing a single,

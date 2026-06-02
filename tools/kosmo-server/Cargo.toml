@@ -1,0 +1,26 @@
+[package]
+name = "kosmo-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates HTTP server — REST API + embedded browser UI for workspace topology analysis"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "kosmo-server"
+path = "src/main.rs"
+
+[dependencies]
+kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }

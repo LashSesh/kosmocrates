@@ -54,19 +54,47 @@ see [`docs/OVERVIEW.md`](docs/OVERVIEW.md).
 
 ## 60-second quickstart
 
-```bash
-# Prerequisites: Rust >= 1.82 (rustup.rs)
-git clone https://github.com/lashsesh/pse
-cd pse
+### Substrate tools (topology analysis + CAD/CAM)
 
+```bash
+# Prerequisites: Rust >= 1.82  →  https://rustup.rs
+git clone https://github.com/LashSesh/kosmocrates
+cd kosmocrates
+bash install.sh          # installs kosmo-substrate + kosmo-server
+
+# Analyse any Rust workspace
+kosmo-substrate .
+
+# Interactive terminal dashboard
+cargo run -p kosmo-tui -- .
+
+# Browser UI
+kosmo-server --open      # opens http://localhost:7777
+```
+
+Or via Docker:
+
+```bash
+docker build -f docker/Dockerfile.kosmo -t kosmo-substrate .
+docker run --rm -v $(pwd):/workspace kosmo-substrate /workspace
+# Browser UI:
+docker run --rm -p 7777:7777 --entrypoint kosmo-server kosmo-substrate --host 0.0.0.0
+```
+
+For the full getting-started guide — all four entry points, flag reference,
+crystal store persistence, and CI integration — see [`SUBSTRATE.md`](SUBSTRATE.md).
+
+### PSE base system
+
+```bash
 # 30-second engine smoke test
 cargo run --release -p pse-demo
 
-# A minimal end-to-end Rust example using the umbrella crate
+# Minimal end-to-end Rust example using the umbrella crate
 cargo run --release -p pse --example quickstart
 ```
 
-Or run the server in a container:
+Or run the PSE server in a container:
 
 ```bash
 docker compose up
@@ -82,11 +110,15 @@ API), see [`DEMO.md`](DEMO.md).
 
 | If you want to… | Read |
 |---|---|
+| **Get started with topology analysis** | [`SUBSTRATE.md`](SUBSTRATE.md) — all four entry points, install, Docker |
+| **Analyse a workspace from the terminal** | `kosmo-substrate --help` |
+| **Open the browser UI** | `kosmo-server --open` → http://localhost:7777 |
+| **Use the REST API** | `POST /api/analyse` — see [`SUBSTRATE.md`](SUBSTRATE.md) |
 | Understand the layered architecture | [`docs/OVERVIEW.md`](docs/OVERVIEW.md) |
 | See the 3-session LLM proof | [`DEMO.md`](DEMO.md) |
 | Integrate from Python | [`bindings/python/README.md`](bindings/python/README.md) |
 | Integrate from Node / browser | [`bindings/node/README.md`](bindings/node/README.md) |
-| Run the HTTP server | [`tools/pse-server/src/main.rs`](tools/pse-server/src/main.rs) (docs in module header) |
+| Run the PSE HTTP server | [`tools/pse-server/src/main.rs`](tools/pse-server/src/main.rs) |
 | Understand the compliance posture | [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) |
 | Read the formal specs | [`specs/`](specs/) |
 | Contribute | [`CONTRIBUTING.md`](CONTRIBUTING.md) |

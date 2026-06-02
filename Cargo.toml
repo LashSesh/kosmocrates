@@ -81,7 +81,15 @@ members = [
     "tools/nxalien-cli",
     "tools/pse-paper-bench",
     "tools/kosmo-eval",
+    "tools/kosmo-substrate",
+    "tools/kosmo-tui",
+    "tools/kosmo-server",
     "crates/kosmo-kcube",
+    "crates/kosmo-synthesizer",
+    "crates/kosmo-synthesizer-llm",
+    "crates/kosmo-agent",
+    "crates/kosmo-materialize",
+    "tools/kosmo-run",
 ]
 
 [workspace.package]

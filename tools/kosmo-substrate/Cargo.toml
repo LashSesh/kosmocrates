@@ -1,0 +1,24 @@
+[package]
+name = "kosmo-substrate"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates substrate CLI — analyse any Rust workspace and produce a ranked action queue"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "kosmo-substrate"
+path = "src/main.rs"
+
+[dependencies]
+kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
+serde_json = { workspace = true }
+chrono = { workspace = true }

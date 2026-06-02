@@ -53,6 +53,95 @@ listed in [`SPEC_TRACEABILITY.md`](SPEC_TRACEABILITY.md).
 
 ---
 
+## Getting started
+
+Four entry points — pick whichever fits your context. No configuration
+required beyond a Rust workspace on the filesystem.
+
+### Install
+
+```bash
+# From this repo (local)
+bash install.sh
+
+# From upstream git
+bash install.sh --git
+
+# In Docker (CLI)
+docker build -f docker/Dockerfile.kosmo -t kosmo-substrate .
+docker run --rm -v $(pwd):/workspace kosmo-substrate /workspace
+
+# In Docker (server)
+docker run --rm -p 7777:7777 \
+  --entrypoint kosmo-server kosmo-substrate --host 0.0.0.0
+```
+
+### 1. CLI — `kosmo-substrate`
+
+```bash
+# Analyse current workspace (rich terminal output)
+kosmo-substrate .
+
+# Enable all analysis layers; persist crystal CAD library across runs
+kosmo-substrate . --all --operator --store ~/.kosmo/cadlib.jsonl
+
+# Generate a Markdown topology report (paste into PR descriptions)
+kosmo-substrate . --output markdown > TOPOLOGY_REPORT.md
+
+# JSON dump (pipe to jq, feed into tooling)
+kosmo-substrate . --output json | jq '.void_priority_ranking | length'
+
+# CI gate — exit 1 when gate is Reject
+kosmo-substrate . --output summary --fail-on-reject
+```
+
+### 2. TUI — `kosmo-tui`
+
+```bash
+# Interactive terminal dashboard
+kosmo-tui .
+
+# With all layers enabled
+kosmo-tui . --all
+
+# Keybindings: q=quit  r=rerun  ↑↓/jk=navigate  PgUp/PgDn=page  g/G=top/bottom
+```
+
+### 3. Browser UI — `kosmo-server`
+
+```bash
+# Start server + open browser automatically
+kosmo-server --open
+
+# Specify port / bind address
+kosmo-server --port 8080 --host 0.0.0.0
+```
+
+Open `http://localhost:7777` — enter a path, toggle flags, click Analyse.
+
+### 4. REST API — `POST /api/analyse`
+
+```bash
+curl -s -X POST http://localhost:7777/api/analyse \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "path": "/path/to/workspace",
+    "flags": {
+      "crystals": true,
+      "metatron": true,
+      "operator": false
+    }
+  }' | jq '{gate, void_count, action_count: (.action_items | length)}'
+```
+
+Response fields: `gate`, `void_count`, `total_severity`, `action_items[]`,
+`void_ranking[]`, `certified_crystals`, `resonite_pairs`, plus optional-layer counts.
+
+`GET /api/health` returns `{ "status": "ok", "version": "..." }`.
+
+---
+
+
 ## Design invariants
 
 These properties hold for every type in every crate. They are not

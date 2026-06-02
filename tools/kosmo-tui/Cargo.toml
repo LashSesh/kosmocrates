@@ -1,0 +1,24 @@
+[package]
+name = "kosmo-tui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates TUI — interactive workspace topology dashboard"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "kosmo-tui"
+path = "src/main.rs"
+
+[dependencies]
+kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
+ratatui = "0.29"
+crossterm = "0.28"

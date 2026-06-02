@@ -1,0 +1,22 @@
+[package]
+name = "kosmo-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates agent — closed-loop execution layer: pipeline → synthesize → validate → materialize → observe"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+kosmo-core        = { path = "../kosmo-core" }
+kosmo-pipeline    = { path = "../kosmo-pipeline" }
+kosmo-synthesizer = { path = "../kosmo-synthesizer" }
+kosmo-materialize = { path = "../kosmo-materialize" }
+serde             = { workspace = true }
+serde_json        = { workspace = true }

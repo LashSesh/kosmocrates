@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, und produziert priorisierte Arbeitsanweisungen."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — und schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback). Der Loop ist geschlossen."
 
-- **927 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120) — 0 failures
+- **971 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 10, kosmo-materialize 11) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,121 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-materialize` — Write/Validate Layer & Closed Loop (2026-06-02)
+
+The agent's `dry_run = false` path is now armed: patches reach disk under policy control, get compiled/tested, and are kept or rolled back. This closes the production loop end to end.
+
+**`kosmo-materialize`** — policy-gated patch application:
+- [x] `Materializer::materialize(patch, policy, validator, options)` → content-addressed `MaterializeReport`
+- [x] Fail-closed strategy: `ReportOnly` → `SkippedByPolicy` (no I/O); `DryRun` → sandbox (copy workspace minus `target`/`.git` to temp, apply, validate, host untouched); `OperatorApproved`/`AutonomousBounded` + `allow_host_write` → in-place (backup touched files → apply → validate → keep or **rollback**); host-write mode without `allow_host_write` → blocked
+- [x] `MaterializeOutcome`: SkippedByPolicy / SandboxValidated / SandboxRejected / AppliedToHost / RolledBack; `applied_to_host` true only on net persistence
+- [x] `PatchValidator` trait; `CargoFoundryValidator` runs `cargo check` (+ optional `cargo test`) via `kosmo-foundry`'s hardened sandbox/timeout/env-scrub; `AlwaysPass`/`AlwaysFail` stubs for hermetic tests
+- [x] CROSS-006: `evidence_bundle_id` never ZERO across all outcomes; INVARIANT-007: deterministic `report_id`; CROSS-002/013: no net host mutation unless validation passes
+- [x] Backup/restore round-trips create/modify/delete; 11 tests (skip, sandbox pass/reject, apply-on-success, rollback of modified/created/deleted files, blocked-without-host-write, determinism, evidence-non-zero, apply/restore round-trip)
+- [x] deps: `kosmo-foundry`; registered as workspace member
+
+**`kosmo-agent` wired**:
+- [x] `AgentSession::with_validator(Arc<dyn PatchValidator>)` — non-dry-run branch applies + validates via `kosmo-materialize`; `MaterializationAttempt::from_materialize_report` maps the result; failed validation rolls back and records negative feedback; filesystem errors fail closed (skip + continue)
+- [x] `AlwaysPass`/`AlwaysFail`/`CargoFoundryValidator` re-exported from `kosmo-agent`
+- [x] 2 new tests: real materialization applies via passing validator; rolls back via failing validator (10 agent tests total)
+
+**`kosmo-run --apply`**:
+- [x] Escalates to `OperatorApproved` + `CargoFoundryValidator`; writes validated patches to the workspace and rolls back any that fail cargo; default stays dry-run (report-only, no writes)
+
+### `kosmo-synthesizer-llm` + `kosmo-run` — Real LLM Backends & Agent Runner (2026-06-02)
+
+The synthesizer trait gets two production backends and the agent loop gets a CLI driver — the "loslegen ohne forschen" entry point for the execution layer.
+
+**`kosmo-synthesizer-llm`** — Claude + OpenAI-compatible backends:
+- [x] `LlmSynthesizer` implements `ActionSynthesizer` over `LlmProvider::Anthropic` (Messages API) and `LlmProvider::OpenAiCompatible` (`/chat/completions`)
+- [x] `LlmConfig::claude()` / `::cerebras()` / `::openai_compatible()` + `with_model` / `with_max_tokens` / `with_temperature_milli` / `with_timeout_secs`
+- [x] `LlmSynthesizer::from_env()` — provider auto-detect (`ANTHROPIC_API_KEY`→Claude, `CEREBRAS_API_KEY`→Cerebras); `KOSMO_LLM_PROVIDER` / `_API_KEY` / `_MODEL` / `_BASE_URL` overrides
+- [x] Pure offline-testable core: `system_prompt()`, `build_user_prompt()`, `extract_json_object()` (brace-balanced, string-literal-aware, fence/prose tolerant), `parse_synthesis_response()`
+- [x] Wire schema: one JSON object `{ rationale, confidence_pct (int 0-100), test_hint, files:[{path,op,content}] }`; `confidence_pct` → `Q16::ratio` so no float crosses the boundary (CROSS-007 respected; temperature float lives only inside the outbound request body)
+- [x] Per-provider request body + headers + content extraction; 429/5xx retry with exponential backoff (4s/8s/16s); transient vs permanent `SynthesisError` classification
+- [x] Non-determinism is contained at the LLM call; returned `Patch`/`SynthesisResult` are content-addressed (INVARIANT-007)
+- [x] 14 tests (endpoints, per-provider bodies/extraction, prompt content, JSON extraction incl. braces-in-strings, confidence clamping/default, delete-op mapping, determinism, empty-key fast-fail) + 1 `#[ignore]` live Cerebras smoke test
+- [x] deps: `reqwest` (blocking, json); registered as workspace member
+
+**`tools/kosmo-run`** — the agent runner CLI:
+- [x] `kosmo-run [OPTIONS] [PATH]` — `--provider claude|cerebras|mock|env`, `--model`, `--max-steps`, `--min-confidence <pct>`, `--all`, `--capacity`, `--json`, `--no-color`
+- [x] Builds the synthesizer (env keys or flags), runs `AgentSession` dry-run, renders the ranked queue: per-step kind, confidence %, file/line/token counts, rationale, verify hint, per-file change kind, materialization status
+- [x] `--json` emits the full content-addressed `AgentRunReport`; exit code 2 when the pipeline gate rejects
+- [x] `mock` provider runs fully offline (no key) — instant "try the loop" path
+- [x] Dry-run only: report-only policy, no host writes; real materialization still deferred to a future `kosmo-materialize`
+
+### `kosmo-synthesizer` + `kosmo-agent` — Closed-Loop Execution Layer (2026-06-02)
+
+The agent/synthesis stack closes the loop from ranked `ActionItem` → patch proposal → dry-run materialization → feedback record.
+
+**`kosmo-synthesizer`** — pluggable synthesis abstraction:
+- [x] `ActionSynthesizer` trait: `synthesize(&SynthesisRequest) -> Result<SynthesisResult, SynthesisError>`; `name() -> &str`; `token_budget() -> u32` (default 4096)
+- [x] `SynthesisRequest` content-addressed from `(action_id, workspace_path_hash, policy_id)` — same action on same workspace always yields the same `request_id`
+- [x] `FileChange { path, kind: Create/Modify/Delete, content }` with `line_count() -> u32`
+- [x] `Patch::new` — sorts file changes by path for canonical ordering (INVARIANT-007); content-addressed from `(request_id, changes_hash)`
+- [x] `SynthesisResult` content-addressed from `(patch_id, confidence_raw)`; carries `rationale`, `confidence: Q16`, `test_hint`, `tokens_used`
+- [x] `SynthesisError { message, recoverable }` — `permanent()` / `transient()` constructors
+- [x] `MockSynthesizer::confident()` (Q16 0.90) / `::uncertain()` (Q16 0.30) / `.with_change(FileChange)`
+- [x] 9 tests (patch determinism, confidence levels, line counts, canonical ordering, workspace-path sensitivity)
+
+**`kosmo-agent`** — stateful closed-loop runner:
+- [x] `AgentOptions { max_steps, min_confidence, dry_run, pipeline_options }` — `Default` uses `report_only()` + dry_run=true + min_confidence=HALF + max_steps=5
+- [x] `ValidationResult::dry_run()` → `GateResult::Warn { "dry-run: patch recorded but not validated" }`
+- [x] `MaterializationAttempt` content-addressed from `(patch_id, applied)`; carries validation, blocking_reason, lines_added
+- [x] `ExecutionFeedback` content-addressed from `(action_id, materialization_id, is_positive)`; `is_positive` true when validation gate is acceptable
+- [x] `AgentStep { step_number, action, synthesis, materialization, feedback }`
+- [x] `AgentRunReport` content-addressed from `(workspace_hash, step feedback IDs)`; tracks synthesized/skipped/materialized/lines-proposed counters
+- [x] `AgentSession::run(workspace)` flow: pipeline → rank actions → for-each (synthesize → confidence-filter → dry-run attempt → feedback) → report
+- [x] `AgentSession::feedback_history()` — accumulated across repeated `run()` calls
+- [x] Non-dry-run hook present; real materialization deferred to future `kosmo-materialize` crate
+- [x] 8 tests (dry-run report, max_steps, confidence filtering, deterministic run_id, lines-proposed sum, applied=false, feedback positivity, cross-run accumulation)
+
+### `kosmo-server` — HTTP Server + Browser UI (2026-06-02)
+
+REST API server with embedded single-page app — the "jeder der das sieht" entry point.
+
+- [x] `GET /` — embedded browser UI (GitHub-dark theme, ~300 lines HTML/CSS/JS, no build step)
+- [x] `GET /api/health` — version ping
+- [x] `POST /api/analyse` — JSON request `{ path, flags }` → structured `AnalyseResponse` DTO
+- [x] `AnalyseResponse`: gate, stats, action queue rows (all), void ranking, optional layer counts, crystal counts
+- [x] Browser UI: path input + Enter key, per-layer checkboxes, spinner during request, elapsed time
+- [x] Gate badge coloured by result (Pass=green, Warn=yellow, Reject=red)
+- [x] Action queue table with kind badges colour-coded by group
+- [x] Crystal CAD library section + optional layers section + void ranking chips (conditional)
+- [x] `--port <n>` / `--host <addr>` / `--open`; pipeline on `spawn_blocking` thread
+- [x] `tools/kosmo-server` registered as workspace member; deps: `axum`, `tokio`, `serde`, `serde_json`
+
+### `kosmo-tui` — Interactive Terminal Dashboard (2026-06-02)
+
+Full-screen ratatui TUI for navigating the action queue interactively.
+
+- [x] Three-pane layout: action list │ detail │ workspace stats, with header + status bar
+- [x] Scrollable action queue with per-kind colouring and scroll % indicator
+- [x] Detail pane: kind, score, target ID, action ID, word-wrapped description
+- [x] Header: path, policy, gate (coloured), run counter
+- [x] Keybindings: q/Esc/Ctrl+c, r=rerun, ↑↓/jk, PgUp/PgDn, g/G
+- [x] `r` rerun: "Analysing…" transition frame → pipeline re-run → selection reset
+- [x] Same flag surface as `kosmo-substrate` (all layers, store, operator, capacity)
+- [x] deps: `ratatui 0.29`, `crossterm 0.28`; no additional workspace dep changes
+
+### `kosmo-substrate` CLI Binary — Workspace Topology Analysis (2026-06-02)
+
+The full pipeline is now accessible as a standalone CLI binary — no Rust knowledge required to run it.
+
+- [x] `kosmo-substrate [OPTIONS] [PATH]` — zero external deps (manual arg parsing, raw ANSI, serde_json)
+- [x] `--output text` — rich terminal UI: box-drawing header, action queue, crystal CAD library section, void priority ranking, optional layers section; top-20 action items shown inline
+- [x] `--output json` — full `IntegrationRunReport` serialized as pretty-printed JSON
+- [x] `--output summary` — single-line CI-friendly output: `GATE | workspace=... | voids=N | actions=M | ...`
+- [x] `--store <path>` — persistent cross-session CAD library with tilde expansion; implies `--crystals`
+- [x] `--operator` — OperatorApproved policy (enables crystal persist); default is ReportOnly
+- [x] `--all` / `--metatron` / `--lpcm` / `--systemcube` / `--surgery` / `--crystals` / `--norms` / `--motifs` / `--pse`
+- [x] `--fail-on-reject` / `--fail-on-warn` — exit code 1 for CI gate integration
+- [x] `--capacity <n>` — SystemCube D-density denominator (default 100)
+- [x] `vlen()` — ANSI-aware visual-width measurement for correct box alignment with colored values
+- [x] `gate_str()`, `kind_label()`, `kind_color()` — colored terminal formatting
+- [x] `WorkspacePipelineSession` used internally; session run counter shown in header
+- [x] `tools/kosmo-substrate` registered as workspace member
 
 ### `ActionItem` — CAM Layer: Report → Ranked Actionable Directives (2026-06-01)
 
