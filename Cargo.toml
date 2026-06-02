@@ -85,6 +85,8 @@ members = [
     "tools/kosmo-tui",
     "tools/kosmo-server",
     "crates/kosmo-kcube",
+    "crates/kosmo-synthesizer",
+    "crates/kosmo-agent",
 ]
 
 [workspace.package]

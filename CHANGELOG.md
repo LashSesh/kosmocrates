@@ -15,6 +15,24 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-agent` + `kosmo-synthesizer` — closed-loop execution layer**
+
+  The agent/synthesis stack turns the pipeline's ranked `ActionItem` queue into
+  a dry-run patch loop with content-addressed audit trail.
+
+  - `kosmo-synthesizer`: `ActionSynthesizer` trait (pluggable backend: LLM,
+    rule-based, mock); `SynthesisRequest` / `Patch` / `SynthesisResult` all
+    content-addressed (INVARIANT-007); `MockSynthesizer::confident()` (Q16 0.90)
+    and `::uncertain()` (Q16 0.30); `FileChange` with `Create`/`Modify`/`Delete`
+    kinds; `SynthesisError { recoverable }` for transient vs permanent errors
+  - `kosmo-agent`: `AgentSession::run(workspace)` — pipeline → synthesize →
+    dry_run materialize → feedback loop; `AgentOptions { max_steps,
+    min_confidence, dry_run, pipeline_options }`; `ExecutionFeedback` /
+    `MaterializationAttempt` / `AgentRunReport` all content-addressed;
+    confidence filter skips low-confidence results before materialization;
+    feedback accumulates across agent runs
+  - 9 synthesizer tests + 8 agent tests; 0 failures
+
 * **Distribution — `Dockerfile.kosmo`, `install.sh`, documentation**
 
   Everything needed to ship the substrate tools to end users.

@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser — und ein geschlossener Agent-Loop synthetisiert, bewertet und protokolliert Patches autonom."
 
-- **927 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120) — 0 failures
+- **944 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-agent 8) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,32 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-synthesizer` + `kosmo-agent` — Closed-Loop Execution Layer (2026-06-02)
+
+The agent/synthesis stack closes the loop from ranked `ActionItem` → patch proposal → dry-run materialization → feedback record.
+
+**`kosmo-synthesizer`** — pluggable synthesis abstraction:
+- [x] `ActionSynthesizer` trait: `synthesize(&SynthesisRequest) -> Result<SynthesisResult, SynthesisError>`; `name() -> &str`; `token_budget() -> u32` (default 4096)
+- [x] `SynthesisRequest` content-addressed from `(action_id, workspace_path_hash, policy_id)` — same action on same workspace always yields the same `request_id`
+- [x] `FileChange { path, kind: Create/Modify/Delete, content }` with `line_count() -> u32`
+- [x] `Patch::new` — sorts file changes by path for canonical ordering (INVARIANT-007); content-addressed from `(request_id, changes_hash)`
+- [x] `SynthesisResult` content-addressed from `(patch_id, confidence_raw)`; carries `rationale`, `confidence: Q16`, `test_hint`, `tokens_used`
+- [x] `SynthesisError { message, recoverable }` — `permanent()` / `transient()` constructors
+- [x] `MockSynthesizer::confident()` (Q16 0.90) / `::uncertain()` (Q16 0.30) / `.with_change(FileChange)`
+- [x] 9 tests (patch determinism, confidence levels, line counts, canonical ordering, workspace-path sensitivity)
+
+**`kosmo-agent`** — stateful closed-loop runner:
+- [x] `AgentOptions { max_steps, min_confidence, dry_run, pipeline_options }` — `Default` uses `report_only()` + dry_run=true + min_confidence=HALF + max_steps=5
+- [x] `ValidationResult::dry_run()` → `GateResult::Warn { "dry-run: patch recorded but not validated" }`
+- [x] `MaterializationAttempt` content-addressed from `(patch_id, applied)`; carries validation, blocking_reason, lines_added
+- [x] `ExecutionFeedback` content-addressed from `(action_id, materialization_id, is_positive)`; `is_positive` true when validation gate is acceptable
+- [x] `AgentStep { step_number, action, synthesis, materialization, feedback }`
+- [x] `AgentRunReport` content-addressed from `(workspace_hash, step feedback IDs)`; tracks synthesized/skipped/materialized/lines-proposed counters
+- [x] `AgentSession::run(workspace)` flow: pipeline → rank actions → for-each (synthesize → confidence-filter → dry-run attempt → feedback) → report
+- [x] `AgentSession::feedback_history()` — accumulated across repeated `run()` calls
+- [x] Non-dry-run hook present; real materialization deferred to future `kosmo-materialize` crate
+- [x] 8 tests (dry-run report, max_steps, confidence filtering, deterministic run_id, lines-proposed sum, applied=false, feedback positivity, cross-run accumulation)
 
 ### `kosmo-server` — HTTP Server + Browser UI (2026-06-02)
 

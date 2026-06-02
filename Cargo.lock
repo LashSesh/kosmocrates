@@ -1343,6 +1343,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-agent"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-pipeline",
+ "kosmo-synthesizer",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kosmo-core"
 version = "0.1.0"
 dependencies = [
@@ -1477,6 +1488,16 @@ dependencies = [
  "chrono",
  "kosmo-core",
  "kosmo-pipeline",
+ "serde_json",
+]
+
+[[package]]
+name = "kosmo-synthesizer"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-pipeline",
+ "serde",
  "serde_json",
 ]
 
