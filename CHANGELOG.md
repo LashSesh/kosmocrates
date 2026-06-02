@@ -15,6 +15,27 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-agent` — the wish governs the loop (observe · converge · enforce)**
+
+  The wish now drives the execution loop, not just the type system. Attach a
+  wish and each `run()` measures the workspace against it and tracks convergence
+  toward the attractor across runs — fail-closed on divergence.
+
+  - `AgentSession::with_wish(wish, evidence_bundle_id)` attaches an internal
+    `WishSession`. Each `run()` observes the workspace via `kosmo-intent`
+    (read-only `cargo metadata`) and folds the distance into the trajectory —
+    one `run()` is one step of the dynamics `x_t → x_{t+1}`. Fail-soft: a
+    non-cargo workspace leaves the run intact with no wish outcome.
+  - `AgentRunReport.wish: Option<WishRunOutcome>` carries the run's
+    `WishAssessment`, the cross-run `AttractorStatus`, a `diverged` flag (this
+    run raised the distance), and `agenda()` — the unmet facets, i.e. the
+    prioritized remaining work toward the wish.
+  - Contraction enforced live: `wish_diverging()` / `WishRunOutcome::diverged`
+    surface a regression away from the attractor fail-closed, so a driving loop
+    can halt or roll back rather than accept a step in the wrong direction.
+  - `wish_trace()` / `wish_assessment()` accessors. 5 new tests incl. an
+    end-to-end divergence detection across two real `cargo metadata` scans.
+
 * **`kosmo-intent` — connect the wish ruler to the real workspace**
 
   The third rung of the wish-to-system arc. Runs 1–2 measured a wish against a

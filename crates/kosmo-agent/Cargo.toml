@@ -18,5 +18,6 @@ kosmo-core        = { path = "../kosmo-core" }
 kosmo-pipeline    = { path = "../kosmo-pipeline" }
 kosmo-synthesizer = { path = "../kosmo-synthesizer" }
 kosmo-materialize = { path = "../kosmo-materialize" }
+kosmo-intent      = { path = "../kosmo-intent" }
 serde             = { workspace = true }
 serde_json        = { workspace = true }

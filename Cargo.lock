@@ -1347,6 +1347,7 @@ name = "kosmo-agent"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "kosmo-intent",
  "kosmo-materialize",
  "kosmo-pipeline",
  "kosmo-synthesizer",
