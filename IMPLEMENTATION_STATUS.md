@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — und schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback). Der Loop ist geschlossen."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft."
 
-- **971 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 10, kosmo-materialize 11) — 0 failures
+- **973 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,23 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Git-commit-per-patch + PromotionFeedback loop — Compressor live (2026-06-02)
+
+**Git-commit layer** (`kosmo-materialize`, `kosmo-agent`, `kosmo-run`):
+- [x] `MaterializeOptions::git_commit: bool` — `AppliedToHost` path runs `git add -A && git commit -m "kosmo-agent: apply patch {short} ({n} file(s))\n\npatch-id: {full}"` in the workspace root; fail-open (error → `diagnostics`, patch stays on disk)
+- [x] `MaterializeReport::commit_sha: Option<String>` → `MaterializationAttempt::commit_sha` → `AgentRunReport` step; shown in `kosmo-run` text output
+- [x] `AgentOptions::commit_to_git: bool` (default `false`) threads the flag into `MaterializeOptions`
+- [x] `kosmo-run --commit` (requires `--apply`) — each accepted patch lands as its own revertable git commit
+
+**PromotionFeedback loop** (`kosmo-agent`, `kosmo-pipeline`):
+- [x] `AgentSession` accumulates `PromotionFeedback` records per synthesized step: `Accepted` if validation passed, `Rejected` if not; keyed on `ActionItemKind::PromoteToPse { candidate_id }` or `ApplyNorm { norm_candidate_id }` (others use `Digest::ZERO`)
+- [x] `WorkspacePipelineSession::extend_prior_feedback()` — new method that appends records to `options.prior_feedback`
+- [x] At the start of every `run()` the pending records are drained into the pipeline session, updating `NormFitnessTrace` scoring before the next scan — "Wissen zurück ins Substrat" closed at the agent layer
+- [x] `AgentSession::pipeline_feedback_pending()` exposes queue depth
+- [x] 2 new tests: `pipeline_feedback_queued_after_synthesized_steps`, `pipeline_feedback_drained_into_next_run` (12 agent tests total)
+
+**Compressor invocation:** `kosmo-run --provider cerebras --apply --commit --max-steps N .` iterates scan → synthesize → validate → commit → re-scan → feedback re-ranks → convergence.
 
 ### `kosmo-materialize` — Write/Validate Layer & Closed Loop (2026-06-02)
 
