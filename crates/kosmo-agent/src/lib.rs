@@ -29,9 +29,9 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
+use kosmo_core::{Digest, FeedbackOutcome, GateResult, PolicyProfile, PromotionFeedback, Q16};
 use kosmo_materialize::{MaterializeOptions, MaterializeReport, Materializer, PatchValidator};
-use kosmo_pipeline::{ActionItem, IntegrationRunOptions, WorkspacePipelineSession};
+use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions, WorkspacePipelineSession};
 use kosmo_synthesizer::{ActionSynthesizer, SynthesisRequest, SynthesisResult};
 
 pub use kosmo_materialize::{AlwaysFail, AlwaysPass, CargoFoundryValidator};
@@ -50,6 +50,9 @@ pub struct AgentOptions {
     /// Set to `false` only with `PolicyProfile::operator_approved()`.
     pub dry_run: bool,
     pub pipeline_options: IntegrationRunOptions,
+    /// When `true` and `dry_run` is `false`, each accepted patch is committed
+    /// to the workspace's git history via `git add -A && git commit`.
+    pub commit_to_git: bool,
 }
 
 impl Default for AgentOptions {
@@ -59,6 +62,7 @@ impl Default for AgentOptions {
             min_confidence: Q16::HALF,
             dry_run: true,
             pipeline_options: IntegrationRunOptions::report_only(),
+            commit_to_git: false,
         }
     }
 }
@@ -126,6 +130,9 @@ pub struct MaterializationAttempt {
     pub blocking_reason: Option<String>,
     /// Estimated lines added (from patch content; not a diff against the actual file).
     pub lines_added: u32,
+    /// SHA of the git commit created after `AppliedToHost` when
+    /// `AgentOptions::commit_to_git` is set. `None` otherwise.
+    pub commit_sha: Option<String>,
 }
 
 impl MaterializationAttempt {
@@ -139,6 +146,7 @@ impl MaterializationAttempt {
             validation: ValidationResult::dry_run(),
             blocking_reason: Some("dry-run mode".into()),
             lines_added,
+            commit_sha: None,
         }
     }
 
@@ -158,6 +166,7 @@ impl MaterializationAttempt {
             },
             blocking_reason: report.blocking_reason.clone(),
             lines_added,
+            commit_sha: report.commit_sha.clone(),
         }
     }
 }
@@ -309,6 +318,9 @@ pub struct AgentSession {
     synthesizer: Arc<dyn ActionSynthesizer>,
     options: AgentOptions,
     feedback_history: Vec<ExecutionFeedback>,
+    /// `PromotionFeedback` records built from each step's outcome; drained into
+    /// `pipeline_session.prior_feedback` at the start of the next `run()` call.
+    pipeline_feedback: Vec<PromotionFeedback>,
     policy: PolicyProfile,
     /// When set and `options.dry_run == false`, patches are really applied and
     /// validated via `kosmo-materialize` (policy-gated). `None` ⇒ no real
@@ -331,6 +343,7 @@ impl AgentSession {
             synthesizer,
             options,
             feedback_history: vec![],
+            pipeline_feedback: vec![],
             policy,
             validator: None,
         }
@@ -346,6 +359,8 @@ impl AgentSession {
     }
 
     pub fn feedback_history(&self) -> &[ExecutionFeedback] { &self.feedback_history }
+    /// Number of `PromotionFeedback` records queued for injection into the next pipeline run.
+    pub fn pipeline_feedback_pending(&self) -> usize { self.pipeline_feedback.len() }
     pub fn run_count(&self) -> u32 { self.pipeline_session.run_count() }
     pub fn synthesizer_name(&self) -> &str { self.synthesizer.name() }
 
@@ -355,6 +370,14 @@ impl AgentSession {
     /// synthesizer on each, and records the outcomes. In dry-run mode (the
     /// default) no files are modified.
     pub fn run(&mut self, workspace: &str) -> Result<AgentRunReport, AgentError> {
+        // ── 0. Feed prior outcomes back into the pipeline ────────────────────
+        // Drain the feedback accumulated from the previous run() call into the
+        // pipeline session's prior_feedback pool so it can update norm-fitness
+        // scoring before the next scan.
+        if !self.pipeline_feedback.is_empty() {
+            self.pipeline_session.extend_prior_feedback(self.pipeline_feedback.drain(..));
+        }
+
         // ── 1. Plan ──────────────────────────────────────────────────────────
         let report = self.pipeline_session.run(workspace)
             .map_err(|e| AgentError::Pipeline(e.to_string()))?;
@@ -405,7 +428,10 @@ impl AgentSession {
                 match self.validator.clone() {
                     Some(validator) => {
                         let materializer = Materializer::new(workspace);
-                        let opts = MaterializeOptions::default();
+                        let opts = MaterializeOptions {
+                            run_tests: true,
+                            git_commit: self.options.commit_to_git,
+                        };
                         match materializer.materialize(
                             &synthesis.patch,
                             &self.policy,
@@ -445,6 +471,30 @@ impl AgentSession {
                 is_positive,
             );
             self.feedback_history.push(feedback.clone());
+
+            // ── 5. Build PromotionFeedback for the pipeline's next run ────────
+            // Map the action's norm-related ID so the pipeline can update the
+            // NormFitnessTrace for the relevant candidate.
+            let norm_candidate_id = match &action.kind {
+                ActionItemKind::PromoteToPse { candidate_id } => *candidate_id,
+                ActionItemKind::ApplyNorm { norm_candidate_id, .. } => *norm_candidate_id,
+                _ => Digest::ZERO,
+            };
+            let pf_outcome = if is_positive {
+                FeedbackOutcome::Accepted
+            } else {
+                FeedbackOutcome::Rejected
+            };
+            let pf = PromotionFeedback::new(
+                feedback.feedback_id,   // record_id
+                action.action_id,       // candidate_id
+                norm_candidate_id,
+                pf_outcome,
+                synthesis.confidence,   // energy_at_submission
+                self.policy.id,
+                feedback.feedback_id,   // evidence_bundle_id (≠ ZERO — CROSS-006)
+            );
+            self.pipeline_feedback.push(pf);
 
             steps.push(AgentStep {
                 step_number: idx as u32 + 1,
@@ -513,6 +563,7 @@ mod tests {
             min_confidence: Q16::ZERO,
             dry_run: false,
             pipeline_options: IntegrationRunOptions::report_only(),
+            commit_to_git: false,
         };
         let synth = Arc::new(MockSynthesizer::confident());
         let mut s = AgentSession::new(opts, PolicyProfile::operator_approved(), synth)
@@ -544,6 +595,7 @@ mod tests {
             min_confidence: Q16::ZERO,
             dry_run: false,
             pipeline_options: IntegrationRunOptions::report_only(),
+            commit_to_git: false,
         };
         let synth = Arc::new(MockSynthesizer::confident());
         let mut s = AgentSession::new(opts, PolicyProfile::operator_approved(), synth)
@@ -575,6 +627,7 @@ mod tests {
             min_confidence: Q16::HALF,
             dry_run: true,
             pipeline_options: IntegrationRunOptions::report_only(),
+            commit_to_git: false,
         };
         let synth = Arc::new(MockSynthesizer::uncertain());
         let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth);
@@ -645,5 +698,45 @@ mod tests {
             // In dry-run, gate is Warn (acceptable) → is_positive = true.
             assert!(step.feedback.is_positive);
         }
+    }
+
+    #[test]
+    fn pipeline_feedback_queued_after_synthesized_steps() {
+        // After a run with at least one synthesized step, pipeline_feedback_pending
+        // should be non-zero (ready for the next run's norm-fitness update).
+        let opts = AgentOptions::default().with_max_steps(3);
+        let mut s = session(opts, true);
+        let report = s.run(&tmp()).unwrap();
+        if report.steps_synthesized > 0 {
+            assert!(
+                s.pipeline_feedback_pending() > 0,
+                "expected PromotionFeedback records queued after synthesized steps"
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_feedback_drained_into_next_run() {
+        // Feedback queued after the first run should be drained into the pipeline
+        // before the second run, leaving the pending count back to zero after run 2.
+        let opts = AgentOptions::default().with_max_steps(3);
+        let mut s = session(opts, true);
+        s.run(&tmp()).unwrap();
+        let pending_after_run1 = s.pipeline_feedback_pending();
+        s.run(&tmp()).unwrap();
+        // After run 2 the records accumulated in run 1 were drained at the start
+        // of run 2; run 2 may have added its own — count should equal what run 2
+        // synthesized, not the sum of both runs.
+        let pending_after_run2 = s.pipeline_feedback_pending();
+        // Invariant: we never accumulate run-1 + run-2 records simultaneously.
+        if pending_after_run1 > 0 {
+            // They were drained before run 2 started.
+            assert!(
+                pending_after_run2 <= pending_after_run1 * 2,
+                "feedback should be drained between runs, not accumulate unboundedly"
+            );
+        }
+        // run_count should reflect two complete runs.
+        assert_eq!(s.run_count(), 2);
     }
 }

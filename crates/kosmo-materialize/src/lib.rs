@@ -46,11 +46,15 @@ use kosmo_synthesizer::{FileChange, FileChangeKind, Patch};
 pub struct MaterializeOptions {
     /// Run `cargo test` in addition to `cargo check`.
     pub run_tests: bool,
+    /// When `true` and the outcome is [`MaterializeOutcome::AppliedToHost`],
+    /// run `git add -A && git commit` in the workspace root so every accepted
+    /// patch lands as a standalone, revertable git commit.
+    pub git_commit: bool,
 }
 
 impl Default for MaterializeOptions {
     fn default() -> Self {
-        Self { run_tests: true }
+        Self { run_tests: true, git_commit: false }
     }
 }
 
@@ -281,6 +285,9 @@ pub struct MaterializeReport {
     /// Non-ZERO evidence reference (CROSS-006).
     pub evidence_bundle_id: Digest,
     pub diagnostics: Vec<String>,
+    /// SHA-1 of the git commit created after a successful `AppliedToHost`, if
+    /// `MaterializeOptions::git_commit` was set. `None` in all other cases.
+    pub commit_sha: Option<String>,
 }
 
 impl MaterializeReport {
@@ -315,6 +322,7 @@ impl MaterializeReport {
             blocking_reason,
             evidence_bundle_id,
             diagnostics,
+            commit_sha: None,
         }
     }
 
@@ -446,14 +454,23 @@ impl Materializer {
                 let backups = apply_changes(&self.workspace_root, &patch.file_changes)?;
                 let validation = validator.validate(&self.workspace_root, options.run_tests);
                 if validation.is_acceptable() {
-                    Ok(MaterializeReport::from_validation(
+                    let mut report = MaterializeReport::from_validation(
                         patch.patch_id,
                         MaterializeOutcome::AppliedToHost,
                         true,
                         validation,
                         files,
                         None,
-                    ))
+                    );
+                    if options.git_commit {
+                        // Best-effort: commit failure is logged in diagnostics but
+                        // does not un-apply the patch (the host state is correct).
+                        match git_commit_patch(&self.workspace_root, patch) {
+                            Ok(sha) => report.commit_sha = Some(sha),
+                            Err(e) => report.diagnostics.push(format!("git-commit failed: {e}")),
+                        }
+                    }
+                    Ok(report)
                 } else {
                     restore(&backups)?;
                     Ok(MaterializeReport::from_validation(
@@ -545,6 +562,46 @@ fn copy_tree(src: &Path, dst: &Path, skip: &[&str]) -> io::Result<()> {
         // symlinks and other node types are intentionally skipped
     }
     Ok(())
+}
+
+/// Run `git add -A && git commit` in `root`, returning the new commit SHA.
+///
+/// Used only when `MaterializeOptions::git_commit` is set on an
+/// `AppliedToHost` outcome. Fail-open: the caller records the error as a
+/// diagnostic but does not roll back the already-applied patch.
+fn git_commit_patch(root: &Path, patch: &Patch) -> io::Result<String> {
+    let root_str = root.to_string_lossy();
+
+    let add = std::process::Command::new("git")
+        .args(["-C", &root_str, "add", "-A"])
+        .output()?;
+    if !add.status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("git add: {}", String::from_utf8_lossy(&add.stderr).trim()),
+        ));
+    }
+
+    let hex = patch.patch_id.to_hex();
+    let short = &hex[..hex.len().min(12)];
+    let n = patch.file_changes.len();
+    let msg = format!(
+        "kosmo-agent: apply patch {short} ({n} file(s))\n\npatch-id: {hex}"
+    );
+    let commit = std::process::Command::new("git")
+        .args(["-C", &root_str, "commit", "-m", &msg])
+        .output()?;
+    if !commit.status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("git commit: {}", String::from_utf8_lossy(&commit.stderr).trim()),
+        ));
+    }
+
+    let rev = std::process::Command::new("git")
+        .args(["-C", &root_str, "rev-parse", "HEAD"])
+        .output()?;
+    Ok(String::from_utf8_lossy(&rev.stdout).trim().to_string())
 }
 
 fn make_sandbox(patch_id: &Digest) -> io::Result<PathBuf> {

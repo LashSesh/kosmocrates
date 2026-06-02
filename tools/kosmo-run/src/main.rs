@@ -52,6 +52,7 @@ struct Args {
     json: bool,
     color: bool,
     apply: bool,
+    commit: bool,
 }
 
 impl Default for Args {
@@ -67,6 +68,7 @@ impl Default for Args {
             json: false,
             color: true,
             apply: false,
+            commit: false,
         }
     }
 }
@@ -85,6 +87,8 @@ OPTIONS:\n\
     --apply               WRITE validated patches to the workspace (cargo\n\
                           check+test each; rolls back any that fail). Default\n\
                           is dry-run: nothing is written.\n\
+    --commit              After each accepted patch, run git add -A && git commit\n\
+                          (requires --apply; each patch lands as its own commit).\n\
     --json                emit the AgentRunReport as JSON\n\
     --no-color            disable ANSI colour\n\
     -h, --help            show this help\n\n\
@@ -95,7 +99,8 @@ ENVIRONMENT:\n\
 EXAMPLES:\n\
     CEREBRAS_API_KEY=sk-... kosmo-run --provider cerebras .\n\
     ANTHROPIC_API_KEY=sk-... kosmo-run --provider claude --max-steps 3 ./crate\n\
-    kosmo-run --provider mock --all .        # offline, no key required"
+    kosmo-run --provider mock --all .        # offline, no key required\n\
+    kosmo-run --provider mock --apply --commit .   # apply + commit each patch"
     );
 }
 
@@ -139,6 +144,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--all" => args.all_layers = true,
             "--apply" => args.apply = true,
+            "--commit" => args.commit = true,
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -320,6 +326,11 @@ fn render_text(report: &AgentRunReport, synth_name: &str, color: bool) {
             None => "not materialized",
         };
         println!("    status  {}{}{}", c(DIM), mat, c(RESET));
+        if let Some(ref attempt) = step.materialization {
+            if let Some(ref sha) = attempt.commit_sha {
+                println!("    commit  {}{}{}", c(CYAN), &sha[..sha.len().min(12)], c(RESET));
+            }
+        }
     }
 }
 
@@ -345,6 +356,7 @@ fn run() -> Result<ExitCode, String> {
         min_confidence,
         dry_run: !args.apply,
         pipeline_options,
+        commit_to_git: args.commit && args.apply,
     };
     // --apply escalates to OperatorApproved (host writes permitted, gated by
     // per-patch cargo validation + rollback). Default stays report-only.
