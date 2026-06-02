@@ -15,6 +15,22 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-tui` — interactive terminal dashboard (ratatui)**
+
+  A full-screen TUI binary for navigating workspace topology results interactively.
+
+  - Three-pane layout: action queue list (left) │ item detail (right) │ workspace stats (bottom)
+  - Scrollable action queue with scroll-position indicator (`N%`)
+  - Detail pane: kind (coloured), score, target ID, action ID, word-wrapped description,
+    norm name for `ApplyNorm` items
+  - Header bar: workspace path, policy, gate result (coloured), session run counter
+  - Status bar: full keybinding reference
+  - Keybindings: `q`/`Esc`=quit, `r`=rerun, `↑↓`/`jk`=navigate, `PgUp`/`PgDn`=page,
+    `g`=top, `G`=bottom, `Ctrl+c`=force quit
+  - `r` rerun: shows "Analysing…" frame, re-runs the full pipeline, resets selection to top
+  - Same flags as `kosmo-substrate`: `--store`, `--operator`, `--all`, per-layer flags, `--capacity`
+  - `tools/kosmo-tui` registered as workspace member; deps: `ratatui 0.29`, `crossterm 0.28`
+
 * **`kosmo-substrate` CLI binary — workspace topology analysis + ranked action queue**
 
   A zero-dependency command-line binary that wraps the full pipeline and renders

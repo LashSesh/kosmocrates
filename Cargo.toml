@@ -82,6 +82,7 @@ members = [
     "tools/pse-paper-bench",
     "tools/kosmo-eval",
     "tools/kosmo-substrate",
+    "tools/kosmo-tui",
     "crates/kosmo-kcube",
 ]
 
