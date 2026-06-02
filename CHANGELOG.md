@@ -15,6 +15,43 @@ note explicitly says so.
 
 ### Added
 
+* **Git-commit-per-patch + PromotionFeedback loop — the compressor is live**
+
+  Two orthogonal layers that close the full convergence cycle.
+
+  **Git-commit layer (traceability)**
+  - `MaterializeOptions::git_commit: bool` — when set and the outcome is
+    `AppliedToHost`, runs `git add -A && git commit` with a deterministic
+    message including the full `patch-id` so every accepted patch lands as a
+    standalone, revertable git commit. Fail-open: commit failure is recorded
+    as a diagnostic but does not un-apply the patch.
+  - `MaterializeReport::commit_sha: Option<String>` carries the new SHA back
+    up through `MaterializationAttempt::commit_sha` to the run report.
+  - `AgentOptions::commit_to_git: bool` threads the flag from the agent
+    session into `MaterializeOptions` for each materialization attempt.
+  - `kosmo-run --commit` (requires `--apply`) enables git commits;
+    `--apply --commit` output shows the short SHA per accepted patch.
+
+  **Feedback loop (learning / convergence)**
+  - After each synthesized step, `AgentSession` builds a `PromotionFeedback`
+    record — `FeedbackOutcome::Accepted` if validation passed, `Rejected` if
+    not — keyed on the action's `norm_candidate_id`.
+  - At the start of every subsequent `run()` the pending records are drained
+    into `WorkspacePipelineSession` via the new `extend_prior_feedback()`
+    method, updating `NormFitnessTrace` scoring so the pipeline re-ranks
+    candidates before the next scan. The "Wissen zurück ins Substrat" loop
+    is now closed at the agent layer too.
+  - `AgentSession::pipeline_feedback_pending()` exposes the queue depth.
+  - 2 new agent tests: `pipeline_feedback_queued_after_synthesized_steps`,
+    `pipeline_feedback_drained_into_next_run`.
+
+  **End-to-end compressor invocation:**
+  ```
+  kosmo-run --provider cerebras --apply --commit --max-steps 50 .
+  ```
+  Iterates: scan → synthesize → validate → commit → re-scan (void set shrinks)
+  → feedback re-ranks → repeat until convergence.
+
 * **`kosmo-materialize` — the write/validate layer; agent loop closed**
 
   Arms the agent's `dry_run = false` path: a `Patch` can now be applied to disk,
