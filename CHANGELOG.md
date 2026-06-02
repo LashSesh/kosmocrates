@@ -15,6 +15,30 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-materialize` — the write/validate layer; agent loop closed**
+
+  Arms the agent's `dry_run = false` path: a `Patch` can now be applied to disk,
+  compiled/tested, and kept or rolled back — all policy-gated.
+
+  - `Materializer::materialize(patch, policy, validator, options)` with
+    fail-closed policy strategy: `ReportOnly` → no I/O; `DryRun` → **sandbox**
+    (copy workspace to temp, apply, validate, host untouched);
+    `OperatorApproved`/`AutonomousBounded` + `allow_host_write` → **in-place**
+    (back up touched files, apply, validate, **roll back on failure**)
+  - `MaterializeReport` content-addressed (outcome, applied-to-host, compile/test
+    results); CROSS-006 evidence never ZERO; `MaterializeOutcome` =
+    SkippedByPolicy / SandboxValidated / SandboxRejected / AppliedToHost / RolledBack
+  - `PatchValidator` trait with real `CargoFoundryValidator` (drives `cargo
+    check`/`cargo test` via `kosmo-foundry`'s hardened sandbox) and `AlwaysPass`
+    / `AlwaysFail` stubs; backup/restore round-trips create/modify/delete
+  - **`kosmo-agent` wired**: `AgentSession::with_validator(...)` makes the
+    non-dry-run branch really apply + validate via `kosmo-materialize`; failed
+    validation rolls the host back and records negative feedback
+  - **`kosmo-run --apply`**: escalates to `OperatorApproved` + `CargoFoundryValidator`
+    and writes validated patches to the workspace (rolling back any that fail
+    cargo); default remains dry-run with no writes
+  - 11 materialize tests + 2 new agent wiring tests; 0 failures
+
 * **`kosmo-synthesizer-llm` + `kosmo-run` — real LLM backends and the agent runner**
 
   Turns the agent loop from a mock into a working tool driven by a real model.

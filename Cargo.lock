@@ -1347,6 +1347,7 @@ name = "kosmo-agent"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "kosmo-materialize",
  "kosmo-pipeline",
  "kosmo-synthesizer",
  "serde",
@@ -1408,6 +1409,17 @@ name = "kosmo-kcube"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kosmo-materialize"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-foundry",
+ "kosmo-synthesizer",
  "serde",
  "serde_json",
 ]

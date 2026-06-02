@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser — und ein geschlossener Agent-Loop synthetisiert mit Claude oder Cerebras, bewertet und protokolliert Patches autonom über `kosmo-run`."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — und schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback). Der Loop ist geschlossen."
 
-- **958 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 8) — 0 failures
+- **971 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 10, kosmo-materialize 11) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,27 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### `kosmo-materialize` — Write/Validate Layer & Closed Loop (2026-06-02)
+
+The agent's `dry_run = false` path is now armed: patches reach disk under policy control, get compiled/tested, and are kept or rolled back. This closes the production loop end to end.
+
+**`kosmo-materialize`** — policy-gated patch application:
+- [x] `Materializer::materialize(patch, policy, validator, options)` → content-addressed `MaterializeReport`
+- [x] Fail-closed strategy: `ReportOnly` → `SkippedByPolicy` (no I/O); `DryRun` → sandbox (copy workspace minus `target`/`.git` to temp, apply, validate, host untouched); `OperatorApproved`/`AutonomousBounded` + `allow_host_write` → in-place (backup touched files → apply → validate → keep or **rollback**); host-write mode without `allow_host_write` → blocked
+- [x] `MaterializeOutcome`: SkippedByPolicy / SandboxValidated / SandboxRejected / AppliedToHost / RolledBack; `applied_to_host` true only on net persistence
+- [x] `PatchValidator` trait; `CargoFoundryValidator` runs `cargo check` (+ optional `cargo test`) via `kosmo-foundry`'s hardened sandbox/timeout/env-scrub; `AlwaysPass`/`AlwaysFail` stubs for hermetic tests
+- [x] CROSS-006: `evidence_bundle_id` never ZERO across all outcomes; INVARIANT-007: deterministic `report_id`; CROSS-002/013: no net host mutation unless validation passes
+- [x] Backup/restore round-trips create/modify/delete; 11 tests (skip, sandbox pass/reject, apply-on-success, rollback of modified/created/deleted files, blocked-without-host-write, determinism, evidence-non-zero, apply/restore round-trip)
+- [x] deps: `kosmo-foundry`; registered as workspace member
+
+**`kosmo-agent` wired**:
+- [x] `AgentSession::with_validator(Arc<dyn PatchValidator>)` — non-dry-run branch applies + validates via `kosmo-materialize`; `MaterializationAttempt::from_materialize_report` maps the result; failed validation rolls back and records negative feedback; filesystem errors fail closed (skip + continue)
+- [x] `AlwaysPass`/`AlwaysFail`/`CargoFoundryValidator` re-exported from `kosmo-agent`
+- [x] 2 new tests: real materialization applies via passing validator; rolls back via failing validator (10 agent tests total)
+
+**`kosmo-run --apply`**:
+- [x] Escalates to `OperatorApproved` + `CargoFoundryValidator`; writes validated patches to the workspace and rolls back any that fail cargo; default stays dry-run (report-only, no writes)
 
 ### `kosmo-synthesizer-llm` + `kosmo-run` — Real LLM Backends & Agent Runner (2026-06-02)
 

@@ -27,7 +27,7 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession};
+use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{GateResult, PolicyProfile, Q16};
 use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions};
 use kosmo_synthesizer::{ActionSynthesizer, MockSynthesizer};
@@ -51,6 +51,7 @@ struct Args {
     capacity: u32,
     json: bool,
     color: bool,
+    apply: bool,
 }
 
 impl Default for Args {
@@ -65,6 +66,7 @@ impl Default for Args {
             capacity: 100,
             json: false,
             color: true,
+            apply: false,
         }
     }
 }
@@ -80,6 +82,9 @@ OPTIONS:\n\
     --min-confidence <p>  skip patches below P percent      (default: 50)\n\
     --all                 enable all optional pipeline layers\n\
     --capacity <n>        SystemCube D-density denominator  (default: 100)\n\
+    --apply               WRITE validated patches to the workspace (cargo\n\
+                          check+test each; rolls back any that fail). Default\n\
+                          is dry-run: nothing is written.\n\
     --json                emit the AgentRunReport as JSON\n\
     --no-color            disable ANSI colour\n\
     -h, --help            show this help\n\n\
@@ -133,6 +138,7 @@ fn parse_args() -> Result<Option<Args>, String> {
                     .map_err(|_| "--capacity must be a number")?;
             }
             "--all" => args.all_layers = true,
+            "--apply" => args.apply = true,
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -337,13 +343,21 @@ fn run() -> Result<ExitCode, String> {
     let options = AgentOptions {
         max_steps: args.max_steps,
         min_confidence,
-        dry_run: true,
+        dry_run: !args.apply,
         pipeline_options,
     };
-    // Dry-run only: report-only policy never permits host writes.
-    let policy = PolicyProfile::default_report_only();
+    // --apply escalates to OperatorApproved (host writes permitted, gated by
+    // per-patch cargo validation + rollback). Default stays report-only.
+    let policy = if args.apply {
+        PolicyProfile::operator_approved()
+    } else {
+        PolicyProfile::default_report_only()
+    };
 
     let mut session = AgentSession::new(options, policy, synthesizer);
+    if args.apply {
+        session = session.with_validator(Arc::new(CargoFoundryValidator::new()));
+    }
     let report = session.run(&args.path).map_err(|e| e.to_string())?;
 
     if args.json {

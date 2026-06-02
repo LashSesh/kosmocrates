@@ -1,10 +1,10 @@
 [package]
-name = "kosmo-agent"
+name = "kosmo-materialize"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Kosmocrates agent — closed-loop execution layer: pipeline → synthesize → validate → materialize → observe"
+description = "Kosmocrates materializer — policy-gated patch application with backup/rollback and cargo validation, closing the agent's dry_run=false path"
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
@@ -15,8 +15,7 @@ publish = false
 
 [dependencies]
 kosmo-core        = { path = "../kosmo-core" }
-kosmo-pipeline    = { path = "../kosmo-pipeline" }
 kosmo-synthesizer = { path = "../kosmo-synthesizer" }
-kosmo-materialize = { path = "../kosmo-materialize" }
+kosmo-foundry     = { path = "../kosmo-foundry" }
 serde             = { workspace = true }
 serde_json        = { workspace = true }

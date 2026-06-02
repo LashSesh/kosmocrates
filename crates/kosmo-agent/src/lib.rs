@@ -30,8 +30,11 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
+use kosmo_materialize::{MaterializeOptions, MaterializeReport, Materializer, PatchValidator};
 use kosmo_pipeline::{ActionItem, IntegrationRunOptions, WorkspacePipelineSession};
 use kosmo_synthesizer::{ActionSynthesizer, SynthesisRequest, SynthesisResult};
+
+pub use kosmo_materialize::{AlwaysFail, AlwaysPass, CargoFoundryValidator};
 
 // ─── AgentOptions ─────────────────────────────────────────────────────────────
 
@@ -135,6 +138,25 @@ impl MaterializationAttempt {
             applied: false,
             validation: ValidationResult::dry_run(),
             blocking_reason: Some("dry-run mode".into()),
+            lines_added,
+        }
+    }
+
+    /// Build from a real [`MaterializeReport`] produced by `kosmo-materialize`.
+    fn from_materialize_report(action_id: Digest, lines_added: u32, report: &MaterializeReport) -> Self {
+        let applied = report.applied_to_host;
+        let attempt_id = Digest::of(&AttemptContent { patch_id: report.patch_id, applied });
+        Self {
+            attempt_id,
+            patch_id: report.patch_id,
+            action_id,
+            applied,
+            validation: ValidationResult {
+                compile_passed: report.compile_passed,
+                tests_passed: report.tests_passed,
+                gate_result: report.gate_result.clone(),
+            },
+            blocking_reason: report.blocking_reason.clone(),
             lines_added,
         }
     }
@@ -287,6 +309,11 @@ pub struct AgentSession {
     synthesizer: Arc<dyn ActionSynthesizer>,
     options: AgentOptions,
     feedback_history: Vec<ExecutionFeedback>,
+    policy: PolicyProfile,
+    /// When set and `options.dry_run == false`, patches are really applied and
+    /// validated via `kosmo-materialize` (policy-gated). `None` ⇒ no real
+    /// materialization happens even outside dry-run.
+    validator: Option<Arc<dyn PatchValidator>>,
 }
 
 impl AgentSession {
@@ -297,9 +324,25 @@ impl AgentSession {
     ) -> Self {
         let pipeline_session = WorkspacePipelineSession::new(
             options.pipeline_options.clone(),
-            policy,
+            policy.clone(),
         );
-        Self { pipeline_session, synthesizer, options, feedback_history: vec![] }
+        Self {
+            pipeline_session,
+            synthesizer,
+            options,
+            feedback_history: vec![],
+            policy,
+            validator: None,
+        }
+    }
+
+    /// Attach a real patch validator. With a validator set and
+    /// `options.dry_run == false`, the agent will apply and validate patches
+    /// through `kosmo-materialize` (still policy-gated — `ReportOnly`/`DryRun`
+    /// never write the host).
+    pub fn with_validator(mut self, validator: Arc<dyn PatchValidator>) -> Self {
+        self.validator = Some(validator);
+        self
     }
 
     pub fn feedback_history(&self) -> &[ExecutionFeedback] { &self.feedback_history }
@@ -356,9 +399,39 @@ impl AgentSession {
                     synthesis.patch.total_lines(),
                 ))
             } else {
-                // Non-dry-run materialization is delegated to kosmo-materialize.
-                // Placing the hook here keeps the interface stable.
-                None
+                // Real materialization via kosmo-materialize (policy-gated).
+                // Clone the Arc so `self` is free for the mutable feedback push
+                // in the error arm.
+                match self.validator.clone() {
+                    Some(validator) => {
+                        let materializer = Materializer::new(workspace);
+                        let opts = MaterializeOptions::default();
+                        match materializer.materialize(
+                            &synthesis.patch,
+                            &self.policy,
+                            validator.as_ref(),
+                            &opts,
+                        ) {
+                            Ok(report) => Some(MaterializationAttempt::from_materialize_report(
+                                action.action_id,
+                                synthesis.patch.total_lines(),
+                                &report,
+                            )),
+                            Err(_io_err) => {
+                                // Filesystem failure during materialization:
+                                // record a skip and move on (fail-closed).
+                                let fb = ExecutionFeedback::skipped(
+                                    action.action_id,
+                                    synthesis.confidence,
+                                );
+                                self.feedback_history.push(fb);
+                                continue;
+                            }
+                        }
+                    }
+                    // No validator configured ⇒ no real materialization.
+                    None => None,
+                }
             };
 
             let is_positive = attempt.as_ref()
@@ -419,6 +492,72 @@ mod tests {
         assert_eq!(report.workspace_path, tmp());
         assert!(report.pipeline_run_number >= 1);
         assert_eq!(report.steps_materialized, 0); // dry-run: never applied
+    }
+
+    #[test]
+    fn agent_real_materialization_applies_via_validator() {
+        // A temp workspace with a source file (and no test) should surface at
+        // least one action; with a passing validator + operator-approved policy
+        // those patches are really applied (here: empty mock patches, so 0 files
+        // change, but the attempt is recorded as applied-to-host).
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-agent-mat-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn foo() -> u32 { 1 }\n").unwrap();
+
+        let opts = AgentOptions {
+            max_steps: 3,
+            min_confidence: Q16::ZERO,
+            dry_run: false,
+            pipeline_options: IntegrationRunOptions::report_only(),
+        };
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::operator_approved(), synth)
+            .with_validator(Arc::new(AlwaysPass));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        // Every synthesized step was materialized to the host (validator passed).
+        assert_eq!(report.steps_materialized, report.steps_synthesized);
+        for step in &report.steps {
+            let attempt = step.materialization.as_ref().unwrap();
+            assert!(attempt.applied, "patch should be applied with a passing validator");
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_real_materialization_rolls_back_on_failed_validation() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-agent-rb-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn foo() -> u32 { 1 }\n").unwrap();
+
+        let opts = AgentOptions {
+            max_steps: 3,
+            min_confidence: Q16::ZERO,
+            dry_run: false,
+            pipeline_options: IntegrationRunOptions::report_only(),
+        };
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::operator_approved(), synth)
+            .with_validator(Arc::new(AlwaysFail));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        // Failed validation ⇒ nothing persisted, every attempt rolled back.
+        assert_eq!(report.steps_materialized, 0);
+        for step in &report.steps {
+            let attempt = step.materialization.as_ref().unwrap();
+            assert!(!attempt.applied);
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
