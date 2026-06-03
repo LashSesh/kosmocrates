@@ -326,6 +326,7 @@ impl FacetScaffolder {
     fn scaffold(&self, ws: &Path, facet: &WishFacet) -> Vec<FileChange> {
         match facet.kind {
             WishFacetKind::Symbol => Self::scaffold_symbol(ws, &facet.key),
+            WishFacetKind::Signature => Self::scaffold_signature(ws, &facet.key),
             WishFacetKind::Module => Self::scaffold_module(ws, &facet.key),
             WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
             // Dependency / Capability / Resolution have no reliable structural
@@ -336,7 +337,9 @@ impl FacetScaffolder {
         }
     }
 
-    fn scaffold_symbol(ws: &Path, name: &str) -> Vec<FileChange> {
+    /// Append `snippet` to `src/lib.rs` (or `src/main.rs`, or create lib.rs) iff
+    /// `marker` is not already present. Idempotent.
+    fn append_to_lib(ws: &Path, marker: &str, snippet: &str) -> Vec<FileChange> {
         let lib = ws.join("src/lib.rs");
         let main = ws.join("src/main.rs");
         let (rel, path, exists) = if lib.exists() {
@@ -351,19 +354,46 @@ impl FacetScaffolder {
         } else {
             String::new()
         };
-        if content.contains(&format!("fn {name}")) {
+        if content.contains(marker) {
             return vec![]; // already present — idempotent
         }
         if !content.is_empty() && !content.ends_with('\n') {
             content.push('\n');
         }
-        content.push_str(&format!("pub fn {name}() {{ /* scaffolded by kosmo */ }}\n"));
+        content.push_str(snippet);
+        if !snippet.ends_with('\n') {
+            content.push('\n');
+        }
         let fc = if exists {
             FileChange::modify(rel, content)
         } else {
             FileChange::create(rel, content)
         };
         vec![fc]
+    }
+
+    fn scaffold_symbol(ws: &Path, name: &str) -> Vec<FileChange> {
+        Self::append_to_lib(
+            ws,
+            &format!("fn {name}"),
+            &format!("pub fn {name}() {{ /* scaffolded by kosmo */ }}"),
+        )
+    }
+
+    fn scaffold_signature(ws: &Path, key: &str) -> Vec<FileChange> {
+        let (name, arity) = match key.split_once('/') {
+            Some((n, a)) => (n, a.parse::<usize>().unwrap_or(0)),
+            None => (key, 0),
+        };
+        let params = (0..arity)
+            .map(|i| format!("_a{i}: ()"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Self::append_to_lib(
+            ws,
+            &format!("fn {name}"),
+            &format!("pub fn {name}({params}) {{ /* scaffolded by kosmo */ }}"),
+        )
     }
 
     fn scaffold_module(ws: &Path, name: &str) -> Vec<FileChange> {
@@ -656,6 +686,16 @@ mod tests {
         let req = SynthesisRequest::new(action, dir.to_str().unwrap());
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_signature_emits_fn_with_arity() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::signature("compute/2"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert!(fc.content.contains("pub fn compute(_a0: (), _a1: ())"));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

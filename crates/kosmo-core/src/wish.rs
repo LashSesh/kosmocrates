@@ -43,6 +43,8 @@ pub enum WishFacetKind {
     Resolution,
     /// A directed crate dependency edge `"from->to"` is present.
     Dependency,
+    /// A public function signature `"name/arity"` is present (name + arg count).
+    Signature,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -86,6 +88,10 @@ impl WishFacet {
             WishFacetKind::Dependency,
             format!("{}->{}", from.as_ref(), to.as_ref()),
         )
+    }
+    /// A function-signature facet, keyed `"name/arity"` (e.g. `"handle/2"`).
+    pub fn signature(key: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Signature, key)
     }
 }
 

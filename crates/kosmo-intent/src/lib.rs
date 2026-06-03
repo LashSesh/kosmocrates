@@ -107,17 +107,48 @@ fn leading_ident(tok: &str) -> Option<String> {
     Some(id.to_string())
 }
 
-/// Extract one [`WishFacet`] from a single source line, if it declares a module
-/// (`mod`, public or not) or a **public** definition (`fn` / `struct` / `enum`
-/// / `trait` / `type` / `union` / `const` / `static`).
+/// Count a function's arity from its opening line — the number of top-level
+/// arguments between its parentheses (generics/arrays don't add args).
+fn fn_arity(line: &str) -> usize {
+    let Some(open) = line.find('(') else {
+        return 0;
+    };
+    let mut depth = 0i32;
+    let mut args = 0usize;
+    let mut seen = false;
+    for c in line[open..].chars() {
+        match c {
+            '(' | '[' | '<' => depth += 1,
+            ')' | ']' | '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            ',' if depth == 1 => args += 1,
+            c if depth == 1 && !c.is_whitespace() => seen = true,
+            _ => {}
+        }
+    }
+    if seen {
+        args + 1
+    } else {
+        0
+    }
+}
+
+/// Extract the [`WishFacet`]s a single source line declares: a `Module` (`mod`,
+/// public or not) or — for a **public** definition (`fn` / `struct` / `enum` /
+/// `trait` / `type` / `union` / `const` / `static`) — a `Symbol`, plus a
+/// `Signature` (`"name/arity"`) when it is a function.
 ///
 /// Deterministic and lexical — it reads the opening line only, like
 /// `kosmo-hyphae`'s code HDAG extractor. Symbols are keyed by their bare name;
 /// `extern` items and macro-generated definitions are not captured.
-fn item_facet(line: &str) -> Option<WishFacet> {
+fn item_facets(line: &str) -> Vec<WishFacet> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with('#') {
-        return None;
+        return vec![];
     }
     let is_pub = trimmed.starts_with("pub ") || trimmed.starts_with("pub(");
     let body = strip_vis(trimmed);
@@ -130,24 +161,40 @@ fn item_facet(line: &str) -> Option<WishFacet> {
     // `const` / `static` are item keywords, unless `const fn`.
     if matches!(tokens.peek(), Some(&"const") | Some(&"static")) {
         tokens.next();
-        if tokens.peek() == Some(&"fn") {
+        let is_fn = tokens.peek() == Some(&"fn");
+        if is_fn {
             tokens.next();
         }
         if !is_pub {
-            return None;
+            return vec![];
         }
-        let name = leading_ident(tokens.next()?)?;
-        return Some(WishFacet::symbol(name));
+        let Some(name) = tokens.next().and_then(leading_ident) else {
+            return vec![];
+        };
+        if is_fn {
+            return vec![
+                WishFacet::symbol(name.clone()),
+                WishFacet::signature(format!("{name}/{}", fn_arity(line))),
+            ];
+        }
+        return vec![WishFacet::symbol(name)];
     }
 
-    let kw = *tokens.peek()?;
+    let Some(kw) = tokens.peek().copied() else {
+        return vec![];
+    };
     tokens.next();
-    let name = leading_ident(tokens.next()?)?;
+    let Some(name) = tokens.next().and_then(leading_ident) else {
+        return vec![];
+    };
     match kw {
-        "mod" => Some(WishFacet::module(name)),
-        "fn" if is_pub => Some(WishFacet::symbol(name)),
-        "struct" | "enum" | "trait" | "type" | "union" if is_pub => Some(WishFacet::symbol(name)),
-        _ => None,
+        "mod" => vec![WishFacet::module(name)],
+        "fn" if is_pub => vec![
+            WishFacet::symbol(name.clone()),
+            WishFacet::signature(format!("{name}/{}", fn_arity(line))),
+        ],
+        "struct" | "enum" | "trait" | "type" | "union" if is_pub => vec![WishFacet::symbol(name)],
+        _ => vec![],
     }
 }
 
@@ -156,7 +203,7 @@ fn item_facet(line: &str) -> Option<WishFacet> {
 /// Pure and deterministic. Captures module declarations and the **public**
 /// definition surface (fns, types, consts) by bare name.
 pub fn facets_from_source(source: &str) -> BTreeSet<WishFacet> {
-    source.lines().filter_map(item_facet).collect()
+    source.lines().flat_map(item_facets).collect()
 }
 
 /// Recursively collect `.rs` file paths under `dir`, skipping `target` / `.git`.
@@ -228,6 +275,7 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         "type" | "types" | "struct" | "structs" | "enum" | "enums" | "trait" | "traits"
         | "interface" | "symbol" | "symbols" => Some(WishFacetKind::Symbol),
         "dependency" | "dependencies" | "depends" | "dep" => Some(WishFacetKind::Dependency),
+        "signature" | "signatures" | "sig" => Some(WishFacetKind::Signature),
         _ => None,
     }
 }
@@ -779,5 +827,26 @@ mod tests {
             .predicates
             .iter()
             .any(|p| p.facet == WishFacet::dependency("alpha", "beta")));
+    }
+
+    // ── signature facets (Run 11) ─────────────────────────────────────────
+
+    #[test]
+    fn facets_from_source_emits_signature_for_pub_fn() {
+        let f = facets_from_source("pub fn handle(a: u32, b: u32) -> u32 { a + b }\n");
+        assert!(f.contains(&WishFacet::symbol("handle")));
+        assert!(f.contains(&WishFacet::signature("handle/2")));
+    }
+
+    #[test]
+    fn facets_from_source_signature_zero_arity() {
+        let f = facets_from_source("pub fn now() {}\n");
+        assert!(f.contains(&WishFacet::signature("now/0")));
+    }
+
+    #[test]
+    fn facets_from_source_signature_ignores_generics_in_arity() {
+        let f = facets_from_source("pub fn map(x: Vec<u32>) {}\n");
+        assert!(f.contains(&WishFacet::signature("map/1")));
     }
 }

@@ -15,6 +15,14 @@ note explicitly says so.
 
 ### Added
 
+* **Richer facets II — `Signature` (function arity as a wish target)**
+
+  `WishFacetKind::Signature` (keyed `"name/arity"`). `facets_from_source` now
+  emits a `Signature` per `pub fn` alongside the `Symbol` (arity counted from the
+  opening line; generics/arrays don't inflate it). `FacetScaffolder` realizes it
+  (`pub fn name(_a0: (), …)`, via a shared `append_to_lib`); the rule compiler
+  (`signature`/`sig`) and the LLM mapping recognize it. +4 tests.
+
 * **Richer facets I — `Dependency` (crate dependency edges as wish targets)**
 
   `WishFacetKind::Dependency` (keyed `"from->to"`). `facets_from_snapshot` emits
