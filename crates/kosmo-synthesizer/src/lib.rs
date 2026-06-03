@@ -329,11 +329,11 @@ impl FacetScaffolder {
             WishFacetKind::Signature => Self::scaffold_signature(ws, &facet.key),
             WishFacetKind::Module => Self::scaffold_module(ws, &facet.key),
             WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
-            // Dependency / Capability / Resolution have no reliable structural
-            // scaffold (a dependency edit needs a path the scaffolder can't infer).
-            WishFacetKind::Dependency
-            | WishFacetKind::Capability
-            | WishFacetKind::Resolution => vec![],
+            WishFacetKind::Capability => Self::scaffold_capability(ws, &facet.key),
+            WishFacetKind::Test => Self::scaffold_test(ws, &facet.key),
+            // Dependency / Resolution have no reliable structural scaffold
+            // (a dependency edit needs a path the scaffolder can't infer).
+            WishFacetKind::Dependency | WishFacetKind::Resolution => vec![],
         }
     }
 
@@ -393,6 +393,22 @@ impl FacetScaffolder {
             ws,
             &format!("fn {name}"),
             &format!("pub fn {name}({params}) {{ /* scaffolded by kosmo */ }}"),
+        )
+    }
+
+    fn scaffold_capability(ws: &Path, name: &str) -> Vec<FileChange> {
+        Self::append_to_lib(
+            ws,
+            &format!("kosmo:capability: {name}"),
+            &format!("// kosmo:capability: {name}"),
+        )
+    }
+
+    fn scaffold_test(ws: &Path, name: &str) -> Vec<FileChange> {
+        Self::append_to_lib(
+            ws,
+            &format!("fn {name}"),
+            &format!("#[test]\nfn {name}() {{ /* scaffolded by kosmo */ }}"),
         )
     }
 
@@ -696,6 +712,28 @@ mod tests {
         let res = FacetScaffolder.synthesize(&req).unwrap();
         let fc = &res.patch.file_changes[0];
         assert!(fc.content.contains("pub fn compute(_a0: (), _a1: ())"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_capability_adds_marker() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::capability("http-server"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.file_changes[0]
+            .content
+            .contains("// kosmo:capability: http-server"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_test_emits_test_fn() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::test("it_works"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(c.contains("#[test]"));
+        assert!(c.contains("fn it_works"));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

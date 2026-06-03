@@ -147,7 +147,19 @@ fn fn_arity(line: &str) -> usize {
 /// `extern` items and macro-generated definitions are not captured.
 fn item_facets(line: &str) -> Vec<WishFacet> {
     let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with('#') {
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return vec![];
+    }
+    if trimmed.starts_with("//") {
+        // Capability marker: `// kosmo:capability: <name>` (also `//!`). This is
+        // how the otherwise-invisible `Capability` facet becomes observable.
+        let body = trimmed.trim_start_matches('/').trim_start_matches('!').trim_start();
+        if let Some(cap) = body.strip_prefix("kosmo:capability:") {
+            let name = cap.trim();
+            if !name.is_empty() {
+                return vec![WishFacet::capability(name)];
+            }
+        }
         return vec![];
     }
     let is_pub = trimmed.starts_with("pub ") || trimmed.starts_with("pub(");
@@ -203,7 +215,35 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
 /// Pure and deterministic. Captures module declarations and the **public**
 /// definition surface (fns, types, consts) by bare name.
 pub fn facets_from_source(source: &str) -> BTreeSet<WishFacet> {
-    source.lines().flat_map(item_facets).collect()
+    let mut facets = BTreeSet::new();
+    let mut pending_test = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if is_test_attr(trimmed) {
+            pending_test = true;
+        }
+        if pending_test {
+            if let Some(name) = test_fn_name(trimmed) {
+                facets.insert(WishFacet::test(name));
+                pending_test = false;
+            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                pending_test = false; // not a test fn after all
+            }
+        }
+        facets.extend(item_facets(line));
+    }
+    facets
+}
+
+/// A test attribute line: `#[test]`, `#[tokio::test]`, `#[async_std::test]`, …
+fn is_test_attr(trimmed: &str) -> bool {
+    trimmed.starts_with("#[") && trimmed.contains("test]")
+}
+
+/// The function name on a `fn NAME(...)` line, any visibility, if present.
+fn test_fn_name(trimmed: &str) -> Option<String> {
+    let idx = trimmed.find("fn ")?;
+    leading_ident(trimmed[idx + 3..].trim_start())
 }
 
 /// Recursively collect `.rs` file paths under `dir`, skipping `target` / `.git`.
@@ -276,6 +316,8 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         | "interface" | "symbol" | "symbols" => Some(WishFacetKind::Symbol),
         "dependency" | "dependencies" | "depends" | "dep" => Some(WishFacetKind::Dependency),
         "signature" | "signatures" | "sig" => Some(WishFacetKind::Signature),
+        "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
+        "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
     }
 }
@@ -848,5 +890,47 @@ mod tests {
     fn facets_from_source_signature_ignores_generics_in_arity() {
         let f = facets_from_source("pub fn map(x: Vec<u32>) {}\n");
         assert!(f.contains(&WishFacet::signature("map/1")));
+    }
+
+    // ── capability facets (Run 12) ────────────────────────────────────────
+
+    #[test]
+    fn facets_from_source_extracts_capability_marker() {
+        let f = facets_from_source(
+            "//! crate doc\n// kosmo:capability: http-server\npub fn run() {}\n",
+        );
+        assert!(f.contains(&WishFacet::capability("http-server")));
+    }
+
+    #[test]
+    fn compile_wish_extracts_capability() {
+        let w = compile_wish("a capability http-server", d(b"p"), d(b"e"));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::capability("http-server")));
+    }
+
+    // ── test facets (Run 13) ──────────────────────────────────────────────
+
+    #[test]
+    fn facets_from_source_extracts_test() {
+        let f = facets_from_source("#[test]\nfn it_works() { assert!(true); }\n");
+        assert!(f.contains(&WishFacet::test("it_works")));
+    }
+
+    #[test]
+    fn facets_from_source_extracts_namespaced_test() {
+        let f = facets_from_source("#[tokio::test]\nasync fn runs() {}\n");
+        assert!(f.contains(&WishFacet::test("runs")));
+    }
+
+    #[test]
+    fn compile_wish_extracts_test() {
+        let w = compile_wish("a test it_works", d(b"p"), d(b"e"));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::test("it_works")));
     }
 }

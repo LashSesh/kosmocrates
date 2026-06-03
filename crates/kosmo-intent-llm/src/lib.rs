@@ -130,6 +130,8 @@ fn facet_kind_from_str(s: &str) -> Option<WishFacetKind> {
         "resolution" | "void" => Some(WishFacetKind::Resolution),
         "dependency" | "depends" | "dep" => Some(WishFacetKind::Dependency),
         "signature" | "sig" => Some(WishFacetKind::Signature),
+        "capability" | "feature" => Some(WishFacetKind::Capability),
+        "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
     }
 }
@@ -247,6 +249,8 @@ mod tests {
         assert_eq!(facet_kind_from_str("resolution"), Some(WishFacetKind::Resolution));
         assert_eq!(facet_kind_from_str("dependency"), Some(WishFacetKind::Dependency));
         assert_eq!(facet_kind_from_str("signature"), Some(WishFacetKind::Signature));
+        assert_eq!(facet_kind_from_str("capability"), Some(WishFacetKind::Capability));
+        assert_eq!(facet_kind_from_str("test"), Some(WishFacetKind::Test));
         assert_eq!(facet_kind_from_str("nonsense"), None);
     }
 

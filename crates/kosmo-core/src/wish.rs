@@ -45,6 +45,8 @@ pub enum WishFacetKind {
     Dependency,
     /// A public function signature `"name/arity"` is present (name + arg count).
     Signature,
+    /// A test is present (`#[test] fn name`), keyed by the test function name.
+    Test,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -92,6 +94,10 @@ impl WishFacet {
     /// A function-signature facet, keyed `"name/arity"` (e.g. `"handle/2"`).
     pub fn signature(key: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Signature, key)
+    }
+    /// A test facet, keyed by the test function name.
+    pub fn test(name: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Test, name)
     }
 }
 

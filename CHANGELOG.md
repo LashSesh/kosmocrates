@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Richer facets IV — `Test` (tests as wish targets)**
+
+  `WishFacetKind::Test` (keyed by test fn name). `facets_from_source` (now
+  stateful) detects `#[test]`/`#[tokio::test]` + the following `fn NAME` →
+  `Test(name)`. `FacetScaffolder` emits `#[test] fn name() {}`; rule compiler
+  (`test`) + LLM mapping. v1 observes test *presence*; tying "green" to the
+  cargo validator (a test that *passes*) is the next refinement. +4 tests.
+
+* **Richer facets III — `Capability` (behaviours as wish targets, via markers)**
+
+  Makes the existing `Capability` kind *observable*: `facets_from_source` reads
+  `// kosmo:capability: <name>` markers (also `//!`). `FacetScaffolder` writes
+  the marker; rule compiler (`capability`/`feature`) + LLM mapping. A wish can
+  now target a named behaviour — the facet closest to human intent. +3 tests.
+
 * **Richer facets II — `Signature` (function arity as a wish target)**
 
   `WishFacetKind::Signature` (keyed `"name/arity"`). `facets_from_source` now
