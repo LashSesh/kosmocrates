@@ -45,6 +45,11 @@ pub enum WishFacetKind {
     Dependency,
     /// A public function signature `"name/arity"` is present (name + arg count).
     Signature,
+    /// A typed function contract `"name(T0,T1)->R"` is present — the typed
+    /// promotion of [`WishFacetKind::Signature`] (parameter + return *types*,
+    /// not merely the count). Shallow types only: single tokens and simple
+    /// generics round-trip; deep generics are stored verbatim.
+    Contract,
     /// A test is present (`#[test] fn name`), keyed by the test function name.
     Test,
 }
@@ -94,6 +99,21 @@ impl WishFacet {
     /// A function-signature facet, keyed `"name/arity"` (e.g. `"handle/2"`).
     pub fn signature(key: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Signature, key)
+    }
+    /// A typed function-contract facet, keyed `"name(T0,T1)->R"` — the typed
+    /// promotion of [`WishFacet::signature`]. `params` are the parameter
+    /// *types* in declaration order; `ret` is the return type (`"()"` for
+    /// none). Types are stored verbatim, so callers pass normalized type
+    /// strings (the observer in `kosmo-intent` collapses whitespace).
+    pub fn contract(name: impl AsRef<str>, params: &[&str], ret: impl AsRef<str>) -> Self {
+        Self::new(
+            WishFacetKind::Contract,
+            format!("{}({})->{}", name.as_ref(), params.join(","), ret.as_ref()),
+        )
+    }
+    /// A typed function-contract facet from a pre-formed `"name(T)->R"` key.
+    pub fn contract_key(key: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Contract, key)
     }
     /// A test facet, keyed by the test function name.
     pub fn test(name: impl Into<String>) -> Self {
@@ -463,6 +483,24 @@ mod tests {
         assert_eq!(WishFacet::symbol("a::b"), WishFacet::symbol("a::b"));
         assert_ne!(WishFacet::symbol("a::b"), WishFacet::module("a::b"));
         assert_ne!(WishFacet::symbol("a::b"), WishFacet::symbol("a::c"));
+    }
+
+    #[test]
+    fn contract_facet_key_format() {
+        let f = WishFacet::contract("handle", &["Request"], "Response");
+        assert_eq!(f.kind, WishFacetKind::Contract);
+        assert_eq!(f.key, "handle(Request)->Response");
+        // The `contract_key` constructor accepts the same pre-formed key.
+        assert_eq!(f, WishFacet::contract_key("handle(Request)->Response"));
+    }
+
+    #[test]
+    fn contract_facet_no_params_unit_return() {
+        assert_eq!(WishFacet::contract("tick", &[], "()").key, "tick()->()");
+        assert_eq!(
+            WishFacet::contract("add", &["i32", "i32"], "i32").key,
+            "add(i32,i32)->i32"
+        );
     }
 
     // ── Wish content addressing ───────────────────────────────────────────

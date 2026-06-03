@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1102 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 17, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 39, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 8) — 0 failures
+- **1116 substrate tests** (kosmo-core 380, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 22, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 45, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 9) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,19 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Contract facets — typed signatures (Horizon floor, beam 1) (2026-06-03)
+
+First beam of the behavior axis specified in `docs/HORIZON-behavior-archetype.md`. A `Contract` facet `"name(T0,T1)->R"` is the typed promotion of `Signature` (`name/arity`): parameter + return *types*, not just the count.
+
+- **`kosmo-core`**: `WishFacetKind::Contract`; `WishFacet::contract(name, &[types], ret)` + `contract_key(key)` constructors (canonical key format).
+- **`kosmo-intent`** (observe): `parse_fn_types` reads a function's opening line into `(param_types, ret)` — depth-aware comma split, `->` treated as an atom, receivers (`self`/`&self`/`&mut self`) skipped, whitespace normalized, return defaults to `()`. `item_facets` now emits `Contract` alongside `Symbol` + `Signature` (additive — no regression). `contract` trigger added.
+- **`kosmo-synthesizer`** (scaffold): `scaffold_contract` builds the dual — `pub fn name(_a0: T0, …) -> R { todo!("…") }`, **honestly empty** at runtime, idempotent via the `fn name` marker. `parse_contract_key` mirrors the observer so **scaffold → observe round-trips**.
+- **`kosmo-intent-llm`**: `contract` mapping added.
+
+Verified live: `kosmo-run --wish "a contract add(i32,i32)->i32" --apply` → `iter 0: 0/1 UNSTARTED → iter 1: 1/1 REALIZED ✓`, writing `pub fn add(_a0: i32, _a1: i32) -> i32 { todo!("kosmo: implement add") }`; `cargo check` is clean and the body panics until filled. +14 tests, 0 failures.
+
+The structural skeleton now carries *types*. Beam 2 (the keystone, `Behavior`) makes those bodies get filled and **validated** — acceptance over generation.
 
 ### Session persistence — every descent auditable and replayable (2026-06-03)
 

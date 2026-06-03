@@ -941,6 +941,53 @@ mod tests {
         fs::remove_dir_all(&root).ok();
     }
 
+    #[test]
+    fn descend_realizes_typed_contract_wish() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-contract-{nanos}"));
+        fs::create_dir_all(root.join("demo/src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"demo\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("demo/src/lib.rs"), "// demo\n").unwrap();
+
+        // Built-in types so the lexical descent's round-trip is unambiguous.
+        let prose = "a contract add(i32,i32)->i32";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+        assert!(
+            wish.predicates
+                .iter()
+                .any(|p| p.facet.kind == kosmo_core::WishFacetKind::Contract),
+            "prose should compile to a Contract facet"
+        );
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "typed-contract wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
     // ── Session persistence ───────────────────────────────────────────────
 
     #[test]

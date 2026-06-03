@@ -327,6 +327,7 @@ impl FacetScaffolder {
         match facet.kind {
             WishFacetKind::Symbol => Self::scaffold_symbol(ws, &facet.key),
             WishFacetKind::Signature => Self::scaffold_signature(ws, &facet.key),
+            WishFacetKind::Contract => Self::scaffold_contract(ws, &facet.key),
             WishFacetKind::Module => Self::scaffold_module(ws, &facet.key),
             WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
             WishFacetKind::Capability => Self::scaffold_capability(ws, &facet.key),
@@ -393,6 +394,35 @@ impl FacetScaffolder {
             ws,
             &format!("fn {name}"),
             &format!("pub fn {name}({params}) {{ /* scaffolded by kosmo */ }}"),
+        )
+    }
+
+    /// Realize a typed contract `"name(T0,T1)->R"` by appending a typed
+    /// function stub with a `todo!()` body — structurally present, **honestly
+    /// empty** at runtime. The dual of `kosmo-intent`'s contract observation,
+    /// so scaffold → observe round-trips and the descent converges. An
+    /// unparseable key (no parameter list) is an honest no-op.
+    fn scaffold_contract(ws: &Path, key: &str) -> Vec<FileChange> {
+        let Some((name, params, ret)) = parse_contract_key(key) else {
+            return vec![];
+        };
+        let param_list = params
+            .iter()
+            .enumerate()
+            .map(|(i, t)| format!("_a{i}: {t}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // `-> ()` is omitted: the no-arrow form observes back to the same `()`
+        // return, and avoids a clippy `unused_unit` on every scaffold.
+        let arrow = if ret == "()" {
+            String::new()
+        } else {
+            format!(" -> {ret}")
+        };
+        Self::append_to_lib(
+            ws,
+            &format!("fn {name}"),
+            &format!("pub fn {name}({param_list}){arrow} {{ todo!(\"kosmo: implement {name}\") }}"),
         )
     }
 
@@ -494,6 +524,90 @@ impl FacetScaffolder {
         let rel_manifest = from_path.strip_prefix(ws).unwrap_or(&from_path);
         vec![FileChange::modify(rel_manifest, new_content)]
     }
+}
+
+/// Parse a contract key `"name(T0,T1)->R"` into `(name, param_types, ret)`.
+/// Mirrors `kosmo-intent`'s contract observation. `None` if the key has no
+/// parameter list. The parameter list and `->` are matched depth-aware so
+/// nested generics / closure types do not unbalance the scan.
+fn parse_contract_key(key: &str) -> Option<(String, Vec<String>, String)> {
+    let chars: Vec<char> = key.chars().collect();
+    let open = chars.iter().position(|&c| c == '(')?;
+    let name: String = chars[..open].iter().collect();
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    // Match the parameter-list close paren, treating `->` as an atom.
+    let mut depth = 0i32;
+    let mut close = None;
+    let mut prev = ' ';
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        let is_arrow_gt = c == '>' && prev == '-';
+        if !is_arrow_gt {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        prev = c;
+    }
+    let close = close?;
+    let params_str: String = chars[open + 1..close].iter().collect();
+    let params = split_type_list(&params_str);
+    let rest: String = chars[close + 1..].iter().collect();
+    let ret = rest
+        .trim_start()
+        .strip_prefix("->")
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "()".to_string());
+    Some((name, params, ret))
+}
+
+/// Split a comma-separated type list on top-level commas, ignoring commas
+/// nested in `()`, `<>`, `[]`; `->` is an atom. Empty segments are dropped.
+fn split_type_list(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '-' if chars.peek() == Some(&'>') => {
+                cur.push('-');
+                cur.push(chars.next().unwrap());
+            }
+            '(' | '<' | '[' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' | '>' | ']' => {
+                depth -= 1;
+                cur.push(c);
+            }
+            ',' if depth == 0 => {
+                let t = cur.trim().to_string();
+                if !t.is_empty() {
+                    out.push(t);
+                }
+                cur.clear();
+            }
+            _ => cur.push(c),
+        }
+    }
+    let t = cur.trim().to_string();
+    if !t.is_empty() {
+        out.push(t);
+    }
+    out
 }
 
 /// Insert `"<name>",` at the head of the first `members = [ … ]` array in a
@@ -845,6 +959,66 @@ mod tests {
         let fc = &res.patch.file_changes[0];
         assert!(fc.content.contains("pub fn compute(_a0: (), _a1: ())"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_emits_typed_stub() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::contract("handle", &["Request"], "Response"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(
+            c.contains("pub fn handle(_a0: Request) -> Response"),
+            "got:\n{c}"
+        );
+        assert!(c.contains("todo!"), "body must be honestly empty: {c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_unit_return_omits_arrow() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::contract("tick", &[], "()"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(c.contains("pub fn tick()"), "got:\n{c}");
+        assert!(!c.contains("-> ()"), "unit return should omit the arrow: {c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_multi_arg_generic() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(
+            &dir,
+            WishFacet::contract("count", &["Vec<User>", "usize"], "usize"),
+        );
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(
+            c.contains("pub fn count(_a0: Vec<User>, _a1: usize) -> usize"),
+            "got:\n{c}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_is_idempotent() {
+        let dir = temp_ws("pub fn handle(_a0: Request) -> Response { todo!() }\n");
+        let req = wish_request(&dir, WishFacet::contract("handle", &["Request"], "Response"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "existing fn name → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_contract_key_roundtrips_through_split() {
+        let (name, params, ret) = parse_contract_key("count(Vec<User>,usize)->usize").unwrap();
+        assert_eq!(name, "count");
+        assert_eq!(params, vec!["Vec<User>".to_string(), "usize".to_string()]);
+        assert_eq!(ret, "usize");
+        // No parameter list → not a contract key.
+        assert!(parse_contract_key("bare_name").is_none());
     }
 
     #[test]

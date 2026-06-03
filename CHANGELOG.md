@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **`Contract` facets — typed function signatures (Horizon floor, beam 1)**
+
+  The first beam of the behavior axis (`docs/HORIZON-behavior-archetype.md`):
+  a `Contract` facet `"name(T0,T1)->R"` is the typed promotion of `Signature`
+  (`name/arity`). `kosmo-intent` now observes parameter + return *types* from a
+  function's opening line (`parse_fn_types`, shallow types; receivers skipped),
+  emitting a `Contract` alongside the existing `Symbol` / `Signature` (additive
+  — a `Signature` wish is unchanged). `kosmo-synthesizer::scaffold_contract`
+  builds the dual: a typed stub `pub fn name(_a0: T0, …) -> R { todo!(…) }` —
+  structurally present, **honestly empty** at runtime. Scaffold → observe
+  round-trips, so a contract wish descends `0/1 → 1/1 REALIZED`. The `contract`
+  trigger (rule + LLM compilers) accepts the space-free prose form
+  `a contract add(i32,i32)->i32`. Verified live: the stub compiles
+  (`cargo check` clean) and `todo!()` panics until filled. +14 tests
+  (kosmo-core 378→380, kosmo-intent 39→45, kosmo-synthesizer 17→22, kosmo-run
+  8→9).
+
 * **`--wish-session <path>` — every descent is now auditable and replayable**
 
   `kosmo-run --wish … --wish-session trajectory.json` writes the complete

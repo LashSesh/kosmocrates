@@ -137,6 +137,129 @@ fn fn_arity(line: &str) -> usize {
     }
 }
 
+/// Collapse internal whitespace runs to single spaces and trim — the canonical
+/// form for a captured type, shared with the contract scaffold so that
+/// scaffold → observe round-trips.
+fn normalize_type(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Split a string on top-level commas, ignoring commas nested inside `()`,
+/// `<>`, or `[]`. `->` is treated as an atom so closure-return arrows don't
+/// unbalance the depth counter.
+fn split_top_level_commas(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '-' if chars.peek() == Some(&'>') => {
+                cur.push('-');
+                cur.push(chars.next().unwrap()); // the '>'
+            }
+            '(' | '<' | '[' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' | '>' | ']' => {
+                depth -= 1;
+                cur.push(c);
+            }
+            ',' if depth == 0 => out.push(std::mem::take(&mut cur)),
+            _ => cur.push(c),
+        }
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// The data type of one parameter segment (`"x: T"` → `"T"`). Bare receivers
+/// (`self` / `&self` / `&mut self`) and untyped segments carry no data type and
+/// yield `None`.
+fn param_type(seg: &str) -> Option<String> {
+    let seg = seg.trim();
+    let compact: String = seg.chars().filter(|c| !c.is_whitespace()).collect();
+    if compact.is_empty() || compact == "self" || compact == "&self" || compact == "&mutself" {
+        return None;
+    }
+    let colon = seg.find(':')?;
+    let ty = seg[colon + 1..].trim();
+    (!ty.is_empty()).then(|| normalize_type(ty))
+}
+
+/// The return type from the text *after* a function's parameter list — the
+/// token(s) between `->` and the body `{` (or a `where` clause). `"()"` if the
+/// function declares no return type.
+fn parse_return_type(rest: &str) -> String {
+    let Some(arrow) = rest.find("->") else {
+        return "()".to_string();
+    };
+    let after = &rest[arrow + 2..];
+    let end = after.find('{').unwrap_or(after.len());
+    let mut seg = &after[..end];
+    if let Some(w) = seg.find(" where ") {
+        seg = &seg[..w];
+    }
+    let norm = normalize_type(seg);
+    if norm.is_empty() {
+        "()".to_string()
+    } else {
+        norm
+    }
+}
+
+/// The parameter *types* and return type of a function from its opening line.
+/// Mirrors the `kosmo-synthesizer` contract scaffold, so scaffold → observe
+/// round-trips. Shallow types only (single tokens / simple generics).
+fn parse_fn_types(line: &str) -> (Vec<String>, String) {
+    let chars: Vec<char> = line.chars().collect();
+    let Some(open) = chars.iter().position(|&c| c == '(') else {
+        return (vec![], "()".to_string());
+    };
+    let mut depth = 0i32;
+    let mut close = chars.len();
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let params_str: String = chars[open + 1..close.min(chars.len())].iter().collect();
+    let params = split_top_level_commas(&params_str)
+        .iter()
+        .filter_map(|seg| param_type(seg))
+        .collect();
+    let rest: String = if close < chars.len() {
+        chars[close + 1..].iter().collect()
+    } else {
+        String::new()
+    };
+    (params, parse_return_type(&rest))
+}
+
+/// The structural facets a public function declares: its `Symbol`, its untyped
+/// `Signature` (`name/arity`), and its typed `Contract` (`name(T0,T1)->R`).
+/// The `Contract` is additive — a `Signature` wish still works unchanged.
+fn fn_facets(name: &str, line: &str) -> Vec<WishFacet> {
+    let (params, ret) = parse_fn_types(line);
+    let refs: Vec<&str> = params.iter().map(String::as_str).collect();
+    vec![
+        WishFacet::symbol(name.to_string()),
+        WishFacet::signature(format!("{name}/{}", fn_arity(line))),
+        WishFacet::contract(name, &refs, ret),
+    ]
+}
+
 /// Extract the [`WishFacet`]s a single source line declares: a `Module` (`mod`,
 /// public or not) or — for a **public** definition (`fn` / `struct` / `enum` /
 /// `trait` / `type` / `union` / `const` / `static`) — a `Symbol`, plus a
@@ -184,10 +307,7 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
             return vec![];
         };
         if is_fn {
-            return vec![
-                WishFacet::symbol(name.clone()),
-                WishFacet::signature(format!("{name}/{}", fn_arity(line))),
-            ];
+            return fn_facets(&name, line);
         }
         return vec![WishFacet::symbol(name)];
     }
@@ -201,10 +321,7 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
     };
     match kw {
         "mod" => vec![WishFacet::module(name)],
-        "fn" if is_pub => vec![
-            WishFacet::symbol(name.clone()),
-            WishFacet::signature(format!("{name}/{}", fn_arity(line))),
-        ],
+        "fn" if is_pub => fn_facets(&name, line),
         "struct" | "enum" | "trait" | "type" | "union" if is_pub => vec![WishFacet::symbol(name)],
         _ => vec![],
     }
@@ -394,6 +511,7 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         | "interface" | "symbol" | "symbols" => Some(WishFacetKind::Symbol),
         "dependency" | "dependencies" | "depends" | "dep" => Some(WishFacetKind::Dependency),
         "signature" | "signatures" | "sig" => Some(WishFacetKind::Signature),
+        "contract" | "contracts" => Some(WishFacetKind::Contract),
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
@@ -962,6 +1080,59 @@ mod tests {
     fn facets_from_source_signature_zero_arity() {
         let f = facets_from_source("pub fn now() {}\n");
         assert!(f.contains(&WishFacet::signature("now/0")));
+    }
+
+    #[test]
+    fn facets_from_source_emits_typed_contract() {
+        let f = facets_from_source("pub fn handle(req: Request) -> Response {}\n");
+        assert!(f.contains(&WishFacet::contract("handle", &["Request"], "Response")));
+        // The structural cousins are still emitted — no regression.
+        assert!(f.contains(&WishFacet::symbol("handle")));
+        assert!(f.contains(&WishFacet::signature("handle/1")));
+    }
+
+    #[test]
+    fn facets_from_source_contract_defaults_unit_return() {
+        let f = facets_from_source("pub fn tick() {}\n");
+        assert!(f.contains(&WishFacet::contract("tick", &[], "()")));
+    }
+
+    #[test]
+    fn facets_from_source_contract_captures_generic_and_multi_arg() {
+        let f = facets_from_source("pub fn count(items: Vec<User>, max: usize) -> usize {}\n");
+        assert!(f.contains(&WishFacet::contract(
+            "count",
+            &["Vec<User>", "usize"],
+            "usize"
+        )));
+    }
+
+    #[test]
+    fn facets_from_source_contract_skips_self_receiver() {
+        let f = facets_from_source("pub fn name(&self, id: u64) -> String {}\n");
+        assert!(f.contains(&WishFacet::contract("name", &["u64"], "String")));
+    }
+
+    #[test]
+    fn facets_from_source_observes_scaffold_form_for_roundtrip() {
+        // The exact shape the contract scaffold emits must observe back to the
+        // same key — this is the scaffold→observe round-trip that makes the
+        // descent converge.
+        let f = facets_from_source("pub fn add(_a0: i32, _a1: i32) -> i32 { todo!(\"x\") }\n");
+        assert!(f.contains(&WishFacet::contract("add", &["i32", "i32"], "i32")));
+    }
+
+    #[test]
+    fn contract_trigger_compiles_space_free_form() {
+        let w = compile_wish(
+            "a contract handle(Request)->Response",
+            Digest::ZERO,
+            Digest::ZERO,
+        );
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::contract("handle", &["Request"], "Response")));
     }
 
     #[test]
