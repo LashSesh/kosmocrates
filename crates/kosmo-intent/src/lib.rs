@@ -489,13 +489,93 @@ fn crate_of(file: &Path, root: &Path) -> Option<String> {
     None
 }
 
+/// Parse a contract facet key `"name(T0,T1)->R"` into `(name, params, ret)` —
+/// the dual of the synthesizer's contract-key parser, used to derive
+/// compositions from observed contracts. `->` is treated as an atom.
+fn parse_contract_facet_key(key: &str) -> Option<(String, Vec<String>, String)> {
+    let chars: Vec<char> = key.chars().collect();
+    let open = chars.iter().position(|&c| c == '(')?;
+    let name = chars[..open].iter().collect::<String>().trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut close = None;
+    let mut prev = ' ';
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        let arrow_gt = c == '>' && prev == '-';
+        if !arrow_gt {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        prev = c;
+    }
+    let close = close?;
+    let params_str: String = chars[open + 1..close].iter().collect();
+    let params = split_top_level_commas(&params_str)
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let rest: String = chars[close + 1..].iter().collect();
+    let ret = rest
+        .trim_start()
+        .strip_prefix("->")
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "()".to_string());
+    Some((name, params, ret))
+}
+
+/// Derive typed data-flow [`WishFacetKind::Composition`] facets from observed
+/// contracts: for ordered pairs `(f, g)` where `f`'s return type equals `g`'s
+/// first parameter type (and is not unit), emit `f>>T>>g`. Pure; reads only the
+/// bare (non-crate-qualified) contracts so a composition is workspace-level.
+fn derive_compositions(facets: &BTreeSet<WishFacet>) -> BTreeSet<WishFacet> {
+    let mut ret_of: BTreeMap<String, String> = BTreeMap::new();
+    let mut in0_of: BTreeMap<String, String> = BTreeMap::new();
+    for f in facets {
+        if f.kind != WishFacetKind::Contract || f.key.contains('@') {
+            continue;
+        }
+        if let Some((name, params, ret)) = parse_contract_facet_key(&f.key) {
+            if let Some(p0) = params.into_iter().next() {
+                in0_of.insert(name.clone(), p0);
+            }
+            ret_of.insert(name, ret);
+        }
+    }
+    let mut out = BTreeSet::new();
+    for (f, rf) in &ret_of {
+        if rf == "()" {
+            continue;
+        }
+        for (g, ig) in &in0_of {
+            if f != g && rf == ig {
+                out.insert(WishFacet::composition(f, rf, g));
+            }
+        }
+    }
+    out
+}
+
 /// Walk every `.rs` file under `dir` and union their source facets.
 ///
 /// Read-only. Heavier than the crate-level snapshot (it reads source), so it is
 /// opt-in via [`observe_workspace_deep`]. Each item is emitted **twice**: by its
 /// bare key, and — when the file belongs to a package — by its crate-qualified
 /// key `"<key>@<crate>"`, so a crate-targeted wish (e.g. `handle@kosmo-api`)
-/// round-trips against the crate the scaffolder wrote it into.
+/// round-trips against the crate the scaffolder wrote it into. Finally, typed
+/// data-flow `Composition` facets are derived from the observed contracts.
 pub fn facets_from_rust_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
     let root = dir.as_ref();
     let mut files = Vec::new();
@@ -513,6 +593,7 @@ pub fn facets_from_rust_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
             }
         }
     }
+    facets.extend(derive_compositions(&facets));
     facets
 }
 
@@ -657,6 +738,7 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         "behavior" | "behaviors" | "behaviour" | "behaviours" | "spec" | "specs" => {
             Some(WishFacetKind::Behavior)
         }
+        "composition" | "compositions" | "compose" => Some(WishFacetKind::Composition),
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
@@ -1492,6 +1574,66 @@ mod tests {
         assert!(
             facets.contains(&WishFacet::symbol("handle@api")),
             "crate-qualified missing"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // ── Composition (typed data-flow, level 3) ────────────────────────────
+
+    #[test]
+    fn derive_compositions_chains_contracts_by_type() {
+        let mut facets = BTreeSet::new();
+        facets.insert(WishFacet::contract("parse", &["String"], "Ast"));
+        facets.insert(WishFacet::contract("eval", &["Ast"], "i32"));
+        facets.insert(WishFacet::contract("unrelated", &["bool"], "bool"));
+        let comps = derive_compositions(&facets);
+        assert!(comps.contains(&WishFacet::composition("parse", "Ast", "eval")));
+        assert!(
+            !comps.iter().any(|c| c.key.contains("unrelated")),
+            "no spurious composition"
+        );
+    }
+
+    #[test]
+    fn derive_compositions_ignores_unit_return() {
+        let mut facets = BTreeSet::new();
+        facets.insert(WishFacet::contract("src", &[], "()"));
+        facets.insert(WishFacet::contract("sink", &["()"], "()"));
+        // Unit must not chain, or everything would compose with everything.
+        assert!(derive_compositions(&facets).is_empty());
+    }
+
+    #[test]
+    fn composition_trigger_compiles() {
+        let w = compile_wish("a composition parse>>Ast>>eval", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::composition("parse", "Ast", "eval")));
+    }
+
+    #[test]
+    fn rust_dir_derives_composition_from_source() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-intent-comp-{nanos}"));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "pub struct Ast;\npub fn parse(s: String) -> Ast { Ast }\npub fn eval(a: Ast) -> i32 { 0 }\n",
+        )
+        .unwrap();
+        let facets = facets_from_rust_dir(&root);
+        assert!(
+            facets.contains(&WishFacet::composition("parse", "Ast", "eval")),
+            "parse->Ast->eval should be derived"
         );
         std::fs::remove_dir_all(&root).ok();
     }

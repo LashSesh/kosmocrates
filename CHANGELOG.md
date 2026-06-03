@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **Composition facets — typed data-flow wiring (Horizon floor, level 3)**
+
+  The behavioural cousin of `Dependency`: a `Composition` facet `"from>>via>>to"`
+  says `from` returns type `via` and `to` consumes `via` — the components *wire
+  together* (`to(from(x))` typechecks), not just coexist. `kosmo-intent`
+  **derives** compositions from the observed contracts (`derive_compositions`:
+  for every ordered pair whose return type matches the next first-parameter type
+  and isn't unit, emit `f>>T>>g`), so the facet is observed for free from the
+  Contract layer. `kosmo-synthesizer::scaffold_composition` realizes one by
+  appending two type-compatible stubs in a *single* change (`append_items_to_lib`
+  avoids the same-path overwrite) — `pub fn from() -> via` and
+  `pub fn to(_a0: via)` — which the observer then derives back, so it
+  round-trips. The `composition`/`compose` trigger accepts
+  `a composition parse>>String>>eval`. Verified live: that wish descends
+  `0/1 → 1/1 REALIZED` and `cargo build` is clean. +8 tests (kosmo-core 381→382,
+  kosmo-intent 57→61, kosmo-synthesizer 28→30, kosmo-run 13→14).
+
 * **Crate-targeting — scaffold into the named member crate (multi-crate full-stack)**
 
   A facet key may carry an `@<crate>` suffix to scaffold the item *into that

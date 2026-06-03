@@ -349,6 +349,7 @@ impl FacetScaffolder {
             WishFacetKind::Capability => Self::scaffold_capability(ws, key),
             WishFacetKind::Test => Self::scaffold_test(ws, key),
             WishFacetKind::Behavior => Self::scaffold_behavior(ws, key),
+            WishFacetKind::Composition => Self::scaffold_composition(ws, key),
             WishFacetKind::Dependency => Self::scaffold_dependency(ws, key),
             // A resolution ("the bad thing is gone") has no structural scaffold.
             WishFacetKind::Resolution => vec![],
@@ -484,6 +485,79 @@ impl FacetScaffolder {
             ws,
             &format!("fn {name}"),
             &format!("pub fn {name}({param_list}){arrow} {{ todo!(\"kosmo: implement {name}\") }}"),
+        )
+    }
+
+    /// Append several `(marker, snippet)` items to the crate's lib in a
+    /// **single** change, skipping any whose marker is already present. Needed
+    /// when one facet must add several items: returning two changes for the same
+    /// path would have the second overwrite the first on apply.
+    fn append_items_to_lib(ws: &Path, items: &[(String, String)]) -> Vec<FileChange> {
+        let lib = ws.join("src/lib.rs");
+        let main = ws.join("src/main.rs");
+        let (rel, path, exists) = if lib.exists() {
+            ("src/lib.rs", lib, true)
+        } else if main.exists() {
+            ("src/main.rs", main, true)
+        } else {
+            ("src/lib.rs", lib, false)
+        };
+        let mut content = if exists {
+            std::fs::read_to_string(&path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let mut added = false;
+        for (marker, snippet) in items {
+            if content.contains(marker.as_str()) {
+                continue;
+            }
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(snippet);
+            if !snippet.ends_with('\n') {
+                content.push('\n');
+            }
+            added = true;
+        }
+        if !added {
+            return vec![];
+        }
+        let fc = if exists {
+            FileChange::modify(rel, content)
+        } else {
+            FileChange::create(rel, content)
+        };
+        vec![fc]
+    }
+
+    /// Realize a typed composition `"from>>via>>to"` by scaffolding two
+    /// type-compatible stubs in one change: `pub fn from() -> via` and
+    /// `pub fn to(_a0: via)`. Once both exist with matching types the observer
+    /// derives the composition, so it round-trips. Honestly empty (`todo!()`);
+    /// idempotent via the `fn from` / `fn to` markers; malformed key → no-op.
+    fn scaffold_composition(ws: &Path, key: &str) -> Vec<FileChange> {
+        let parts: Vec<&str> = key.split(">>").collect();
+        if parts.len() != 3 {
+            return vec![];
+        }
+        let (from, via, to) = (parts[0].trim(), parts[1].trim(), parts[2].trim());
+        if from.is_empty() || via.is_empty() || to.is_empty() {
+            return vec![];
+        }
+        Self::append_items_to_lib(
+            ws,
+            &[
+                (
+                    format!("fn {from}"),
+                    format!("pub fn {from}() -> {via} {{ todo!(\"kosmo: implement {from}\") }}"),
+                ),
+                (
+                    format!("fn {to}"),
+                    format!("pub fn {to}(_a0: {via}) {{ todo!(\"kosmo: implement {to}\") }}"),
+                ),
+            ],
         )
     }
 
@@ -1204,6 +1278,33 @@ mod tests {
         assert_eq!(expected, "\"hi x\"");
         // Missing `=>` → not a behaviour key.
         assert!(parse_behavior_key("add(2,3)").is_none());
+    }
+
+    #[test]
+    fn scaffold_composition_emits_two_compatible_stubs_in_one_change() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert_eq!(
+            res.patch.file_changes.len(),
+            1,
+            "one change for the same file, not two (the second would overwrite)"
+        );
+        let c = &res.patch.file_changes[0].content;
+        assert!(c.contains("pub fn parse() -> String"), "got:\n{c}");
+        assert!(c.contains("pub fn eval(_a0: String)"), "got:\n{c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_composition_idempotent_when_both_present() {
+        let dir = temp_ws(
+            "pub fn parse() -> String { todo!() }\npub fn eval(_a0: String) { todo!() }\n",
+        );
+        let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "both fns present → no change");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

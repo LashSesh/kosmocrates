@@ -58,6 +58,12 @@ pub enum WishFacetKind {
     /// (observed by running the suite). Acceptance over generation — the loop
     /// declares it realized only when behaviour is observed correct.
     Behavior,
+    /// A typed data-flow composition `"from>>via>>to"`: `from` returns type
+    /// `via` and `to` takes `via` as its first parameter, so the components
+    /// *wire together* (`to(from(x))` typechecks). The behavioural cousin of
+    /// [`WishFacetKind::Dependency`]: a dependency says A *can see* B; a
+    /// composition says A's output *fits* B's input.
+    Composition,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -129,6 +135,18 @@ impl WishFacet {
     /// (e.g. `"add(2,3)=>5"`). Met only when the scaffolded spec-test passes.
     pub fn behavior(spec: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Behavior, spec)
+    }
+    /// A typed data-flow composition facet `"from>>via>>to"`: `from` returns
+    /// `via` and `to` consumes `via` as its first parameter.
+    pub fn composition(
+        from: impl AsRef<str>,
+        via: impl AsRef<str>,
+        to: impl AsRef<str>,
+    ) -> Self {
+        Self::new(
+            WishFacetKind::Composition,
+            format!("{}>>{}>>{}", from.as_ref(), via.as_ref(), to.as_ref()),
+        )
     }
 }
 
@@ -520,6 +538,13 @@ mod tests {
         assert_eq!(f.kind, WishFacetKind::Behavior);
         assert_eq!(f.key, "add(2,3)=>5");
         assert_ne!(f, WishFacet::behavior("add(2,3)=>6"));
+    }
+
+    #[test]
+    fn composition_facet_key_is_the_pipe() {
+        let f = WishFacet::composition("parse", "Ast", "eval");
+        assert_eq!(f.kind, WishFacetKind::Composition);
+        assert_eq!(f.key, "parse>>Ast>>eval");
     }
 
     // ── Wish content addressing ───────────────────────────────────────────

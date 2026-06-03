@@ -1042,6 +1042,47 @@ mod tests {
     }
 
     #[test]
+    fn descend_realizes_composition() {
+        // A typed data-flow wire: parse() -> String -> eval(String). The
+        // scaffolder writes two type-compatible stubs; the observer derives the
+        // composition from their contracts, so it converges offline.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-comp-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "// demo\n").unwrap();
+
+        let prose = "a composition parse>>String>>eval";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "composition wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+                assert!(lib.contains("pub fn parse() -> String"), "got:\n{lib}");
+                assert!(lib.contains("pub fn eval(_a0: String)"), "got:\n{lib}");
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn descend_targets_function_into_member_crate() {
         // Crate-targeting: "helper@beta" must land in crates/beta, not the root.
         let nanos = std::time::SystemTime::now()
