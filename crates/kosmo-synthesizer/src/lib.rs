@@ -19,12 +19,12 @@
 //! ```
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use kosmo_core::{Digest, Q16};
-use kosmo_pipeline::ActionItem;
+use kosmo_core::{Digest, Q16, WishFacet, WishFacetKind};
+use kosmo_pipeline::{ActionItem, ActionItemKind};
 
 // ─── Source context ───────────────────────────────────────────────────────────
 
@@ -302,6 +302,153 @@ impl ActionSynthesizer for MockSynthesizer {
     fn name(&self) -> &str { &self.label }
 }
 
+// ─── FacetScaffolder ───────────────────────────────────────────────────────────
+
+/// A deterministic synthesizer that *builds toward a wish* offline.
+///
+/// It acts only on [`ActionItemKind::RealizeWishFacet`] actions, scaffolding the
+/// missing facet so the next observation sees it present (and the loop
+/// converges) — no LLM, no network. It reads the workspace to stay idempotent
+/// (re-running on an already-realized facet yields an empty patch).
+///
+/// - `Symbol` → append `pub fn <name>() {}` to `src/lib.rs` (or `src/main.rs`).
+/// - `Module` → create `src/<name>.rs` and add `pub mod <name>;` to the crate root.
+/// - `Crate`  → create `<name>/Cargo.toml` + `<name>/src/lib.rs`, and best-effort
+///   register `<name>` in the root `[workspace] members`.
+/// - `Capability` / `Resolution` → no structural scaffold (empty patch).
+///
+/// This is the deterministic counterpart to the LLM synthesizer: it can't write
+/// real behaviour, only the structural skeleton, but it makes the build-toward-
+/// intent loop runnable and verifiable without a model.
+pub struct FacetScaffolder;
+
+impl FacetScaffolder {
+    fn scaffold(&self, ws: &Path, facet: &WishFacet) -> Vec<FileChange> {
+        match facet.kind {
+            WishFacetKind::Symbol => Self::scaffold_symbol(ws, &facet.key),
+            WishFacetKind::Module => Self::scaffold_module(ws, &facet.key),
+            WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
+            WishFacetKind::Capability | WishFacetKind::Resolution => vec![],
+        }
+    }
+
+    fn scaffold_symbol(ws: &Path, name: &str) -> Vec<FileChange> {
+        let lib = ws.join("src/lib.rs");
+        let main = ws.join("src/main.rs");
+        let (rel, path, exists) = if lib.exists() {
+            ("src/lib.rs", lib, true)
+        } else if main.exists() {
+            ("src/main.rs", main, true)
+        } else {
+            ("src/lib.rs", lib, false)
+        };
+        let mut content = if exists {
+            std::fs::read_to_string(&path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        if content.contains(&format!("fn {name}")) {
+            return vec![]; // already present — idempotent
+        }
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&format!("pub fn {name}() {{ /* scaffolded by kosmo */ }}\n"));
+        let fc = if exists {
+            FileChange::modify(rel, content)
+        } else {
+            FileChange::create(rel, content)
+        };
+        vec![fc]
+    }
+
+    fn scaffold_module(ws: &Path, name: &str) -> Vec<FileChange> {
+        let mut changes = Vec::new();
+        let modfile = ws.join(format!("src/{name}.rs"));
+        if !modfile.exists() {
+            changes.push(FileChange::create(
+                format!("src/{name}.rs"),
+                format!("//! Module `{name}`, scaffolded by kosmo.\n"),
+            ));
+        }
+        let lib = ws.join("src/lib.rs");
+        let decl = format!("pub mod {name};");
+        if lib.exists() {
+            let mut content = std::fs::read_to_string(&lib).unwrap_or_default();
+            if !content.contains(&format!("mod {name}")) {
+                if !content.is_empty() && !content.ends_with('\n') {
+                    content.push('\n');
+                }
+                content.push_str(&decl);
+                content.push('\n');
+                changes.push(FileChange::modify("src/lib.rs", content));
+            }
+        } else {
+            changes.push(FileChange::create("src/lib.rs", format!("{decl}\n")));
+        }
+        changes
+    }
+
+    fn scaffold_crate(ws: &Path, name: &str) -> Vec<FileChange> {
+        let mut changes = Vec::new();
+        if !ws.join(name).join("Cargo.toml").exists() {
+            changes.push(FileChange::create(
+                format!("{name}/Cargo.toml"),
+                format!(
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n"
+                ),
+            ));
+            changes.push(FileChange::create(
+                format!("{name}/src/lib.rs"),
+                format!("//! Crate `{name}`, scaffolded by kosmo.\n"),
+            ));
+        }
+        // Best-effort: register the new crate in the root workspace members.
+        if let Ok(content) = std::fs::read_to_string(ws.join("Cargo.toml")) {
+            if content.contains("members") && !content.contains(&format!("\"{name}\"")) {
+                if let Some(updated) = register_member(&content, name) {
+                    changes.push(FileChange::modify("Cargo.toml", updated));
+                }
+            }
+        }
+        changes
+    }
+}
+
+/// Insert `"<name>",` at the head of the first `members = [ … ]` array in a
+/// workspace manifest. Returns `None` if no `members [` is found.
+fn register_member(toml: &str, name: &str) -> Option<String> {
+    let members = toml.find("members")?;
+    let bracket = toml[members..].find('[')? + members;
+    let mut out = String::with_capacity(toml.len() + name.len() + 8);
+    out.push_str(&toml[..=bracket]);
+    out.push_str(&format!("\n    \"{name}\","));
+    out.push_str(&toml[bracket + 1..]);
+    Some(out)
+}
+
+impl ActionSynthesizer for FacetScaffolder {
+    fn synthesize(&self, request: &SynthesisRequest) -> Result<SynthesisResult, SynthesisError> {
+        let changes = match &request.action_item.kind {
+            ActionItemKind::RealizeWishFacet { facet } => {
+                self.scaffold(&request.workspace_path, facet)
+            }
+            _ => vec![],
+        };
+        let (rationale, confidence) = if changes.is_empty() {
+            ("no structural scaffold for this action".to_string(), Q16::HALF)
+        } else {
+            (format!("scaffold {} change(s) toward the wish", changes.len()), Q16::ONE)
+        };
+        let patch = Patch::new(request.request_id, changes, "facet-scaffolder");
+        Ok(SynthesisResult::new(patch, rationale, confidence))
+    }
+
+    fn name(&self) -> &str {
+        "facet-scaffolder"
+    }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -427,5 +574,84 @@ mod tests {
         assert_eq!(result.patch.file_changes.len(), 1);
         assert!(!result.patch.is_empty());
         assert!(result.patch.total_lines() > 0);
+    }
+
+    // ── FacetScaffolder ───────────────────────────────────────────────────
+
+    fn temp_ws(lib: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-synth-scaffold-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), lib).unwrap();
+        dir
+    }
+
+    fn wish_request(ws: &std::path::Path, facet: WishFacet) -> SynthesisRequest {
+        let action = ActionItem {
+            action_id: Digest::ZERO,
+            priority_score: Q16::ONE,
+            kind: ActionItemKind::RealizeWishFacet { facet },
+            description: "realize".into(),
+            policy_id: Digest::ZERO,
+        };
+        SynthesisRequest::new(action, ws.to_str().unwrap())
+    }
+
+    #[test]
+    fn scaffold_symbol_appends_pub_fn() {
+        let dir = temp_ws("pub fn existing() {}\n");
+        let req = wish_request(&dir, WishFacet::symbol("newfn"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.path.to_str().unwrap(), "src/lib.rs");
+        assert!(fc.content.contains("pub fn newfn"));
+        assert!(fc.content.contains("pub fn existing"), "existing content preserved");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_symbol_is_idempotent() {
+        let dir = temp_ws("pub fn already_here() {}\n");
+        let req = wish_request(&dir, WishFacet::symbol("already_here"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "already-present symbol → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_module_creates_file_and_declaration() {
+        let dir = temp_ws("// crate root\n");
+        let req = wish_request(&dir, WishFacet::module("widgets"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res
+            .patch
+            .file_changes
+            .iter()
+            .any(|c| c.path.to_str() == Some("src/widgets.rs")));
+        assert!(res
+            .patch
+            .file_changes
+            .iter()
+            .any(|c| c.path.to_str() == Some("src/lib.rs") && c.content.contains("pub mod widgets")));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_ignores_non_wish_actions() {
+        let dir = temp_ws("pub fn x() {}\n");
+        let action = ActionItem {
+            action_id: Digest::ZERO,
+            priority_score: Q16::ONE,
+            kind: ActionItemKind::FillVoid { void_id: Digest::ZERO },
+            description: "void".into(),
+            policy_id: Digest::ZERO,
+        };
+        let req = SynthesisRequest::new(action, dir.to_str().unwrap());
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

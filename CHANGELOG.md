@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **`FacetScaffolder` — the loop builds toward a wish offline, deterministically**
+
+  A deterministic `ActionSynthesizer` (in `kosmo-synthesizer`) that realizes
+  `RealizeWishFacet` actions without an LLM:
+  - `Symbol` → append `pub fn <name>() {}` to `src/lib.rs`/`main.rs` (idempotent);
+  - `Module` → create `src/<name>.rs` + add `pub mod <name>;` to the crate root;
+  - `Crate` → create `<name>/Cargo.toml` + `src/lib.rs`, best-effort `[workspace]
+    members` registration.
+
+  It reads the workspace to stay idempotent (an already-realized facet → empty
+  patch). The deterministic counterpart to the LLM synthesizer: it writes only
+  the structural skeleton, but makes the build-toward-intent loop runnable and
+  verifiable with no model. 5 new tests incl. end-to-end
+  `agent_wish_builds_symbol_and_converges` — in apply mode the loop finds a
+  Symbol absent (distance `ONE`), scaffolds it, and the next run observes it
+  realized (distance `ZERO`), offline.
+
 * **LLM ends, real — shared `kosmo-llm` transport + `kosmo-intent-llm` (prose → Wish)**
 
   The natural-language front door now has a real LLM backend, behind the same

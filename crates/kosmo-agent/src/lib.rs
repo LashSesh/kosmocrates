@@ -1218,4 +1218,52 @@ mod tests {
         }
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn agent_wish_builds_symbol_and_converges() {
+        // Deterministic build-toward-intent: FacetScaffolder realizes a Symbol
+        // wish offline (appends `pub fn` to lib.rs); the next run observes it
+        // present and the descent converges.
+        let dir = temp_crate("kosmo_scaffold_demo");
+        let opts = AgentOptions {
+            max_steps: 5,
+            min_confidence: Q16::ZERO,
+            dry_run: false,
+            pipeline_options: IntegrationRunOptions::report_only(),
+            commit_to_git: false,
+        };
+        let wish = Wish::new(
+            "expose handle_request",
+            [kosmo_core::WishPredicate::require(WishFacet::symbol(
+                "handle_request",
+            ))],
+            Digest::of_bytes(b"policy"),
+            Digest::of_bytes(b"bundle"),
+        );
+        let mut s = AgentSession::new(
+            opts,
+            PolicyProfile::operator_approved(),
+            Arc::new(kosmo_synthesizer::FacetScaffolder),
+        )
+        .with_validator(Arc::new(AlwaysPass))
+        .with_wish(wish, Digest::of_bytes(b"ev"));
+
+        let r1 = s.run(dir.to_str().unwrap()).unwrap();
+        let directed = r1.wish_directed_count();
+        let Some(w1) = r1.wish else {
+            eprintln!("cargo metadata unavailable, skipping");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        };
+        assert_eq!(w1.assessment.distance, Q16::ONE, "symbol absent at first");
+        assert!(directed >= 1, "a facet-directed scaffold action was taken");
+
+        let r2 = s.run(dir.to_str().unwrap()).unwrap();
+        let w2 = r2.wish.expect("second run observed the workspace");
+        assert!(w2.is_realized(), "FacetScaffolder built the symbol → realized");
+        assert_eq!(w2.assessment.distance, Q16::ZERO);
+        assert!(!s.wish_diverging(), "the descent was contractive");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
