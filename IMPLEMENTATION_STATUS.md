@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1116 substrate tests** (kosmo-core 380, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 22, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 45, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 9) — 0 failures
+- **1128 substrate tests** (kosmo-core 381, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 25, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 51, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 11) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,19 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Behavior facets — the keystone, acceptance over generation (Horizon floor, beam 2) (2026-06-03)
+
+The load-bearing beam of `docs/HORIZON-behavior-archetype.md`. A `Behavior` facet `"name(args)=>expected"` is satisfied **only when a scaffolded spec-test pinning that input→output pair passes** — observed by running the suite, fail-closed.
+
+- **`kosmo-core`**: `WishFacetKind::Behavior`; `WishFacet::behavior(spec)`.
+- **`kosmo-synthesizer`**: `scaffold_behavior` appends a `// kosmo:behavior: <spec>`-marked `#[test] fn kosmo_spec_<hash>() { assert_eq!(name(args), expected); }` — **red** until the body is correct; deterministic test name from the key digest; idempotent via the marker. `parse_behavior_key` / `split_on_fat_arrow` parse the spec.
+- **`kosmo-intent`**: `behavior_specs_from_source` pairs each marker with its test fn name; `behavior_facets(specs, passing)` (pure, **fail-closed**) emits a facet only for specs whose test is green; wired into `observe_workspace_validated`. Lexical `observe_workspace_deep` never emits Behavior (it can't know a test passes). `behavior`/`spec` trigger added.
+- **`kosmo-run`**: `wish_needs_validation` auto-enables validated observation for any wish carrying a behaviour — the keystone demands the suite run.
+
+**Acceptance over generation**: we cannot guarantee the LLM *writes* correct code; we guarantee *when the loop may declare a wish realized*. The descent terminates only when behaviour is observed green. Verified live: correct `add` → `0/1 → 1/1 REALIZED`; wrong `add` (`a+b+1`) → honest stall at `0/1 UNSTARTED`, exit 1 — the system does not lie. +12 tests.
+
+With beams 1+2 the skeleton carries **types** and **validated behaviour**. Beam 3 (`Archetype`) fans a single high-level wish into bundles of these leaves — full-stack breadth over behavioural depth.
 
 ### Contract facets — typed signatures (Horizon floor, beam 1) (2026-06-03)
 

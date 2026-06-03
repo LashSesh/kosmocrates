@@ -363,6 +363,71 @@ fn test_fn_name(trimmed: &str) -> Option<String> {
     leading_ident(trimmed[idx + 3..].trim_start())
 }
 
+/// Parse a `// kosmo:behavior: <spec>` marker line into its spec string.
+/// (Also accepts `//!`.) The spec is the `Behavior` facet key verbatim.
+fn behavior_marker(trimmed: &str) -> Option<String> {
+    if !trimmed.starts_with("//") {
+        return None;
+    }
+    let body = trimmed
+        .trim_start_matches('/')
+        .trim_start_matches('!')
+        .trim_start();
+    body.strip_prefix("kosmo:behavior:")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Pair each scaffolded spec-test with its behaviour spec, read from
+/// `// kosmo:behavior: <spec>` markers that immediately precede a `#[test]`
+/// function. Returns `(test_fn_name, spec)` pairs. Pure and deterministic —
+/// the lexical half of the keystone; the *passing* half is applied later, by
+/// [`behavior_facets`], once the suite has run.
+fn behavior_specs_from_source(source: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut pending_spec: Option<String> = None;
+    let mut pending_test = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(spec) = behavior_marker(trimmed) {
+            pending_spec = Some(spec);
+            continue;
+        }
+        if is_test_attr(trimmed) {
+            pending_test = true;
+            continue;
+        }
+        if let Some(name) = test_fn_name(trimmed) {
+            if pending_test {
+                if let Some(spec) = pending_spec.take() {
+                    out.push((name, spec));
+                }
+            }
+            pending_test = false;
+            pending_spec = None;
+        } else if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with("//") {
+            // A non-attr, non-comment, non-empty line breaks the pairing.
+            pending_test = false;
+            pending_spec = None;
+        }
+    }
+    out
+}
+
+/// Behaviour facets for exactly the specs whose spec-test **passed**.
+/// Fail-closed: a spec whose test is absent or failing yields no facet — a
+/// wished behaviour is never satisfied by an unrun or red test.
+pub fn behavior_facets(
+    specs: &[(String, String)],
+    passing_bare_names: &BTreeSet<String>,
+) -> BTreeSet<WishFacet> {
+    specs
+        .iter()
+        .filter(|(name, _)| passing_bare_names.contains(name))
+        .map(|(_, spec)| WishFacet::behavior(spec))
+        .collect()
+}
+
 /// Recursively collect `.rs` file paths under `dir`, skipping `target` / `.git`.
 fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -397,6 +462,21 @@ pub fn facets_from_rust_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
         }
     }
     facets
+}
+
+/// Walk every `.rs` file under `dir` and collect the `(test_fn_name, spec)`
+/// pairs from `// kosmo:behavior:` markers. Read-only.
+fn behavior_specs_from_dir(dir: impl AsRef<Path>) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+    collect_rs(dir.as_ref(), &mut files);
+    files.sort();
+    let mut out = Vec::new();
+    for file in files {
+        if let Ok(content) = std::fs::read_to_string(&file) {
+            out.extend(behavior_specs_from_source(&content));
+        }
+    }
+    out
 }
 
 /// Observe a workspace at **crate + module + symbol** granularity.
@@ -487,6 +567,16 @@ pub fn observe_workspace_validated(
         for facet in passing_test_facets(&results) {
             observed.insert(facet);
         }
+        // Behaviour facets: a spec is present only if its scaffolded spec-test
+        // passed — the keystone, observed by running the suite (fail-closed).
+        let passing: BTreeSet<String> = results
+            .iter()
+            .filter(|(_, &ok)| ok)
+            .map(|(n, _)| n.rsplit("::").next().unwrap_or(n).to_string())
+            .collect();
+        for facet in behavior_facets(&behavior_specs_from_dir(&root), &passing) {
+            observed.insert(facet);
+        }
     }
     Ok(observed)
 }
@@ -512,6 +602,9 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         "dependency" | "dependencies" | "depends" | "dep" => Some(WishFacetKind::Dependency),
         "signature" | "signatures" | "sig" => Some(WishFacetKind::Signature),
         "contract" | "contracts" => Some(WishFacetKind::Contract),
+        "behavior" | "behaviors" | "behaviour" | "behaviours" | "spec" | "specs" => {
+            Some(WishFacetKind::Behavior)
+        }
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
@@ -1133,6 +1226,62 @@ mod tests {
             .predicates
             .iter()
             .any(|p| p.facet == WishFacet::contract("handle", &["Request"], "Response")));
+    }
+
+    // ── Behaviour (the keystone) ──────────────────────────────────────────
+
+    #[test]
+    fn behavior_specs_pair_marker_with_test_name() {
+        let src = "// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_abc() { assert_eq!(add(2,3),5); }\n";
+        let pairs = behavior_specs_from_source(src);
+        assert_eq!(pairs, vec![("kosmo_spec_abc".to_string(), "add(2,3)=>5".to_string())]);
+    }
+
+    #[test]
+    fn behavior_marker_without_test_is_not_paired() {
+        // A marker not immediately followed by a test fn pairs with nothing.
+        let src = "// kosmo:behavior: add(2,3)=>5\npub fn add(a: i32, b: i32) -> i32 { a + b }\n";
+        assert!(behavior_specs_from_source(src).is_empty());
+    }
+
+    #[test]
+    fn behavior_facets_are_failclosed() {
+        let specs = vec![
+            ("kosmo_spec_green".to_string(), "add(2,3)=>5".to_string()),
+            ("kosmo_spec_red".to_string(), "add(2,3)=>6".to_string()),
+        ];
+        let mut passing = BTreeSet::new();
+        passing.insert("kosmo_spec_green".to_string()); // only the green one passed
+        let facets = behavior_facets(&specs, &passing);
+        assert!(facets.contains(&WishFacet::behavior("add(2,3)=>5")));
+        assert!(
+            !facets.contains(&WishFacet::behavior("add(2,3)=>6")),
+            "a red spec-test must NOT satisfy its behaviour facet"
+        );
+    }
+
+    #[test]
+    fn behavior_facets_empty_when_nothing_passes() {
+        let specs = vec![("kosmo_spec_x".to_string(), "f()=>1".to_string())];
+        assert!(behavior_facets(&specs, &BTreeSet::new()).is_empty());
+    }
+
+    #[test]
+    fn behavior_trigger_compiles_space_free_form() {
+        let w = compile_wish("a behavior add(2,3)=>5", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::behavior("add(2,3)=>5")));
+    }
+
+    #[test]
+    fn deep_observation_does_not_emit_behaviour() {
+        // Lexical observation cannot know whether a test passes, so it never
+        // emits a Behavior facet — only validated observation does.
+        let facets =
+            facets_from_source("// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_abc() {}\n");
+        assert!(!facets.iter().any(|f| f.kind == WishFacetKind::Behavior));
     }
 
     #[test]

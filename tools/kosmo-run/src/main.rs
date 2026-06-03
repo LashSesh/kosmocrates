@@ -32,7 +32,7 @@ use std::sync::Arc;
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
     assess_wish, Digest, GateResult, PolicyProfile, Q16, Wish, WishAssessment, WishClosureStatus,
-    WishFacet,
+    WishFacet, WishFacetKind,
 };
 use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated, WishSession};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
@@ -402,6 +402,15 @@ fn save_session(path: &str, session: &WishSession) -> Result<(), String> {
 
 // ─── Wish mode ──────────────────────────────────────────────────────────────
 
+/// Whether a wish requires validated observation (running the suite). True iff
+/// it carries a [`WishFacetKind::Behavior`] facet — those are satisfied only by
+/// a passing spec-test, never by lexical presence.
+fn wish_needs_validation(wish: &Wish) -> bool {
+    wish.predicates
+        .iter()
+        .any(|p| p.facet.kind == WishFacetKind::Behavior)
+}
+
 /// Deterministic, offline front door: compile a prose wish, observe the
 /// workspace, and report the distance to the wish (which facets are present,
 /// which are missing). With `--scaffold`, also print the changes that would
@@ -411,6 +420,11 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     // Bind the wish's identity to its prose — content-addressed, deterministic.
     let evidence = Digest::of_bytes(prose.as_bytes());
     let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+    // A behaviour facet is satisfiable only by a *passing* test, so any wish
+    // that carries one forces validated observation (run the suite), whether or
+    // not --validated was given — the keystone demands it.
+    let validated = args.validated || wish_needs_validation(&wish);
 
     // --apply turns wish mode into a descent: observe → scaffold → apply →
     // re-observe, until the wish is realized. This WRITES to the workspace.
@@ -436,7 +450,7 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             &args.path,
             &wish,
             evidence,
-            args.validated,
+            validated,
             8,
             fallback.as_deref(),
             prior,
@@ -464,7 +478,7 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         });
     }
 
-    let observed = if args.validated {
+    let observed = if validated {
         observe_workspace_validated(args.path.as_str())
     } else {
         observe_workspace_deep(args.path.as_str())
@@ -984,6 +998,60 @@ mod tests {
                 );
             }
             Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn behavior_wish_forces_validation() {
+        let w = compile_wish("a behavior add(2,3)=>5", Digest::ZERO, Digest::ZERO);
+        assert!(wish_needs_validation(&w), "behaviour wish must force validation");
+        let w2 = compile_wish("a crate foo", Digest::ZERO, Digest::ZERO);
+        assert!(!wish_needs_validation(&w2), "a non-behaviour wish must not");
+    }
+
+    #[test]
+    fn descend_realizes_behavior_when_impl_is_correct() {
+        // The keystone, demonstrated offline: given a CORRECT implementation,
+        // a behaviour wish converges to Realized — the loop scaffolds the
+        // spec-test and observes it green. (With a wrong/todo!() body it would
+        // honestly stall at Approaching; see kosmo-intent::behavior_facets.)
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-behavior-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+        )
+        .unwrap();
+
+        let prose = "a behavior add(2,3)=>5";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        // validated = true (a behaviour wish forces it); no LLM fallback — the
+        // implementation is already correct, so the loop only scaffolds the
+        // spec-test and re-observes it green.
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, true, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "behaviour wish should converge with a correct impl, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("cargo test unavailable, skipping: {e}"),
         }
         fs::remove_dir_all(&root).ok();
     }

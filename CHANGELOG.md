@@ -15,6 +15,27 @@ note explicitly says so.
 
 ### Added
 
+* **`Behavior` facets — validated behaviour, the keystone (Horizon floor, beam 2)**
+
+  The load-bearing beam of `docs/HORIZON-behavior-archetype.md`: a `Behavior`
+  facet `"name(args)=>expected"` is satisfied **only when a scaffolded spec-test
+  pinning that input→output pair actually passes**. `kosmo-synthesizer`
+  scaffolds a `// kosmo:behavior:`-marked `#[test]` asserting
+  `name(args) == expected` — **red** until the body is correct. `kosmo-intent`
+  observes it through the suite: `behavior_specs_from_source` pairs each marker
+  to its test fn, and `behavior_facets` (fail-closed) emits the facet *only* for
+  specs whose test is green — so `observe_workspace_validated` is the
+  deterministic judge. `kosmo-run` auto-enables validated observation for any
+  wish carrying a behaviour. The `behavior` / `spec` trigger accepts the
+  space-free prose form `a behavior add(2,3)=>5`.
+
+  This is **acceptance over generation**: the guarantee moves from *writing*
+  correct code to *accepting* only what is observed correct. Verified live —
+  with a correct `add`, the wish descends `0/1 → 1/1 REALIZED`; with a wrong
+  `add` (`a+b+1`) it honestly stalls at `0/1 UNSTARTED` (exit 1) rather than
+  lying. +12 tests (kosmo-core 380→381, kosmo-intent 45→51, kosmo-synthesizer
+  22→25, kosmo-run 9→11).
+
 * **`Contract` facets — typed function signatures (Horizon floor, beam 1)**
 
   The first beam of the behavior axis (`docs/HORIZON-behavior-archetype.md`):

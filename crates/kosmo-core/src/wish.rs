@@ -52,6 +52,12 @@ pub enum WishFacetKind {
     Contract,
     /// A test is present (`#[test] fn name`), keyed by the test function name.
     Test,
+    /// A *validated behaviour* is present, keyed by a spec `"name(args)=>expected"`.
+    /// The keystone of the behaviour axis: this facet is satisfied **only** when
+    /// a scaffolded spec-test pinning that input→output pair actually *passes*
+    /// (observed by running the suite). Acceptance over generation — the loop
+    /// declares it realized only when behaviour is observed correct.
+    Behavior,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -118,6 +124,11 @@ impl WishFacet {
     /// A test facet, keyed by the test function name.
     pub fn test(name: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Test, name)
+    }
+    /// A validated-behaviour facet, keyed by a spec `"name(args)=>expected"`
+    /// (e.g. `"add(2,3)=>5"`). Met only when the scaffolded spec-test passes.
+    pub fn behavior(spec: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Behavior, spec)
     }
 }
 
@@ -501,6 +512,14 @@ mod tests {
             WishFacet::contract("add", &["i32", "i32"], "i32").key,
             "add(i32,i32)->i32"
         );
+    }
+
+    #[test]
+    fn behavior_facet_key_is_the_spec() {
+        let f = WishFacet::behavior("add(2,3)=>5");
+        assert_eq!(f.kind, WishFacetKind::Behavior);
+        assert_eq!(f.key, "add(2,3)=>5");
+        assert_ne!(f, WishFacet::behavior("add(2,3)=>6"));
     }
 
     // ── Wish content addressing ───────────────────────────────────────────

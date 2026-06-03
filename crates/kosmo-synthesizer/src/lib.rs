@@ -332,6 +332,7 @@ impl FacetScaffolder {
             WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
             WishFacetKind::Capability => Self::scaffold_capability(ws, &facet.key),
             WishFacetKind::Test => Self::scaffold_test(ws, &facet.key),
+            WishFacetKind::Behavior => Self::scaffold_behavior(ws, &facet.key),
             WishFacetKind::Dependency => Self::scaffold_dependency(ws, &facet.key),
             // A resolution ("the bad thing is gone") has no structural scaffold.
             WishFacetKind::Resolution => vec![],
@@ -439,6 +440,37 @@ impl FacetScaffolder {
             ws,
             &format!("fn {name}"),
             &format!("#[test]\nfn {name}() {{ /* scaffolded by kosmo */ }}"),
+        )
+    }
+
+    /// Realize a behaviour spec `"name(args)=>expected"` (the keystone) by
+    /// appending a spec-test that pins the input→output pair:
+    ///
+    /// ```text
+    /// // kosmo:behavior: add(2,3)=>5
+    /// #[test]
+    /// fn kosmo_spec_<hash>() { assert_eq!(add(2, 3), 5); }
+    /// ```
+    ///
+    /// The test is **red** until `add` actually returns `5` — the deterministic
+    /// scaffolder cannot write the body, so a behaviour wish converges only once
+    /// the implementation is correct (filled by the LLM fallback, or already
+    /// present). The `// kosmo:behavior:` marker carries the spec verbatim so
+    /// the observer can pair this test back to its facet (and emit it only when
+    /// green). Idempotent via the marker line; an unparseable key is a no-op.
+    fn scaffold_behavior(ws: &Path, key: &str) -> Vec<FileChange> {
+        let Some((call, expected)) = parse_behavior_key(key) else {
+            return vec![];
+        };
+        let hash = Digest::of_bytes(key.as_bytes()).to_hex();
+        let test_name = format!("kosmo_spec_{}", &hash[..12]);
+        let marker = format!("kosmo:behavior: {key}");
+        Self::append_to_lib(
+            ws,
+            &marker,
+            &format!(
+                "// {marker}\n#[test]\nfn {test_name}() {{ assert_eq!({call}, {expected}); }}"
+            ),
         )
     }
 
@@ -570,6 +602,68 @@ fn parse_contract_key(key: &str) -> Option<(String, Vec<String>, String)> {
         .filter(|r| !r.is_empty())
         .unwrap_or_else(|| "()".to_string());
     Some((name, params, ret))
+}
+
+/// Parse a behaviour key `"name(args)=>expected"` into `(call, expected)`,
+/// where `call` is the call expression `"name(a, b)"` (args re-joined with
+/// `", "`) and `expected` is the verbatim expected expression. `None` if the
+/// key has no `=>` separator or no parameter list.
+fn parse_behavior_key(key: &str) -> Option<(String, String)> {
+    let (lhs, rhs) = split_on_fat_arrow(key)?;
+    let lhs = lhs.trim();
+    let expected = rhs.trim().to_string();
+    if expected.is_empty() {
+        return None;
+    }
+    let chars: Vec<char> = lhs.chars().collect();
+    let open = chars.iter().position(|&c| c == '(')?;
+    let name: String = chars[..open].iter().collect();
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    // Match the call's close paren depth-aware.
+    let mut depth = 0i32;
+    let mut close = None;
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    let args_str: String = chars[open + 1..close].iter().collect();
+    let args = split_type_list(&args_str); // depth-aware top-level split
+    Some((format!("{name}({})", args.join(", ")), expected))
+}
+
+/// Find the first **top-level** `=>` (ignoring `()`, `<>`, `[]` nesting) and
+/// split there. Returns `(left, right)` excluding the `=>`.
+fn split_on_fat_arrow(s: &str) -> Option<(String, String)> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '(' | '<' | '[' => depth += 1,
+            ')' | '>' | ']' => depth -= 1,
+            '=' if depth == 0 && chars.get(i + 1) == Some(&'>') => {
+                let left: String = chars[..i].iter().collect();
+                let right: String = chars[i + 2..].iter().collect();
+                return Some((left, right));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Split a comma-separated type list on top-level commas, ignoring commas
@@ -1019,6 +1113,37 @@ mod tests {
         assert_eq!(ret, "usize");
         // No parameter list → not a contract key.
         assert!(parse_contract_key("bare_name").is_none());
+    }
+
+    #[test]
+    fn scaffold_behavior_emits_marked_spec_test() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::behavior("add(2,3)=>5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        // The marker carries the spec verbatim so the observer can pair it back.
+        assert!(c.contains("// kosmo:behavior: add(2,3)=>5"), "got:\n{c}");
+        assert!(c.contains("#[test]"));
+        assert!(c.contains("assert_eq!(add(2, 3), 5);"), "got:\n{c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_behavior_is_idempotent() {
+        let dir = temp_ws("// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_x() {}\n");
+        let req = wish_request(&dir, WishFacet::behavior("add(2,3)=>5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "marker already present → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_behavior_key_splits_call_and_expected() {
+        let (call, expected) = parse_behavior_key("greet(\"x\",2)=>\"hi x\"").unwrap();
+        assert_eq!(call, "greet(\"x\", 2)");
+        assert_eq!(expected, "\"hi x\"");
+        // Missing `=>` → not a behaviour key.
+        assert!(parse_behavior_key("add(2,3)").is_none());
     }
 
     #[test]
