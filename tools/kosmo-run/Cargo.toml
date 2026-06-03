@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 kosmo-core            = { path = "../../crates/kosmo-core" }
+kosmo-intent          = { path = "../../crates/kosmo-intent" }
 kosmo-pipeline        = { path = "../../crates/kosmo-pipeline" }
 kosmo-synthesizer     = { path = "../../crates/kosmo-synthesizer" }
 kosmo-synthesizer-llm = { path = "../../crates/kosmo-synthesizer-llm" }

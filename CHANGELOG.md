@@ -15,6 +15,17 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-run --wish "<prose>"` — the wish-to-system machine on the command line**
+
+  The agent runner gains a deterministic, **offline** wish mode: compile a
+  plain-prose wish (rule compiler), observe the workspace (`--validated` adds
+  green tests), and report the distance — which facets are present, which are
+  missing — with an exit code that is 0 only when the wish is realized.
+  `--scaffold` prints the `FacetScaffolder`'s proposed file changes (dry run);
+  `--json` emits the assessment. No LLM and no key required, e.g.
+  `kosmo-run --wish "a crate kosmo-api and a function handle" --scaffold .`.
+  Verified live against this repo. +3 tests.
+
 * **Green tests — `Test` facets bound to validated behaviour**
 
   `kosmo-intent::observe_workspace_validated(root)` runs the suite and replaces
