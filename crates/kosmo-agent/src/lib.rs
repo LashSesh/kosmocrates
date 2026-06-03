@@ -446,7 +446,9 @@ impl AgentSession {
     /// `None` and leaves the trajectory untouched rather than failing the run.
     fn observe_wish(&mut self, workspace: &str) -> Option<WishRunOutcome> {
         let session = self.wish_session.as_mut()?;
-        let observed = kosmo_intent::observe_workspace(workspace).ok()?;
+        // Deep observation (crate + module + symbol) so wishes can target finer
+        // structure than whole crates.
+        let observed = kosmo_intent::observe_workspace_deep(workspace).ok()?;
         let assessment = session.observe(&observed).clone();
         let attractor_status = session.trace().status;
         let diverged = {
@@ -1157,6 +1159,39 @@ mod tests {
         assert!(w2.is_realized());
         assert!(!s.wish_diverging(), "the descent was contractive");
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_wish_realized_on_symbol() {
+        // Finer granularity: a wish can target a public symbol, observed by the
+        // deep (source-walking) observer.
+        let dir = temp_crate("kosmo_symcrate");
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn special_function() -> u32 { 7 }\n",
+        )
+        .unwrap();
+        let wish = Wish::new(
+            "expose special_function",
+            [kosmo_core::WishPredicate::require(WishFacet::symbol(
+                "special_function",
+            ))],
+            Digest::of_bytes(b"policy"),
+            Digest::of_bytes(b"bundle"),
+        );
+        let opts = AgentOptions::default().with_max_steps(2);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(wish, Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        if let Some(w) = &report.wish {
+            assert!(w.is_realized(), "the public symbol is present → realized");
+            assert_eq!(w.assessment.distance, Q16::ZERO);
+        } else {
+            eprintln!("cargo metadata unavailable, skipping");
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 }

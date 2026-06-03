@@ -15,6 +15,24 @@ note explicitly says so.
 
 ### Added
 
+* **Finer granularity — Module/Symbol facets from a name-preserving extractor**
+
+  A wish can now target more than whole crates: modules and public symbols.
+
+  - `kosmo-intent::facets_from_source(&str)` — a deterministic, dependency-free
+    lexical Rust extractor that emits `Module` facets (`mod`, public or not) and
+    `Symbol` facets (public `fn` / `struct` / `enum` / `trait` / `type` /
+    `union` / `const` / `static`), keyed by bare name. Handles `pub(...)`, fn
+    modifiers (`async`/`const`/`unsafe`), generics, and skips comments/attrs.
+  - `facets_from_rust_dir(dir)` walks a tree's `.rs` files (skipping
+    `target`/`.git`); `observe_workspace_deep(root)` merges crate facets (cargo
+    metadata) with module/symbol facets — crate + module + symbol granularity.
+  - `kosmo-agent` now observes via `observe_workspace_deep`, so the loop can
+    measure and build toward module/symbol wishes, not just crate-presence ones.
+  - 10 new tests incl. an end-to-end symbol-granularity wish realized through
+    the agent loop. Known limits: bare-name keys (no crate qualification yet),
+    `extern` and macro-generated items not captured.
+
 * **The wish builds toward itself — facet-directed synthesis (the loop closes)**
 
   The generation half of the wish arc: the agent no longer just *measures* the

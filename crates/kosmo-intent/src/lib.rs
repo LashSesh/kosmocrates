@@ -19,7 +19,7 @@
 //! the attractor, but grants no capability and bypasses no policy.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use kosmo_core::{
     assess_wish, Digest, ObservedTopology, ParseBackScanScope, Wish, WishAssessment,
@@ -66,6 +66,141 @@ pub fn observe_workspace_scoped(
 ) -> Result<ObservedTopology, ParseBackError> {
     let snapshot = ParseBackExecutor::new(root.into()).snapshot(&scope)?;
     Ok(observe_snapshot(&snapshot))
+}
+
+// ─── Source extraction (Module / Symbol facets) ─────────────────────────────
+
+/// Strip a leading `pub` / `pub(...)` visibility, returning the rest trimmed.
+fn strip_vis(line: &str) -> &str {
+    let l = line.trim_start();
+    if let Some(rest) = l.strip_prefix("pub") {
+        if let Some(after) = rest.trim_start().strip_prefix('(') {
+            if let Some(close) = after.find(')') {
+                return after[close + 1..].trim_start();
+            }
+        }
+        if rest.starts_with(char::is_whitespace) {
+            return rest.trim_start();
+        }
+    }
+    l
+}
+
+/// The leading Rust identifier in a token (letters, digits, `_`; not digit-led).
+fn leading_ident(tok: &str) -> Option<String> {
+    let end = tok
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(tok.len());
+    if end == 0 {
+        return None;
+    }
+    let id = &tok[..end];
+    if id.chars().next()?.is_ascii_digit() {
+        return None;
+    }
+    Some(id.to_string())
+}
+
+/// Extract one [`WishFacet`] from a single source line, if it declares a module
+/// (`mod`, public or not) or a **public** definition (`fn` / `struct` / `enum`
+/// / `trait` / `type` / `union` / `const` / `static`).
+///
+/// Deterministic and lexical — it reads the opening line only, like
+/// `kosmo-hyphae`'s code HDAG extractor. Symbols are keyed by their bare name;
+/// `extern` items and macro-generated definitions are not captured.
+fn item_facet(line: &str) -> Option<WishFacet> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with('#') {
+        return None;
+    }
+    let is_pub = trimmed.starts_with("pub ") || trimmed.starts_with("pub(");
+    let body = strip_vis(trimmed);
+    let mut tokens = body.split_whitespace().peekable();
+
+    // Unambiguous fn modifiers.
+    while matches!(tokens.peek(), Some(&"async") | Some(&"unsafe") | Some(&"default")) {
+        tokens.next();
+    }
+    // `const` / `static` are item keywords, unless `const fn`.
+    if matches!(tokens.peek(), Some(&"const") | Some(&"static")) {
+        tokens.next();
+        if tokens.peek() == Some(&"fn") {
+            tokens.next();
+        }
+        if !is_pub {
+            return None;
+        }
+        let name = leading_ident(tokens.next()?)?;
+        return Some(WishFacet::symbol(name));
+    }
+
+    let kw = *tokens.peek()?;
+    tokens.next();
+    let name = leading_ident(tokens.next()?)?;
+    match kw {
+        "mod" => Some(WishFacet::module(name)),
+        "fn" if is_pub => Some(WishFacet::symbol(name)),
+        "struct" | "enum" | "trait" | "type" | "union" if is_pub => Some(WishFacet::symbol(name)),
+        _ => None,
+    }
+}
+
+/// Extract `Module` and `Symbol` facets from Rust source text.
+///
+/// Pure and deterministic. Captures module declarations and the **public**
+/// definition surface (fns, types, consts) by bare name.
+pub fn facets_from_source(source: &str) -> BTreeSet<WishFacet> {
+    source.lines().filter_map(item_facet).collect()
+}
+
+/// Recursively collect `.rs` file paths under `dir`, skipping `target` / `.git`.
+fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name == "target" || name == ".git" {
+                continue;
+            }
+            collect_rs(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// Walk every `.rs` file under `dir` and union their `Module` / `Symbol` facets.
+///
+/// Read-only. Heavier than the crate-level snapshot (it reads source), so it is
+/// opt-in via [`observe_workspace_deep`].
+pub fn facets_from_rust_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
+    let mut files = Vec::new();
+    collect_rs(dir.as_ref(), &mut files);
+    files.sort();
+    let mut facets = BTreeSet::new();
+    for file in files {
+        if let Ok(content) = std::fs::read_to_string(&file) {
+            facets.extend(facets_from_source(&content));
+        }
+    }
+    facets
+}
+
+/// Observe a workspace at **crate + module + symbol** granularity.
+///
+/// [`observe_workspace`] (crate facets via `cargo metadata`) merged with the
+/// `Module` / `Symbol` facets lexed from every `.rs` file under `root`. This is
+/// what lets a wish target finer structure than whole crates.
+pub fn observe_workspace_deep(root: impl Into<PathBuf>) -> Result<ObservedTopology, ParseBackError> {
+    let root = root.into();
+    let mut observed = observe_workspace(root.clone())?;
+    for facet in facets_from_rust_dir(&root) {
+        observed.insert(facet);
+    }
+    Ok(observed)
 }
 
 // ─── WishSession ─────────────────────────────────────────────────────────────
@@ -303,5 +438,100 @@ mod tests {
             a.unmet_facets,
             vec![WishFacet::crate_("kosmo-does-not-exist-xyz")]
         );
+    }
+
+    // ── source extraction: Module / Symbol facets (Run 6) ─────────────────
+
+    #[test]
+    fn facets_from_source_extracts_public_fn() {
+        let f = facets_from_source("pub fn build() -> u32 { 1 }\n");
+        assert!(f.contains(&WishFacet::symbol("build")));
+    }
+
+    #[test]
+    fn facets_from_source_extracts_types() {
+        let src = "pub struct Widget;\npub enum Color { Red }\npub trait Draw {}\n\
+                   pub type Alias = u32;\npub union U { a: u32 }\n";
+        let f = facets_from_source(src);
+        for name in ["Widget", "Color", "Draw", "Alias", "U"] {
+            assert!(f.contains(&WishFacet::symbol(name)), "missing {name}");
+        }
+    }
+
+    #[test]
+    fn facets_from_source_extracts_modules() {
+        let f = facets_from_source("mod internal;\npub mod routes {}\n");
+        assert!(f.contains(&WishFacet::module("internal")));
+        assert!(f.contains(&WishFacet::module("routes")));
+    }
+
+    #[test]
+    fn facets_from_source_skips_private_fn() {
+        let f = facets_from_source("fn helper() {}\n");
+        assert!(
+            !f.contains(&WishFacet::symbol("helper")),
+            "private fns are not part of the public surface"
+        );
+    }
+
+    #[test]
+    fn facets_from_source_handles_fn_modifiers() {
+        let f = facets_from_source(
+            "pub async fn run() {}\npub const fn c() -> u32 { 0 }\npub unsafe fn u() {}\n",
+        );
+        for name in ["run", "c", "u"] {
+            assert!(f.contains(&WishFacet::symbol(name)), "missing {name}");
+        }
+    }
+
+    #[test]
+    fn facets_from_source_extracts_const_and_static_items() {
+        let f = facets_from_source("pub const MAX: u32 = 9;\npub static NAME: &str = \"x\";\n");
+        assert!(f.contains(&WishFacet::symbol("MAX")));
+        assert!(f.contains(&WishFacet::symbol("NAME")));
+    }
+
+    #[test]
+    fn facets_from_source_strips_generics_and_params() {
+        let f = facets_from_source("pub fn map<T>(x: T) -> T { x }\npub struct Holder<T> { _p: T }\n");
+        assert!(f.contains(&WishFacet::symbol("map")));
+        assert!(f.contains(&WishFacet::symbol("Holder")));
+    }
+
+    #[test]
+    fn facets_from_source_skips_comments_and_attributes() {
+        let f = facets_from_source("// pub fn fake() {}\n#[derive(Clone)]\npub struct Real;\n");
+        assert!(f.contains(&WishFacet::symbol("Real")));
+        assert!(!f.contains(&WishFacet::symbol("fake")));
+    }
+
+    #[test]
+    fn observe_workspace_deep_includes_symbols_and_modules() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-intent-deep-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"deep_demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn demo_fn() -> u32 { 1 }\npub mod sub {}\n",
+        )
+        .unwrap();
+
+        match observe_workspace_deep(&dir) {
+            Ok(observed) => {
+                assert!(observed.contains(&WishFacet::crate_("deep_demo")));
+                assert!(observed.contains(&WishFacet::symbol("demo_fn")));
+                assert!(observed.contains(&WishFacet::module("sub")));
+            }
+            Err(e) => eprintln!("cargo metadata unavailable, skipping: {e}"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
