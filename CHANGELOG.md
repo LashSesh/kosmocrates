@@ -15,6 +15,16 @@ note explicitly says so.
 
 ### Added
 
+* **Green tests — `Test` facets bound to validated behaviour**
+
+  `kosmo-intent::observe_workspace_validated(root)` runs the suite and replaces
+  lexical `Test` facets (mere presence) with the set of tests that actually
+  *pass*: `parse_test_results` (pure libtest-output parser) + `passing_test_facets`
+  + `run_workspace_tests`, with `ObservedTopology::retain` in kosmo-core doing the
+  swap. A `Test` wish now means "a *green* test named X" — the strongest binding
+  of a wish to validated behaviour. Opt-in (heavy: runs the suite); falls back to
+  lexical presence if the run can't start. +3 tests incl. a live green-vs-red run.
+
 * **Richer facets IV — `Test` (tests as wish targets)**
 
   `WishFacetKind::Test` (keyed by test fn name). `facets_from_source` (now

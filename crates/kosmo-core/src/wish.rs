@@ -160,6 +160,11 @@ impl ObservedTopology {
     pub fn insert(&mut self, facet: WishFacet) -> bool {
         self.facets.insert(facet)
     }
+    /// Keep only the facets for which `keep` returns `true`. Used to swap
+    /// lexically-observed facets for validated ones (e.g. green tests).
+    pub fn retain(&mut self, keep: impl Fn(&WishFacet) -> bool) {
+        self.facets.retain(|f| keep(f));
+    }
     pub fn contains(&self, facet: &WishFacet) -> bool {
         self.facets.contains(facet)
     }

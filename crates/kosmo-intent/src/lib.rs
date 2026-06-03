@@ -18,7 +18,7 @@
 //! measures how far a workspace is from a wish and whether it is moving toward
 //! the attractor, but grants no capability and bypasses no policy.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use kosmo_core::{
@@ -292,6 +292,84 @@ pub fn observe_workspace_deep(root: impl Into<PathBuf>) -> Result<ObservedTopolo
     let mut observed = observe_workspace(root.clone())?;
     for facet in facets_from_rust_dir(&root) {
         observed.insert(facet);
+    }
+    Ok(observed)
+}
+
+// ─── Validated observation (green tests) ────────────────────────────────────
+
+/// Parse libtest output into a map of `test name → passed`.
+///
+/// Recognizes the per-test lines `test NAME ... ok` / `... FAILED`; `ignored`
+/// and the `test result:` summary line are skipped. Pure and deterministic.
+pub fn parse_test_results(output: &str) -> BTreeMap<String, bool> {
+    let mut results = BTreeMap::new();
+    for line in output.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("test ") else {
+            continue;
+        };
+        let Some((name, status)) = rest.rsplit_once(" ... ") else {
+            continue;
+        };
+        let passed = match status.trim() {
+            "ok" => true,
+            "FAILED" => false,
+            _ => continue, // ignored / measured / …
+        };
+        let name = name.trim();
+        if name.is_empty() || name == "result:" {
+            continue;
+        }
+        results.insert(name.to_string(), passed);
+    }
+    results
+}
+
+/// Build `Test` facets for the **passing** tests only, keyed by the bare test
+/// function name (the last `::` segment), matching the lexical extractor.
+pub fn passing_test_facets(results: &BTreeMap<String, bool>) -> BTreeSet<WishFacet> {
+    results
+        .iter()
+        .filter(|(_, &passed)| passed)
+        .map(|(name, _)| WishFacet::test(name.rsplit("::").next().unwrap_or(name)))
+        .collect()
+}
+
+/// Run `cargo test` in `root` and parse which named tests passed.
+///
+/// Heavy (compiles + runs the suite), so it is opt-in via
+/// [`observe_workspace_validated`], not part of default observation. A non-zero
+/// exit (failing tests) is not an error here — the per-test verdicts are parsed
+/// from the output regardless.
+pub fn run_workspace_tests(root: impl AsRef<Path>) -> std::io::Result<BTreeMap<String, bool>> {
+    let manifest = root.as_ref().join("Cargo.toml");
+    let output = std::process::Command::new("cargo")
+        .args(["test", "--manifest-path"])
+        .arg(&manifest)
+        .output()?;
+    let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
+    combined.push_str(&String::from_utf8_lossy(&output.stderr));
+    Ok(parse_test_results(&combined))
+}
+
+/// Observe a workspace at crate+module+symbol granularity **with validated
+/// tests**: lexical `Test` facets (mere presence) are replaced by the set of
+/// tests that actually pass. This makes a `Test` wish mean "a *green* test
+/// named X", binding the wish to validated behaviour.
+///
+/// Heavier than [`observe_workspace_deep`] (it runs the suite). If the test run
+/// fails to start, it falls back to the lexical `Test` facets.
+pub fn observe_workspace_validated(
+    root: impl Into<PathBuf>,
+) -> Result<ObservedTopology, ParseBackError> {
+    let root = root.into();
+    let mut observed = observe_workspace_deep(&root)?;
+    if let Ok(results) = run_workspace_tests(&root) {
+        observed.retain(|f| f.kind != WishFacetKind::Test);
+        for facet in passing_test_facets(&results) {
+            observed.insert(facet);
+        }
     }
     Ok(observed)
 }
@@ -932,5 +1010,61 @@ mod tests {
             .predicates
             .iter()
             .any(|p| p.facet == WishFacet::test("it_works")));
+    }
+
+    // ── validated observation: green tests (Run 14) ───────────────────────
+
+    #[test]
+    fn parse_test_results_reads_ok_and_failed() {
+        let out = "running 3 tests\n\
+                   test it_fails ... FAILED\n\
+                   test it_works ... ok\n\
+                   test skip_me ... ignored\n\n\
+                   test result: FAILED. 1 passed; 1 failed; 1 ignored;\n";
+        let r = parse_test_results(out);
+        assert_eq!(r.get("it_works"), Some(&true));
+        assert_eq!(r.get("it_fails"), Some(&false));
+        assert!(!r.contains_key("skip_me"), "ignored tests are not verdicts");
+        assert!(!r.contains_key("result:"), "the summary line is skipped");
+    }
+
+    #[test]
+    fn passing_test_facets_only_green_keyed_by_bare_name() {
+        let mut r = BTreeMap::new();
+        r.insert("tests::alpha".to_string(), true);
+        r.insert("tests::beta".to_string(), false);
+        let f = passing_test_facets(&r);
+        assert!(f.contains(&WishFacet::test("alpha")));
+        assert!(!f.contains(&WishFacet::test("beta")));
+    }
+
+    #[test]
+    fn run_workspace_tests_distinguishes_green_from_red() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-intent-validated-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"validated_demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "#[test]\nfn green() { assert_eq!(1 + 1, 2); }\n#[test]\nfn red() { assert!(false); }\n",
+        )
+        .unwrap();
+
+        match run_workspace_tests(&dir) {
+            Ok(results) if !results.is_empty() => {
+                let facets = passing_test_facets(&results);
+                assert!(facets.contains(&WishFacet::test("green")), "green test passes");
+                assert!(!facets.contains(&WishFacet::test("red")), "red test fails → not a facet");
+            }
+            _ => eprintln!("cargo test unavailable, skipping"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
