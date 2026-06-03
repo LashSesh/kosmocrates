@@ -331,9 +331,9 @@ impl FacetScaffolder {
             WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
             WishFacetKind::Capability => Self::scaffold_capability(ws, &facet.key),
             WishFacetKind::Test => Self::scaffold_test(ws, &facet.key),
-            // Dependency / Resolution have no reliable structural scaffold
-            // (a dependency edit needs a path the scaffolder can't infer).
-            WishFacetKind::Dependency | WishFacetKind::Resolution => vec![],
+            WishFacetKind::Dependency => Self::scaffold_dependency(ws, &facet.key),
+            // A resolution ("the bad thing is gone") has no structural scaffold.
+            WishFacetKind::Resolution => vec![],
         }
     }
 
@@ -463,6 +463,37 @@ impl FacetScaffolder {
         }
         changes
     }
+
+    /// Realize a dependency edge `"from->to"` by adding a path dependency on
+    /// `to` to `from`'s `Cargo.toml`. Both crates are located by package name
+    /// within the workspace; the wish is left untouched (empty patch) if either
+    /// is missing or the edge already exists.
+    fn scaffold_dependency(ws: &Path, key: &str) -> Vec<FileChange> {
+        let Some((from, to)) = key.split_once("->") else {
+            return vec![];
+        };
+        let (from, to) = (from.trim(), to.trim());
+        if from.is_empty() || to.is_empty() || from == to {
+            return vec![];
+        }
+        let manifests = find_crate_manifests(ws);
+        let from_path = manifests.iter().find(|(n, _)| n == from).map(|(_, p)| p.clone());
+        let to_path = manifests.iter().find(|(n, _)| n == to).map(|(_, p)| p.clone());
+        let (Some(from_path), Some(to_path)) = (from_path, to_path) else {
+            return vec![]; // can't locate one or both crates — an honest no-op
+        };
+        let (Some(from_dir), Some(to_dir)) = (from_path.parent(), to_path.parent()) else {
+            return vec![];
+        };
+        let content = std::fs::read_to_string(&from_path).unwrap_or_default();
+        if dep_already_present(&content, to) {
+            return vec![]; // idempotent
+        }
+        let rel = relative_path(from_dir, to_dir);
+        let new_content = add_path_dependency(&content, to, &rel);
+        let rel_manifest = from_path.strip_prefix(ws).unwrap_or(&from_path);
+        vec![FileChange::modify(rel_manifest, new_content)]
+    }
 }
 
 /// Insert `"<name>",` at the head of the first `members = [ … ]` array in a
@@ -475,6 +506,107 @@ fn register_member(toml: &str, name: &str) -> Option<String> {
     out.push_str(&format!("\n    \"{name}\","));
     out.push_str(&toml[bracket + 1..]);
     Some(out)
+}
+
+/// Walk `ws` for `Cargo.toml` files and return `(package_name, manifest_path)`
+/// for each that declares a `[package]`. Skips `target` and dotted directories.
+fn find_crate_manifests(ws: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    let mut stack = vec![ws.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == "target" || name.starts_with('.') {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.file_name().map_or(false, |f| f == "Cargo.toml") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Some(name) = package_name(&content) {
+                        out.push((name, path));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Extract `name = "…"` from a manifest's `[package]` section.
+fn package_name(toml: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in toml.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if in_package {
+            if let Some(rest) = line.strip_prefix("name") {
+                if let Some(val) = rest.trim_start().strip_prefix('=') {
+                    let v = val.trim().trim_matches('"');
+                    if !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Relative path from directory `from` to directory `to`, `/`-joined
+/// (e.g. `"../b"`). Both are expected to share a common ancestor.
+fn relative_path(from: &Path, to: &Path) -> String {
+    let from_comps: Vec<_> = from.components().collect();
+    let to_comps: Vec<_> = to.components().collect();
+    let mut i = 0;
+    while i < from_comps.len() && i < to_comps.len() && from_comps[i] == to_comps[i] {
+        i += 1;
+    }
+    let mut parts: Vec<String> = std::iter::repeat("..".to_string())
+        .take(from_comps.len() - i)
+        .collect();
+    for c in &to_comps[i..] {
+        parts.push(c.as_os_str().to_string_lossy().into_owned());
+    }
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
+/// Is `dep` already declared as a dependency line in `toml`?
+fn dep_already_present(toml: &str, dep: &str) -> bool {
+    toml.lines().any(|l| {
+        l.trim()
+            .strip_prefix(dep)
+            .map_or(false, |rest| rest.trim_start().starts_with('='))
+    })
+}
+
+/// Add `dep = { path = "<rel>" }` to the `[dependencies]` section, creating the
+/// section if it is absent.
+fn add_path_dependency(toml: &str, dep: &str, rel: &str) -> String {
+    let dep_line = format!("{dep} = {{ path = \"{rel}\" }}");
+    let mut lines: Vec<String> = toml.lines().map(|l| l.to_string()).collect();
+    if let Some(i) = lines.iter().position(|l| l.trim() == "[dependencies]") {
+        lines.insert(i + 1, dep_line);
+    } else {
+        lines.push(String::new());
+        lines.push("[dependencies]".to_string());
+        lines.push(dep_line);
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
 }
 
 impl ActionSynthesizer for FacetScaffolder {
@@ -735,5 +867,47 @@ mod tests {
         assert!(c.contains("#[test]"));
         assert!(c.contains("fn it_works"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_dependency_adds_path_dep() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws = std::env::temp_dir().join(format!("kosmo-synth-dep-{nanos}"));
+        for name in ["a", "b"] {
+            std::fs::create_dir_all(ws.join("crates").join(name).join("src")).unwrap();
+            std::fs::write(
+                ws.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            std::fs::write(ws.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        let req = wish_request(&ws, WishFacet::dependency("a", "b"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(!res.patch.is_empty(), "should propose a manifest edit");
+        let fc = &res.patch.file_changes[0];
+        assert!(fc.path.ends_with("Cargo.toml"));
+        assert!(
+            fc.content.contains("b = { path = \"../b\" }"),
+            "got:\n{}",
+            fc.content
+        );
+        assert!(fc.content.contains("[dependencies]"));
+
+        // Idempotent: once the edge exists, a second pass proposes nothing.
+        std::fs::write(ws.join("crates/a/Cargo.toml"), &fc.content).unwrap();
+        let res2 = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res2.patch.is_empty(), "second pass should be a no-op");
+
+        std::fs::remove_dir_all(&ws).ok();
     }
 }

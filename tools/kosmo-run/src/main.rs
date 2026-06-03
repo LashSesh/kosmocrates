@@ -845,4 +845,46 @@ mod tests {
 
         fs::remove_dir_all(&root).ok();
     }
+
+    #[test]
+    fn descend_realizes_dependency_wish() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-dep-descent-{nanos}"));
+        for name in ["a", "b"] {
+            fs::create_dir_all(root.join("crates").join(name).join("src")).unwrap();
+            fs::write(
+                root.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            fs::write(root.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        let prose = "dependency a->b";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "dependency wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("observe (cargo metadata) unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
 }

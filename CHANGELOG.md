@@ -15,6 +15,16 @@ note explicitly says so.
 
 ### Added
 
+* **`Dependency` facets are now deterministically scaffoldable — the last offline gap closes**
+
+  `FacetScaffolder::scaffold_dependency` realizes a `"from->to"` edge by locating
+  both crates by package name in the workspace and adding `to = { path = "<rel>" }`
+  to `from`'s `[dependencies]` (idempotent; honest no-op if a crate is missing).
+  Every structural facet — Crate · Module · Symbol · Signature · Capability ·
+  Test · Dependency — now converges deterministically, no LLM and no keys.
+  Verified live: a `dependency alpha->beta` wish descends `0/1 → 1/1 REALIZED`,
+  then `cargo metadata` confirms the edge. +2 tests (scaffold + end-to-end descent).
+
 * **Descent unifies both `Wish → Patch` backends — deterministic-first, LLM-fallback**
 
   In `--wish --apply`, facets the `FacetScaffolder` can't build (e.g. a
