@@ -479,6 +479,10 @@ fn kind_line(kind: &ActionItemKind) -> String {
             "ApplyNorm — apply norm gene '{name}' (candidate {}).",
             short(norm_candidate_id)
         ),
+        ActionItemKind::RealizeWishFacet { facet } => format!(
+            "RealizeWishFacet — create the wished {:?} '{}' so the workspace satisfies the stated intent.",
+            facet.kind, facet.key
+        ),
     }
 }
 

@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1025 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 17, kosmo-materialize 11, kosmo-intent 8) — 0 failures
+- **1029 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 21, kosmo-materialize 11, kosmo-intent 8) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,24 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### The wish builds toward itself — facet-directed synthesis (2026-06-02)
+
+The generation half (the fifth rung): the agent stops merely *measuring* the gap to the wish and starts *closing* it. The repair loop becomes a build-toward-intent loop.
+
+**`kosmo-pipeline`** — intent-directed action:
+- [x] `ActionItemKind::RealizeWishFacet { facet: kosmo_core::WishFacet }` — first-class directed work carrying the unmet facet (counterpart to `FillVoid`, on the intent axis); the pipeline scan never emits it (the agent does)
+
+**`kosmo-agent`** — generation wiring:
+- [x] Each `run()` with a wish observes at the start, turns each unmet facet into a top-priority `RealizeWishFacet` action, prepends it to the queue (wish-directed work first, then voids)
+- [x] `AgentRunReport::wish_directed_count()` — how many facet-directed steps the run took
+- [x] End-to-end: `agent_wish_builds_toward_and_converges` runs the loop in apply mode with a scaffolding synthesizer — run 1: wished crate absent (distance `ONE`) → writes `Cargo.toml`; run 2: realized (distance `ZERO`). The loop builds toward the wish and converges
+- [x] 4 new tests (kosmo-agent 17 → 21); fixed a pre-existing flake in `agent_run_id_is_deterministic` (isolated workspace instead of the shared system temp dir)
+
+**`kosmo-synthesizer-llm` + tools** — the synthesizer and renderers see the new kind:
+- [x] LLM prompt gains a `RealizeWishFacet` directive (the model is told exactly what to build); `kosmo-substrate` / `kosmo-tui` / `kosmo-server` / `kosmo-run` render the new kind
+
+**Where the arc stands:** all six pieces are real — target (`Wish`) · ruler (`assess_wish`) · contract (attractor) · observation (`kosmo-intent`) · governance (the loop enforces convergence) · generation (the loop acts toward the wish). The minimal wish-to-system loop is closed at crate granularity, demonstrated end-to-end with a scaffolding synthesizer. Frontier from here: finer facet granularity (Module/Symbol via a name-preserving extractor) and natural-language → `Wish` compilation (the human-facing front door).
 
 ### `kosmo-agent` — the wish governs the loop (2026-06-02)
 

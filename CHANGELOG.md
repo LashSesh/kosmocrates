@@ -15,6 +15,31 @@ note explicitly says so.
 
 ### Added
 
+* **The wish builds toward itself — facet-directed synthesis (the loop closes)**
+
+  The generation half of the wish arc: the agent no longer just *measures* the
+  gap to the wish, it *acts* to close it.
+
+  - `ActionItemKind::RealizeWishFacet { facet }` (kosmo-pipeline) — a first-class,
+    intent-directed action carrying the unmet `WishFacet` (the counterpart to
+    `FillVoid`, on the intent axis). The pipeline scan never emits these; the
+    agent does, from the wish agenda.
+  - Each `AgentSession::run()` with a wish observes the workspace at the start,
+    turns each unmet facet into a top-priority `RealizeWishFacet` action, and
+    prepends it to the queue — so the loop builds *toward* the wish before it
+    repairs voids. `AgentRunReport::wish_directed_count()` reports how much
+    directed work a run did.
+  - The synthesizer is told exactly what to build: the LLM prompt
+    (`kosmo-synthesizer-llm`) gains a `RealizeWishFacet` directive; the tool
+    renderers (`kosmo-substrate` / `kosmo-tui` / `kosmo-server` / `kosmo-run`)
+    label the new kind.
+  - End-to-end proof: `agent_wish_builds_toward_and_converges` runs the loop in
+    apply mode with a scaffolding synthesizer — run 1 finds the wished crate
+    absent (distance `ONE`) and writes it; run 2 observes it realized (distance
+    `ZERO`). The repair loop is now a build-toward-intent loop that converges.
+  - 4 new agent tests (17 → 21); fixed a pre-existing flake in
+    `agent_run_id_is_deterministic` (now scans an isolated dir, not shared temp).
+
 * **`kosmo-agent` — the wish governs the loop (observe · converge · enforce)**
 
   The wish now drives the execution loop, not just the type system. Attach a

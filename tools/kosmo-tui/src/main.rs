@@ -312,6 +312,7 @@ fn kind_label(kind: &ActionItemKind) -> &'static str {
         ActionItemKind::PromoteToPse { .. }     => "PromotePSE",
         ActionItemKind::ReviewCrystal { .. }    => "Review    ",
         ActionItemKind::ApplyNorm { .. }        => "ApplyNorm ",
+        ActionItemKind::RealizeWishFacet { .. } => "WishFacet ",
     }
 }
 
@@ -322,6 +323,7 @@ fn kind_color(kind: &ActionItemKind) -> Color {
         ActionItemKind::PromoteToPse { .. }     => Color::Green,
         ActionItemKind::ReviewCrystal { .. }    => Color::Yellow,
         ActionItemKind::ApplyNorm { .. }        => Color::Green,
+        ActionItemKind::RealizeWishFacet { .. } => Color::Green,
     }
 }
 
@@ -332,6 +334,7 @@ fn target_id(kind: &ActionItemKind) -> String {
         ActionItemKind::PromoteToPse { candidate_id }            => hex16(candidate_id),
         ActionItemKind::ReviewCrystal { candidate_id }           => hex16(candidate_id),
         ActionItemKind::ApplyNorm { norm_candidate_id, .. }      => hex16(norm_candidate_id),
+        ActionItemKind::RealizeWishFacet { facet }               => facet.key.clone(),
     }
 }
 

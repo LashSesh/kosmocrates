@@ -218,6 +218,7 @@ fn kind_label(kind: &ActionItemKind) -> &'static str {
         ActionItemKind::PromoteToPse { .. } => "PromoteToPse",
         ActionItemKind::ReviewCrystal { .. } => "ReviewCrystal",
         ActionItemKind::ApplyNorm { .. } => "ApplyNorm",
+        ActionItemKind::RealizeWishFacet { .. } => "RealizeWishFacet",
     }
 }
 

@@ -1196,6 +1196,11 @@ pub enum ActionItemKind {
     ReviewCrystal { candidate_id: Digest },
     /// A norm gene that has accumulated enough fitness to warrant application.
     ApplyNorm { norm_candidate_id: Digest, name: String },
+    /// A wished-for structural facet that is not yet present: intent-directed
+    /// work toward an attached [`kosmo_core::Wish`] (the counterpart to
+    /// `FillVoid`, on the intent axis). Carried by the agent from the wish
+    /// agenda — the pipeline scan itself never emits these.
+    RealizeWishFacet { facet: kosmo_core::WishFacet },
 }
 
 /// Serialize-only content for [`ActionItem`] content-addressing.
