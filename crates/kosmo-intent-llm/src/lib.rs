@@ -128,6 +128,7 @@ fn facet_kind_from_str(s: &str) -> Option<WishFacetKind> {
         "symbol" | "function" | "fn" | "method" | "type" | "struct" | "enum" | "trait"
         | "const" | "static" => Some(WishFacetKind::Symbol),
         "resolution" | "void" => Some(WishFacetKind::Resolution),
+        "dependency" | "depends" | "dep" => Some(WishFacetKind::Dependency),
         _ => None,
     }
 }
@@ -243,6 +244,7 @@ mod tests {
         assert_eq!(facet_kind_from_str("fn"), Some(WishFacetKind::Symbol));
         assert_eq!(facet_kind_from_str("trait"), Some(WishFacetKind::Symbol));
         assert_eq!(facet_kind_from_str("resolution"), Some(WishFacetKind::Resolution));
+        assert_eq!(facet_kind_from_str("dependency"), Some(WishFacetKind::Dependency));
         assert_eq!(facet_kind_from_str("nonsense"), None);
     }
 

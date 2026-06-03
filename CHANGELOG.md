@@ -15,6 +15,14 @@ note explicitly says so.
 
 ### Added
 
+* **Richer facets I — `Dependency` (crate dependency edges as wish targets)**
+
+  `WishFacetKind::Dependency` (keyed `"from->to"`). `facets_from_snapshot` emits
+  one per ParseBack `dep_edge`, so a wish can require "crate A depends on B".
+  The rule compiler (`dependency`/`depends`) and the LLM kind-mapping recognize
+  it; `WishFacet::dependency(from, to)` builds one. No structural scaffold (a
+  dependency edit needs a path the scaffolder can't infer). +2 tests.
+
 * **`FacetScaffolder` — the loop builds toward a wish offline, deterministically**
 
   A deterministic `ActionSynthesizer` (in `kosmo-synthesizer`) that realizes

@@ -328,7 +328,11 @@ impl FacetScaffolder {
             WishFacetKind::Symbol => Self::scaffold_symbol(ws, &facet.key),
             WishFacetKind::Module => Self::scaffold_module(ws, &facet.key),
             WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
-            WishFacetKind::Capability | WishFacetKind::Resolution => vec![],
+            // Dependency / Capability / Resolution have no reliable structural
+            // scaffold (a dependency edit needs a path the scaffolder can't infer).
+            WishFacetKind::Dependency
+            | WishFacetKind::Capability
+            | WishFacetKind::Resolution => vec![],
         }
     }
 

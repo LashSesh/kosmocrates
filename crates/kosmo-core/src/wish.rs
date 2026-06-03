@@ -41,6 +41,8 @@ pub enum WishFacetKind {
     Capability,
     /// A named deficiency / void has been resolved.
     Resolution,
+    /// A directed crate dependency edge `"from->to"` is present.
+    Dependency,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -76,6 +78,14 @@ impl WishFacet {
     }
     pub fn resolution(key: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Resolution, key)
+    }
+    /// A dependency-edge facet: crate `from` depends on crate `to`
+    /// (keyed `"from->to"`).
+    pub fn dependency(from: impl AsRef<str>, to: impl AsRef<str>) -> Self {
+        Self::new(
+            WishFacetKind::Dependency,
+            format!("{}->{}", from.as_ref(), to.as_ref()),
+        )
     }
 }
 

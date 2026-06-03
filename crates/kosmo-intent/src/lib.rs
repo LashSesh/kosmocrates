@@ -37,11 +37,17 @@ use serde::{Deserialize, Serialize};
 /// *presence*, and `Module` / `Symbol` facets need a name-preserving source
 /// extractor, which is a later run.)
 pub fn facets_from_snapshot(snapshot: &TopologySnapshot) -> BTreeSet<WishFacet> {
-    snapshot
+    let mut facets: BTreeSet<WishFacet> = snapshot
         .crate_nodes
         .keys()
         .map(|name| WishFacet::crate_(name.clone()))
-        .collect()
+        .collect();
+    // Directed dependency edges (`from->to`) — lets a wish target the dependency
+    // structure, not just crate presence.
+    for (from, to) in &snapshot.dep_edges {
+        facets.insert(WishFacet::dependency(from, to));
+    }
+    facets
 }
 
 /// Build an [`ObservedTopology`] from a crate topology snapshot.
@@ -221,12 +227,13 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         "function" | "functions" | "fn" | "func" | "method" | "methods" => Some(WishFacetKind::Symbol),
         "type" | "types" | "struct" | "structs" | "enum" | "enums" | "trait" | "traits"
         | "interface" | "symbol" | "symbols" => Some(WishFacetKind::Symbol),
+        "dependency" | "dependencies" | "depends" | "dep" => Some(WishFacetKind::Dependency),
         _ => None,
     }
 }
 
 /// Words that may sit between a trigger and the name it introduces.
-const FILLERS: &[&str] = &["a", "an", "the", "called", "named", "name"];
+const FILLERS: &[&str] = &["a", "an", "the", "called", "named", "name", "on", "of"];
 
 /// Clean a candidate name token: strip surrounding markup/punctuation, keeping
 /// identifier characters (and `-` for crate names). `None` if nothing is left.
@@ -742,5 +749,35 @@ mod tests {
         assert_eq!(a.met_count, 1);
         assert_eq!(a.total_count, 2);
         assert!(a.unmet_facets.contains(&WishFacet::crate_("absent_crate")));
+    }
+
+    // ── dependency facets (Run 10) ────────────────────────────────────────
+
+    #[test]
+    fn facets_from_snapshot_includes_dependency_edges() {
+        let mut nodes = BTreeMap::new();
+        nodes.insert(
+            "a".to_string(),
+            CrateFingerprint::new("a".into(), vec!["lib.rs".into()], vec!["b".into()]),
+        );
+        nodes.insert(
+            "b".to_string(),
+            CrateFingerprint::new("b".into(), vec!["lib.rs".into()], vec![]),
+        );
+        let mut edges = BTreeSet::new();
+        edges.insert(("a".to_string(), "b".to_string()));
+        let snap = TopologySnapshot::from_parts(ParseBackScanScope::FullWorkspace, nodes, edges);
+        let f = facets_from_snapshot(&snap);
+        assert!(f.contains(&WishFacet::dependency("a", "b")));
+        assert!(f.contains(&WishFacet::crate_("a")));
+    }
+
+    #[test]
+    fn compile_wish_extracts_dependency() {
+        let w = compile_wish("a dependency alpha->beta", d(b"p"), d(b"e"));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::dependency("alpha", "beta")));
     }
 }
