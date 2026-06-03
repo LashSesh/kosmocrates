@@ -15,6 +15,25 @@ note explicitly says so.
 
 ### Added
 
+* **The human front door — natural-language → `Wish`**
+
+  A person can now state intent in prose and get a structured, content-addressed
+  `Wish` the loop can descend toward.
+
+  - `kosmo-intent::compile_wish(prose, policy_id, evidence)` — a deterministic,
+    dependency-free compiler that scans prose for structural triggers
+    (`crate`/`package`, `module`/`mod`, `function`/`fn`/`method`,
+    `type`/`struct`/`enum`/`trait`/`symbol`) and turns each `keyword NAME` phrase
+    into a required facet. The prose becomes the wish's label (part of its
+    identity). Handles backticks/quotes and fillers ("a crate called `X`").
+  - `WishCompiler` trait + `RuleWishCompiler` reference impl — the extension
+    point for an LLM-backed compiler (the counterpart to `kosmo-synthesizer-llm`),
+    where the model is the only non-deterministic part and the emitted `Wish`
+    stays content-addressed.
+  - 10 new tests incl. end-to-end `agent_wish_from_prose_realized`: prose →
+    `Wish` → the loop measures the real workspace and realizes it. Convention:
+    name the thing after the keyword ("a crate kosmo-server, a module routes").
+
 * **Finer granularity — Module/Symbol facets from a name-preserving extractor**
 
   A wish can now target more than whole crates: modules and public symbols.

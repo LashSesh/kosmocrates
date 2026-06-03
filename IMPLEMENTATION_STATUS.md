@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1039 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 22, kosmo-materialize 11, kosmo-intent 17) — 0 failures
+- **1049 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 23, kosmo-materialize 11, kosmo-intent 26) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,17 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### The human front door — natural-language → Wish (2026-06-02)
+
+A person states intent in prose; out comes a structured, content-addressed `Wish` the loop can descend toward.
+
+**`kosmo-intent`**:
+- [x] `compile_wish(prose, policy_id, evidence)` — deterministic, dependency-free: scans prose for structural triggers (`crate`/`package`, `module`/`mod`, `function`/`fn`/`method`, `type`/`struct`/`enum`/`trait`/`symbol`) and turns each `keyword NAME` phrase into a required facet; the prose is the wish label; handles backticks/quotes + fillers
+- [x] `WishCompiler` trait + `RuleWishCompiler` — the extension point for an LLM-backed compiler (counterpart to `kosmo-synthesizer-llm`: the model is the only non-deterministic part, the emitted `Wish` stays content-addressed)
+- [x] 10 new tests (kosmo-intent 17 → 26, kosmo-agent 22 → 23) incl. end-to-end `agent_wish_from_prose_realized`: prose → Wish → the loop realizes it. Convention: name after the keyword; free word order is the LLM backend's job
+
+**The full chain, end to end:** prose → `compile_wish` → `Wish` → agent attaches it → observes (crate/module/symbol) → measures distance (Lyapunov `V`) → generates facet-directed actions → synthesizes/applies → re-observes → converges to the attractor, fail-closed on divergence. The Wunsch-zu-System loop is now closed *from a sentence to a converged workspace*, at crate/module/symbol granularity, deterministically — with the two non-deterministic ends (NL→Wish and patch synthesis) cleanly quarantined behind traits, each with a deterministic reference backend today and an LLM backend as a drop-in later.
 
 ### Finer granularity — Module/Symbol facets (2026-06-02)
 

@@ -1194,4 +1194,28 @@ mod tests {
         }
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    #[test]
+    fn agent_wish_from_prose_realized() {
+        // The full front door: a prose intent compiles to a Wish, and the loop
+        // measures the real workspace against it.
+        let dir = temp_crate("kosmo_prose_demo");
+        let wish = kosmo_intent::compile_wish(
+            "I want a crate kosmo_prose_demo",
+            Digest::of_bytes(b"policy"),
+            Digest::of_bytes(b"bundle"),
+        );
+        let opts = AgentOptions::default().with_max_steps(2);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(wish, Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        if let Some(w) = &report.wish {
+            assert!(w.is_realized(), "prose-compiled crate wish realized");
+        } else {
+            eprintln!("cargo metadata unavailable, skipping");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

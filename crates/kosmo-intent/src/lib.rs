@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use kosmo_core::{
     assess_wish, Digest, ObservedTopology, ParseBackScanScope, Wish, WishAssessment,
-    WishConvergenceTrace, WishFacet,
+    WishConvergenceTrace, WishFacet, WishFacetKind, WishPredicate,
 };
 use kosmo_parseback::{ParseBackError, ParseBackExecutor, TopologySnapshot};
 use serde::{Deserialize, Serialize};
@@ -201,6 +201,128 @@ pub fn observe_workspace_deep(root: impl Into<PathBuf>) -> Result<ObservedTopolo
         observed.insert(facet);
     }
     Ok(observed)
+}
+
+// ─── Natural-language → Wish (the human front door) ─────────────────────────
+
+/// Normalize a word to lowercase alphanumerics (strips punctuation/markup).
+fn norm(word: &str) -> String {
+    word.chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+/// Map a trigger word to the facet kind it introduces, if any.
+fn trigger_kind(word: &str) -> Option<WishFacetKind> {
+    match norm(word).as_str() {
+        "crate" | "crates" | "package" | "packages" => Some(WishFacetKind::Crate),
+        "module" | "modules" | "mod" => Some(WishFacetKind::Module),
+        "function" | "functions" | "fn" | "func" | "method" | "methods" => Some(WishFacetKind::Symbol),
+        "type" | "types" | "struct" | "structs" | "enum" | "enums" | "trait" | "traits"
+        | "interface" | "symbol" | "symbols" => Some(WishFacetKind::Symbol),
+        _ => None,
+    }
+}
+
+/// Words that may sit between a trigger and the name it introduces.
+const FILLERS: &[&str] = &["a", "an", "the", "called", "named", "name"];
+
+/// Clean a candidate name token: strip surrounding markup/punctuation, keeping
+/// identifier characters (and `-` for crate names). `None` if nothing is left.
+fn clean_name(tok: &str) -> Option<String> {
+    let t = tok.trim_matches(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'));
+    if t.is_empty() || !t.chars().any(|c| c.is_alphanumeric()) {
+        return None;
+    }
+    Some(t.to_string())
+}
+
+/// Compile a prose intent statement into a content-addressed [`Wish`].
+///
+/// Deterministic and dependency-free: it scans the prose for structural trigger
+/// words (`crate`/`package`, `module`/`mod`, `function`/`fn`/`method`,
+/// `type`/`struct`/`enum`/`trait`/`symbol`) and turns each `keyword NAME` phrase
+/// into a required [`WishFacet`]. The `Wish` label is the prose itself, so the
+/// intent statement is part of the wish's identity.
+///
+/// Convention: name the thing *after* the keyword — "a crate kosmo-server, a
+/// module routes, a function handle_request". Free word order and fuzzier
+/// phrasing are the job of an LLM-backed [`WishCompiler`] (a later layer); this
+/// is the offline, byte-deterministic front door.
+pub fn compile_wish(prose: &str, policy_id: Digest, evidence_bundle_id: Digest) -> Wish {
+    let tokens: Vec<&str> = prose.split_whitespace().collect();
+    let mut facets: Vec<WishFacet> = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if let Some(kind) = trigger_kind(tokens[i]) {
+            // Find the next non-filler token as the name (stop at another trigger).
+            let mut j = i + 1;
+            while j < tokens.len() {
+                if trigger_kind(tokens[j]).is_some() {
+                    break;
+                }
+                if FILLERS.contains(&norm(tokens[j]).as_str()) {
+                    j += 1;
+                    continue;
+                }
+                break;
+            }
+            if j < tokens.len() && trigger_kind(tokens[j]).is_none() {
+                if let Some(name) = clean_name(tokens[j]) {
+                    facets.push(WishFacet::new(kind, name));
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    let predicates: Vec<WishPredicate> = facets.into_iter().map(WishPredicate::require).collect();
+    Wish::new(prose.trim().to_string(), predicates, policy_id, evidence_bundle_id)
+}
+
+/// Error from a [`WishCompiler`] backend (e.g. an LLM call failing).
+#[derive(Clone, Debug)]
+pub struct WishCompileError {
+    pub message: String,
+}
+
+impl std::fmt::Display for WishCompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "wish compile error: {}", self.message)
+    }
+}
+impl std::error::Error for WishCompileError {}
+
+/// Pluggable "prose → [`Wish`]" backend. The deterministic [`RuleWishCompiler`]
+/// is the reference implementation; an LLM-backed compiler (a later crate, the
+/// counterpart to `kosmo-synthesizer-llm`) would slot in behind the same trait.
+pub trait WishCompiler: Send + Sync {
+    fn compile(
+        &self,
+        prose: &str,
+        policy_id: Digest,
+        evidence_bundle_id: Digest,
+    ) -> Result<Wish, WishCompileError>;
+    fn name(&self) -> &str;
+}
+
+/// The deterministic, offline front door — delegates to [`compile_wish`].
+pub struct RuleWishCompiler;
+
+impl WishCompiler for RuleWishCompiler {
+    fn compile(
+        &self,
+        prose: &str,
+        policy_id: Digest,
+        evidence_bundle_id: Digest,
+    ) -> Result<Wish, WishCompileError> {
+        Ok(compile_wish(prose, policy_id, evidence_bundle_id))
+    }
+    fn name(&self) -> &str {
+        "rule-based"
+    }
 }
 
 // ─── WishSession ─────────────────────────────────────────────────────────────
@@ -533,5 +655,92 @@ mod tests {
             Err(e) => eprintln!("cargo metadata unavailable, skipping: {e}"),
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── natural-language → Wish (Run 7) ───────────────────────────────────
+
+    #[test]
+    fn compile_wish_extracts_crate() {
+        let w = compile_wish("I want a crate kosmo-server", d(b"policy"), d(b"bundle"));
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("kosmo-server")));
+    }
+
+    #[test]
+    fn compile_wish_extracts_module_and_function() {
+        let w = compile_wish(
+            "a module routes and a function handle_request",
+            d(b"policy"),
+            d(b"bundle"),
+        );
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("routes")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::symbol("handle_request")));
+    }
+
+    #[test]
+    fn compile_wish_handles_backticks_and_fillers() {
+        let w = compile_wish("a crate called `kosmo-foo`", d(b"policy"), d(b"bundle"));
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("kosmo-foo")));
+    }
+
+    #[test]
+    fn compile_wish_type_keywords_are_symbols() {
+        let w = compile_wish(
+            "a struct Widget and a trait Draw and an enum Color",
+            d(b"policy"),
+            d(b"bundle"),
+        );
+        for name in ["Widget", "Draw", "Color"] {
+            assert!(
+                w.predicates.iter().any(|p| p.facet == WishFacet::symbol(name)),
+                "missing {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn compile_wish_label_is_the_prose() {
+        let prose = "a crate alpha";
+        let w = compile_wish(prose, d(b"policy"), d(b"bundle"));
+        assert_eq!(w.label, prose);
+    }
+
+    #[test]
+    fn compile_wish_is_deterministic_and_content_addressed() {
+        let a = compile_wish("a crate alpha, a module beta", d(b"policy"), d(b"bundle"));
+        let b = compile_wish("a crate alpha, a module beta", d(b"policy"), d(b"bundle"));
+        assert_eq!(a.id, b.id);
+        assert!(a.verify_id());
+    }
+
+    #[test]
+    fn compile_wish_no_triggers_is_vacuous() {
+        let w = compile_wish("please make it nice and fast", d(b"policy"), d(b"bundle"));
+        assert_eq!(w.predicate_count(), 0);
+    }
+
+    #[test]
+    fn rule_compiler_trait_compiles() {
+        let c = RuleWishCompiler;
+        let w = c.compile("a crate gamma", d(b"policy"), d(b"bundle")).unwrap();
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("gamma")));
+        assert_eq!(c.name(), "rule-based");
+    }
+
+    #[test]
+    fn compiled_wish_assesses_against_observation() {
+        // The full front door: prose → Wish → measured against a workspace.
+        let w = compile_wish(
+            "a crate present_crate and a crate absent_crate",
+            d(b"policy"),
+            d(b"bundle"),
+        );
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("present_crate")]);
+        let a = assess_wish(&w, &observed, d(b"ev"));
+        assert_eq!(a.met_count, 1);
+        assert_eq!(a.total_count, 2);
+        assert!(a.unmet_facets.contains(&WishFacet::crate_("absent_crate")));
     }
 }
