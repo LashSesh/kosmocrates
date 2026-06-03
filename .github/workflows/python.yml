@@ -125,12 +125,12 @@ jobs:
     permissions:
       id-token: write   # required for OIDC trusted publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist-merged
           pattern: 'wheels-*'
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: sdist
           path: dist-merged
