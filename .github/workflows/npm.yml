@@ -91,7 +91,7 @@ jobs:
           cat "$pkg"
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-${{ matrix.target }}
           path: crates/pse-wasm/${{ matrix.out_dir }}
