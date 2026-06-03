@@ -24,15 +24,17 @@
 //! loop offline.
 //! ```
 
+use std::fs;
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
     assess_wish, Digest, GateResult, PolicyProfile, Q16, Wish, WishAssessment, WishClosureStatus,
-    WishFacet,
+    WishFacet, WishFacetKind,
 };
-use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated};
+use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated, WishSession};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
 use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
@@ -61,6 +63,10 @@ struct Args {
     wish: Option<String>,
     scaffold: bool,
     validated: bool,
+    provider_set: bool,
+    /// Path to a JSON file that the convergence trajectory is written to (and
+    /// resumed from, if the file already exists and matches the current wish).
+    wish_session: Option<String>,
 }
 
 impl Default for Args {
@@ -80,6 +86,8 @@ impl Default for Args {
             wish: None,
             scaffold: false,
             validated: false,
+            provider_set: false,
+            wish_session: None,
         }
     }
 }
@@ -106,6 +114,12 @@ OPTIONS:\n\
                           workspace against it; prints met/missing facets\n\
     --validated           observe green tests too (runs the suite; heavier)\n\
     --scaffold            also print the file changes that would close the gap\n\
+    --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
+                          if <path> already exists and matches the wish, resume\n\
+                          from the prior session (auditable, replayable)\n\
+\n\
+    (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
+     realized; add --provider to let the LLM build facets the scaffolder can't)\n\
 \n\
     --json                emit the report as JSON\n\
     --no-color            disable ANSI colour\n\
@@ -136,6 +150,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--provider" => {
                 args.provider = argv.next().ok_or("--provider needs a value")?.to_lowercase();
+                args.provider_set = true;
             }
             "--model" => {
                 args.model = Some(argv.next().ok_or("--model needs a value")?);
@@ -169,6 +184,9 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--scaffold" => args.scaffold = true,
             "--validated" => args.validated = true,
+            "--wish-session" => {
+                args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
+            }
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -359,7 +377,39 @@ fn render_text(report: &AgentRunReport, synth_name: &str, color: bool) {
     }
 }
 
+// ─── Session persistence ─────────────────────────────────────────────────────
+
+/// Load a prior [`WishSession`] from `path`, but only if it belongs to `wish`.
+/// Returns `None` on any I/O or parse failure — the caller falls back to a fresh
+/// session, which is always the safe choice.
+fn load_prior_session(path: &str, wish: &Wish) -> Option<WishSession> {
+    let text = fs::read_to_string(path).ok()?;
+    let session: WishSession = serde_json::from_str(&text).ok()?;
+    if session.wish().id == wish.id {
+        Some(session)
+    } else {
+        None // different wish — start fresh, don't silently merge trajectories
+    }
+}
+
+/// Serialize `session` as pretty-printed JSON and write it to `path`.
+fn save_session(path: &str, session: &WishSession) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(session)
+        .map_err(|e| format!("failed to serialize session: {e}"))?;
+    fs::write(path, json).map_err(|e| format!("failed to write session to {path}: {e}"))?;
+    Ok(())
+}
+
 // ─── Wish mode ──────────────────────────────────────────────────────────────
+
+/// Whether a wish requires validated observation (running the suite). True iff
+/// it carries a [`WishFacetKind::Behavior`] facet — those are satisfied only by
+/// a passing spec-test, never by lexical presence.
+fn wish_needs_validation(wish: &Wish) -> bool {
+    wish.predicates
+        .iter()
+        .any(|p| p.facet.kind == WishFacetKind::Behavior)
+}
 
 /// Deterministic, offline front door: compile a prose wish, observe the
 /// workspace, and report the distance to the wish (which facets are present,
@@ -371,7 +421,64 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let evidence = Digest::of_bytes(prose.as_bytes());
     let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-    let observed = if args.validated {
+    // A behaviour facet is satisfiable only by a *passing* test, so any wish
+    // that carries one forces validated observation (run the suite), whether or
+    // not --validated was given — the keystone demands it.
+    let validated = args.validated || wish_needs_validation(&wish);
+
+    // --apply turns wish mode into a descent: observe → scaffold → apply →
+    // re-observe, until the wish is realized. This WRITES to the workspace.
+    if args.apply {
+        // LLM fallback for facets the deterministic scaffolder can't build —
+        // only when a provider was explicitly chosen (else: deterministic only).
+        let fallback = if args.provider_set {
+            match build_synthesizer(args) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    eprintln!("kosmo-run: LLM fallback disabled ({e}); deterministic only");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let prior = args
+            .wish_session
+            .as_deref()
+            .and_then(|p| load_prior_session(p, &wish));
+        let session = descend_to_wish(
+            &args.path,
+            &wish,
+            evidence,
+            validated,
+            8,
+            fallback.as_deref(),
+            prior,
+        )?;
+        if let Some(ref sp) = args.wish_session {
+            save_session(sp, &session)?;
+        }
+        if args.json {
+            let json = serde_json::to_string_pretty(session.assessments())
+                .map_err(|e| format!("failed to serialize assessments: {e}"))?;
+            println!("{json}");
+        } else {
+            print!("{}", descent_report(&session, args.color));
+        }
+        let realized = session.latest().map_or(false, |a| {
+            matches!(
+                a.status,
+                WishClosureStatus::Realized | WishClosureStatus::Vacuous
+            )
+        });
+        return Ok(if realized {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        });
+    }
+
+    let observed = if validated {
         observe_workspace_validated(args.path.as_str())
     } else {
         observe_workspace_deep(args.path.as_str())
@@ -379,6 +486,14 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     .map_err(|e| format!("could not observe {}: {e}", args.path))?;
 
     let assessment = assess_wish(&wish, &observed, evidence);
+
+    // Persist a single-step session when requested — even without --apply this
+    // gives the caller an auditable record of the current workspace state.
+    if let Some(ref sp) = args.wish_session {
+        let mut one_step = WishSession::new(wish.clone(), evidence);
+        one_step.observe(&observed);
+        save_session(sp, &one_step)?;
+    }
 
     if args.json {
         let json = serde_json::to_string_pretty(&assessment)
@@ -479,6 +594,148 @@ fn scaffold_report(path: &str, unmet: &[WishFacet], color: bool) -> String {
                 facet.key
             )),
             Err(e) => out.push_str(&format!("  scaffold error for {}: {e}\n", facet.key)),
+        }
+    }
+    out
+}
+
+/// Realize every unmet facet and write the result to disk (relative to `root`).
+/// Deterministic first: the [`FacetScaffolder`] builds structural facets exactly.
+/// For facets it cannot build (e.g. a dependency edge), an optional `fallback`
+/// synthesizer is consulted — the LLM end of the same `Wish → Patch` contract.
+/// Returns the number of files written. The only place wish mode touches the
+/// filesystem, and only under `--apply`.
+fn apply_synthesis(
+    root: &Path,
+    unmet: &[WishFacet],
+    fallback: Option<&dyn ActionSynthesizer>,
+) -> std::io::Result<usize> {
+    let mut written = 0;
+    for facet in unmet {
+        let action = ActionItem {
+            action_id: Digest::ZERO,
+            priority_score: Q16::ONE,
+            kind: ActionItemKind::RealizeWishFacet {
+                facet: facet.clone(),
+            },
+            description: format!("realize {:?} {}", facet.kind, facet.key),
+            policy_id: Digest::ZERO,
+        };
+        let req = SynthesisRequest::new(action, root.to_string_lossy().to_string());
+
+        // Deterministic scaffolder first; consult the LLM only if it built nothing.
+        let mut changes = FacetScaffolder
+            .synthesize(&req)
+            .map(|r| r.patch.file_changes)
+            .unwrap_or_default();
+        if changes.is_empty() {
+            if let Some(synth) = fallback {
+                if let Ok(result) = synth.synthesize(&req) {
+                    changes = result.patch.file_changes;
+                }
+            }
+        }
+        for fc in &changes {
+            let target = root.join(&fc.path);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&target, &fc.content)?;
+            written += 1;
+        }
+    }
+    Ok(written)
+}
+
+/// Drive the workspace toward `wish` by repeated observe → assess → scaffold →
+/// apply, until it is realized, no further progress is possible, or `max_iters`
+/// is reached. Returns the [`WishSession`] carrying the full convergence
+/// trajectory — the attractor descent, executed.
+///
+/// `prior` resumes an earlier descent: the loaded session's assessments are
+/// prepended to the trajectory and the loop continues from the current state.
+fn descend_to_wish(
+    path: &str,
+    wish: &Wish,
+    evidence: Digest,
+    validated: bool,
+    max_iters: u32,
+    fallback: Option<&dyn ActionSynthesizer>,
+    prior: Option<WishSession>,
+) -> Result<WishSession, String> {
+    let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
+    let mut iter = 0u32;
+    loop {
+        let observed = if validated {
+            observe_workspace_validated(path)
+        } else {
+            observe_workspace_deep(path)
+        }
+        .map_err(|e| format!("could not observe {path}: {e}"))?;
+
+        let assessment = session.observe(&observed);
+        let done = matches!(
+            assessment.status,
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous
+        );
+        let unmet = assessment.unmet_facets.clone();
+
+        if done || unmet.is_empty() || iter >= max_iters {
+            break;
+        }
+        let written =
+            apply_synthesis(Path::new(path), &unmet, fallback).map_err(|e| e.to_string())?;
+        if written == 0 {
+            break; // nothing scaffoldable — can't make progress, fail-closed
+        }
+        iter += 1;
+    }
+    Ok(session)
+}
+
+/// Render the descent trajectory: one line per iteration plus the verdict.
+fn descent_report(session: &WishSession, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish — descent{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", session.wish().label));
+    for (i, a) in session.assessments().iter().enumerate() {
+        let (label, col) = match a.status {
+            WishClosureStatus::Realized => ("REALIZED \u{2713}", c(GREEN)),
+            WishClosureStatus::Approaching => ("APPROACHING", c(YELLOW)),
+            WishClosureStatus::Unstarted => ("UNSTARTED", c(RED)),
+            WishClosureStatus::Vacuous => ("VACUOUS", c(DIM)),
+        };
+        out.push_str(&format!(
+            "  iter {}: met {}/{}  {}{}{}\n",
+            i, a.met_count, a.total_count, col, label, c(RESET)
+        ));
+    }
+    let realized = session.latest().map_or(false, |a| {
+        matches!(
+            a.status,
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous
+        )
+    });
+    if realized {
+        out.push_str(&format!("  {}\u{2713} wish realized.{}\n", c(GREEN), c(RESET)));
+    } else if let Some(a) = session.latest() {
+        if !a.unmet_facets.is_empty() {
+            out.push_str("  still missing:\n");
+            for f in &a.unmet_facets {
+                out.push_str(&format!(
+                    "    {}\u{2717}{} {:?} {}\n",
+                    c(RED),
+                    c(RESET),
+                    f.kind,
+                    f.key
+                ));
+            }
         }
     }
     out
@@ -589,5 +846,407 @@ mod tests {
         let out = scaffold_report(".", &[WishFacet::crate_("demo_crate")], false);
         assert!(out.contains("scaffold"));
         assert!(out.contains("demo_crate"));
+    }
+
+    #[test]
+    fn descend_realizes_symbol_wish_on_temp_workspace() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-descent-{nanos}"));
+        fs::create_dir_all(root.join("demo/src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"demo\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("demo/src/lib.rs"), "// demo\n").unwrap();
+
+        let prose = "a function alpha and a function beta";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "descent should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                // observe (unmet) → apply → observe (met): at least two steps.
+                assert!(session.iterations() >= 2);
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn apply_synthesis_routes_unscaffoldable_facet_to_fallback() {
+        use kosmo_synthesizer::FileChange;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-fallback-{nanos}"));
+        fs::create_dir_all(&root).unwrap();
+
+        // A dependency edge is not deterministically scaffoldable.
+        let dep = vec![WishFacet::dependency("a", "b")];
+        // No fallback → the scaffolder builds nothing, so nothing is written.
+        assert_eq!(apply_synthesis(&root, &dep, None).unwrap(), 0);
+        // With a synthesizer that proposes a change → the fallback is consulted.
+        let mock = MockSynthesizer::confident().with_change(FileChange::create("FALLBACK.txt", "x\n"));
+        let n = apply_synthesis(&root, &dep, Some(&mock)).unwrap();
+        assert_eq!(n, 1);
+        assert!(root.join("FALLBACK.txt").exists());
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descend_realizes_dependency_wish() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-dep-descent-{nanos}"));
+        for name in ["a", "b"] {
+            fs::create_dir_all(root.join("crates").join(name).join("src")).unwrap();
+            fs::write(
+                root.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            fs::write(root.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        let prose = "dependency a->b";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "dependency wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("observe (cargo metadata) unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descend_realizes_typed_contract_wish() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-contract-{nanos}"));
+        fs::create_dir_all(root.join("demo/src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"demo\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("demo/src/lib.rs"), "// demo\n").unwrap();
+
+        // Built-in types so the lexical descent's round-trip is unambiguous.
+        let prose = "a contract add(i32,i32)->i32";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+        assert!(
+            wish.predicates
+                .iter()
+                .any(|p| p.facet.kind == kosmo_core::WishFacetKind::Contract),
+            "prose should compile to a Contract facet"
+        );
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "typed-contract wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descend_realizes_crud_archetype() {
+        // One prose phrase ("a crud user") fans out into a 4-facet bundle —
+        // module + two typed handlers + capability — all structural, so the
+        // deterministic scaffolder converges it offline (no LLM, no validation).
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-crud-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "// demo\n").unwrap();
+
+        let prose = "a crud user";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+        assert_eq!(wish.predicate_count(), 4, "crud should fan out to 4 facets");
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "crud archetype should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descend_realizes_composition() {
+        // A typed data-flow wire: parse() -> String -> eval(String). The
+        // scaffolder writes two type-compatible stubs; the observer derives the
+        // composition from their contracts, so it converges offline.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-comp-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "// demo\n").unwrap();
+
+        let prose = "a composition parse>>String>>eval";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "composition wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+                assert!(lib.contains("pub fn parse() -> String"), "got:\n{lib}");
+                assert!(lib.contains("pub fn eval(_a0: String)"), "got:\n{lib}");
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descend_targets_function_into_member_crate() {
+        // Crate-targeting: "helper@beta" must land in crates/beta, not the root.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-target-{nanos}"));
+        for name in ["alpha", "beta"] {
+            fs::create_dir_all(root.join("crates").join(name).join("src")).unwrap();
+            fs::write(
+                root.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            fs::write(root.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        let prose = "a function helper@beta";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "crate-targeted wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                // The function landed in beta, not alpha, not the root.
+                let beta = fs::read_to_string(root.join("crates/beta/src/lib.rs")).unwrap();
+                assert!(beta.contains("pub fn helper"), "beta should have helper");
+                let alpha = fs::read_to_string(root.join("crates/alpha/src/lib.rs")).unwrap();
+                assert!(!alpha.contains("pub fn helper"), "alpha must NOT have helper");
+                assert!(!root.join("src/lib.rs").exists(), "root must not be touched");
+            }
+            Err(e) => eprintln!("observe (cargo metadata) unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn behavior_wish_forces_validation() {
+        let w = compile_wish("a behavior add(2,3)=>5", Digest::ZERO, Digest::ZERO);
+        assert!(wish_needs_validation(&w), "behaviour wish must force validation");
+        let w2 = compile_wish("a crate foo", Digest::ZERO, Digest::ZERO);
+        assert!(!wish_needs_validation(&w2), "a non-behaviour wish must not");
+    }
+
+    #[test]
+    fn descend_realizes_behavior_when_impl_is_correct() {
+        // The keystone, demonstrated offline: given a CORRECT implementation,
+        // a behaviour wish converges to Realized — the loop scaffolds the
+        // spec-test and observes it green. (With a wrong/todo!() body it would
+        // honestly stall at Approaching; see kosmo-intent::behavior_facets.)
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-behavior-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+        )
+        .unwrap();
+
+        let prose = "a behavior add(2,3)=>5";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        // validated = true (a behaviour wish forces it); no LLM fallback — the
+        // implementation is already correct, so the loop only scaffolds the
+        // spec-test and re-observes it green.
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, true, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "behaviour wish should converge with a correct impl, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("cargo test unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    // ── Session persistence ───────────────────────────────────────────────
+
+    #[test]
+    fn wish_session_json_roundtrip() {
+        let prose = "a crate canary";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+        let mut session = WishSession::new(wish.clone(), evidence);
+        // iter 0: unmet — canary not present
+        session.observe(&ObservedTopology::empty());
+        // iter 1: realized — canary present
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("canary")]);
+        session.observe(&observed);
+
+        let json = serde_json::to_string_pretty(&session).unwrap();
+        let back: WishSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.iterations(), 2);
+        assert_eq!(back.wish().id, wish.id);
+        assert!(matches!(
+            back.latest().unwrap().status,
+            WishClosureStatus::Realized
+        ));
+    }
+
+    #[test]
+    fn wish_session_saved_and_loaded_from_file() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let session_path = std::env::temp_dir()
+            .join(format!("kosmo-run-session-{nanos}.json"))
+            .to_string_lossy()
+            .to_string();
+
+        let prose = "a crate sparrow";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        // Build a two-step session and save it.
+        let mut session = WishSession::new(wish.clone(), evidence);
+        session.observe(&ObservedTopology::empty());
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("sparrow")]);
+        session.observe(&observed);
+        save_session(&session_path, &session).expect("save must succeed");
+
+        // Load it back.
+        let loaded = load_prior_session(&session_path, &wish)
+            .expect("should load because wish id matches");
+        assert_eq!(loaded.iterations(), 2);
+        assert!(matches!(
+            loaded.latest().unwrap().status,
+            WishClosureStatus::Realized
+        ));
+
+        // A different wish must not be accepted.
+        let other_wish = compile_wish("a crate other", Digest::ZERO, evidence);
+        assert!(
+            load_prior_session(&session_path, &other_wish).is_none(),
+            "different wish id must be rejected"
+        );
+
+        fs::remove_file(&session_path).ok();
     }
 }

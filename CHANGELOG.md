@@ -15,6 +15,136 @@ note explicitly says so.
 
 ### Added
 
+* **Composition facets — typed data-flow wiring (Horizon floor, level 3)**
+
+  The behavioural cousin of `Dependency`: a `Composition` facet `"from>>via>>to"`
+  says `from` returns type `via` and `to` consumes `via` — the components *wire
+  together* (`to(from(x))` typechecks), not just coexist. `kosmo-intent`
+  **derives** compositions from the observed contracts (`derive_compositions`:
+  for every ordered pair whose return type matches the next first-parameter type
+  and isn't unit, emit `f>>T>>g`), so the facet is observed for free from the
+  Contract layer. `kosmo-synthesizer::scaffold_composition` realizes one by
+  appending two type-compatible stubs in a *single* change (`append_items_to_lib`
+  avoids the same-path overwrite) — `pub fn from() -> via` and
+  `pub fn to(_a0: via)` — which the observer then derives back, so it
+  round-trips. The `composition`/`compose` trigger accepts
+  `a composition parse>>String>>eval`. Verified live: that wish descends
+  `0/1 → 1/1 REALIZED` and `cargo build` is clean. +8 tests (kosmo-core 381→382,
+  kosmo-intent 57→61, kosmo-synthesizer 28→30, kosmo-run 13→14).
+
+* **Crate-targeting — scaffold into the named member crate (multi-crate full-stack)**
+
+  A facet key may carry an `@<crate>` suffix to scaffold the item *into that
+  workspace member* instead of the root crate — the precondition for real
+  multi-crate full-stack wishes. `kosmo-synthesizer::FacetScaffolder` resolves
+  the crate by package name (`find_crate_manifests`), runs the per-kind
+  scaffolder as if the crate dir were the root, and re-bases the change paths to
+  workspace-root-relative (`scaffold_into_crate`); an unknown crate is an honest
+  no-op. `kosmo-intent::facets_from_rust_dir` now emits each source item twice —
+  bare and crate-qualified `<key>@<crate>` (via `crate_of` / the nearest
+  `[package]` manifest) — so the targeted item round-trips. Applies to in-crate
+  kinds (Symbol/Signature/Contract/Module/Capability/Test); Crate/Dependency/
+  Behavior stay workspace-level. The `@crate` form survives the prose compiler,
+  so `a function handle@api` works. Verified live:
+  `--wish "a function handle@api and a function compute@core" --apply` lands
+  `handle` in `crates/api` and `compute` in `crates/core`, root untouched,
+  `0/2 → 2/2 REALIZED`. +6 tests (kosmo-intent 55→57, kosmo-synthesizer 25→28,
+  kosmo-run 12→13).
+
+* **Archetype expansion — full-stack fan-out (Horizon floor, beam 3)**
+
+  The breadth axis of `docs/HORIZON-behavior-archetype.md`: one prose word
+  expands into a *bundle* of facets. `kosmo-intent` grows a compiler stage above
+  the leaf triggers — `compile_wish` recognizes archetype keywords
+  (`crud` / `endpoint` / `component`) and `expand_archetype` fans each into the
+  existing leaves. `crud <name>` → a module, `create_`/`get_` typed handlers
+  (`String→String`, so they compile), and a `crud:<name>` capability marker;
+  `endpoint <name>` → a typed handler + marker; `component <name>` → a module +
+  marker. Elegantly, this adds **no new facet kind and no scaffolder change** —
+  archetypes are pure templates over leaves the substrate already builds and
+  observes, so the structural bundle converges offline. Archetype keywords are
+  reserved (kept disjoint from leaf triggers and common names). Verified live:
+  `--wish "a crud user" --apply` descends `0/4 → 4/4 REALIZED` in one step.
+  +5 tests (kosmo-intent 51→55, kosmo-run 11→12).
+
+* **`Behavior` facets — validated behaviour, the keystone (Horizon floor, beam 2)**
+
+  The load-bearing beam of `docs/HORIZON-behavior-archetype.md`: a `Behavior`
+  facet `"name(args)=>expected"` is satisfied **only when a scaffolded spec-test
+  pinning that input→output pair actually passes**. `kosmo-synthesizer`
+  scaffolds a `// kosmo:behavior:`-marked `#[test]` asserting
+  `name(args) == expected` — **red** until the body is correct. `kosmo-intent`
+  observes it through the suite: `behavior_specs_from_source` pairs each marker
+  to its test fn, and `behavior_facets` (fail-closed) emits the facet *only* for
+  specs whose test is green — so `observe_workspace_validated` is the
+  deterministic judge. `kosmo-run` auto-enables validated observation for any
+  wish carrying a behaviour. The `behavior` / `spec` trigger accepts the
+  space-free prose form `a behavior add(2,3)=>5`.
+
+  This is **acceptance over generation**: the guarantee moves from *writing*
+  correct code to *accepting* only what is observed correct. Verified live —
+  with a correct `add`, the wish descends `0/1 → 1/1 REALIZED`; with a wrong
+  `add` (`a+b+1`) it honestly stalls at `0/1 UNSTARTED` (exit 1) rather than
+  lying. +12 tests (kosmo-core 380→381, kosmo-intent 45→51, kosmo-synthesizer
+  22→25, kosmo-run 9→11).
+
+* **`Contract` facets — typed function signatures (Horizon floor, beam 1)**
+
+  The first beam of the behavior axis (`docs/HORIZON-behavior-archetype.md`):
+  a `Contract` facet `"name(T0,T1)->R"` is the typed promotion of `Signature`
+  (`name/arity`). `kosmo-intent` now observes parameter + return *types* from a
+  function's opening line (`parse_fn_types`, shallow types; receivers skipped),
+  emitting a `Contract` alongside the existing `Symbol` / `Signature` (additive
+  — a `Signature` wish is unchanged). `kosmo-synthesizer::scaffold_contract`
+  builds the dual: a typed stub `pub fn name(_a0: T0, …) -> R { todo!(…) }` —
+  structurally present, **honestly empty** at runtime. Scaffold → observe
+  round-trips, so a contract wish descends `0/1 → 1/1 REALIZED`. The `contract`
+  trigger (rule + LLM compilers) accepts the space-free prose form
+  `a contract add(i32,i32)->i32`. Verified live: the stub compiles
+  (`cargo check` clean) and `todo!()` panics until filled. +14 tests
+  (kosmo-core 378→380, kosmo-intent 39→45, kosmo-synthesizer 17→22, kosmo-run
+  8→9).
+
+* **`--wish-session <path>` — every descent is now auditable and replayable**
+
+  `kosmo-run --wish … --wish-session trajectory.json` writes the complete
+  `WishSession` as pretty-printed, content-addressed JSON after every run (with
+  `--apply`) or observation (without `--apply`). If the file already exists and
+  carries the same wish id, it is loaded and the descent **resumes** from the
+  prior trajectory — the session accumulates iterations across invocations.
+  `load_prior_session` guards the identity check: a session for a different wish
+  is always discarded rather than silently merged. +2 tests (JSON round-trip;
+  save + load + identity rejection).
+
+* **`Dependency` facets are now deterministically scaffoldable — the last offline gap closes**
+
+  `FacetScaffolder::scaffold_dependency` realizes a `"from->to"` edge by locating
+  both crates by package name in the workspace and adding `to = { path = "<rel>" }`
+  to `from`'s `[dependencies]` (idempotent; honest no-op if a crate is missing).
+  Every structural facet — Crate · Module · Symbol · Signature · Capability ·
+  Test · Dependency — now converges deterministically, no LLM and no keys.
+  Verified live: a `dependency alpha->beta` wish descends `0/1 → 1/1 REALIZED`,
+  then `cargo metadata` confirms the edge. +2 tests (scaffold + end-to-end descent).
+
+* **Descent unifies both `Wish → Patch` backends — deterministic-first, LLM-fallback**
+
+  In `--wish --apply`, facets the `FacetScaffolder` can't build (e.g. a
+  `Dependency` edge) now fall through to the LLM synthesizer when a `--provider`
+  is given (`mock`/`claude`/`cerebras`); the deterministic scaffolder still wins
+  whenever it produces a patch. The same `ActionSynthesizer` contract on both
+  sides of the loop. +1 test (the fallback is consulted only when the scaffolder
+  is empty).
+
+* **`kosmo-run --wish … --apply` — the attractor descent, executed**
+
+  Wish mode gains a convergence loop: observe → assess → scaffold every unmet
+  facet → write it → re-observe, until the wish is realized (or no progress is
+  possible / max 8 iterations). Driven by a `WishSession` so the full trajectory
+  is recorded and printed (`iter 0: met 0/3 UNSTARTED → iter 1: met 3/3
+  REALIZED ✓`). `apply_scaffold` is the only filesystem write, gated by `--apply`.
+  Verified live: a prose wish for two functions and a new crate converges in a
+  single descent step. +1 test.
+
 * **`kosmo-run --wish "<prose>"` — the wish-to-system machine on the command line**
 
   The agent runner gains a deterministic, **offline** wish mode: compile a

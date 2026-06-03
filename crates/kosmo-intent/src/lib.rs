@@ -137,6 +137,129 @@ fn fn_arity(line: &str) -> usize {
     }
 }
 
+/// Collapse internal whitespace runs to single spaces and trim — the canonical
+/// form for a captured type, shared with the contract scaffold so that
+/// scaffold → observe round-trips.
+fn normalize_type(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Split a string on top-level commas, ignoring commas nested inside `()`,
+/// `<>`, or `[]`. `->` is treated as an atom so closure-return arrows don't
+/// unbalance the depth counter.
+fn split_top_level_commas(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '-' if chars.peek() == Some(&'>') => {
+                cur.push('-');
+                cur.push(chars.next().unwrap()); // the '>'
+            }
+            '(' | '<' | '[' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' | '>' | ']' => {
+                depth -= 1;
+                cur.push(c);
+            }
+            ',' if depth == 0 => out.push(std::mem::take(&mut cur)),
+            _ => cur.push(c),
+        }
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// The data type of one parameter segment (`"x: T"` → `"T"`). Bare receivers
+/// (`self` / `&self` / `&mut self`) and untyped segments carry no data type and
+/// yield `None`.
+fn param_type(seg: &str) -> Option<String> {
+    let seg = seg.trim();
+    let compact: String = seg.chars().filter(|c| !c.is_whitespace()).collect();
+    if compact.is_empty() || compact == "self" || compact == "&self" || compact == "&mutself" {
+        return None;
+    }
+    let colon = seg.find(':')?;
+    let ty = seg[colon + 1..].trim();
+    (!ty.is_empty()).then(|| normalize_type(ty))
+}
+
+/// The return type from the text *after* a function's parameter list — the
+/// token(s) between `->` and the body `{` (or a `where` clause). `"()"` if the
+/// function declares no return type.
+fn parse_return_type(rest: &str) -> String {
+    let Some(arrow) = rest.find("->") else {
+        return "()".to_string();
+    };
+    let after = &rest[arrow + 2..];
+    let end = after.find('{').unwrap_or(after.len());
+    let mut seg = &after[..end];
+    if let Some(w) = seg.find(" where ") {
+        seg = &seg[..w];
+    }
+    let norm = normalize_type(seg);
+    if norm.is_empty() {
+        "()".to_string()
+    } else {
+        norm
+    }
+}
+
+/// The parameter *types* and return type of a function from its opening line.
+/// Mirrors the `kosmo-synthesizer` contract scaffold, so scaffold → observe
+/// round-trips. Shallow types only (single tokens / simple generics).
+fn parse_fn_types(line: &str) -> (Vec<String>, String) {
+    let chars: Vec<char> = line.chars().collect();
+    let Some(open) = chars.iter().position(|&c| c == '(') else {
+        return (vec![], "()".to_string());
+    };
+    let mut depth = 0i32;
+    let mut close = chars.len();
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let params_str: String = chars[open + 1..close.min(chars.len())].iter().collect();
+    let params = split_top_level_commas(&params_str)
+        .iter()
+        .filter_map(|seg| param_type(seg))
+        .collect();
+    let rest: String = if close < chars.len() {
+        chars[close + 1..].iter().collect()
+    } else {
+        String::new()
+    };
+    (params, parse_return_type(&rest))
+}
+
+/// The structural facets a public function declares: its `Symbol`, its untyped
+/// `Signature` (`name/arity`), and its typed `Contract` (`name(T0,T1)->R`).
+/// The `Contract` is additive — a `Signature` wish still works unchanged.
+fn fn_facets(name: &str, line: &str) -> Vec<WishFacet> {
+    let (params, ret) = parse_fn_types(line);
+    let refs: Vec<&str> = params.iter().map(String::as_str).collect();
+    vec![
+        WishFacet::symbol(name.to_string()),
+        WishFacet::signature(format!("{name}/{}", fn_arity(line))),
+        WishFacet::contract(name, &refs, ret),
+    ]
+}
+
 /// Extract the [`WishFacet`]s a single source line declares: a `Module` (`mod`,
 /// public or not) or — for a **public** definition (`fn` / `struct` / `enum` /
 /// `trait` / `type` / `union` / `const` / `static`) — a `Symbol`, plus a
@@ -184,10 +307,7 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
             return vec![];
         };
         if is_fn {
-            return vec![
-                WishFacet::symbol(name.clone()),
-                WishFacet::signature(format!("{name}/{}", fn_arity(line))),
-            ];
+            return fn_facets(&name, line);
         }
         return vec![WishFacet::symbol(name)];
     }
@@ -201,10 +321,7 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
     };
     match kw {
         "mod" => vec![WishFacet::module(name)],
-        "fn" if is_pub => vec![
-            WishFacet::symbol(name.clone()),
-            WishFacet::signature(format!("{name}/{}", fn_arity(line))),
-        ],
+        "fn" if is_pub => fn_facets(&name, line),
         "struct" | "enum" | "trait" | "type" | "union" if is_pub => vec![WishFacet::symbol(name)],
         _ => vec![],
     }
@@ -246,6 +363,71 @@ fn test_fn_name(trimmed: &str) -> Option<String> {
     leading_ident(trimmed[idx + 3..].trim_start())
 }
 
+/// Parse a `// kosmo:behavior: <spec>` marker line into its spec string.
+/// (Also accepts `//!`.) The spec is the `Behavior` facet key verbatim.
+fn behavior_marker(trimmed: &str) -> Option<String> {
+    if !trimmed.starts_with("//") {
+        return None;
+    }
+    let body = trimmed
+        .trim_start_matches('/')
+        .trim_start_matches('!')
+        .trim_start();
+    body.strip_prefix("kosmo:behavior:")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Pair each scaffolded spec-test with its behaviour spec, read from
+/// `// kosmo:behavior: <spec>` markers that immediately precede a `#[test]`
+/// function. Returns `(test_fn_name, spec)` pairs. Pure and deterministic —
+/// the lexical half of the keystone; the *passing* half is applied later, by
+/// [`behavior_facets`], once the suite has run.
+fn behavior_specs_from_source(source: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut pending_spec: Option<String> = None;
+    let mut pending_test = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(spec) = behavior_marker(trimmed) {
+            pending_spec = Some(spec);
+            continue;
+        }
+        if is_test_attr(trimmed) {
+            pending_test = true;
+            continue;
+        }
+        if let Some(name) = test_fn_name(trimmed) {
+            if pending_test {
+                if let Some(spec) = pending_spec.take() {
+                    out.push((name, spec));
+                }
+            }
+            pending_test = false;
+            pending_spec = None;
+        } else if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with("//") {
+            // A non-attr, non-comment, non-empty line breaks the pairing.
+            pending_test = false;
+            pending_spec = None;
+        }
+    }
+    out
+}
+
+/// Behaviour facets for exactly the specs whose spec-test **passed**.
+/// Fail-closed: a spec whose test is absent or failing yields no facet — a
+/// wished behaviour is never satisfied by an unrun or red test.
+pub fn behavior_facets(
+    specs: &[(String, String)],
+    passing_bare_names: &BTreeSet<String>,
+) -> BTreeSet<WishFacet> {
+    specs
+        .iter()
+        .filter(|(name, _)| passing_bare_names.contains(name))
+        .map(|(_, spec)| WishFacet::behavior(spec))
+        .collect()
+}
+
 /// Recursively collect `.rs` file paths under `dir`, skipping `target` / `.git`.
 fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -265,21 +447,169 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Walk every `.rs` file under `dir` and union their `Module` / `Symbol` facets.
+/// Read `name = "…"` from a manifest's `[package]` section (the crate's
+/// package name). `None` for a `[workspace]`-only manifest.
+fn manifest_package_name(toml: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in toml.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if in_package {
+            if let Some(rest) = line.strip_prefix("name") {
+                if let Some(val) = rest.trim_start().strip_prefix('=') {
+                    let v = val.trim().trim_matches('"');
+                    if !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The package name of the crate a source `file` belongs to: the nearest
+/// ancestor (up to and including `root`) with a `[package]` `Cargo.toml`.
+fn crate_of(file: &Path, root: &Path) -> Option<String> {
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+        if let Ok(content) = std::fs::read_to_string(d.join("Cargo.toml")) {
+            if let Some(name) = manifest_package_name(&content) {
+                return Some(name);
+            }
+        }
+        if d == root {
+            break;
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Parse a contract facet key `"name(T0,T1)->R"` into `(name, params, ret)` —
+/// the dual of the synthesizer's contract-key parser, used to derive
+/// compositions from observed contracts. `->` is treated as an atom.
+fn parse_contract_facet_key(key: &str) -> Option<(String, Vec<String>, String)> {
+    let chars: Vec<char> = key.chars().collect();
+    let open = chars.iter().position(|&c| c == '(')?;
+    let name = chars[..open].iter().collect::<String>().trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut close = None;
+    let mut prev = ' ';
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        let arrow_gt = c == '>' && prev == '-';
+        if !arrow_gt {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        prev = c;
+    }
+    let close = close?;
+    let params_str: String = chars[open + 1..close].iter().collect();
+    let params = split_top_level_commas(&params_str)
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let rest: String = chars[close + 1..].iter().collect();
+    let ret = rest
+        .trim_start()
+        .strip_prefix("->")
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "()".to_string());
+    Some((name, params, ret))
+}
+
+/// Derive typed data-flow [`WishFacetKind::Composition`] facets from observed
+/// contracts: for ordered pairs `(f, g)` where `f`'s return type equals `g`'s
+/// first parameter type (and is not unit), emit `f>>T>>g`. Pure; reads only the
+/// bare (non-crate-qualified) contracts so a composition is workspace-level.
+fn derive_compositions(facets: &BTreeSet<WishFacet>) -> BTreeSet<WishFacet> {
+    let mut ret_of: BTreeMap<String, String> = BTreeMap::new();
+    let mut in0_of: BTreeMap<String, String> = BTreeMap::new();
+    for f in facets {
+        if f.kind != WishFacetKind::Contract || f.key.contains('@') {
+            continue;
+        }
+        if let Some((name, params, ret)) = parse_contract_facet_key(&f.key) {
+            if let Some(p0) = params.into_iter().next() {
+                in0_of.insert(name.clone(), p0);
+            }
+            ret_of.insert(name, ret);
+        }
+    }
+    let mut out = BTreeSet::new();
+    for (f, rf) in &ret_of {
+        if rf == "()" {
+            continue;
+        }
+        for (g, ig) in &in0_of {
+            if f != g && rf == ig {
+                out.insert(WishFacet::composition(f, rf, g));
+            }
+        }
+    }
+    out
+}
+
+/// Walk every `.rs` file under `dir` and union their source facets.
 ///
 /// Read-only. Heavier than the crate-level snapshot (it reads source), so it is
-/// opt-in via [`observe_workspace_deep`].
+/// opt-in via [`observe_workspace_deep`]. Each item is emitted **twice**: by its
+/// bare key, and — when the file belongs to a package — by its crate-qualified
+/// key `"<key>@<crate>"`, so a crate-targeted wish (e.g. `handle@kosmo-api`)
+/// round-trips against the crate the scaffolder wrote it into. Finally, typed
+/// data-flow `Composition` facets are derived from the observed contracts.
 pub fn facets_from_rust_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
+    let root = dir.as_ref();
+    let mut files = Vec::new();
+    collect_rs(root, &mut files);
+    files.sort();
+    let mut facets = BTreeSet::new();
+    for file in &files {
+        if let Ok(content) = std::fs::read_to_string(file) {
+            let crate_name = crate_of(file, root);
+            for f in facets_from_source(&content) {
+                if let Some(ref cr) = crate_name {
+                    facets.insert(WishFacet::new(f.kind.clone(), format!("{}@{}", f.key, cr)));
+                }
+                facets.insert(f);
+            }
+        }
+    }
+    facets.extend(derive_compositions(&facets));
+    facets
+}
+
+/// Walk every `.rs` file under `dir` and collect the `(test_fn_name, spec)`
+/// pairs from `// kosmo:behavior:` markers. Read-only.
+fn behavior_specs_from_dir(dir: impl AsRef<Path>) -> Vec<(String, String)> {
     let mut files = Vec::new();
     collect_rs(dir.as_ref(), &mut files);
     files.sort();
-    let mut facets = BTreeSet::new();
+    let mut out = Vec::new();
     for file in files {
         if let Ok(content) = std::fs::read_to_string(&file) {
-            facets.extend(facets_from_source(&content));
+            out.extend(behavior_specs_from_source(&content));
         }
     }
-    facets
+    out
 }
 
 /// Observe a workspace at **crate + module + symbol** granularity.
@@ -370,6 +700,16 @@ pub fn observe_workspace_validated(
         for facet in passing_test_facets(&results) {
             observed.insert(facet);
         }
+        // Behaviour facets: a spec is present only if its scaffolded spec-test
+        // passed — the keystone, observed by running the suite (fail-closed).
+        let passing: BTreeSet<String> = results
+            .iter()
+            .filter(|(_, &ok)| ok)
+            .map(|(n, _)| n.rsplit("::").next().unwrap_or(n).to_string())
+            .collect();
+        for facet in behavior_facets(&behavior_specs_from_dir(&root), &passing) {
+            observed.insert(facet);
+        }
     }
     Ok(observed)
 }
@@ -394,6 +734,11 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         | "interface" | "symbol" | "symbols" => Some(WishFacetKind::Symbol),
         "dependency" | "dependencies" | "depends" | "dep" => Some(WishFacetKind::Dependency),
         "signature" | "signatures" | "sig" => Some(WishFacetKind::Signature),
+        "contract" | "contracts" => Some(WishFacetKind::Contract),
+        "behavior" | "behaviors" | "behaviour" | "behaviours" | "spec" | "specs" => {
+            Some(WishFacetKind::Behavior)
+        }
+        "composition" | "compositions" | "compose" => Some(WishFacetKind::Composition),
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
@@ -413,42 +758,115 @@ fn clean_name(tok: &str) -> Option<String> {
     Some(t.to_string())
 }
 
+// ─── Archetypes (the breadth axis) ──────────────────────────────────────────
+
+/// A high-level archetype: a named template that fans out into a *bundle* of
+/// lower facets. One prose word → many facets — the breadth axis of the Horizon
+/// floor (`docs/HORIZON-behavior-archetype.md`). Archetypes are a pure compiler
+/// concept; they introduce no new facet kind and need no scaffolder change —
+/// they expand into the existing leaves the substrate already builds and
+/// observes. Every current archetype expands within the root crate, so the
+/// deterministic scaffolder realizes the structural part offline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Archetype {
+    /// `crud <name>` — a module, `create_`/`get_` typed handlers, and a marker.
+    Crud,
+    /// `endpoint <name>` — a typed request handler and a marker.
+    Endpoint,
+    /// `component <name>` — a module and a marker.
+    Component,
+}
+
+/// Recognize an archetype keyword. Kept disjoint from [`trigger_kind`] so a
+/// word is either a leaf trigger or an archetype, never both. The keywords are
+/// deliberately distinctive (not `route`/`widget`/…) so they don't shadow words
+/// commonly used as facet *names* (e.g. a module called `routes`); archetype
+/// keywords are effectively reserved.
+fn archetype_trigger(word: &str) -> Option<Archetype> {
+    match norm(word).as_str() {
+        "crud" => Some(Archetype::Crud),
+        "endpoint" | "endpoints" => Some(Archetype::Endpoint),
+        "component" | "components" => Some(Archetype::Component),
+        _ => None,
+    }
+}
+
+/// Expand an archetype + target `name` into its facet bundle. Pure and
+/// deterministic; every leaf is scaffoldable and observable, so the structural
+/// bundle converges offline (a behaviour leaf, if any, needs the impl). Typed
+/// handlers use `String` so they compile without extra type definitions.
+pub fn expand_archetype(arch: Archetype, name: &str) -> Vec<WishFacet> {
+    match arch {
+        Archetype::Crud => vec![
+            WishFacet::module(name),
+            WishFacet::contract(format!("create_{name}"), &["String"], "String"),
+            WishFacet::contract(format!("get_{name}"), &["String"], "String"),
+            WishFacet::capability(format!("crud:{name}")),
+        ],
+        Archetype::Endpoint => vec![
+            WishFacet::contract(name, &["String"], "String"),
+            WishFacet::capability(format!("endpoint:{name}")),
+        ],
+        Archetype::Component => vec![
+            WishFacet::module(name),
+            WishFacet::capability(format!("component:{name}")),
+        ],
+    }
+}
+
+/// Find the name token introduced after position `i`: skip [`FILLERS`], stop at
+/// the next leaf or archetype trigger. Returns `(clean_name, index_after)`.
+fn name_after(tokens: &[&str], i: usize) -> Option<(String, usize)> {
+    let mut j = i + 1;
+    while j < tokens.len() {
+        if trigger_kind(tokens[j]).is_some() || archetype_trigger(tokens[j]).is_some() {
+            return None;
+        }
+        if FILLERS.contains(&norm(tokens[j]).as_str()) {
+            j += 1;
+            continue;
+        }
+        break;
+    }
+    if j < tokens.len() {
+        clean_name(tokens[j]).map(|name| (name, j + 1))
+    } else {
+        None
+    }
+}
+
 /// Compile a prose intent statement into a content-addressed [`Wish`].
 ///
-/// Deterministic and dependency-free: it scans the prose for structural trigger
-/// words (`crate`/`package`, `module`/`mod`, `function`/`fn`/`method`,
-/// `type`/`struct`/`enum`/`trait`/`symbol`) and turns each `keyword NAME` phrase
-/// into a required [`WishFacet`]. The `Wish` label is the prose itself, so the
-/// intent statement is part of the wish's identity.
+/// Deterministic and dependency-free: it scans the prose for **archetype**
+/// keywords (`crud`/`endpoint`/`component` — each fans out into a facet bundle)
+/// and structural **leaf** trigger words (`crate`/`package`, `module`/`mod`,
+/// `function`/`fn`/`method`, `type`/`struct`/`trait`, `contract`, `behavior`,
+/// …), turning each `keyword NAME` phrase into the required [`WishFacet`]s. The
+/// `Wish` label is the prose itself, so the intent statement is part of the
+/// wish's identity.
 ///
-/// Convention: name the thing *after* the keyword — "a crate kosmo-server, a
-/// module routes, a function handle_request". Free word order and fuzzier
-/// phrasing are the job of an LLM-backed [`WishCompiler`] (a later layer); this
-/// is the offline, byte-deterministic front door.
+/// Convention: name the thing *after* the keyword — "a crud user, a crate
+/// kosmo-server, a function handle_request". Free word order and fuzzier
+/// phrasing are the job of an LLM-backed [`WishCompiler`]; this is the offline,
+/// byte-deterministic front door.
 pub fn compile_wish(prose: &str, policy_id: Digest, evidence_bundle_id: Digest) -> Wish {
     let tokens: Vec<&str> = prose.split_whitespace().collect();
     let mut facets: Vec<WishFacet> = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
-        if let Some(kind) = trigger_kind(tokens[i]) {
-            // Find the next non-filler token as the name (stop at another trigger).
-            let mut j = i + 1;
-            while j < tokens.len() {
-                if trigger_kind(tokens[j]).is_some() {
-                    break;
-                }
-                if FILLERS.contains(&norm(tokens[j]).as_str()) {
-                    j += 1;
-                    continue;
-                }
-                break;
+        // Archetypes take precedence: one keyword expands into many facets.
+        if let Some(arch) = archetype_trigger(tokens[i]) {
+            if let Some((name, next)) = name_after(&tokens, i) {
+                facets.extend(expand_archetype(arch, &name));
+                i = next;
+                continue;
             }
-            if j < tokens.len() && trigger_kind(tokens[j]).is_none() {
-                if let Some(name) = clean_name(tokens[j]) {
-                    facets.push(WishFacet::new(kind, name));
-                    i = j + 1;
-                    continue;
-                }
+        }
+        if let Some(kind) = trigger_kind(tokens[i]) {
+            if let Some((name, next)) = name_after(&tokens, i) {
+                facets.push(WishFacet::new(kind, name));
+                i = next;
+                continue;
             }
         }
         i += 1;
@@ -962,6 +1380,262 @@ mod tests {
     fn facets_from_source_signature_zero_arity() {
         let f = facets_from_source("pub fn now() {}\n");
         assert!(f.contains(&WishFacet::signature("now/0")));
+    }
+
+    #[test]
+    fn facets_from_source_emits_typed_contract() {
+        let f = facets_from_source("pub fn handle(req: Request) -> Response {}\n");
+        assert!(f.contains(&WishFacet::contract("handle", &["Request"], "Response")));
+        // The structural cousins are still emitted — no regression.
+        assert!(f.contains(&WishFacet::symbol("handle")));
+        assert!(f.contains(&WishFacet::signature("handle/1")));
+    }
+
+    #[test]
+    fn facets_from_source_contract_defaults_unit_return() {
+        let f = facets_from_source("pub fn tick() {}\n");
+        assert!(f.contains(&WishFacet::contract("tick", &[], "()")));
+    }
+
+    #[test]
+    fn facets_from_source_contract_captures_generic_and_multi_arg() {
+        let f = facets_from_source("pub fn count(items: Vec<User>, max: usize) -> usize {}\n");
+        assert!(f.contains(&WishFacet::contract(
+            "count",
+            &["Vec<User>", "usize"],
+            "usize"
+        )));
+    }
+
+    #[test]
+    fn facets_from_source_contract_skips_self_receiver() {
+        let f = facets_from_source("pub fn name(&self, id: u64) -> String {}\n");
+        assert!(f.contains(&WishFacet::contract("name", &["u64"], "String")));
+    }
+
+    #[test]
+    fn facets_from_source_observes_scaffold_form_for_roundtrip() {
+        // The exact shape the contract scaffold emits must observe back to the
+        // same key — this is the scaffold→observe round-trip that makes the
+        // descent converge.
+        let f = facets_from_source("pub fn add(_a0: i32, _a1: i32) -> i32 { todo!(\"x\") }\n");
+        assert!(f.contains(&WishFacet::contract("add", &["i32", "i32"], "i32")));
+    }
+
+    #[test]
+    fn contract_trigger_compiles_space_free_form() {
+        let w = compile_wish(
+            "a contract handle(Request)->Response",
+            Digest::ZERO,
+            Digest::ZERO,
+        );
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::contract("handle", &["Request"], "Response")));
+    }
+
+    // ── Behaviour (the keystone) ──────────────────────────────────────────
+
+    #[test]
+    fn behavior_specs_pair_marker_with_test_name() {
+        let src = "// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_abc() { assert_eq!(add(2,3),5); }\n";
+        let pairs = behavior_specs_from_source(src);
+        assert_eq!(pairs, vec![("kosmo_spec_abc".to_string(), "add(2,3)=>5".to_string())]);
+    }
+
+    #[test]
+    fn behavior_marker_without_test_is_not_paired() {
+        // A marker not immediately followed by a test fn pairs with nothing.
+        let src = "// kosmo:behavior: add(2,3)=>5\npub fn add(a: i32, b: i32) -> i32 { a + b }\n";
+        assert!(behavior_specs_from_source(src).is_empty());
+    }
+
+    #[test]
+    fn behavior_facets_are_failclosed() {
+        let specs = vec![
+            ("kosmo_spec_green".to_string(), "add(2,3)=>5".to_string()),
+            ("kosmo_spec_red".to_string(), "add(2,3)=>6".to_string()),
+        ];
+        let mut passing = BTreeSet::new();
+        passing.insert("kosmo_spec_green".to_string()); // only the green one passed
+        let facets = behavior_facets(&specs, &passing);
+        assert!(facets.contains(&WishFacet::behavior("add(2,3)=>5")));
+        assert!(
+            !facets.contains(&WishFacet::behavior("add(2,3)=>6")),
+            "a red spec-test must NOT satisfy its behaviour facet"
+        );
+    }
+
+    #[test]
+    fn behavior_facets_empty_when_nothing_passes() {
+        let specs = vec![("kosmo_spec_x".to_string(), "f()=>1".to_string())];
+        assert!(behavior_facets(&specs, &BTreeSet::new()).is_empty());
+    }
+
+    #[test]
+    fn behavior_trigger_compiles_space_free_form() {
+        let w = compile_wish("a behavior add(2,3)=>5", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::behavior("add(2,3)=>5")));
+    }
+
+    #[test]
+    fn deep_observation_does_not_emit_behaviour() {
+        // Lexical observation cannot know whether a test passes, so it never
+        // emits a Behavior facet — only validated observation does.
+        let facets =
+            facets_from_source("// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_abc() {}\n");
+        assert!(!facets.iter().any(|f| f.kind == WishFacetKind::Behavior));
+    }
+
+    // ── Archetypes (the breadth axis) ─────────────────────────────────────
+
+    #[test]
+    fn archetype_crud_expands_to_bundle() {
+        let facets = expand_archetype(Archetype::Crud, "user");
+        assert_eq!(facets.len(), 4, "crud fans out into four facets");
+        assert!(facets.contains(&WishFacet::module("user")));
+        assert!(facets.contains(&WishFacet::contract("create_user", &["String"], "String")));
+        assert!(facets.contains(&WishFacet::contract("get_user", &["String"], "String")));
+        assert!(facets.contains(&WishFacet::capability("crud:user")));
+    }
+
+    #[test]
+    fn archetype_endpoint_and_component_bundles() {
+        let e = expand_archetype(Archetype::Endpoint, "handle");
+        assert!(e.contains(&WishFacet::contract("handle", &["String"], "String")));
+        assert!(e.contains(&WishFacet::capability("endpoint:handle")));
+        let c = expand_archetype(Archetype::Component, "card");
+        assert!(c.contains(&WishFacet::module("card")));
+        assert!(c.contains(&WishFacet::capability("component:card")));
+    }
+
+    #[test]
+    fn compile_wish_expands_archetype_to_bundle() {
+        // One prose phrase → a four-facet bundle.
+        let w = compile_wish("a crud user", Digest::ZERO, Digest::ZERO);
+        assert_eq!(w.predicate_count(), 4);
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("user")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::capability("crud:user")));
+    }
+
+    #[test]
+    fn compile_wish_mixes_archetype_and_leaf() {
+        let w = compile_wish("a crud user and a crate api", Digest::ZERO, Digest::ZERO);
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("api")));
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("user")));
+        assert_eq!(w.predicate_count(), 5, "4 from crud + 1 crate");
+    }
+
+    // ── Crate-qualified observation (crate-targeting round-trip) ───────────
+
+    #[test]
+    fn manifest_package_name_reads_package_section() {
+        assert_eq!(
+            manifest_package_name("[package]\nname = \"kosmo-api\"\nversion = \"0.1.0\"\n"),
+            Some("kosmo-api".to_string())
+        );
+        // A workspace-only manifest has no package name.
+        assert_eq!(
+            manifest_package_name("[workspace]\nmembers = [\"a\"]\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn rust_dir_emits_crate_qualified_facets() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-intent-cratequal-{nanos}"));
+        std::fs::create_dir_all(root.join("crates/api/src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/api\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("crates/api/Cargo.toml"),
+            "[package]\nname = \"api\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("crates/api/src/lib.rs"), "pub fn handle() {}\n").unwrap();
+
+        let facets = facets_from_rust_dir(&root);
+        // Both the bare facet and the crate-qualified facet are present.
+        assert!(facets.contains(&WishFacet::symbol("handle")), "bare missing");
+        assert!(
+            facets.contains(&WishFacet::symbol("handle@api")),
+            "crate-qualified missing"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // ── Composition (typed data-flow, level 3) ────────────────────────────
+
+    #[test]
+    fn derive_compositions_chains_contracts_by_type() {
+        let mut facets = BTreeSet::new();
+        facets.insert(WishFacet::contract("parse", &["String"], "Ast"));
+        facets.insert(WishFacet::contract("eval", &["Ast"], "i32"));
+        facets.insert(WishFacet::contract("unrelated", &["bool"], "bool"));
+        let comps = derive_compositions(&facets);
+        assert!(comps.contains(&WishFacet::composition("parse", "Ast", "eval")));
+        assert!(
+            !comps.iter().any(|c| c.key.contains("unrelated")),
+            "no spurious composition"
+        );
+    }
+
+    #[test]
+    fn derive_compositions_ignores_unit_return() {
+        let mut facets = BTreeSet::new();
+        facets.insert(WishFacet::contract("src", &[], "()"));
+        facets.insert(WishFacet::contract("sink", &["()"], "()"));
+        // Unit must not chain, or everything would compose with everything.
+        assert!(derive_compositions(&facets).is_empty());
+    }
+
+    #[test]
+    fn composition_trigger_compiles() {
+        let w = compile_wish("a composition parse>>Ast>>eval", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::composition("parse", "Ast", "eval")));
+    }
+
+    #[test]
+    fn rust_dir_derives_composition_from_source() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-intent-comp-{nanos}"));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "pub struct Ast;\npub fn parse(s: String) -> Ast { Ast }\npub fn eval(a: Ast) -> i32 { 0 }\n",
+        )
+        .unwrap();
+        let facets = facets_from_rust_dir(&root);
+        assert!(
+            facets.contains(&WishFacet::composition("parse", "Ast", "eval")),
+            "parse->Ast->eval should be derived"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

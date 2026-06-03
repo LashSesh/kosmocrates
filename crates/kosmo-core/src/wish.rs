@@ -45,8 +45,25 @@ pub enum WishFacetKind {
     Dependency,
     /// A public function signature `"name/arity"` is present (name + arg count).
     Signature,
+    /// A typed function contract `"name(T0,T1)->R"` is present — the typed
+    /// promotion of [`WishFacetKind::Signature`] (parameter + return *types*,
+    /// not merely the count). Shallow types only: single tokens and simple
+    /// generics round-trip; deep generics are stored verbatim.
+    Contract,
     /// A test is present (`#[test] fn name`), keyed by the test function name.
     Test,
+    /// A *validated behaviour* is present, keyed by a spec `"name(args)=>expected"`.
+    /// The keystone of the behaviour axis: this facet is satisfied **only** when
+    /// a scaffolded spec-test pinning that input→output pair actually *passes*
+    /// (observed by running the suite). Acceptance over generation — the loop
+    /// declares it realized only when behaviour is observed correct.
+    Behavior,
+    /// A typed data-flow composition `"from>>via>>to"`: `from` returns type
+    /// `via` and `to` takes `via` as its first parameter, so the components
+    /// *wire together* (`to(from(x))` typechecks). The behavioural cousin of
+    /// [`WishFacetKind::Dependency`]: a dependency says A *can see* B; a
+    /// composition says A's output *fits* B's input.
+    Composition,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -95,9 +112,41 @@ impl WishFacet {
     pub fn signature(key: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Signature, key)
     }
+    /// A typed function-contract facet, keyed `"name(T0,T1)->R"` — the typed
+    /// promotion of [`WishFacet::signature`]. `params` are the parameter
+    /// *types* in declaration order; `ret` is the return type (`"()"` for
+    /// none). Types are stored verbatim, so callers pass normalized type
+    /// strings (the observer in `kosmo-intent` collapses whitespace).
+    pub fn contract(name: impl AsRef<str>, params: &[&str], ret: impl AsRef<str>) -> Self {
+        Self::new(
+            WishFacetKind::Contract,
+            format!("{}({})->{}", name.as_ref(), params.join(","), ret.as_ref()),
+        )
+    }
+    /// A typed function-contract facet from a pre-formed `"name(T)->R"` key.
+    pub fn contract_key(key: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Contract, key)
+    }
     /// A test facet, keyed by the test function name.
     pub fn test(name: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Test, name)
+    }
+    /// A validated-behaviour facet, keyed by a spec `"name(args)=>expected"`
+    /// (e.g. `"add(2,3)=>5"`). Met only when the scaffolded spec-test passes.
+    pub fn behavior(spec: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Behavior, spec)
+    }
+    /// A typed data-flow composition facet `"from>>via>>to"`: `from` returns
+    /// `via` and `to` consumes `via` as its first parameter.
+    pub fn composition(
+        from: impl AsRef<str>,
+        via: impl AsRef<str>,
+        to: impl AsRef<str>,
+    ) -> Self {
+        Self::new(
+            WishFacetKind::Composition,
+            format!("{}>>{}>>{}", from.as_ref(), via.as_ref(), to.as_ref()),
+        )
     }
 }
 
@@ -463,6 +512,39 @@ mod tests {
         assert_eq!(WishFacet::symbol("a::b"), WishFacet::symbol("a::b"));
         assert_ne!(WishFacet::symbol("a::b"), WishFacet::module("a::b"));
         assert_ne!(WishFacet::symbol("a::b"), WishFacet::symbol("a::c"));
+    }
+
+    #[test]
+    fn contract_facet_key_format() {
+        let f = WishFacet::contract("handle", &["Request"], "Response");
+        assert_eq!(f.kind, WishFacetKind::Contract);
+        assert_eq!(f.key, "handle(Request)->Response");
+        // The `contract_key` constructor accepts the same pre-formed key.
+        assert_eq!(f, WishFacet::contract_key("handle(Request)->Response"));
+    }
+
+    #[test]
+    fn contract_facet_no_params_unit_return() {
+        assert_eq!(WishFacet::contract("tick", &[], "()").key, "tick()->()");
+        assert_eq!(
+            WishFacet::contract("add", &["i32", "i32"], "i32").key,
+            "add(i32,i32)->i32"
+        );
+    }
+
+    #[test]
+    fn behavior_facet_key_is_the_spec() {
+        let f = WishFacet::behavior("add(2,3)=>5");
+        assert_eq!(f.kind, WishFacetKind::Behavior);
+        assert_eq!(f.key, "add(2,3)=>5");
+        assert_ne!(f, WishFacet::behavior("add(2,3)=>6"));
+    }
+
+    #[test]
+    fn composition_facet_key_is_the_pipe() {
+        let f = WishFacet::composition("parse", "Ast", "eval");
+        assert_eq!(f.kind, WishFacetKind::Composition);
+        assert_eq!(f.key, "parse>>Ast>>eval");
     }
 
     // ── Wish content addressing ───────────────────────────────────────────

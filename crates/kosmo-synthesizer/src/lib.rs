@@ -324,17 +324,80 @@ pub struct FacetScaffolder;
 
 impl FacetScaffolder {
     fn scaffold(&self, ws: &Path, facet: &WishFacet) -> Vec<FileChange> {
-        match facet.kind {
-            WishFacetKind::Symbol => Self::scaffold_symbol(ws, &facet.key),
-            WishFacetKind::Signature => Self::scaffold_signature(ws, &facet.key),
-            WishFacetKind::Module => Self::scaffold_module(ws, &facet.key),
-            WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
-            WishFacetKind::Capability => Self::scaffold_capability(ws, &facet.key),
-            WishFacetKind::Test => Self::scaffold_test(ws, &facet.key),
-            // Dependency / Resolution have no reliable structural scaffold
-            // (a dependency edit needs a path the scaffolder can't infer).
-            WishFacetKind::Dependency | WishFacetKind::Resolution => vec![],
+        // Crate-targeting: a key ending in "@<crate>" scaffolds the item INTO
+        // that workspace member instead of the root crate. `@` appears in no
+        // other facet key, so it is an unambiguous separator.
+        if Self::crate_targetable(&facet.kind) {
+            if let Some((bare, crate_name)) = facet.key.rsplit_once('@') {
+                if !bare.is_empty() && !crate_name.is_empty() {
+                    return Self::scaffold_into_crate(ws, &facet.kind, bare, crate_name);
+                }
+            }
         }
+        Self::scaffold_kind(ws, &facet.kind, &facet.key)
+    }
+
+    /// Dispatch a facet to its per-kind scaffolder, treating `ws` as the crate
+    /// root. Paths in the returned changes are relative to `ws`.
+    fn scaffold_kind(ws: &Path, kind: &WishFacetKind, key: &str) -> Vec<FileChange> {
+        match kind {
+            WishFacetKind::Symbol => Self::scaffold_symbol(ws, key),
+            WishFacetKind::Signature => Self::scaffold_signature(ws, key),
+            WishFacetKind::Contract => Self::scaffold_contract(ws, key),
+            WishFacetKind::Module => Self::scaffold_module(ws, key),
+            WishFacetKind::Crate => Self::scaffold_crate(ws, key),
+            WishFacetKind::Capability => Self::scaffold_capability(ws, key),
+            WishFacetKind::Test => Self::scaffold_test(ws, key),
+            WishFacetKind::Behavior => Self::scaffold_behavior(ws, key),
+            WishFacetKind::Composition => Self::scaffold_composition(ws, key),
+            WishFacetKind::Dependency => Self::scaffold_dependency(ws, key),
+            // A resolution ("the bad thing is gone") has no structural scaffold.
+            WishFacetKind::Resolution => vec![],
+        }
+    }
+
+    /// Which facet kinds describe an *item inside a crate* (and so can be
+    /// crate-targeted with `@<crate>`). `Crate` / `Dependency` / `Resolution`
+    /// are workspace-level, and `Behavior` is observed by a suite-wide test run,
+    /// so none of those take a crate suffix.
+    fn crate_targetable(kind: &WishFacetKind) -> bool {
+        matches!(
+            kind,
+            WishFacetKind::Symbol
+                | WishFacetKind::Signature
+                | WishFacetKind::Contract
+                | WishFacetKind::Module
+                | WishFacetKind::Capability
+                | WishFacetKind::Test
+        )
+    }
+
+    /// Scaffold `bare` (the key without its `@<crate>` suffix) of kind `kind`
+    /// INTO the member crate `crate_name`: run the per-kind scaffolder as if the
+    /// crate's directory were the root, then re-base the change paths to be
+    /// workspace-root-relative. An unknown crate is an honest no-op.
+    fn scaffold_into_crate(
+        ws: &Path,
+        kind: &WishFacetKind,
+        bare: &str,
+        crate_name: &str,
+    ) -> Vec<FileChange> {
+        let manifests = find_crate_manifests(ws);
+        let Some((_, manifest)) = manifests.iter().find(|(n, _)| n == crate_name) else {
+            return vec![];
+        };
+        let Some(crate_dir) = manifest.parent() else {
+            return vec![];
+        };
+        let rel = crate_dir.strip_prefix(ws).unwrap_or(crate_dir).to_path_buf();
+        Self::scaffold_kind(crate_dir, kind, bare)
+            .into_iter()
+            .map(|fc| FileChange {
+                path: rel.join(&fc.path),
+                kind: fc.kind,
+                content: fc.content,
+            })
+            .collect()
     }
 
     /// Append `snippet` to `src/lib.rs` (or `src/main.rs`, or create lib.rs) iff
@@ -396,6 +459,108 @@ impl FacetScaffolder {
         )
     }
 
+    /// Realize a typed contract `"name(T0,T1)->R"` by appending a typed
+    /// function stub with a `todo!()` body — structurally present, **honestly
+    /// empty** at runtime. The dual of `kosmo-intent`'s contract observation,
+    /// so scaffold → observe round-trips and the descent converges. An
+    /// unparseable key (no parameter list) is an honest no-op.
+    fn scaffold_contract(ws: &Path, key: &str) -> Vec<FileChange> {
+        let Some((name, params, ret)) = parse_contract_key(key) else {
+            return vec![];
+        };
+        let param_list = params
+            .iter()
+            .enumerate()
+            .map(|(i, t)| format!("_a{i}: {t}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // `-> ()` is omitted: the no-arrow form observes back to the same `()`
+        // return, and avoids a clippy `unused_unit` on every scaffold.
+        let arrow = if ret == "()" {
+            String::new()
+        } else {
+            format!(" -> {ret}")
+        };
+        Self::append_to_lib(
+            ws,
+            &format!("fn {name}"),
+            &format!("pub fn {name}({param_list}){arrow} {{ todo!(\"kosmo: implement {name}\") }}"),
+        )
+    }
+
+    /// Append several `(marker, snippet)` items to the crate's lib in a
+    /// **single** change, skipping any whose marker is already present. Needed
+    /// when one facet must add several items: returning two changes for the same
+    /// path would have the second overwrite the first on apply.
+    fn append_items_to_lib(ws: &Path, items: &[(String, String)]) -> Vec<FileChange> {
+        let lib = ws.join("src/lib.rs");
+        let main = ws.join("src/main.rs");
+        let (rel, path, exists) = if lib.exists() {
+            ("src/lib.rs", lib, true)
+        } else if main.exists() {
+            ("src/main.rs", main, true)
+        } else {
+            ("src/lib.rs", lib, false)
+        };
+        let mut content = if exists {
+            std::fs::read_to_string(&path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let mut added = false;
+        for (marker, snippet) in items {
+            if content.contains(marker.as_str()) {
+                continue;
+            }
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(snippet);
+            if !snippet.ends_with('\n') {
+                content.push('\n');
+            }
+            added = true;
+        }
+        if !added {
+            return vec![];
+        }
+        let fc = if exists {
+            FileChange::modify(rel, content)
+        } else {
+            FileChange::create(rel, content)
+        };
+        vec![fc]
+    }
+
+    /// Realize a typed composition `"from>>via>>to"` by scaffolding two
+    /// type-compatible stubs in one change: `pub fn from() -> via` and
+    /// `pub fn to(_a0: via)`. Once both exist with matching types the observer
+    /// derives the composition, so it round-trips. Honestly empty (`todo!()`);
+    /// idempotent via the `fn from` / `fn to` markers; malformed key → no-op.
+    fn scaffold_composition(ws: &Path, key: &str) -> Vec<FileChange> {
+        let parts: Vec<&str> = key.split(">>").collect();
+        if parts.len() != 3 {
+            return vec![];
+        }
+        let (from, via, to) = (parts[0].trim(), parts[1].trim(), parts[2].trim());
+        if from.is_empty() || via.is_empty() || to.is_empty() {
+            return vec![];
+        }
+        Self::append_items_to_lib(
+            ws,
+            &[
+                (
+                    format!("fn {from}"),
+                    format!("pub fn {from}() -> {via} {{ todo!(\"kosmo: implement {from}\") }}"),
+                ),
+                (
+                    format!("fn {to}"),
+                    format!("pub fn {to}(_a0: {via}) {{ todo!(\"kosmo: implement {to}\") }}"),
+                ),
+            ],
+        )
+    }
+
     fn scaffold_capability(ws: &Path, name: &str) -> Vec<FileChange> {
         Self::append_to_lib(
             ws,
@@ -409,6 +574,37 @@ impl FacetScaffolder {
             ws,
             &format!("fn {name}"),
             &format!("#[test]\nfn {name}() {{ /* scaffolded by kosmo */ }}"),
+        )
+    }
+
+    /// Realize a behaviour spec `"name(args)=>expected"` (the keystone) by
+    /// appending a spec-test that pins the input→output pair:
+    ///
+    /// ```text
+    /// // kosmo:behavior: add(2,3)=>5
+    /// #[test]
+    /// fn kosmo_spec_<hash>() { assert_eq!(add(2, 3), 5); }
+    /// ```
+    ///
+    /// The test is **red** until `add` actually returns `5` — the deterministic
+    /// scaffolder cannot write the body, so a behaviour wish converges only once
+    /// the implementation is correct (filled by the LLM fallback, or already
+    /// present). The `// kosmo:behavior:` marker carries the spec verbatim so
+    /// the observer can pair this test back to its facet (and emit it only when
+    /// green). Idempotent via the marker line; an unparseable key is a no-op.
+    fn scaffold_behavior(ws: &Path, key: &str) -> Vec<FileChange> {
+        let Some((call, expected)) = parse_behavior_key(key) else {
+            return vec![];
+        };
+        let hash = Digest::of_bytes(key.as_bytes()).to_hex();
+        let test_name = format!("kosmo_spec_{}", &hash[..12]);
+        let marker = format!("kosmo:behavior: {key}");
+        Self::append_to_lib(
+            ws,
+            &marker,
+            &format!(
+                "// {marker}\n#[test]\nfn {test_name}() {{ assert_eq!({call}, {expected}); }}"
+            ),
         )
     }
 
@@ -463,6 +659,183 @@ impl FacetScaffolder {
         }
         changes
     }
+
+    /// Realize a dependency edge `"from->to"` by adding a path dependency on
+    /// `to` to `from`'s `Cargo.toml`. Both crates are located by package name
+    /// within the workspace; the wish is left untouched (empty patch) if either
+    /// is missing or the edge already exists.
+    fn scaffold_dependency(ws: &Path, key: &str) -> Vec<FileChange> {
+        let Some((from, to)) = key.split_once("->") else {
+            return vec![];
+        };
+        let (from, to) = (from.trim(), to.trim());
+        if from.is_empty() || to.is_empty() || from == to {
+            return vec![];
+        }
+        let manifests = find_crate_manifests(ws);
+        let from_path = manifests.iter().find(|(n, _)| n == from).map(|(_, p)| p.clone());
+        let to_path = manifests.iter().find(|(n, _)| n == to).map(|(_, p)| p.clone());
+        let (Some(from_path), Some(to_path)) = (from_path, to_path) else {
+            return vec![]; // can't locate one or both crates — an honest no-op
+        };
+        let (Some(from_dir), Some(to_dir)) = (from_path.parent(), to_path.parent()) else {
+            return vec![];
+        };
+        let content = std::fs::read_to_string(&from_path).unwrap_or_default();
+        if dep_already_present(&content, to) {
+            return vec![]; // idempotent
+        }
+        let rel = relative_path(from_dir, to_dir);
+        let new_content = add_path_dependency(&content, to, &rel);
+        let rel_manifest = from_path.strip_prefix(ws).unwrap_or(&from_path);
+        vec![FileChange::modify(rel_manifest, new_content)]
+    }
+}
+
+/// Parse a contract key `"name(T0,T1)->R"` into `(name, param_types, ret)`.
+/// Mirrors `kosmo-intent`'s contract observation. `None` if the key has no
+/// parameter list. The parameter list and `->` are matched depth-aware so
+/// nested generics / closure types do not unbalance the scan.
+fn parse_contract_key(key: &str) -> Option<(String, Vec<String>, String)> {
+    let chars: Vec<char> = key.chars().collect();
+    let open = chars.iter().position(|&c| c == '(')?;
+    let name: String = chars[..open].iter().collect();
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    // Match the parameter-list close paren, treating `->` as an atom.
+    let mut depth = 0i32;
+    let mut close = None;
+    let mut prev = ' ';
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        let is_arrow_gt = c == '>' && prev == '-';
+        if !is_arrow_gt {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        prev = c;
+    }
+    let close = close?;
+    let params_str: String = chars[open + 1..close].iter().collect();
+    let params = split_type_list(&params_str);
+    let rest: String = chars[close + 1..].iter().collect();
+    let ret = rest
+        .trim_start()
+        .strip_prefix("->")
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "()".to_string());
+    Some((name, params, ret))
+}
+
+/// Parse a behaviour key `"name(args)=>expected"` into `(call, expected)`,
+/// where `call` is the call expression `"name(a, b)"` (args re-joined with
+/// `", "`) and `expected` is the verbatim expected expression. `None` if the
+/// key has no `=>` separator or no parameter list.
+fn parse_behavior_key(key: &str) -> Option<(String, String)> {
+    let (lhs, rhs) = split_on_fat_arrow(key)?;
+    let lhs = lhs.trim();
+    let expected = rhs.trim().to_string();
+    if expected.is_empty() {
+        return None;
+    }
+    let chars: Vec<char> = lhs.chars().collect();
+    let open = chars.iter().position(|&c| c == '(')?;
+    let name: String = chars[..open].iter().collect();
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    // Match the call's close paren depth-aware.
+    let mut depth = 0i32;
+    let mut close = None;
+    for (i, &c) in chars.iter().enumerate().skip(open) {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    let args_str: String = chars[open + 1..close].iter().collect();
+    let args = split_type_list(&args_str); // depth-aware top-level split
+    Some((format!("{name}({})", args.join(", ")), expected))
+}
+
+/// Find the first **top-level** `=>` (ignoring `()`, `<>`, `[]` nesting) and
+/// split there. Returns `(left, right)` excluding the `=>`.
+fn split_on_fat_arrow(s: &str) -> Option<(String, String)> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '(' | '<' | '[' => depth += 1,
+            ')' | '>' | ']' => depth -= 1,
+            '=' if depth == 0 && chars.get(i + 1) == Some(&'>') => {
+                let left: String = chars[..i].iter().collect();
+                let right: String = chars[i + 2..].iter().collect();
+                return Some((left, right));
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Split a comma-separated type list on top-level commas, ignoring commas
+/// nested in `()`, `<>`, `[]`; `->` is an atom. Empty segments are dropped.
+fn split_type_list(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut cur = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '-' if chars.peek() == Some(&'>') => {
+                cur.push('-');
+                cur.push(chars.next().unwrap());
+            }
+            '(' | '<' | '[' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' | '>' | ']' => {
+                depth -= 1;
+                cur.push(c);
+            }
+            ',' if depth == 0 => {
+                let t = cur.trim().to_string();
+                if !t.is_empty() {
+                    out.push(t);
+                }
+                cur.clear();
+            }
+            _ => cur.push(c),
+        }
+    }
+    let t = cur.trim().to_string();
+    if !t.is_empty() {
+        out.push(t);
+    }
+    out
 }
 
 /// Insert `"<name>",` at the head of the first `members = [ … ]` array in a
@@ -475,6 +848,107 @@ fn register_member(toml: &str, name: &str) -> Option<String> {
     out.push_str(&format!("\n    \"{name}\","));
     out.push_str(&toml[bracket + 1..]);
     Some(out)
+}
+
+/// Walk `ws` for `Cargo.toml` files and return `(package_name, manifest_path)`
+/// for each that declares a `[package]`. Skips `target` and dotted directories.
+fn find_crate_manifests(ws: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    let mut stack = vec![ws.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == "target" || name.starts_with('.') {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.file_name().map_or(false, |f| f == "Cargo.toml") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Some(name) = package_name(&content) {
+                        out.push((name, path));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Extract `name = "…"` from a manifest's `[package]` section.
+fn package_name(toml: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in toml.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if in_package {
+            if let Some(rest) = line.strip_prefix("name") {
+                if let Some(val) = rest.trim_start().strip_prefix('=') {
+                    let v = val.trim().trim_matches('"');
+                    if !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Relative path from directory `from` to directory `to`, `/`-joined
+/// (e.g. `"../b"`). Both are expected to share a common ancestor.
+fn relative_path(from: &Path, to: &Path) -> String {
+    let from_comps: Vec<_> = from.components().collect();
+    let to_comps: Vec<_> = to.components().collect();
+    let mut i = 0;
+    while i < from_comps.len() && i < to_comps.len() && from_comps[i] == to_comps[i] {
+        i += 1;
+    }
+    let mut parts: Vec<String> = std::iter::repeat("..".to_string())
+        .take(from_comps.len() - i)
+        .collect();
+    for c in &to_comps[i..] {
+        parts.push(c.as_os_str().to_string_lossy().into_owned());
+    }
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
+/// Is `dep` already declared as a dependency line in `toml`?
+fn dep_already_present(toml: &str, dep: &str) -> bool {
+    toml.lines().any(|l| {
+        l.trim()
+            .strip_prefix(dep)
+            .map_or(false, |rest| rest.trim_start().starts_with('='))
+    })
+}
+
+/// Add `dep = { path = "<rel>" }` to the `[dependencies]` section, creating the
+/// section if it is absent.
+fn add_path_dependency(toml: &str, dep: &str, rel: &str) -> String {
+    let dep_line = format!("{dep} = {{ path = \"{rel}\" }}");
+    let mut lines: Vec<String> = toml.lines().map(|l| l.to_string()).collect();
+    if let Some(i) = lines.iter().position(|l| l.trim() == "[dependencies]") {
+        lines.insert(i + 1, dep_line);
+    } else {
+        lines.push(String::new());
+        lines.push("[dependencies]".to_string());
+        lines.push(dep_line);
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
 }
 
 impl ActionSynthesizer for FacetScaffolder {
@@ -716,6 +1190,124 @@ mod tests {
     }
 
     #[test]
+    fn scaffold_contract_emits_typed_stub() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::contract("handle", &["Request"], "Response"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(
+            c.contains("pub fn handle(_a0: Request) -> Response"),
+            "got:\n{c}"
+        );
+        assert!(c.contains("todo!"), "body must be honestly empty: {c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_unit_return_omits_arrow() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::contract("tick", &[], "()"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(c.contains("pub fn tick()"), "got:\n{c}");
+        assert!(!c.contains("-> ()"), "unit return should omit the arrow: {c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_multi_arg_generic() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(
+            &dir,
+            WishFacet::contract("count", &["Vec<User>", "usize"], "usize"),
+        );
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(
+            c.contains("pub fn count(_a0: Vec<User>, _a1: usize) -> usize"),
+            "got:\n{c}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_is_idempotent() {
+        let dir = temp_ws("pub fn handle(_a0: Request) -> Response { todo!() }\n");
+        let req = wish_request(&dir, WishFacet::contract("handle", &["Request"], "Response"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "existing fn name → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_contract_key_roundtrips_through_split() {
+        let (name, params, ret) = parse_contract_key("count(Vec<User>,usize)->usize").unwrap();
+        assert_eq!(name, "count");
+        assert_eq!(params, vec!["Vec<User>".to_string(), "usize".to_string()]);
+        assert_eq!(ret, "usize");
+        // No parameter list → not a contract key.
+        assert!(parse_contract_key("bare_name").is_none());
+    }
+
+    #[test]
+    fn scaffold_behavior_emits_marked_spec_test() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::behavior("add(2,3)=>5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        // The marker carries the spec verbatim so the observer can pair it back.
+        assert!(c.contains("// kosmo:behavior: add(2,3)=>5"), "got:\n{c}");
+        assert!(c.contains("#[test]"));
+        assert!(c.contains("assert_eq!(add(2, 3), 5);"), "got:\n{c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_behavior_is_idempotent() {
+        let dir = temp_ws("// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_x() {}\n");
+        let req = wish_request(&dir, WishFacet::behavior("add(2,3)=>5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "marker already present → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_behavior_key_splits_call_and_expected() {
+        let (call, expected) = parse_behavior_key("greet(\"x\",2)=>\"hi x\"").unwrap();
+        assert_eq!(call, "greet(\"x\", 2)");
+        assert_eq!(expected, "\"hi x\"");
+        // Missing `=>` → not a behaviour key.
+        assert!(parse_behavior_key("add(2,3)").is_none());
+    }
+
+    #[test]
+    fn scaffold_composition_emits_two_compatible_stubs_in_one_change() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert_eq!(
+            res.patch.file_changes.len(),
+            1,
+            "one change for the same file, not two (the second would overwrite)"
+        );
+        let c = &res.patch.file_changes[0].content;
+        assert!(c.contains("pub fn parse() -> String"), "got:\n{c}");
+        assert!(c.contains("pub fn eval(_a0: String)"), "got:\n{c}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_composition_idempotent_when_both_present() {
+        let dir = temp_ws(
+            "pub fn parse() -> String { todo!() }\npub fn eval(_a0: String) { todo!() }\n",
+        );
+        let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "both fns present → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn scaffold_capability_adds_marker() {
         let dir = temp_ws("// root\n");
         let req = wish_request(&dir, WishFacet::capability("http-server"));
@@ -735,5 +1327,110 @@ mod tests {
         assert!(c.contains("#[test]"));
         assert!(c.contains("fn it_works"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_dependency_adds_path_dep() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws = std::env::temp_dir().join(format!("kosmo-synth-dep-{nanos}"));
+        for name in ["a", "b"] {
+            std::fs::create_dir_all(ws.join("crates").join(name).join("src")).unwrap();
+            std::fs::write(
+                ws.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            std::fs::write(ws.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        let req = wish_request(&ws, WishFacet::dependency("a", "b"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(!res.patch.is_empty(), "should propose a manifest edit");
+        let fc = &res.patch.file_changes[0];
+        assert!(fc.path.ends_with("Cargo.toml"));
+        assert!(
+            fc.content.contains("b = { path = \"../b\" }"),
+            "got:\n{}",
+            fc.content
+        );
+        assert!(fc.content.contains("[dependencies]"));
+
+        // Idempotent: once the edge exists, a second pass proposes nothing.
+        std::fs::write(ws.join("crates/a/Cargo.toml"), &fc.content).unwrap();
+        let res2 = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res2.patch.is_empty(), "second pass should be a no-op");
+
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    /// A multi-crate workspace with members `alpha` and `beta` under `crates/`.
+    fn temp_workspace() -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws = std::env::temp_dir().join(format!("kosmo-synth-target-{nanos}"));
+        for name in ["alpha", "beta"] {
+            std::fs::create_dir_all(ws.join("crates").join(name).join("src")).unwrap();
+            std::fs::write(
+                ws.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            std::fs::write(ws.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        ws
+    }
+
+    #[test]
+    fn scaffold_symbol_targets_named_crate() {
+        let ws = temp_workspace();
+        // "helper@beta" → into crates/beta, not the workspace root.
+        let req = wish_request(&ws, WishFacet::symbol("helper@beta"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(
+            fc.path,
+            std::path::Path::new("crates/beta/src/lib.rs"),
+            "should write into the beta crate"
+        );
+        assert!(fc.content.contains("pub fn helper"));
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_targets_named_crate() {
+        let ws = temp_workspace();
+        let req = wish_request(
+            &ws,
+            WishFacet::contract_key("handle(String)->String@alpha"),
+        );
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.path, std::path::Path::new("crates/alpha/src/lib.rs"));
+        assert!(fc.content.contains("pub fn handle(_a0: String) -> String"));
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    #[test]
+    fn scaffold_into_unknown_crate_is_noop() {
+        let ws = temp_workspace();
+        let req = wish_request(&ws, WishFacet::symbol("helper@ghost"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "unknown crate → honest no-op");
+        std::fs::remove_dir_all(&ws).ok();
     }
 }

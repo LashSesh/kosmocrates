@@ -8,6 +8,7 @@ publish gate flips) will be served on
 | Document | What it covers |
 |---|---|
 | [`OVERVIEW.md`](OVERVIEW.md) | Full architecture: every tier, every feature, theory background. Long read. |
+| [`HORIZON-behavior-archetype.md`](HORIZON-behavior-archetype.md) | Design spec for the next floor: behavior facets (correctness, not just presence) + archetype expansion (full-stack fan-out). Not yet implemented. |
 | [`GETTING_STARTED.md`](GETTING_STARTED.md) | Step-by-step setup for first-time users. Complements `../README.md` quickstart. |
 | [`COMPLIANCE.md`](COMPLIANCE.md) | EU AI Act / determinism / replay compliance posture. |
 | [`POST_SYMBOLIC.md`](POST_SYMBOLIC.md) | The theory framing behind "post-symbolic" — why this engine is not a vector store. |
