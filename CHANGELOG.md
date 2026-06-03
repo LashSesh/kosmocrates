@@ -15,6 +15,16 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-run --wish … --apply` — the attractor descent, executed**
+
+  Wish mode gains a convergence loop: observe → assess → scaffold every unmet
+  facet → write it → re-observe, until the wish is realized (or no progress is
+  possible / max 8 iterations). Driven by a `WishSession` so the full trajectory
+  is recorded and printed (`iter 0: met 0/3 UNSTARTED → iter 1: met 3/3
+  REALIZED ✓`). `apply_scaffold` is the only filesystem write, gated by `--apply`.
+  Verified live: a prose wish for two functions and a new crate converges in a
+  single descent step. +1 test.
+
 * **`kosmo-run --wish "<prose>"` — the wish-to-system machine on the command line**
 
   The agent runner gains a deterministic, **offline** wish mode: compile a

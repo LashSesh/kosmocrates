@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1096 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 16, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 39, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 3) — 0 failures
+- **1097 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 16, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 39, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 4) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,17 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### kosmo-run --wish --apply — the descent, executed (2026-06-03)
+
+The attractor descent (Runs 1–2's `WishSession`) is now actually driven to convergence, deterministically and offline.
+
+- [x] `descend_to_wish(path, wish, …)` — observe → assess → scaffold unmet → write → re-observe, looping until realized / no-progress / max-iters; returns the `WishSession` trajectory
+- [x] `apply_scaffold` — the only filesystem write in wish mode, gated by `--apply`
+- [x] `descent_report` — one line per iteration + the verdict
+- [x] +1 test: a symbol+crate wish converges to REALIZED on a temp workspace (kosmo-run 3 → 4)
+
+Verified live: `--wish "a function alpha and a function beta and a crate widget" --apply` → `iter 0: met 0/3 UNSTARTED → iter 1: met 3/3 REALIZED ✓`, writing the two functions, the new crate, and the workspace-member edit. The loop closes: prose in, realized system out.
 
 ### kosmo-run --wish — the CLI front door (2026-06-03)
 

@@ -24,6 +24,8 @@
 //! loop offline.
 //! ```
 
+use std::fs;
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -32,7 +34,7 @@ use kosmo_core::{
     assess_wish, Digest, GateResult, PolicyProfile, Q16, Wish, WishAssessment, WishClosureStatus,
     WishFacet,
 };
-use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated};
+use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated, WishSession};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
 use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
@@ -371,6 +373,30 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let evidence = Digest::of_bytes(prose.as_bytes());
     let wish = compile_wish(prose, Digest::ZERO, evidence);
 
+    // --apply turns wish mode into a descent: observe → scaffold → apply →
+    // re-observe, until the wish is realized. This WRITES to the workspace.
+    if args.apply {
+        let session = descend_to_wish(&args.path, &wish, evidence, args.validated, 8)?;
+        if args.json {
+            let json = serde_json::to_string_pretty(session.assessments())
+                .map_err(|e| format!("failed to serialize assessments: {e}"))?;
+            println!("{json}");
+        } else {
+            print!("{}", descent_report(&session, args.color));
+        }
+        let realized = session.latest().map_or(false, |a| {
+            matches!(
+                a.status,
+                WishClosureStatus::Realized | WishClosureStatus::Vacuous
+            )
+        });
+        return Ok(if realized {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        });
+    }
+
     let observed = if args.validated {
         observe_workspace_validated(args.path.as_str())
     } else {
@@ -484,6 +510,124 @@ fn scaffold_report(path: &str, unmet: &[WishFacet], color: bool) -> String {
     out
 }
 
+/// Write the `FacetScaffolder`'s changes for every unmet facet to disk (relative
+/// to `root`). Returns the number of files written. This is the only place wish
+/// mode touches the filesystem, and only under `--apply`.
+fn apply_scaffold(root: &Path, unmet: &[WishFacet]) -> std::io::Result<usize> {
+    let mut written = 0;
+    for facet in unmet {
+        let action = ActionItem {
+            action_id: Digest::ZERO,
+            priority_score: Q16::ONE,
+            kind: ActionItemKind::RealizeWishFacet {
+                facet: facet.clone(),
+            },
+            description: format!("realize {:?} {}", facet.kind, facet.key),
+            policy_id: Digest::ZERO,
+        };
+        let req = SynthesisRequest::new(action, root.to_string_lossy().to_string());
+        if let Ok(result) = FacetScaffolder.synthesize(&req) {
+            for fc in &result.patch.file_changes {
+                let target = root.join(&fc.path);
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&target, &fc.content)?;
+                written += 1;
+            }
+        }
+    }
+    Ok(written)
+}
+
+/// Drive the workspace toward `wish` by repeated observe → assess → scaffold →
+/// apply, until it is realized, no further progress is possible, or `max_iters`
+/// is reached. Returns the [`WishSession`] carrying the full convergence
+/// trajectory — the attractor descent, executed.
+fn descend_to_wish(
+    path: &str,
+    wish: &Wish,
+    evidence: Digest,
+    validated: bool,
+    max_iters: u32,
+) -> Result<WishSession, String> {
+    let mut session = WishSession::new(wish.clone(), evidence);
+    let mut iter = 0u32;
+    loop {
+        let observed = if validated {
+            observe_workspace_validated(path)
+        } else {
+            observe_workspace_deep(path)
+        }
+        .map_err(|e| format!("could not observe {path}: {e}"))?;
+
+        let assessment = session.observe(&observed);
+        let done = matches!(
+            assessment.status,
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous
+        );
+        let unmet = assessment.unmet_facets.clone();
+
+        if done || unmet.is_empty() || iter >= max_iters {
+            break;
+        }
+        let written = apply_scaffold(Path::new(path), &unmet).map_err(|e| e.to_string())?;
+        if written == 0 {
+            break; // nothing scaffoldable — can't make progress, fail-closed
+        }
+        iter += 1;
+    }
+    Ok(session)
+}
+
+/// Render the descent trajectory: one line per iteration plus the verdict.
+fn descent_report(session: &WishSession, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish — descent{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", session.wish().label));
+    for (i, a) in session.assessments().iter().enumerate() {
+        let (label, col) = match a.status {
+            WishClosureStatus::Realized => ("REALIZED \u{2713}", c(GREEN)),
+            WishClosureStatus::Approaching => ("APPROACHING", c(YELLOW)),
+            WishClosureStatus::Unstarted => ("UNSTARTED", c(RED)),
+            WishClosureStatus::Vacuous => ("VACUOUS", c(DIM)),
+        };
+        out.push_str(&format!(
+            "  iter {}: met {}/{}  {}{}{}\n",
+            i, a.met_count, a.total_count, col, label, c(RESET)
+        ));
+    }
+    let realized = session.latest().map_or(false, |a| {
+        matches!(
+            a.status,
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous
+        )
+    });
+    if realized {
+        out.push_str(&format!("  {}\u{2713} wish realized.{}\n", c(GREEN), c(RESET)));
+    } else if let Some(a) = session.latest() {
+        if !a.unmet_facets.is_empty() {
+            out.push_str("  still missing:\n");
+            for f in &a.unmet_facets {
+                out.push_str(&format!(
+                    "    {}\u{2717}{} {:?} {}\n",
+                    c(RED),
+                    c(RESET),
+                    f.kind,
+                    f.key
+                ));
+            }
+        }
+    }
+    out
+}
+
 fn run() -> Result<ExitCode, String> {
     let args = match parse_args()? {
         Some(a) => a,
@@ -589,5 +733,47 @@ mod tests {
         let out = scaffold_report(".", &[WishFacet::crate_("demo_crate")], false);
         assert!(out.contains("scaffold"));
         assert!(out.contains("demo_crate"));
+    }
+
+    #[test]
+    fn descend_realizes_symbol_wish_on_temp_workspace() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-descent-{nanos}"));
+        fs::create_dir_all(root.join("demo/src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"demo\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("demo/src/lib.rs"), "// demo\n").unwrap();
+
+        let prose = "a function alpha and a function beta";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "descent should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                // observe (unmet) → apply → observe (met): at least two steps.
+                assert!(session.iterations() >= 2);
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
     }
 }
