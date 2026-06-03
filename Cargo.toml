@@ -90,6 +90,8 @@ members = [
     "crates/kosmo-agent",
     "crates/kosmo-materialize",
     "crates/kosmo-intent",
+    "crates/kosmo-llm",
+    "crates/kosmo-intent-llm",
     "tools/kosmo-run",
 ]
 

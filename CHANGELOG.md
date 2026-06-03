@@ -15,6 +15,26 @@ note explicitly says so.
 
 ### Added
 
+* **LLM ends, real — shared `kosmo-llm` transport + `kosmo-intent-llm` (prose → Wish)**
+
+  The natural-language front door now has a real LLM backend, behind the same
+  deterministic contract as the rule compiler.
+
+  - `kosmo-llm` — a shared LLM transport crate: `LlmConfig` / `LlmProvider`
+    (Anthropic Messages API + any OpenAI-compatible endpoint), `complete(system,
+    user)` with 429/529/5xx retry+backoff, `config_from_env`, and a string-aware
+    brace-balanced `extract_json_object`. The one non-deterministic step in the
+    substrate now lives in exactly one place. (`kosmo-synthesizer-llm` keeps its
+    own transport for now; migrating it onto `kosmo-llm` is a planned cleanup.)
+  - `kosmo-intent-llm::LlmWishCompiler` implements `kosmo-intent::WishCompiler`:
+    prose → a JSON facet list → a content-addressed `Wish`. Drops into the agent
+    loop exactly where the rule compiler does. The model emits facets; the `Wish`
+    id stays deterministic over the sorted/de-duped facet set + prose label.
+  - 23 new tests (config/transport shapes; JSON extraction incl. fences, nested
+    braces, escaped quotes; prompt building; response parsing incl.
+    unknown-kind/empty-key dropping; fail-fast on empty API key). Live calls are
+    gated by credentials, never hit in tests.
+
 * **The human front door — natural-language → `Wish`**
 
   A person can now state intent in prose and get a structured, content-addressed

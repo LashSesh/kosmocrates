@@ -1416,10 +1416,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-intent-llm"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-intent",
+ "kosmo-llm",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kosmo-kcube"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kosmo-llm"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
  "serde",
  "serde_json",
 ]

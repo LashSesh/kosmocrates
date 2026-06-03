@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1049 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 23, kosmo-materialize 11, kosmo-intent 26) — 0 failures
+- **1072 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 23, kosmo-materialize 11, kosmo-intent 26, kosmo-llm 14, kosmo-intent-llm 9) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,24 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### LLM ends, real — shared transport + prose→Wish (2026-06-02)
+
+The NL front door gets a real LLM backend, behind the same deterministic contract as the rule compiler.
+
+**`kosmo-llm`** (new, shared transport):
+- [x] `LlmConfig` / `LlmProvider` (Anthropic Messages API + OpenAI-compatible), `complete(system, user)` with 429/529/5xx retry+backoff, `config_from_env`, string-aware brace-balanced `extract_json_object`, `truncate`
+- [x] The substrate's only non-deterministic step now lives in one crate (CROSS-007: the temperature float never escapes the request body)
+- [x] 14 tests (config/endpoint/body/extract shapes, JSON extraction edge cases, empty-key fail-fast)
+
+**`kosmo-intent-llm`** (new):
+- [x] `LlmWishCompiler` implements `kosmo-intent::WishCompiler`: prose → JSON facet list → content-addressed `Wish`; `from_env` / `claude` / `cerebras`; drops into the agent loop where the rule compiler does
+- [x] Pure prompt + parse (`system_prompt`, `build_prompt`, `parse_wish_response`) — facets with unknown kinds / empty keys dropped; prose is the wish label; `Wish` id deterministic
+- [x] 9 tests (parse incl. fences, unknown-kind/empty-key dropping, empty→vacuous, fail-fast on empty key); live calls gated by credentials
+
+**Note:** `kosmo-synthesizer-llm` still carries its own transport; migrating it onto `kosmo-llm` (re-exporting `LlmConfig`) is a clean follow-up — no behaviour change.
+
+**Both non-deterministic ends are now real:** prose→`Wish` (`kosmo-intent-llm`) and the facet-aware patch synthesizer (`kosmo-synthesizer-llm`, with the `RealizeWishFacet` prompt directive). Each has a deterministic reference backend (rule compiler / scaffolder) for offline, byte-reproducible runs.
 
 ### The human front door — natural-language → Wish (2026-06-02)
 
