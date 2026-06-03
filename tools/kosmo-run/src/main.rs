@@ -63,6 +63,7 @@ struct Args {
     wish: Option<String>,
     scaffold: bool,
     validated: bool,
+    provider_set: bool,
 }
 
 impl Default for Args {
@@ -82,6 +83,7 @@ impl Default for Args {
             wish: None,
             scaffold: false,
             validated: false,
+            provider_set: false,
         }
     }
 }
@@ -108,6 +110,9 @@ OPTIONS:\n\
                           workspace against it; prints met/missing facets\n\
     --validated           observe green tests too (runs the suite; heavier)\n\
     --scaffold            also print the file changes that would close the gap\n\
+\n\
+    (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
+     realized; add --provider to let the LLM build facets the scaffolder can't)\n\
 \n\
     --json                emit the report as JSON\n\
     --no-color            disable ANSI colour\n\
@@ -138,6 +143,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--provider" => {
                 args.provider = argv.next().ok_or("--provider needs a value")?.to_lowercase();
+                args.provider_set = true;
             }
             "--model" => {
                 args.model = Some(argv.next().ok_or("--model needs a value")?);
@@ -376,7 +382,27 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     // --apply turns wish mode into a descent: observe → scaffold → apply →
     // re-observe, until the wish is realized. This WRITES to the workspace.
     if args.apply {
-        let session = descend_to_wish(&args.path, &wish, evidence, args.validated, 8)?;
+        // LLM fallback for facets the deterministic scaffolder can't build —
+        // only when a provider was explicitly chosen (else: deterministic only).
+        let fallback = if args.provider_set {
+            match build_synthesizer(args) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    eprintln!("kosmo-run: LLM fallback disabled ({e}); deterministic only");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let session = descend_to_wish(
+            &args.path,
+            &wish,
+            evidence,
+            args.validated,
+            8,
+            fallback.as_deref(),
+        )?;
         if args.json {
             let json = serde_json::to_string_pretty(session.assessments())
                 .map_err(|e| format!("failed to serialize assessments: {e}"))?;
@@ -510,10 +536,17 @@ fn scaffold_report(path: &str, unmet: &[WishFacet], color: bool) -> String {
     out
 }
 
-/// Write the `FacetScaffolder`'s changes for every unmet facet to disk (relative
-/// to `root`). Returns the number of files written. This is the only place wish
-/// mode touches the filesystem, and only under `--apply`.
-fn apply_scaffold(root: &Path, unmet: &[WishFacet]) -> std::io::Result<usize> {
+/// Realize every unmet facet and write the result to disk (relative to `root`).
+/// Deterministic first: the [`FacetScaffolder`] builds structural facets exactly.
+/// For facets it cannot build (e.g. a dependency edge), an optional `fallback`
+/// synthesizer is consulted — the LLM end of the same `Wish → Patch` contract.
+/// Returns the number of files written. The only place wish mode touches the
+/// filesystem, and only under `--apply`.
+fn apply_synthesis(
+    root: &Path,
+    unmet: &[WishFacet],
+    fallback: Option<&dyn ActionSynthesizer>,
+) -> std::io::Result<usize> {
     let mut written = 0;
     for facet in unmet {
         let action = ActionItem {
@@ -526,15 +559,26 @@ fn apply_scaffold(root: &Path, unmet: &[WishFacet]) -> std::io::Result<usize> {
             policy_id: Digest::ZERO,
         };
         let req = SynthesisRequest::new(action, root.to_string_lossy().to_string());
-        if let Ok(result) = FacetScaffolder.synthesize(&req) {
-            for fc in &result.patch.file_changes {
-                let target = root.join(&fc.path);
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent)?;
+
+        // Deterministic scaffolder first; consult the LLM only if it built nothing.
+        let mut changes = FacetScaffolder
+            .synthesize(&req)
+            .map(|r| r.patch.file_changes)
+            .unwrap_or_default();
+        if changes.is_empty() {
+            if let Some(synth) = fallback {
+                if let Ok(result) = synth.synthesize(&req) {
+                    changes = result.patch.file_changes;
                 }
-                fs::write(&target, &fc.content)?;
-                written += 1;
             }
+        }
+        for fc in &changes {
+            let target = root.join(&fc.path);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&target, &fc.content)?;
+            written += 1;
         }
     }
     Ok(written)
@@ -550,6 +594,7 @@ fn descend_to_wish(
     evidence: Digest,
     validated: bool,
     max_iters: u32,
+    fallback: Option<&dyn ActionSynthesizer>,
 ) -> Result<WishSession, String> {
     let mut session = WishSession::new(wish.clone(), evidence);
     let mut iter = 0u32;
@@ -571,7 +616,8 @@ fn descend_to_wish(
         if done || unmet.is_empty() || iter >= max_iters {
             break;
         }
-        let written = apply_scaffold(Path::new(path), &unmet).map_err(|e| e.to_string())?;
+        let written =
+            apply_synthesis(Path::new(path), &unmet, fallback).map_err(|e| e.to_string())?;
         if written == 0 {
             break; // nothing scaffoldable — can't make progress, fail-closed
         }
@@ -759,7 +805,7 @@ mod tests {
         let evidence = Digest::of_bytes(prose.as_bytes());
         let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8) {
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -774,6 +820,29 @@ mod tests {
             }
             Err(e) => eprintln!("observe unavailable, skipping: {e}"),
         }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn apply_synthesis_routes_unscaffoldable_facet_to_fallback() {
+        use kosmo_synthesizer::FileChange;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-fallback-{nanos}"));
+        fs::create_dir_all(&root).unwrap();
+
+        // A dependency edge is not deterministically scaffoldable.
+        let dep = vec![WishFacet::dependency("a", "b")];
+        // No fallback → the scaffolder builds nothing, so nothing is written.
+        assert_eq!(apply_synthesis(&root, &dep, None).unwrap(), 0);
+        // With a synthesizer that proposes a change → the fallback is consulted.
+        let mock = MockSynthesizer::confident().with_change(FileChange::create("FALLBACK.txt", "x\n"));
+        let n = apply_synthesis(&root, &dep, Some(&mock)).unwrap();
+        assert_eq!(n, 1);
+        assert!(root.join("FALLBACK.txt").exists());
+
         fs::remove_dir_all(&root).ok();
     }
 }

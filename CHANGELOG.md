@@ -15,6 +15,15 @@ note explicitly says so.
 
 ### Added
 
+* **Descent unifies both `Wish → Patch` backends — deterministic-first, LLM-fallback**
+
+  In `--wish --apply`, facets the `FacetScaffolder` can't build (e.g. a
+  `Dependency` edge) now fall through to the LLM synthesizer when a `--provider`
+  is given (`mock`/`claude`/`cerebras`); the deterministic scaffolder still wins
+  whenever it produces a patch. The same `ActionSynthesizer` contract on both
+  sides of the loop. +1 test (the fallback is consulted only when the scaffolder
+  is empty).
+
 * **`kosmo-run --wish … --apply` — the attractor descent, executed**
 
   Wish mode gains a convergence loop: observe → assess → scaffold every unmet
