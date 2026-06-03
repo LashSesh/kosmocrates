@@ -231,6 +231,7 @@ fn kind_label(kind: &ActionItemKind) -> &'static str {
         ActionItemKind::PromoteToPse { .. }     => "PromoteToPse  ",
         ActionItemKind::ReviewCrystal { .. }    => "ReviewCrystal ",
         ActionItemKind::ApplyNorm { .. }        => "ApplyNorm     ",
+        ActionItemKind::RealizeWishFacet { .. } => "RealizeWish   ",
     }
 }
 
@@ -241,6 +242,7 @@ fn kind_color(kind: &ActionItemKind, s: &str) -> String {
         ActionItemKind::PromoteToPse { .. }     => green(s),
         ActionItemKind::ReviewCrystal { .. }    => yellow(s),
         ActionItemKind::ApplyNorm { .. }        => green(s),
+        ActionItemKind::RealizeWishFacet { .. } => green(s),
     }
 }
 
@@ -416,6 +418,7 @@ fn kind_md(kind: &ActionItemKind) -> &'static str {
         ActionItemKind::PromoteToPse { .. }     => "PromoteToPse",
         ActionItemKind::ReviewCrystal { .. }    => "ReviewCrystal",
         ActionItemKind::ApplyNorm { .. }        => "ApplyNorm",
+        ActionItemKind::RealizeWishFacet { .. } => "RealizeWishFacet",
     }
 }
 

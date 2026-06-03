@@ -1,0 +1,19 @@
+[package]
+name = "kosmo-llm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates shared LLM transport — Anthropic Messages API and OpenAI-compatible chat completions, with deterministic config, retry/backoff, and a brace-balanced JSON extractor"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde      = { workspace = true }
+serde_json = { workspace = true }
+reqwest    = { workspace = true }

@@ -29,7 +29,11 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use kosmo_core::{Digest, FeedbackOutcome, GateResult, PolicyProfile, PromotionFeedback, Q16};
+use kosmo_core::{
+    AttractorStatus, Digest, FeedbackOutcome, GateResult, PolicyProfile, PromotionFeedback, Q16,
+    Wish, WishAssessment, WishConvergenceTrace, WishFacet,
+};
+use kosmo_intent::WishSession;
 use kosmo_materialize::{MaterializeOptions, MaterializeReport, Materializer, PatchValidator};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions, WorkspacePipelineSession};
 use kosmo_synthesizer::{ActionSynthesizer, SynthesisRequest, SynthesisResult};
@@ -228,6 +232,38 @@ pub struct AgentStep {
 
 // ─── AgentRunReport ──────────────────────────────────────────────────────────
 
+// ─── WishRunOutcome ────────────────────────────────────────────────────────────
+
+/// How one [`AgentSession::run`] moved the workspace relative to an attached wish.
+///
+/// Present in [`AgentRunReport::wish`] only when a wish was attached via
+/// [`AgentSession::with_wish`] and the workspace was observable (a real cargo
+/// tree). One `run()` is one step of the dynamics `x_t → x_{t+1}`; the
+/// convergence trajectory accumulates across runs inside the session.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WishRunOutcome {
+    /// Identity of the wish-attractor being pursued.
+    pub wish_id: Digest,
+    /// This run's measurement of the workspace against the wish.
+    pub assessment: WishAssessment,
+    /// Convergence status across every run so far (the contraction contract).
+    pub attractor_status: AttractorStatus,
+    /// `true` when this run *increased* the wish distance versus the previous
+    /// run — a contraction violation the driving loop must treat fail-closed.
+    pub diverged: bool,
+}
+
+impl WishRunOutcome {
+    /// The remaining unmet facets — the prioritized agenda toward the wish.
+    pub fn agenda(&self) -> &[WishFacet] {
+        &self.assessment.unmet_facets
+    }
+    /// The wish is realized: the workspace sits at the attractor this run.
+    pub fn is_realized(&self) -> bool {
+        self.assessment.is_realized()
+    }
+}
+
 #[derive(Serialize)]
 struct ReportContent { workspace_hash: Digest, step_ids: Vec<Digest> }
 
@@ -248,6 +284,9 @@ pub struct AgentRunReport {
     pub total_lines_proposed: u32,
     /// Gate result from the underlying pipeline run.
     pub pipeline_gate: GateResult,
+    /// How this run moved the workspace toward an attached wish (`None` when no
+    /// wish is attached or the workspace was not observable).
+    pub wish: Option<WishRunOutcome>,
 }
 
 impl AgentRunReport {
@@ -258,6 +297,7 @@ impl AgentRunReport {
         steps: Vec<AgentStep>,
         pipeline_gate: GateResult,
         steps_skipped_low_confidence: u32,
+        wish: Option<WishRunOutcome>,
     ) -> Self {
         let workspace_hash = Digest::of(&workspace_path.to_string());
         let step_ids: Vec<Digest> = steps.iter().map(|s| s.feedback.feedback_id).collect();
@@ -282,7 +322,16 @@ impl AgentRunReport {
             steps_materialized,
             total_lines_proposed,
             pipeline_gate,
+            wish,
         }
+    }
+
+    /// Number of processed steps that were facet-directed work toward the wish.
+    pub fn wish_directed_count(&self) -> u32 {
+        self.steps
+            .iter()
+            .filter(|s| matches!(s.action.kind, ActionItemKind::RealizeWishFacet { .. }))
+            .count() as u32
     }
 }
 
@@ -326,6 +375,9 @@ pub struct AgentSession {
     /// validated via `kosmo-materialize` (policy-gated). `None` ⇒ no real
     /// materialization happens even outside dry-run.
     validator: Option<Arc<dyn PatchValidator>>,
+    /// Optional wish-attractor driver: observes the workspace against a target
+    /// topology each run and tracks convergence. `None` ⇒ no wish governance.
+    wish_session: Option<WishSession>,
 }
 
 impl AgentSession {
@@ -346,6 +398,7 @@ impl AgentSession {
             pipeline_feedback: vec![],
             policy,
             validator: None,
+            wish_session: None,
         }
     }
 
@@ -356,6 +409,89 @@ impl AgentSession {
     pub fn with_validator(mut self, validator: Arc<dyn PatchValidator>) -> Self {
         self.validator = Some(validator);
         self
+    }
+
+    /// Attach a wish-attractor. Each [`run`](AgentSession::run) then observes
+    /// the workspace against `wish` (read-only `cargo metadata`), folds the
+    /// result into a convergence trajectory, and reports whether the run moved
+    /// toward the wish — or, fail-closed, diverged from it. `evidence_bundle_id`
+    /// binds the assessments and traces (CROSS-006).
+    pub fn with_wish(mut self, wish: Wish, evidence_bundle_id: Digest) -> Self {
+        self.wish_session = Some(WishSession::new(wish, evidence_bundle_id));
+        self
+    }
+
+    /// The wish-convergence trace accumulated so far, if a wish is attached.
+    pub fn wish_trace(&self) -> Option<WishConvergenceTrace> {
+        self.wish_session.as_ref().map(|s| s.trace())
+    }
+
+    /// The most recent wish assessment, if any.
+    pub fn wish_assessment(&self) -> Option<&WishAssessment> {
+        self.wish_session.as_ref().and_then(|s| s.latest())
+    }
+
+    /// `true` if a wish is attached and its descent has diverged from the
+    /// attractor at any point (the contraction invariant was violated).
+    pub fn wish_diverging(&self) -> bool {
+        self.wish_session
+            .as_ref()
+            .map(|s| !s.is_contractive())
+            .unwrap_or(false)
+    }
+
+    /// Observe the workspace against the attached wish (if any) and fold the
+    /// result into the convergence trajectory. Fail-soft: a workspace that
+    /// cannot be read (not a cargo tree, `cargo metadata` unavailable) yields
+    /// `None` and leaves the trajectory untouched rather than failing the run.
+    fn observe_wish(&mut self, workspace: &str) -> Option<WishRunOutcome> {
+        let session = self.wish_session.as_mut()?;
+        // Deep observation (crate + module + symbol) so wishes can target finer
+        // structure than whole crates.
+        let observed = kosmo_intent::observe_workspace_deep(workspace).ok()?;
+        let assessment = session.observe(&observed).clone();
+        let attractor_status = session.trace().status;
+        let diverged = {
+            let a = session.assessments();
+            a.len() >= 2 && a[a.len() - 1].distance > a[a.len() - 2].distance
+        };
+        Some(WishRunOutcome {
+            wish_id: assessment.wish_id,
+            assessment,
+            attractor_status,
+            diverged,
+        })
+    }
+
+    /// Turn an agenda of unmet facets into top-priority, facet-directed
+    /// [`ActionItem`]s. Each carries the facet itself
+    /// ([`ActionItemKind::RealizeWishFacet`]) and a human-readable directive, so
+    /// a synthesizer (mock today, LLM later) knows exactly what to build. The
+    /// `action_id` is deterministic in the facet and policy.
+    fn wish_actions(&self, agenda: &[WishFacet]) -> Vec<ActionItem> {
+        #[derive(Serialize)]
+        struct WishActionContent<'a> {
+            tag: &'static str,
+            facet: &'a WishFacet,
+            policy_id: &'a Digest,
+        }
+        agenda
+            .iter()
+            .map(|facet| {
+                let action_id = Digest::of(&WishActionContent {
+                    tag: "kosmo-wish-realize-facet",
+                    facet,
+                    policy_id: &self.policy.id,
+                });
+                ActionItem {
+                    action_id,
+                    priority_score: Q16::ONE,
+                    kind: ActionItemKind::RealizeWishFacet { facet: facet.clone() },
+                    description: format!("Realize wished {:?} `{}`", facet.kind, facet.key),
+                    policy_id: self.policy.id,
+                }
+            })
+            .collect()
     }
 
     pub fn feedback_history(&self) -> &[ExecutionFeedback] { &self.feedback_history }
@@ -383,7 +519,23 @@ impl AgentSession {
             .map_err(|e| AgentError::Pipeline(e.to_string()))?;
 
         let pipeline_gate = report.final_result.clone();
-        let all_items = report.action_items();
+        let void_items = report.action_items();
+
+        // ── 1b. Observe the wish; turn its agenda into directed actions ───────
+        // One run is one step of the dynamics. Observing here yields both the
+        // convergence trajectory point and this run's agenda (the unmet facets);
+        // each unmet facet becomes a top-priority, facet-directed action,
+        // prepended to the queue so the loop builds *toward* the wish — not just
+        // repairs voids. Fail-soft: no wish / non-cargo workspace ⇒ no additions.
+        let wish = self.observe_wish(workspace);
+        let wish_actions = wish
+            .as_ref()
+            .map(|w| self.wish_actions(w.agenda()))
+            .unwrap_or_default();
+
+        // ── 1c. Combined queue: wish-directed work first, then voids ──────────
+        let mut all_items = wish_actions;
+        all_items.extend(void_items);
         let total_available = all_items.len();
 
         // ── 2. Synthesize top-N ──────────────────────────────────────────────
@@ -512,6 +664,7 @@ impl AgentSession {
             steps,
             pipeline_gate,
             skipped_low_confidence,
+            wish,
         ))
     }
 }
@@ -521,7 +674,7 @@ impl AgentSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_synthesizer::MockSynthesizer;
+    use kosmo_synthesizer::{FileChange, MockSynthesizer, Patch, SynthesisError};
 
     fn tmp() -> String { std::env::temp_dir().to_string_lossy().to_string() }
 
@@ -639,6 +792,17 @@ mod tests {
 
     #[test]
     fn agent_run_id_is_deterministic() {
+        // Isolated, stable workspace: scanning the shared system temp dir is
+        // non-deterministic under parallel tests that create/remove temp crates.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-agent-runid-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn f() -> u32 { 1 }\n").unwrap();
+        let ws = dir.to_str().unwrap();
+
         let opts = AgentOptions::default().with_max_steps(2);
         let synth = Arc::new(MockSynthesizer::confident());
         let mut s1 = AgentSession::new(
@@ -647,9 +811,10 @@ mod tests {
         let mut s2 = AgentSession::new(
             opts, PolicyProfile::default_report_only(), synth,
         );
-        let r1 = s1.run(&tmp()).unwrap();
-        let r2 = s2.run(&tmp()).unwrap();
+        let r1 = s1.run(ws).unwrap();
+        let r2 = s2.run(ws).unwrap();
         assert_eq!(r1.run_id, r2.run_id);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -738,5 +903,367 @@ mod tests {
         }
         // run_count should reflect two complete runs.
         assert_eq!(s.run_count(), 2);
+    }
+
+    // ── wish-governed loop (Run 4) ────────────────────────────────────────
+
+    /// A temporary standalone cargo crate so `cargo metadata` (hence wish
+    /// observation) can read it. Returns the crate dir.
+    fn temp_crate(pkg: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-agent-wish-{pkg}-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            format!("[package]\nname = \"{pkg}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn f() -> u32 { 1 }\n").unwrap();
+        dir
+    }
+
+    fn crate_wish(pkg: &str) -> Wish {
+        Wish::new(
+            format!("crate {pkg} exists"),
+            [kosmo_core::WishPredicate::require(WishFacet::crate_(pkg))],
+            Digest::of_bytes(b"policy"),
+            Digest::of_bytes(b"bundle"),
+        )
+    }
+
+    #[test]
+    fn agent_without_wish_reports_none() {
+        let opts = AgentOptions::default().with_max_steps(1);
+        let mut s = session(opts, true);
+        let report = s.run(&tmp()).unwrap();
+        assert!(report.wish.is_none());
+        assert!(s.wish_assessment().is_none());
+    }
+
+    #[test]
+    fn agent_wish_failsoft_on_non_cargo_workspace() {
+        // The system temp dir is not a cargo tree → observation fails softly:
+        // the run still succeeds, but carries no wish outcome.
+        let opts = AgentOptions::default().with_max_steps(1);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(crate_wish("anything"), Digest::of_bytes(b"ev"));
+        let report = s.run(&tmp()).unwrap();
+        assert!(report.wish.is_none(), "a non-cargo workspace must fail soft");
+    }
+
+    #[test]
+    fn agent_wish_realized_on_matching_crate() {
+        let dir = temp_crate("kosmo_wish_demo");
+        let opts = AgentOptions::default().with_max_steps(2);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(crate_wish("kosmo_wish_demo"), Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        let Some(wish) = report.wish else {
+            eprintln!("cargo metadata unavailable, skipping");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        };
+        assert!(wish.is_realized(), "the wished crate is present → realized");
+        assert_eq!(wish.assessment.distance, Q16::ZERO);
+        assert_eq!(wish.attractor_status, AttractorStatus::Converged);
+        assert!(!wish.diverged);
+        assert!(wish.agenda().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_wish_unmet_sets_agenda() {
+        let dir = temp_crate("kosmo_present_crate");
+        let opts = AgentOptions::default().with_max_steps(2);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(crate_wish("kosmo_absent_crate"), Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        let Some(wish) = report.wish else {
+            eprintln!("cargo metadata unavailable, skipping");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        };
+        assert!(!wish.is_realized());
+        assert_eq!(wish.assessment.distance, Q16::ONE);
+        assert_eq!(wish.agenda(), &[WishFacet::crate_("kosmo_absent_crate")]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_wish_detects_divergence_across_runs() {
+        // Run 1: the wished crate is present (realized). Then rename the package
+        // away, so the wished crate vanishes. Run 2: distance rises → the run is
+        // flagged diverged, fail-closed.
+        let dir = temp_crate("kosmo_target_crate");
+        let opts = AgentOptions::default().with_max_steps(1);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(crate_wish("kosmo_target_crate"), Digest::of_bytes(b"ev"));
+
+        let r1 = s.run(dir.to_str().unwrap()).unwrap();
+        let Some(w1) = r1.wish else {
+            eprintln!("cargo metadata unavailable, skipping");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        };
+        assert_eq!(w1.assessment.distance, Q16::ZERO);
+        assert!(!w1.diverged);
+
+        // Break it: rename the package away from the wished name.
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"kosmo_renamed_crate\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+
+        let r2 = s.run(dir.to_str().unwrap()).unwrap();
+        let w2 = r2.wish.expect("second run observed the workspace");
+        assert_eq!(w2.assessment.distance, Q16::ONE);
+        assert!(w2.diverged, "distance rose ZERO → ONE: this run diverged");
+        assert_eq!(w2.attractor_status, AttractorStatus::Diverging);
+        assert!(s.wish_diverging());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── facet-directed generation (Run 5) ─────────────────────────────────
+
+    /// A synthesizer that realizes a wished `Crate` facet by rewriting the
+    /// workspace's `Cargo.toml` to that crate name (everything else is a no-op).
+    struct CrateScaffolder;
+    impl ActionSynthesizer for CrateScaffolder {
+        fn synthesize(
+            &self,
+            request: &SynthesisRequest,
+        ) -> Result<SynthesisResult, SynthesisError> {
+            if let ActionItemKind::RealizeWishFacet { facet } = &request.action_item.kind {
+                if facet.kind == kosmo_core::WishFacetKind::Crate {
+                    let toml = format!(
+                        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+                        facet.key
+                    );
+                    let patch = Patch::new(
+                        request.request_id,
+                        vec![FileChange::modify("Cargo.toml", toml)],
+                        "crate-scaffolder",
+                    );
+                    return Ok(SynthesisResult::new(patch, "scaffold the wished crate", Q16::ONE));
+                }
+            }
+            Ok(SynthesisResult::new(Patch::empty(request.request_id), "no-op", Q16::ONE))
+        }
+        fn name(&self) -> &str {
+            "crate-scaffolder"
+        }
+    }
+
+    #[test]
+    fn agent_no_wish_generates_no_directed_actions() {
+        let opts = AgentOptions::default().with_max_steps(3);
+        let mut s = session(opts, true);
+        let report = s.run(&tmp()).unwrap();
+        assert_eq!(report.wish_directed_count(), 0);
+    }
+
+    #[test]
+    fn agent_unmet_wish_generates_directed_action() {
+        let dir = temp_crate("kosmo_present");
+        let opts = AgentOptions::default().with_max_steps(5);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(crate_wish("kosmo_wanted"), Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        if report.wish.is_none() {
+            eprintln!("cargo metadata unavailable, skipping");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        }
+        assert!(
+            report.wish_directed_count() >= 1,
+            "an unmet facet must yield directed work"
+        );
+        assert!(
+            report.steps.iter().any(|st| matches!(
+                &st.action.kind,
+                ActionItemKind::RealizeWishFacet { facet } if facet == &WishFacet::crate_("kosmo_wanted")
+            )),
+            "a step must target the wished crate"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_realized_wish_generates_no_directed_actions() {
+        let dir = temp_crate("kosmo_here");
+        let opts = AgentOptions::default().with_max_steps(5);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(crate_wish("kosmo_here"), Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        if let Some(w) = &report.wish {
+            assert!(w.is_realized());
+            assert_eq!(
+                report.wish_directed_count(),
+                0,
+                "a realized wish has an empty agenda ⇒ no directed work"
+            );
+        } else {
+            eprintln!("cargo metadata unavailable, skipping");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_wish_builds_toward_and_converges() {
+        // The wish is for a crate the workspace does not yet have. A scaffolding
+        // synthesizer realizes it (rewrites Cargo.toml); the next run observes
+        // the wish realized — the loop built *toward* the wish and converged.
+        let dir = temp_crate("kosmo_before");
+        let opts = AgentOptions {
+            max_steps: 5,
+            min_confidence: Q16::ZERO,
+            dry_run: false,
+            pipeline_options: IntegrationRunOptions::report_only(),
+            commit_to_git: false,
+        };
+        let mut s =
+            AgentSession::new(opts, PolicyProfile::operator_approved(), Arc::new(CrateScaffolder))
+                .with_validator(Arc::new(AlwaysPass))
+                .with_wish(crate_wish("kosmo_after"), Digest::of_bytes(b"ev"));
+
+        // Run 1: wish unmet → a facet-directed action scaffolds the crate.
+        let r1 = s.run(dir.to_str().unwrap()).unwrap();
+        let directed = r1.wish_directed_count();
+        let Some(w1) = r1.wish else {
+            eprintln!("cargo metadata unavailable, skipping");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        };
+        assert_eq!(w1.assessment.distance, Q16::ONE, "starts far from the wish");
+        assert!(directed >= 1, "a facet-directed action was generated");
+
+        // Run 2: the rewritten Cargo.toml now names the wished crate → realized.
+        let r2 = s.run(dir.to_str().unwrap()).unwrap();
+        let w2 = r2.wish.expect("second run observed the workspace");
+        assert_eq!(w2.assessment.distance, Q16::ZERO, "the loop built toward the wish");
+        assert!(w2.is_realized());
+        assert!(!s.wish_diverging(), "the descent was contractive");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_wish_realized_on_symbol() {
+        // Finer granularity: a wish can target a public symbol, observed by the
+        // deep (source-walking) observer.
+        let dir = temp_crate("kosmo_symcrate");
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn special_function() -> u32 { 7 }\n",
+        )
+        .unwrap();
+        let wish = Wish::new(
+            "expose special_function",
+            [kosmo_core::WishPredicate::require(WishFacet::symbol(
+                "special_function",
+            ))],
+            Digest::of_bytes(b"policy"),
+            Digest::of_bytes(b"bundle"),
+        );
+        let opts = AgentOptions::default().with_max_steps(2);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(wish, Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        if let Some(w) = &report.wish {
+            assert!(w.is_realized(), "the public symbol is present → realized");
+            assert_eq!(w.assessment.distance, Q16::ZERO);
+        } else {
+            eprintln!("cargo metadata unavailable, skipping");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_wish_from_prose_realized() {
+        // The full front door: a prose intent compiles to a Wish, and the loop
+        // measures the real workspace against it.
+        let dir = temp_crate("kosmo_prose_demo");
+        let wish = kosmo_intent::compile_wish(
+            "I want a crate kosmo_prose_demo",
+            Digest::of_bytes(b"policy"),
+            Digest::of_bytes(b"bundle"),
+        );
+        let opts = AgentOptions::default().with_max_steps(2);
+        let synth = Arc::new(MockSynthesizer::confident());
+        let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
+            .with_wish(wish, Digest::of_bytes(b"ev"));
+        let report = s.run(dir.to_str().unwrap()).unwrap();
+
+        if let Some(w) = &report.wish {
+            assert!(w.is_realized(), "prose-compiled crate wish realized");
+        } else {
+            eprintln!("cargo metadata unavailable, skipping");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn agent_wish_builds_symbol_and_converges() {
+        // Deterministic build-toward-intent: FacetScaffolder realizes a Symbol
+        // wish offline (appends `pub fn` to lib.rs); the next run observes it
+        // present and the descent converges.
+        let dir = temp_crate("kosmo_scaffold_demo");
+        let opts = AgentOptions {
+            max_steps: 5,
+            min_confidence: Q16::ZERO,
+            dry_run: false,
+            pipeline_options: IntegrationRunOptions::report_only(),
+            commit_to_git: false,
+        };
+        let wish = Wish::new(
+            "expose handle_request",
+            [kosmo_core::WishPredicate::require(WishFacet::symbol(
+                "handle_request",
+            ))],
+            Digest::of_bytes(b"policy"),
+            Digest::of_bytes(b"bundle"),
+        );
+        let mut s = AgentSession::new(
+            opts,
+            PolicyProfile::operator_approved(),
+            Arc::new(kosmo_synthesizer::FacetScaffolder),
+        )
+        .with_validator(Arc::new(AlwaysPass))
+        .with_wish(wish, Digest::of_bytes(b"ev"));
+
+        let r1 = s.run(dir.to_str().unwrap()).unwrap();
+        let directed = r1.wish_directed_count();
+        let Some(w1) = r1.wish else {
+            eprintln!("cargo metadata unavailable, skipping");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        };
+        assert_eq!(w1.assessment.distance, Q16::ONE, "symbol absent at first");
+        assert!(directed >= 1, "a facet-directed scaffold action was taken");
+
+        let r2 = s.run(dir.to_str().unwrap()).unwrap();
+        let w2 = r2.wish.expect("second run observed the workspace");
+        assert!(w2.is_realized(), "FacetScaffolder built the symbol → realized");
+        assert_eq!(w2.assessment.distance, Q16::ZERO);
+        assert!(!s.wish_diverging(), "the descent was contractive");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

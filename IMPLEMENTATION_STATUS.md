@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅  
-"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft."
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅  
+"Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **973 substrate tests** (kosmo-core 339, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 9, kosmo-synthesizer-llm 14, kosmo-agent 12, kosmo-materialize 11) — 0 failures
+- **1096 substrate tests** (kosmo-core 378, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 16, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 39, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 3) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,175 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### kosmo-run --wish — the CLI front door (2026-06-03)
+
+The whole wish-to-system loop is now **one command**. `kosmo-run` (the agent runner) gains a deterministic, offline **wish mode**:
+
+- [x] `--wish "<prose>"` — compile (rule compiler) → observe (`observe_workspace_deep`) → `assess_wish` → report met/missing facets; exits 0 only when realized
+- [x] `--validated` — observe green tests too (`observe_workspace_validated`)
+- [x] `--scaffold` — print the `FacetScaffolder`'s proposed file changes (dry run)
+- [x] `--json` — the assessment as JSON
+- [x] testable `wish_report` / `scaffold_report` (return `String`); +3 tests; depends on kosmo-intent (added)
+
+Verified live against this repo: `--wish "a crate kosmo-core and a crate ghost_xyz and a function compile_wish"` → APPROACHING, met 2/3, missing `Crate ghost_xyz`. No LLM or key required — the deterministic front door a human can actually type.
+
+### Green tests — Test facets bound to validated behaviour (2026-06-02)
+
+A `Test` facet now means a test that *passes*, not just one that exists.
+
+**`kosmo-intent`**:
+- [x] `parse_test_results(output)` — pure libtest-output parser (`test NAME ... ok|FAILED`; ignored/summary skipped)
+- [x] `passing_test_facets(results)` — `Test` facets for green tests only, keyed by bare name
+- [x] `run_workspace_tests(root)` — runs `cargo test`, parses verdicts (a non-zero exit from failing tests is fine)
+- [x] `observe_workspace_validated(root)` — deep observation with lexical `Test` facets swapped for the green set (`ObservedTopology::retain` added in kosmo-core); opt-in/heavy, falls back to lexical if the run can't start
+- [x] 3 tests incl. a live green-vs-red `cargo test` run (kosmo-intent 36 → 39)
+
+The strongest binding so far of a wish to *validated behaviour*: "I want a green test `X`" converges only when `X` actually passes.
+
+### Richer facet semantics — Test (2026-06-02)
+
+`WishFacetKind::Test` (keyed by test fn name): `facets_from_source` is now stateful — `#[test]`/`#[tokio::test]` + the next `fn NAME` → `Test(name)`. `FacetScaffolder::scaffold_test` emits `#[test] fn name() {}`; rule compiler `test` + LLM mapping. v1 observes test *presence*; tying "green" to the cargo validator (a test that passes) is the next refinement. +4 tests (kosmo-intent 33 → 36, kosmo-synthesizer 15 → 16).
+
+### Richer facet semantics — Capability (2026-06-02)
+
+Makes the existing `Capability` kind observable via source markers: `facets_from_source` reads `// kosmo:capability: <name>` (and `//!`). `FacetScaffolder::scaffold_capability` writes the marker; rule compiler `capability`/`feature` + LLM mapping. A wish can target a named behaviour — the facet closest to human intent. +3 tests (kosmo-intent 31 → 33, kosmo-synthesizer 14 → 15).
+
+### Richer facet semantics — Signature (2026-06-02)
+
+`WishFacetKind::Signature` (`"name/arity"`): the extractor (`item_facets`, now multi-facet) emits a `Signature` per `pub fn` alongside `Symbol`; `fn_arity` counts args from the opening line (generics/arrays don't inflate it). `FacetScaffolder::scaffold_signature` realizes it (`pub fn name(_a0: (), …)`, via a shared `append_to_lib`); rule compiler `signature`/`sig` + LLM mapping. A wish can target a function's arity, not just its name. +4 tests (kosmo-intent 28 → 31, kosmo-synthesizer 13 → 14).
+
+### Richer facet semantics — Dependency (2026-06-02)
+
+`WishFacetKind::Dependency` (`"from->to"`): `facets_from_snapshot` emits one per ParseBack `dep_edge`; `WishFacet::dependency(from, to)`; rule compiler `dependency`/`depends` + LLM mapping recognize it; scaffolder leaves it unscaffolded (no inferable path). A wish can now target the dependency structure, not just presence. +2 tests (kosmo-intent 26 → 28).
+
+### FacetScaffolder — deterministic build-toward-intent (2026-06-02)
+
+The synthesis end made real *without* a model: a deterministic synthesizer that realizes wish facets offline, so the loop builds and converges with no network.
+
+**`kosmo-synthesizer`**:
+- [x] `FacetScaffolder` (impl `ActionSynthesizer`) acts on `RealizeWishFacet`: `Symbol` → append `pub fn <name>() {}` to `src/lib.rs`/`main.rs`; `Module` → create `src/<name>.rs` + `pub mod <name>;`; `Crate` → create `<name>/Cargo.toml`+`src/lib.rs` + best-effort `[workspace] members` registration; `Capability`/`Resolution` → empty
+- [x] Reads the workspace to stay idempotent (already-realized facet → empty patch); writes only the structural skeleton (behaviour is the LLM synthesizer's job)
+- [x] 5 tests (kosmo-synthesizer 9 → 13, kosmo-agent 23 → 24) incl. end-to-end `agent_wish_builds_symbol_and_converges`: apply mode, Symbol absent (`ONE`) → scaffolded → realized (`ZERO`), offline
+
+**Both synthesis backends now exist:** the deterministic `FacetScaffolder` (offline, byte-reproducible) and the facet-aware LLM synthesizer (`kosmo-synthesizer-llm`). Same shape for the front door: `RuleWishCompiler` (deterministic) and `LlmWishCompiler` (LLM).
+
+### LLM ends, real — shared transport + prose→Wish (2026-06-02)
+
+The NL front door gets a real LLM backend, behind the same deterministic contract as the rule compiler.
+
+**`kosmo-llm`** (new, shared transport):
+- [x] `LlmConfig` / `LlmProvider` (Anthropic Messages API + OpenAI-compatible), `complete(system, user)` with 429/529/5xx retry+backoff, `config_from_env`, string-aware brace-balanced `extract_json_object`, `truncate`
+- [x] The substrate's only non-deterministic step now lives in one crate (CROSS-007: the temperature float never escapes the request body)
+- [x] 14 tests (config/endpoint/body/extract shapes, JSON extraction edge cases, empty-key fail-fast)
+
+**`kosmo-intent-llm`** (new):
+- [x] `LlmWishCompiler` implements `kosmo-intent::WishCompiler`: prose → JSON facet list → content-addressed `Wish`; `from_env` / `claude` / `cerebras`; drops into the agent loop where the rule compiler does
+- [x] Pure prompt + parse (`system_prompt`, `build_prompt`, `parse_wish_response`) — facets with unknown kinds / empty keys dropped; prose is the wish label; `Wish` id deterministic
+- [x] 9 tests (parse incl. fences, unknown-kind/empty-key dropping, empty→vacuous, fail-fast on empty key); live calls gated by credentials
+
+**Note:** `kosmo-synthesizer-llm` still carries its own transport; migrating it onto `kosmo-llm` (re-exporting `LlmConfig`) is a clean follow-up — no behaviour change.
+
+**Both non-deterministic ends are now real:** prose→`Wish` (`kosmo-intent-llm`) and the facet-aware patch synthesizer (`kosmo-synthesizer-llm`, with the `RealizeWishFacet` prompt directive). Each has a deterministic reference backend (rule compiler / scaffolder) for offline, byte-reproducible runs.
+
+### The human front door — natural-language → Wish (2026-06-02)
+
+A person states intent in prose; out comes a structured, content-addressed `Wish` the loop can descend toward.
+
+**`kosmo-intent`**:
+- [x] `compile_wish(prose, policy_id, evidence)` — deterministic, dependency-free: scans prose for structural triggers (`crate`/`package`, `module`/`mod`, `function`/`fn`/`method`, `type`/`struct`/`enum`/`trait`/`symbol`) and turns each `keyword NAME` phrase into a required facet; the prose is the wish label; handles backticks/quotes + fillers
+- [x] `WishCompiler` trait + `RuleWishCompiler` — the extension point for an LLM-backed compiler (counterpart to `kosmo-synthesizer-llm`: the model is the only non-deterministic part, the emitted `Wish` stays content-addressed)
+- [x] 10 new tests (kosmo-intent 17 → 26, kosmo-agent 22 → 23) incl. end-to-end `agent_wish_from_prose_realized`: prose → Wish → the loop realizes it. Convention: name after the keyword; free word order is the LLM backend's job
+
+**The full chain, end to end:** prose → `compile_wish` → `Wish` → agent attaches it → observes (crate/module/symbol) → measures distance (Lyapunov `V`) → generates facet-directed actions → synthesizes/applies → re-observes → converges to the attractor, fail-closed on divergence. The Wunsch-zu-System loop is now closed *from a sentence to a converged workspace*, at crate/module/symbol granularity, deterministically — with the two non-deterministic ends (NL→Wish and patch synthesis) cleanly quarantined behind traits, each with a deterministic reference backend today and an LLM backend as a drop-in later.
+
+### Finer granularity — Module/Symbol facets (2026-06-02)
+
+A wish can now target modules and public symbols, not just whole crates.
+
+**`kosmo-intent`** — name-preserving lexical extractor:
+- [x] `facets_from_source(&str)` — deterministic, dependency-free Rust lexer → `Module` facets (`mod`) + `Symbol` facets (public `fn`/`struct`/`enum`/`trait`/`type`/`union`/`const`/`static`), keyed by bare name; handles `pub(...)`, `async`/`const`/`unsafe`, generics, comments/attrs
+- [x] `facets_from_rust_dir(dir)` (walks `.rs`, skips `target`/`.git`) + `observe_workspace_deep(root)` = crate (cargo metadata) ∪ module/symbol facets
+- [x] Built our own extractor rather than reuse `code_hdag` (its `CodeHDAG` keeps node *labels*, not names; touching it would alter the content-addressed `hdag_id`)
+
+**`kosmo-agent`**:
+- [x] `observe_wish` now uses `observe_workspace_deep`, so the loop measures and builds toward module/symbol wishes; end-to-end `agent_wish_realized_on_symbol`
+- [x] 10 new tests (kosmo-intent 8 → 17, kosmo-agent 21 → 22). Known limits: bare-name symbol keys (no crate/module qualification yet), `extern` and macro-generated items not captured
+
+**Next (the human front door):** natural-language → `Wish` compilation, so a person can state intent in prose and get a structured, content-addressed `Wish` the loop can descend toward.
+
+### The wish builds toward itself — facet-directed synthesis (2026-06-02)
+
+The generation half (the fifth rung): the agent stops merely *measuring* the gap to the wish and starts *closing* it. The repair loop becomes a build-toward-intent loop.
+
+**`kosmo-pipeline`** — intent-directed action:
+- [x] `ActionItemKind::RealizeWishFacet { facet: kosmo_core::WishFacet }` — first-class directed work carrying the unmet facet (counterpart to `FillVoid`, on the intent axis); the pipeline scan never emits it (the agent does)
+
+**`kosmo-agent`** — generation wiring:
+- [x] Each `run()` with a wish observes at the start, turns each unmet facet into a top-priority `RealizeWishFacet` action, prepends it to the queue (wish-directed work first, then voids)
+- [x] `AgentRunReport::wish_directed_count()` — how many facet-directed steps the run took
+- [x] End-to-end: `agent_wish_builds_toward_and_converges` runs the loop in apply mode with a scaffolding synthesizer — run 1: wished crate absent (distance `ONE`) → writes `Cargo.toml`; run 2: realized (distance `ZERO`). The loop builds toward the wish and converges
+- [x] 4 new tests (kosmo-agent 17 → 21); fixed a pre-existing flake in `agent_run_id_is_deterministic` (isolated workspace instead of the shared system temp dir)
+
+**`kosmo-synthesizer-llm` + tools** — the synthesizer and renderers see the new kind:
+- [x] LLM prompt gains a `RealizeWishFacet` directive (the model is told exactly what to build); `kosmo-substrate` / `kosmo-tui` / `kosmo-server` / `kosmo-run` render the new kind
+
+**Where the arc stands:** all six pieces are real — target (`Wish`) · ruler (`assess_wish`) · contract (attractor) · observation (`kosmo-intent`) · governance (the loop enforces convergence) · generation (the loop acts toward the wish). The minimal wish-to-system loop is closed at crate granularity, demonstrated end-to-end with a scaffolding synthesizer. Frontier from here: finer facet granularity (Module/Symbol via a name-preserving extractor) and natural-language → `Wish` compilation (the human-facing front door).
+
+### `kosmo-agent` — the wish governs the loop (2026-06-02)
+
+The fourth rung: the wish drives the execution loop. Attach a wish and each `run()` measures the workspace against it and tracks convergence toward the attractor across runs — fail-closed on divergence. One `run()` = one step of the dynamics.
+
+**`kosmo-agent`** (dep added: `kosmo-intent`):
+- [x] `AgentSession::with_wish(wish, evidence_bundle_id)` — attaches a `WishSession`; each `run()` observes the workspace (read-only `cargo metadata` via `kosmo-intent`) and folds the distance into the trajectory. Fail-soft: a non-cargo workspace leaves the run intact, no wish outcome
+- [x] `AgentRunReport.wish: Option<WishRunOutcome>` — `WishAssessment` + cross-run `AttractorStatus` + `diverged` (this run raised the distance) + `agenda()` (unmet facets = prioritized remaining work)
+- [x] Contraction enforced live: `wish_diverging()` / `WishRunOutcome::diverged` surface a regression away from the attractor fail-closed (a driver loop can halt / roll back)
+- [x] `wish_trace()` / `wish_assessment()` accessors
+- [x] 5 tests (kosmo-agent 12 → 17) incl. end-to-end divergence detection across two real `cargo metadata` scans (rename the wished crate away → distance rises ZERO → ONE → Diverging)
+
+**Next rung (the generation half):** turn the agenda into action — feed `WishRunOutcome::agenda()` into the synthesizer as facet-directed work (e.g. a new `ActionItemKind::RealizeWishFacet`), so the loop doesn't just *measure* the gap to the wish but *builds toward* closing it, and rejects any synthesized patch that makes the session diverge. That is the step where the repair loop becomes a build-toward-intent loop.
+
+### `kosmo-intent` — connect the wish ruler to the real workspace (2026-06-02)
+
+The third rung of the wish-to-system arc. Runs 1–2 measured a wish against a hand-supplied observation; this crate reads a *real* workspace and turns it into one, then ties target + ruler + convergence contract into a stateful session.
+
+**`kosmo-intent`** (new crate; deps: `kosmo-core` + `kosmo-parseback`):
+- [x] `facets_from_snapshot` / `observe_snapshot` / `observe_workspace(root)` — read-only adapter (one `cargo metadata` via `kosmo-parseback`) → `ObservedTopology` of `Crate` facets; crate names are scope-independent, so it uses `AffectedFilesOnly` for speed
+- [x] `WishSession` — stateful descent: `observe()` assesses (Run 1) + appends distance; `trace()` exposes the `WishConvergenceTrace` (Run 2); `is_contractive()` / `at_attractor()` / `is_converged()`; a rising distance is `Diverging` (fail-closed). Serde-round-trippable (persist & resume)
+- [x] Known boundary: `Module` / `Symbol` facets need a name-preserving source extractor (`CodeHDAG` keeps only node *labels*, not symbol names) — a later run; the facet-set API merges new sources without an interface change
+- [x] 8 tests incl. a live `cargo metadata` scan of the real workspace (graceful skip if cargo unavailable); ranks-never-gates
+
+**Next rung:** wire `WishSession` into the agent loop — feed `WishAssessment::unmet_facets` into the synthesizer's action queue so the loop builds *toward the wish*, and reject any patch that makes the session `Diverging` (enforce the contraction invariant live).
+
+### `kosmo-core::attractor` — the wish as a fixed-point attractor (2026-06-02)
+
+Turns "the compressor converges" from a claim into a checkable contract. The wish is the attractor `x*`; the Run-1 distance `V` is a Lyapunov function (`V ≥ 0`, `V = ZERO` only at `x*`); a trajectory converges iff `V` is monotone non-increasing and reaches `ZERO`.
+
+**`kosmo-core::attractor`** — pure types over the Run-1 distance:
+- [x] `WishConvergenceTrace` — content-addressed, evidence-bound (CROSS-006) distance trajectory (`Vec<Q16>`, oldest first); derives `AttractorStatus` + `first_divergence`
+- [x] `AttractorStatus` = Converged / Converging / Stalled / Diverging / Indeterminate; `ConvergenceStep` = Contracting / Stalled / Diverging per transition
+- [x] Contraction invariant = intent-axis analogue of LPCM `monotone_contractive_filter`: a step increasing `V` is a regression → `is_contractive()` false, offending index recorded (fail-closed, the loop rejects the patch)
+- [x] `at_attractor()` + fixed-point stability (`f(x*) = x*`): extending a converged trace with `ZERO` stays converged
+- [x] `from_assessments(&[WishAssessment])` builds a trajectory from Run-1 output; mixed-wish → `Indeterminate` empty trace
+- [x] `MAX_STRICT_CONTRACTION_STEPS = 65537`: `Q16` discreteness bounds a strictly-contracting trajectory's length — finite convergence as a counting argument
+- [x] 18 tests (kosmo-core 360 → 378); ranks-never-gates; zero new deps
+
+**Next rung:** the pipeline-scan adapter — populate `ObservedTopology` from the live scan (parse-back snapshot + resolved voids), assess against a user `Wish`, feed `unmet_facets` into the synthesizer's action queue, and accumulate a `WishConvergenceTrace` across runs so the loop can refuse any step that diverges from the attractor.
+
+### `kosmo-core::wish` — Wunsch-zu-System seed: intent as a measurable target (2026-06-02)
+
+The first rung of the wish-to-system arc. Until now the substrate measured voids against *implicit* structural completeness; `Wish` makes the target *explicit*, so the same convergence loop can later descend toward a stated intent instead of merely "be whole". This run ships the target type and the distance function only — wiring into the pipeline/agent loop is a later run.
+
+**`kosmo-core::wish`** — pure, dependency-free types + one pure function:
+- [x] `Wish` — content-addressed (`id = SHA-256(JCS(content))`), evidence-bound (CROSS-006) desired topology; predicates sorted by facet + de-duplicated, so predicate order never affects `id`
+- [x] `WishFacet` / `WishFacetKind` (`Crate`/`Module`/`Symbol`/`Capability`/`Resolution`) — positive-only targets; "the bad thing is gone" → a `Resolution` facet (a wish is never satisfied by absence of evidence)
+- [x] `WishPredicate` (`WishFacet` + `Q16` weight; `require` = unit weight, `weighted` clamps negatives to `ZERO`)
+- [x] `ObservedTopology` — caller-supplied set of present facets (live-pipeline adapter is a later run)
+- [x] `assess_wish(wish, observed, evidence) -> WishAssessment` — pure/deterministic; `distance: Q16` = weighted unmet fraction (`ZERO` ⇒ realized, `ONE` ⇒ nothing met); `unmet_facets` = remaining gradient; `WishClosureStatus` = Realized/Approaching/Unstarted/Vacuous
+- [x] Doctrine: distance *ranks*, never *gates* (CROSS-010 on the intent axis); fail-closed (a facet not positively observed is unmet)
+- [x] 21 tests (kosmo-core 339 → 360); zero new dependencies
+
+**Next rung:** an adapter that populates `ObservedTopology` from the live pipeline scan (parse-back snapshot + resolved-void set), then `assess_wish` against a user-supplied `Wish` so `unmet_facets` feeds the synthesizer's action queue — turning the repair loop into a build-toward-intent loop.
 
 ### Git-commit-per-patch + PromotionFeedback loop — Compressor live (2026-06-02)
 

@@ -28,9 +28,13 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
-use kosmo_core::{GateResult, PolicyProfile, Q16};
-use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions};
-use kosmo_synthesizer::{ActionSynthesizer, MockSynthesizer};
+use kosmo_core::{
+    assess_wish, Digest, GateResult, PolicyProfile, Q16, Wish, WishAssessment, WishClosureStatus,
+    WishFacet,
+};
+use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated};
+use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
+use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
 
 const RESET: &str = "\x1b[0m";
@@ -53,6 +57,10 @@ struct Args {
     color: bool,
     apply: bool,
     commit: bool,
+    /// Wish mode: a plain-prose wish to measure the workspace against.
+    wish: Option<String>,
+    scaffold: bool,
+    validated: bool,
 }
 
 impl Default for Args {
@@ -69,6 +77,9 @@ impl Default for Args {
             color: true,
             apply: false,
             commit: false,
+            wish: None,
+            scaffold: false,
+            validated: false,
         }
     }
 }
@@ -89,7 +100,14 @@ OPTIONS:\n\
                           is dry-run: nothing is written.\n\
     --commit              After each accepted patch, run git add -A && git commit\n\
                           (requires --apply; each patch lands as its own commit).\n\
-    --json                emit the AgentRunReport as JSON\n\
+\n\
+  WISH MODE (deterministic, offline — no LLM, no key):\n\
+    --wish \"<prose>\"      compile a plain-language wish and measure the\n\
+                          workspace against it; prints met/missing facets\n\
+    --validated           observe green tests too (runs the suite; heavier)\n\
+    --scaffold            also print the file changes that would close the gap\n\
+\n\
+    --json                emit the report as JSON\n\
     --no-color            disable ANSI colour\n\
     -h, --help            show this help\n\n\
 ENVIRONMENT:\n\
@@ -100,7 +118,8 @@ EXAMPLES:\n\
     CEREBRAS_API_KEY=sk-... kosmo-run --provider cerebras .\n\
     ANTHROPIC_API_KEY=sk-... kosmo-run --provider claude --max-steps 3 ./crate\n\
     kosmo-run --provider mock --all .        # offline, no key required\n\
-    kosmo-run --provider mock --apply --commit .   # apply + commit each patch"
+    kosmo-run --provider mock --apply --commit .   # apply + commit each patch\n\
+    kosmo-run --wish \"a crate kosmo-api and a function handle\" --scaffold .   # offline"
     );
 }
 
@@ -145,6 +164,11 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--all" => args.all_layers = true,
             "--apply" => args.apply = true,
             "--commit" => args.commit = true,
+            "--wish" => {
+                args.wish = Some(argv.next().ok_or("--wish needs a value")?);
+            }
+            "--scaffold" => args.scaffold = true,
+            "--validated" => args.validated = true,
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -218,6 +242,7 @@ fn kind_label(kind: &ActionItemKind) -> &'static str {
         ActionItemKind::PromoteToPse { .. } => "PromoteToPse",
         ActionItemKind::ReviewCrystal { .. } => "ReviewCrystal",
         ActionItemKind::ApplyNorm { .. } => "ApplyNorm",
+        ActionItemKind::RealizeWishFacet { .. } => "RealizeWishFacet",
     }
 }
 
@@ -334,11 +359,142 @@ fn render_text(report: &AgentRunReport, synth_name: &str, color: bool) {
     }
 }
 
+// ─── Wish mode ──────────────────────────────────────────────────────────────
+
+/// Deterministic, offline front door: compile a prose wish, observe the
+/// workspace, and report the distance to the wish (which facets are present,
+/// which are missing). With `--scaffold`, also print the changes that would
+/// close the gap. No LLM and no key required.
+fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
+    let prose = args.wish.as_deref().unwrap_or("");
+    // Bind the wish's identity to its prose — content-addressed, deterministic.
+    let evidence = Digest::of_bytes(prose.as_bytes());
+    let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+    let observed = if args.validated {
+        observe_workspace_validated(args.path.as_str())
+    } else {
+        observe_workspace_deep(args.path.as_str())
+    }
+    .map_err(|e| format!("could not observe {}: {e}", args.path))?;
+
+    let assessment = assess_wish(&wish, &observed, evidence);
+
+    if args.json {
+        let json = serde_json::to_string_pretty(&assessment)
+            .map_err(|e| format!("failed to serialize assessment: {e}"))?;
+        println!("{json}");
+    } else {
+        print!("{}", wish_report(&wish, &assessment, args.color));
+        if args.scaffold && !assessment.unmet_facets.is_empty() {
+            print!(
+                "{}",
+                scaffold_report(&args.path, &assessment.unmet_facets, args.color)
+            );
+        }
+    }
+
+    // Exit 0 only when the wish is realized — so scripts can gate on it.
+    match assessment.status {
+        WishClosureStatus::Realized | WishClosureStatus::Vacuous => Ok(ExitCode::SUCCESS),
+        _ => Ok(ExitCode::from(1)),
+    }
+}
+
+/// Render a wish assessment as human-readable text (returned, not printed, so
+/// it is unit-testable).
+fn wish_report(wish: &Wish, a: &WishAssessment, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let (label, col) = match a.status {
+        WishClosureStatus::Realized => ("REALIZED ✓", c(GREEN)),
+        WishClosureStatus::Approaching => ("APPROACHING", c(YELLOW)),
+        WishClosureStatus::Unstarted => ("UNSTARTED", c(RED)),
+        WishClosureStatus::Vacuous => ("VACUOUS (no predicates)", c(DIM)),
+    };
+    let mut out = String::new();
+    out.push_str(&format!("{}{}Kosmocrates wish{}\n", c(BOLD), c(CYAN), c(RESET)));
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", wish.label));
+    out.push_str(&format!(
+        "  status {}{}{}   met {}/{}\n",
+        col, label, c(RESET), a.met_count, a.total_count
+    ));
+    if a.unmet_facets.is_empty() {
+        out.push_str(&format!(
+            "  {}all wished facets are present.{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
+    } else {
+        out.push_str("  missing:\n");
+        for f in &a.unmet_facets {
+            out.push_str(&format!("    {}\u{2717}{} {:?} {}\n", c(RED), c(RESET), f.kind, f.key));
+        }
+    }
+    out
+}
+
+/// Render the deterministic scaffold (dry run) for the unmet facets — the
+/// `FacetScaffolder`'s proposed file changes, never written to disk here.
+fn scaffold_report(path: &str, unmet: &[WishFacet], color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "\n{}scaffold{} {}(dry run — changes that would close the gap){}\n",
+        c(BOLD),
+        c(RESET),
+        c(DIM),
+        c(RESET)
+    ));
+    for facet in unmet {
+        let action = ActionItem {
+            action_id: Digest::ZERO,
+            priority_score: Q16::ONE,
+            kind: ActionItemKind::RealizeWishFacet {
+                facet: facet.clone(),
+            },
+            description: format!("realize {:?} {}", facet.kind, facet.key),
+            policy_id: Digest::ZERO,
+        };
+        let req = SynthesisRequest::new(action, path.to_string());
+        match FacetScaffolder.synthesize(&req) {
+            Ok(result) if !result.patch.is_empty() => {
+                for fc in &result.patch.file_changes {
+                    out.push_str(&format!(
+                        "  {}{:?}{} {} ({} ln)  \u{2192} {:?} {}\n",
+                        c(CYAN),
+                        fc.kind,
+                        c(RESET),
+                        fc.path.to_string_lossy(),
+                        fc.line_count(),
+                        facet.kind,
+                        facet.key
+                    ));
+                }
+            }
+            Ok(_) => out.push_str(&format!(
+                "  {}\u{2014}{} no deterministic scaffold for {:?} {}\n",
+                c(DIM),
+                c(RESET),
+                facet.kind,
+                facet.key
+            )),
+            Err(e) => out.push_str(&format!("  scaffold error for {}: {e}\n", facet.key)),
+        }
+    }
+    out
+}
+
 fn run() -> Result<ExitCode, String> {
     let args = match parse_args()? {
         Some(a) => a,
         None => return Ok(ExitCode::SUCCESS),
     };
+
+    // Wish mode is deterministic and offline (no LLM, no key): compile the
+    // prose, observe the workspace, and report the distance to the wish.
+    if args.wish.is_some() {
+        return run_wish_mode(&args);
+    }
 
     let synthesizer = build_synthesizer(&args)?;
     let synth_name = synthesizer.name().to_string();
@@ -394,5 +550,44 @@ fn main() -> ExitCode {
             eprintln!("kosmo-run: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kosmo_core::ObservedTopology;
+
+    fn assess_against(prose: &str, present: &[WishFacet]) -> (Wish, WishAssessment) {
+        let wish = compile_wish(prose, Digest::ZERO, Digest::ZERO);
+        let mut observed = ObservedTopology::empty();
+        for f in present {
+            observed.insert(f.clone());
+        }
+        let a = assess_wish(&wish, &observed, Digest::ZERO);
+        (wish, a)
+    }
+
+    #[test]
+    fn wish_report_realized_when_facet_present() {
+        let (w, a) = assess_against("a crate foo", &[WishFacet::crate_("foo")]);
+        let out = wish_report(&w, &a, false);
+        assert!(out.contains("REALIZED"), "got: {out}");
+        assert!(out.contains("1/1"));
+    }
+
+    #[test]
+    fn wish_report_lists_missing_facet() {
+        let (w, a) = assess_against("a crate foo", &[]);
+        let out = wish_report(&w, &a, false);
+        assert!(out.contains("missing"));
+        assert!(out.contains("foo"));
+    }
+
+    #[test]
+    fn scaffold_report_proposes_changes_for_missing_crate() {
+        let out = scaffold_report(".", &[WishFacet::crate_("demo_crate")], false);
+        assert!(out.contains("scaffold"));
+        assert!(out.contains("demo_crate"));
     }
 }

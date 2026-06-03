@@ -1,0 +1,21 @@
+[package]
+name = "kosmo-intent-llm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates LLM wish compiler — turns prose intent into a content-addressed Wish via Claude or any OpenAI-compatible endpoint"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+kosmo-core   = { path = "../kosmo-core" }
+kosmo-intent = { path = "../kosmo-intent" }
+kosmo-llm    = { path = "../kosmo-llm" }
+serde        = { workspace = true }
+serde_json   = { workspace = true }

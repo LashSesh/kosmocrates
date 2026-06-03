@@ -15,6 +15,251 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-run --wish "<prose>"` — the wish-to-system machine on the command line**
+
+  The agent runner gains a deterministic, **offline** wish mode: compile a
+  plain-prose wish (rule compiler), observe the workspace (`--validated` adds
+  green tests), and report the distance — which facets are present, which are
+  missing — with an exit code that is 0 only when the wish is realized.
+  `--scaffold` prints the `FacetScaffolder`'s proposed file changes (dry run);
+  `--json` emits the assessment. No LLM and no key required, e.g.
+  `kosmo-run --wish "a crate kosmo-api and a function handle" --scaffold .`.
+  Verified live against this repo. +3 tests.
+
+* **Green tests — `Test` facets bound to validated behaviour**
+
+  `kosmo-intent::observe_workspace_validated(root)` runs the suite and replaces
+  lexical `Test` facets (mere presence) with the set of tests that actually
+  *pass*: `parse_test_results` (pure libtest-output parser) + `passing_test_facets`
+  + `run_workspace_tests`, with `ObservedTopology::retain` in kosmo-core doing the
+  swap. A `Test` wish now means "a *green* test named X" — the strongest binding
+  of a wish to validated behaviour. Opt-in (heavy: runs the suite); falls back to
+  lexical presence if the run can't start. +3 tests incl. a live green-vs-red run.
+
+* **Richer facets IV — `Test` (tests as wish targets)**
+
+  `WishFacetKind::Test` (keyed by test fn name). `facets_from_source` (now
+  stateful) detects `#[test]`/`#[tokio::test]` + the following `fn NAME` →
+  `Test(name)`. `FacetScaffolder` emits `#[test] fn name() {}`; rule compiler
+  (`test`) + LLM mapping. v1 observes test *presence*; tying "green" to the
+  cargo validator (a test that *passes*) is the next refinement. +4 tests.
+
+* **Richer facets III — `Capability` (behaviours as wish targets, via markers)**
+
+  Makes the existing `Capability` kind *observable*: `facets_from_source` reads
+  `// kosmo:capability: <name>` markers (also `//!`). `FacetScaffolder` writes
+  the marker; rule compiler (`capability`/`feature`) + LLM mapping. A wish can
+  now target a named behaviour — the facet closest to human intent. +3 tests.
+
+* **Richer facets II — `Signature` (function arity as a wish target)**
+
+  `WishFacetKind::Signature` (keyed `"name/arity"`). `facets_from_source` now
+  emits a `Signature` per `pub fn` alongside the `Symbol` (arity counted from the
+  opening line; generics/arrays don't inflate it). `FacetScaffolder` realizes it
+  (`pub fn name(_a0: (), …)`, via a shared `append_to_lib`); the rule compiler
+  (`signature`/`sig`) and the LLM mapping recognize it. +4 tests.
+
+* **Richer facets I — `Dependency` (crate dependency edges as wish targets)**
+
+  `WishFacetKind::Dependency` (keyed `"from->to"`). `facets_from_snapshot` emits
+  one per ParseBack `dep_edge`, so a wish can require "crate A depends on B".
+  The rule compiler (`dependency`/`depends`) and the LLM kind-mapping recognize
+  it; `WishFacet::dependency(from, to)` builds one. No structural scaffold (a
+  dependency edit needs a path the scaffolder can't infer). +2 tests.
+
+* **`FacetScaffolder` — the loop builds toward a wish offline, deterministically**
+
+  A deterministic `ActionSynthesizer` (in `kosmo-synthesizer`) that realizes
+  `RealizeWishFacet` actions without an LLM:
+  - `Symbol` → append `pub fn <name>() {}` to `src/lib.rs`/`main.rs` (idempotent);
+  - `Module` → create `src/<name>.rs` + add `pub mod <name>;` to the crate root;
+  - `Crate` → create `<name>/Cargo.toml` + `src/lib.rs`, best-effort `[workspace]
+    members` registration.
+
+  It reads the workspace to stay idempotent (an already-realized facet → empty
+  patch). The deterministic counterpart to the LLM synthesizer: it writes only
+  the structural skeleton, but makes the build-toward-intent loop runnable and
+  verifiable with no model. 5 new tests incl. end-to-end
+  `agent_wish_builds_symbol_and_converges` — in apply mode the loop finds a
+  Symbol absent (distance `ONE`), scaffolds it, and the next run observes it
+  realized (distance `ZERO`), offline.
+
+* **LLM ends, real — shared `kosmo-llm` transport + `kosmo-intent-llm` (prose → Wish)**
+
+  The natural-language front door now has a real LLM backend, behind the same
+  deterministic contract as the rule compiler.
+
+  - `kosmo-llm` — a shared LLM transport crate: `LlmConfig` / `LlmProvider`
+    (Anthropic Messages API + any OpenAI-compatible endpoint), `complete(system,
+    user)` with 429/529/5xx retry+backoff, `config_from_env`, and a string-aware
+    brace-balanced `extract_json_object`. The one non-deterministic step in the
+    substrate now lives in exactly one place. (`kosmo-synthesizer-llm` keeps its
+    own transport for now; migrating it onto `kosmo-llm` is a planned cleanup.)
+  - `kosmo-intent-llm::LlmWishCompiler` implements `kosmo-intent::WishCompiler`:
+    prose → a JSON facet list → a content-addressed `Wish`. Drops into the agent
+    loop exactly where the rule compiler does. The model emits facets; the `Wish`
+    id stays deterministic over the sorted/de-duped facet set + prose label.
+  - 23 new tests (config/transport shapes; JSON extraction incl. fences, nested
+    braces, escaped quotes; prompt building; response parsing incl.
+    unknown-kind/empty-key dropping; fail-fast on empty API key). Live calls are
+    gated by credentials, never hit in tests.
+
+* **The human front door — natural-language → `Wish`**
+
+  A person can now state intent in prose and get a structured, content-addressed
+  `Wish` the loop can descend toward.
+
+  - `kosmo-intent::compile_wish(prose, policy_id, evidence)` — a deterministic,
+    dependency-free compiler that scans prose for structural triggers
+    (`crate`/`package`, `module`/`mod`, `function`/`fn`/`method`,
+    `type`/`struct`/`enum`/`trait`/`symbol`) and turns each `keyword NAME` phrase
+    into a required facet. The prose becomes the wish's label (part of its
+    identity). Handles backticks/quotes and fillers ("a crate called `X`").
+  - `WishCompiler` trait + `RuleWishCompiler` reference impl — the extension
+    point for an LLM-backed compiler (the counterpart to `kosmo-synthesizer-llm`),
+    where the model is the only non-deterministic part and the emitted `Wish`
+    stays content-addressed.
+  - 10 new tests incl. end-to-end `agent_wish_from_prose_realized`: prose →
+    `Wish` → the loop measures the real workspace and realizes it. Convention:
+    name the thing after the keyword ("a crate kosmo-server, a module routes").
+
+* **Finer granularity — Module/Symbol facets from a name-preserving extractor**
+
+  A wish can now target more than whole crates: modules and public symbols.
+
+  - `kosmo-intent::facets_from_source(&str)` — a deterministic, dependency-free
+    lexical Rust extractor that emits `Module` facets (`mod`, public or not) and
+    `Symbol` facets (public `fn` / `struct` / `enum` / `trait` / `type` /
+    `union` / `const` / `static`), keyed by bare name. Handles `pub(...)`, fn
+    modifiers (`async`/`const`/`unsafe`), generics, and skips comments/attrs.
+  - `facets_from_rust_dir(dir)` walks a tree's `.rs` files (skipping
+    `target`/`.git`); `observe_workspace_deep(root)` merges crate facets (cargo
+    metadata) with module/symbol facets — crate + module + symbol granularity.
+  - `kosmo-agent` now observes via `observe_workspace_deep`, so the loop can
+    measure and build toward module/symbol wishes, not just crate-presence ones.
+  - 10 new tests incl. an end-to-end symbol-granularity wish realized through
+    the agent loop. Known limits: bare-name keys (no crate qualification yet),
+    `extern` and macro-generated items not captured.
+
+* **The wish builds toward itself — facet-directed synthesis (the loop closes)**
+
+  The generation half of the wish arc: the agent no longer just *measures* the
+  gap to the wish, it *acts* to close it.
+
+  - `ActionItemKind::RealizeWishFacet { facet }` (kosmo-pipeline) — a first-class,
+    intent-directed action carrying the unmet `WishFacet` (the counterpart to
+    `FillVoid`, on the intent axis). The pipeline scan never emits these; the
+    agent does, from the wish agenda.
+  - Each `AgentSession::run()` with a wish observes the workspace at the start,
+    turns each unmet facet into a top-priority `RealizeWishFacet` action, and
+    prepends it to the queue — so the loop builds *toward* the wish before it
+    repairs voids. `AgentRunReport::wish_directed_count()` reports how much
+    directed work a run did.
+  - The synthesizer is told exactly what to build: the LLM prompt
+    (`kosmo-synthesizer-llm`) gains a `RealizeWishFacet` directive; the tool
+    renderers (`kosmo-substrate` / `kosmo-tui` / `kosmo-server` / `kosmo-run`)
+    label the new kind.
+  - End-to-end proof: `agent_wish_builds_toward_and_converges` runs the loop in
+    apply mode with a scaffolding synthesizer — run 1 finds the wished crate
+    absent (distance `ONE`) and writes it; run 2 observes it realized (distance
+    `ZERO`). The repair loop is now a build-toward-intent loop that converges.
+  - 4 new agent tests (17 → 21); fixed a pre-existing flake in
+    `agent_run_id_is_deterministic` (now scans an isolated dir, not shared temp).
+
+* **`kosmo-agent` — the wish governs the loop (observe · converge · enforce)**
+
+  The wish now drives the execution loop, not just the type system. Attach a
+  wish and each `run()` measures the workspace against it and tracks convergence
+  toward the attractor across runs — fail-closed on divergence.
+
+  - `AgentSession::with_wish(wish, evidence_bundle_id)` attaches an internal
+    `WishSession`. Each `run()` observes the workspace via `kosmo-intent`
+    (read-only `cargo metadata`) and folds the distance into the trajectory —
+    one `run()` is one step of the dynamics `x_t → x_{t+1}`. Fail-soft: a
+    non-cargo workspace leaves the run intact with no wish outcome.
+  - `AgentRunReport.wish: Option<WishRunOutcome>` carries the run's
+    `WishAssessment`, the cross-run `AttractorStatus`, a `diverged` flag (this
+    run raised the distance), and `agenda()` — the unmet facets, i.e. the
+    prioritized remaining work toward the wish.
+  - Contraction enforced live: `wish_diverging()` / `WishRunOutcome::diverged`
+    surface a regression away from the attractor fail-closed, so a driving loop
+    can halt or roll back rather than accept a step in the wrong direction.
+  - `wish_trace()` / `wish_assessment()` accessors. 5 new tests incl. an
+    end-to-end divergence detection across two real `cargo metadata` scans.
+
+* **`kosmo-intent` — connect the wish ruler to the real workspace**
+
+  The third rung of the wish-to-system arc. Runs 1–2 measured a wish against a
+  hand-supplied observation; this crate reads a **real** workspace and turns it
+  into one, then ties target + ruler + convergence contract together in a
+  stateful session.
+
+  - `observe_workspace(root)` / `observe_snapshot(&TopologySnapshot)` /
+    `facets_from_snapshot(...)` — read-only adapter (one `cargo metadata` via
+    `kosmo-parseback`) that turns crate topology into an `ObservedTopology` of
+    `Crate` facets. (`Module` / `Symbol` facets need a name-preserving source
+    extractor — a later run; the facet-set API merges them in without change.)
+  - `WishSession` — a descent toward a wish-attractor: each `observe(...)`
+    assesses the workspace (Run 1), appends the distance, and exposes a
+    `WishConvergenceTrace` (Run 2). `is_contractive()` / `at_attractor()` /
+    `is_converged()` surface the contract; a step that *raises* the distance is
+    flagged `Diverging`, fail-closed. Serializable, so a descent persists and
+    resumes across sessions.
+  - 8 tests incl. a live `cargo metadata` scan of the real workspace; depends
+    only on `kosmo-core` + `kosmo-parseback`.
+
+* **`kosmo-core::attractor` — the wish as a fixed-point attractor (convergence contract)**
+
+  Formalizes "the compressor converges". The wish is the attractor `x*`; the
+  Run-1 wish distance `V` is a Lyapunov function (`V ≥ 0`, `V = ZERO` only at
+  `x*`). A trajectory converges iff `V` is monotone non-increasing and reaches
+  `ZERO`.
+
+  - `WishConvergenceTrace` — content-addressed, evidence-bound record of a
+    distance trajectory (`distances: Vec<Q16>`, oldest first). Derives
+    `AttractorStatus` (Converged / Converging / Stalled / Diverging /
+    Indeterminate) and `first_divergence: Option<u32>`.
+  - Contraction invariant (intent-axis analogue of LPCM's
+    `monotone_contractive_filter`): a step that *increases* `V` is a regression —
+    `is_contractive()` is false and the offending index is recorded, fail-closed,
+    so the loop can reject the patch that moved away from the wish.
+  - `at_attractor()` (latest distance is `ZERO`) plus fixed-point stability
+    (`f(x*) = x*`): extending a converged trace with `ZERO` stays converged.
+  - `from_assessments(&[WishAssessment])` builds the trajectory directly from
+    Run-1 output; a mixed-wish slice yields an `Indeterminate`, empty trace.
+  - `MAX_STRICT_CONTRACTION_STEPS = 65537`: because `Q16` is a *discrete* lattice,
+    a strictly contracting trajectory over `[0, 1]` reaches the attractor in
+    bounded time — convergence is a counting argument, not an asymptotic hope.
+  - Ranks, never gates. 18 new tests; zero new dependencies.
+
+* **`kosmo-core::wish` — the Wunsch-zu-System seed: intent as a measurable target**
+
+  The first rung of the wish-to-system arc. The substrate has always measured
+  voids against an *implicit* target — structural completeness. `Wish` makes the
+  target *explicit*, so the same convergence loop can later descend toward a
+  stated intent instead of merely "be structurally whole". This run ships only
+  the target and the ruler; wiring it into the agent loop is a later run.
+
+  - `Wish` — content-addressed (`id = SHA-256(JCS(content))`), evidence-bound
+    (CROSS-006) declaration of a desired topology: a de-duplicated, facet-sorted
+    set of `WishPredicate`s (each a `WishFacet` + `Q16` weight). Predicate order
+    never affects identity (deterministic replay).
+  - `WishFacet` / `WishFacetKind` — positive-only structural targets
+    (`Crate`, `Module`, `Symbol`, `Capability`, `Resolution`). "The bad thing
+    must be gone" is modelled as a `Resolution` facet the pipeline emits once a
+    void is closed — a wish is never satisfied by *absence* of evidence.
+  - `ObservedTopology` — the set of facets observed present in a workspace
+    (caller-supplied now; populated from the live pipeline in a later run).
+  - `assess_wish(wish, observed, evidence) -> WishAssessment` — pure,
+    deterministic distance function. `distance: Q16` is the weighted unmet
+    fraction (`ZERO` ⇒ realized, `ONE` ⇒ nothing met); `unmet_facets` is the
+    remaining **gradient** the agent loop must close. `WishClosureStatus` =
+    Realized / Approaching / Unstarted / Vacuous.
+  - Doctrine: the wish distance *ranks*, it never *gates* (CROSS-010 applied to
+    the intent axis) — it grants no capability and bypasses no policy.
+  - 21 new tests (content addressing, predicate order-independence, dedup,
+    fail-closed unmet, weighted distance, unit-interval bounds, evidence-bound).
+
 * **Git-commit-per-patch + PromotionFeedback loop — the compressor is live**
 
   Two orthogonal layers that close the full convergence cycle.

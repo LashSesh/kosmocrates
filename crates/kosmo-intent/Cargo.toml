@@ -1,0 +1,22 @@
+[package]
+name = "kosmo-intent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Kosmocrates intent layer — observe a workspace against a Wish and track convergence toward the wish-attractor"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+kosmo-core      = { path = "../kosmo-core" }
+kosmo-parseback = { path = "../kosmo-parseback" }
+serde           = { workspace = true }
+
+[dev-dependencies]
+serde_json      = { workspace = true }

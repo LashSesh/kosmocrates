@@ -7,6 +7,7 @@
 //! substrate and below all HYPHAE, Workbench, and SystemCube layers.
 
 pub mod acquisition;
+pub mod attractor;
 pub mod authority;
 pub mod cartography;
 pub mod digest;
@@ -22,12 +23,16 @@ pub mod policy;
 pub mod promotion_feedback;
 pub mod run;
 pub mod validation;
+pub mod wish;
 
 pub use acquisition::{
     AcquiredSource, AcquisitionSandbox, AcquisitionSourceKind, AcquisitionTaint,
     LicenseCheckOutcome, SecretScanOutcome, SourceAcquisitionCapability,
 };
 pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
+pub use attractor::{
+    AttractorStatus, ConvergenceStep, WishConvergenceTrace, MAX_STRICT_CONTRACTION_STEPS,
+};
 pub use cartography::{
     CartographyEntryKind, CartographyIntegrityReport, CartographyIntegrityStatus,
     CartographyStoreCommit, CartographyStoreError, CartographyStorageManifest,
@@ -66,6 +71,10 @@ pub use policy::{ImplementationMode, PolicyProfile, PolicyViolation};
 pub use promotion_feedback::{FeedbackOutcome, PromotionFeedback};
 pub use validation::{
     determine_closure_status, ValidationClosureReport, ValidationClosureStatus,
+};
+pub use wish::{
+    assess_wish, ObservedTopology, Wish, WishAssessment, WishClosureStatus, WishFacet,
+    WishFacetKind, WishPredicate,
 };
 pub use run::{
     FoundryCheckKind, FoundryCheckResult, FoundryOutcome, GateResult, LedgerEvent,
