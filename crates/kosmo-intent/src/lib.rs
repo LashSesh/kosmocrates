@@ -624,42 +624,115 @@ fn clean_name(tok: &str) -> Option<String> {
     Some(t.to_string())
 }
 
+// ─── Archetypes (the breadth axis) ──────────────────────────────────────────
+
+/// A high-level archetype: a named template that fans out into a *bundle* of
+/// lower facets. One prose word → many facets — the breadth axis of the Horizon
+/// floor (`docs/HORIZON-behavior-archetype.md`). Archetypes are a pure compiler
+/// concept; they introduce no new facet kind and need no scaffolder change —
+/// they expand into the existing leaves the substrate already builds and
+/// observes. Every current archetype expands within the root crate, so the
+/// deterministic scaffolder realizes the structural part offline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Archetype {
+    /// `crud <name>` — a module, `create_`/`get_` typed handlers, and a marker.
+    Crud,
+    /// `endpoint <name>` — a typed request handler and a marker.
+    Endpoint,
+    /// `component <name>` — a module and a marker.
+    Component,
+}
+
+/// Recognize an archetype keyword. Kept disjoint from [`trigger_kind`] so a
+/// word is either a leaf trigger or an archetype, never both. The keywords are
+/// deliberately distinctive (not `route`/`widget`/…) so they don't shadow words
+/// commonly used as facet *names* (e.g. a module called `routes`); archetype
+/// keywords are effectively reserved.
+fn archetype_trigger(word: &str) -> Option<Archetype> {
+    match norm(word).as_str() {
+        "crud" => Some(Archetype::Crud),
+        "endpoint" | "endpoints" => Some(Archetype::Endpoint),
+        "component" | "components" => Some(Archetype::Component),
+        _ => None,
+    }
+}
+
+/// Expand an archetype + target `name` into its facet bundle. Pure and
+/// deterministic; every leaf is scaffoldable and observable, so the structural
+/// bundle converges offline (a behaviour leaf, if any, needs the impl). Typed
+/// handlers use `String` so they compile without extra type definitions.
+pub fn expand_archetype(arch: Archetype, name: &str) -> Vec<WishFacet> {
+    match arch {
+        Archetype::Crud => vec![
+            WishFacet::module(name),
+            WishFacet::contract(format!("create_{name}"), &["String"], "String"),
+            WishFacet::contract(format!("get_{name}"), &["String"], "String"),
+            WishFacet::capability(format!("crud:{name}")),
+        ],
+        Archetype::Endpoint => vec![
+            WishFacet::contract(name, &["String"], "String"),
+            WishFacet::capability(format!("endpoint:{name}")),
+        ],
+        Archetype::Component => vec![
+            WishFacet::module(name),
+            WishFacet::capability(format!("component:{name}")),
+        ],
+    }
+}
+
+/// Find the name token introduced after position `i`: skip [`FILLERS`], stop at
+/// the next leaf or archetype trigger. Returns `(clean_name, index_after)`.
+fn name_after(tokens: &[&str], i: usize) -> Option<(String, usize)> {
+    let mut j = i + 1;
+    while j < tokens.len() {
+        if trigger_kind(tokens[j]).is_some() || archetype_trigger(tokens[j]).is_some() {
+            return None;
+        }
+        if FILLERS.contains(&norm(tokens[j]).as_str()) {
+            j += 1;
+            continue;
+        }
+        break;
+    }
+    if j < tokens.len() {
+        clean_name(tokens[j]).map(|name| (name, j + 1))
+    } else {
+        None
+    }
+}
+
 /// Compile a prose intent statement into a content-addressed [`Wish`].
 ///
-/// Deterministic and dependency-free: it scans the prose for structural trigger
-/// words (`crate`/`package`, `module`/`mod`, `function`/`fn`/`method`,
-/// `type`/`struct`/`enum`/`trait`/`symbol`) and turns each `keyword NAME` phrase
-/// into a required [`WishFacet`]. The `Wish` label is the prose itself, so the
-/// intent statement is part of the wish's identity.
+/// Deterministic and dependency-free: it scans the prose for **archetype**
+/// keywords (`crud`/`endpoint`/`component` — each fans out into a facet bundle)
+/// and structural **leaf** trigger words (`crate`/`package`, `module`/`mod`,
+/// `function`/`fn`/`method`, `type`/`struct`/`trait`, `contract`, `behavior`,
+/// …), turning each `keyword NAME` phrase into the required [`WishFacet`]s. The
+/// `Wish` label is the prose itself, so the intent statement is part of the
+/// wish's identity.
 ///
-/// Convention: name the thing *after* the keyword — "a crate kosmo-server, a
-/// module routes, a function handle_request". Free word order and fuzzier
-/// phrasing are the job of an LLM-backed [`WishCompiler`] (a later layer); this
-/// is the offline, byte-deterministic front door.
+/// Convention: name the thing *after* the keyword — "a crud user, a crate
+/// kosmo-server, a function handle_request". Free word order and fuzzier
+/// phrasing are the job of an LLM-backed [`WishCompiler`]; this is the offline,
+/// byte-deterministic front door.
 pub fn compile_wish(prose: &str, policy_id: Digest, evidence_bundle_id: Digest) -> Wish {
     let tokens: Vec<&str> = prose.split_whitespace().collect();
     let mut facets: Vec<WishFacet> = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
-        if let Some(kind) = trigger_kind(tokens[i]) {
-            // Find the next non-filler token as the name (stop at another trigger).
-            let mut j = i + 1;
-            while j < tokens.len() {
-                if trigger_kind(tokens[j]).is_some() {
-                    break;
-                }
-                if FILLERS.contains(&norm(tokens[j]).as_str()) {
-                    j += 1;
-                    continue;
-                }
-                break;
+        // Archetypes take precedence: one keyword expands into many facets.
+        if let Some(arch) = archetype_trigger(tokens[i]) {
+            if let Some((name, next)) = name_after(&tokens, i) {
+                facets.extend(expand_archetype(arch, &name));
+                i = next;
+                continue;
             }
-            if j < tokens.len() && trigger_kind(tokens[j]).is_none() {
-                if let Some(name) = clean_name(tokens[j]) {
-                    facets.push(WishFacet::new(kind, name));
-                    i = j + 1;
-                    continue;
-                }
+        }
+        if let Some(kind) = trigger_kind(tokens[i]) {
+            if let Some((name, next)) = name_after(&tokens, i) {
+                facets.push(WishFacet::new(kind, name));
+                i = next;
+                continue;
             }
         }
         i += 1;
@@ -1282,6 +1355,48 @@ mod tests {
         let facets =
             facets_from_source("// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_abc() {}\n");
         assert!(!facets.iter().any(|f| f.kind == WishFacetKind::Behavior));
+    }
+
+    // ── Archetypes (the breadth axis) ─────────────────────────────────────
+
+    #[test]
+    fn archetype_crud_expands_to_bundle() {
+        let facets = expand_archetype(Archetype::Crud, "user");
+        assert_eq!(facets.len(), 4, "crud fans out into four facets");
+        assert!(facets.contains(&WishFacet::module("user")));
+        assert!(facets.contains(&WishFacet::contract("create_user", &["String"], "String")));
+        assert!(facets.contains(&WishFacet::contract("get_user", &["String"], "String")));
+        assert!(facets.contains(&WishFacet::capability("crud:user")));
+    }
+
+    #[test]
+    fn archetype_endpoint_and_component_bundles() {
+        let e = expand_archetype(Archetype::Endpoint, "handle");
+        assert!(e.contains(&WishFacet::contract("handle", &["String"], "String")));
+        assert!(e.contains(&WishFacet::capability("endpoint:handle")));
+        let c = expand_archetype(Archetype::Component, "card");
+        assert!(c.contains(&WishFacet::module("card")));
+        assert!(c.contains(&WishFacet::capability("component:card")));
+    }
+
+    #[test]
+    fn compile_wish_expands_archetype_to_bundle() {
+        // One prose phrase → a four-facet bundle.
+        let w = compile_wish("a crud user", Digest::ZERO, Digest::ZERO);
+        assert_eq!(w.predicate_count(), 4);
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("user")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::capability("crud:user")));
+    }
+
+    #[test]
+    fn compile_wish_mixes_archetype_and_leaf() {
+        let w = compile_wish("a crud user and a crate api", Digest::ZERO, Digest::ZERO);
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("api")));
+        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("user")));
+        assert_eq!(w.predicate_count(), 5, "4 from crud + 1 crate");
     }
 
     #[test]

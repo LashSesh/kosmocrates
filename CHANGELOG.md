@@ -15,6 +15,22 @@ note explicitly says so.
 
 ### Added
 
+* **Archetype expansion — full-stack fan-out (Horizon floor, beam 3)**
+
+  The breadth axis of `docs/HORIZON-behavior-archetype.md`: one prose word
+  expands into a *bundle* of facets. `kosmo-intent` grows a compiler stage above
+  the leaf triggers — `compile_wish` recognizes archetype keywords
+  (`crud` / `endpoint` / `component`) and `expand_archetype` fans each into the
+  existing leaves. `crud <name>` → a module, `create_`/`get_` typed handlers
+  (`String→String`, so they compile), and a `crud:<name>` capability marker;
+  `endpoint <name>` → a typed handler + marker; `component <name>` → a module +
+  marker. Elegantly, this adds **no new facet kind and no scaffolder change** —
+  archetypes are pure templates over leaves the substrate already builds and
+  observes, so the structural bundle converges offline. Archetype keywords are
+  reserved (kept disjoint from leaf triggers and common names). Verified live:
+  `--wish "a crud user" --apply` descends `0/4 → 4/4 REALIZED` in one step.
+  +5 tests (kosmo-intent 51→55, kosmo-run 11→12).
+
 * **`Behavior` facets — validated behaviour, the keystone (Horizon floor, beam 2)**
 
   The load-bearing beam of `docs/HORIZON-behavior-archetype.md`: a `Behavior`

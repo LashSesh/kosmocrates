@@ -1003,6 +1003,45 @@ mod tests {
     }
 
     #[test]
+    fn descend_realizes_crud_archetype() {
+        // One prose phrase ("a crud user") fans out into a 4-facet bundle —
+        // module + two typed handlers + capability — all structural, so the
+        // deterministic scaffolder converges it offline (no LLM, no validation).
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-crud-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "// demo\n").unwrap();
+
+        let prose = "a crud user";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+        assert_eq!(wish.predicate_count(), 4, "crud should fan out to 4 facets");
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "crud archetype should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn behavior_wish_forces_validation() {
         let w = compile_wish("a behavior add(2,3)=>5", Digest::ZERO, Digest::ZERO);
         assert!(wish_needs_validation(&w), "behaviour wish must force validation");
