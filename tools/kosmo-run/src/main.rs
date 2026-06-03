@@ -64,6 +64,9 @@ struct Args {
     scaffold: bool,
     validated: bool,
     provider_set: bool,
+    /// Path to a JSON file that the convergence trajectory is written to (and
+    /// resumed from, if the file already exists and matches the current wish).
+    wish_session: Option<String>,
 }
 
 impl Default for Args {
@@ -84,6 +87,7 @@ impl Default for Args {
             scaffold: false,
             validated: false,
             provider_set: false,
+            wish_session: None,
         }
     }
 }
@@ -110,6 +114,9 @@ OPTIONS:\n\
                           workspace against it; prints met/missing facets\n\
     --validated           observe green tests too (runs the suite; heavier)\n\
     --scaffold            also print the file changes that would close the gap\n\
+    --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
+                          if <path> already exists and matches the wish, resume\n\
+                          from the prior session (auditable, replayable)\n\
 \n\
     (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
      realized; add --provider to let the LLM build facets the scaffolder can't)\n\
@@ -177,6 +184,9 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--scaffold" => args.scaffold = true,
             "--validated" => args.validated = true,
+            "--wish-session" => {
+                args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
+            }
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -367,6 +377,29 @@ fn render_text(report: &AgentRunReport, synth_name: &str, color: bool) {
     }
 }
 
+// ─── Session persistence ─────────────────────────────────────────────────────
+
+/// Load a prior [`WishSession`] from `path`, but only if it belongs to `wish`.
+/// Returns `None` on any I/O or parse failure — the caller falls back to a fresh
+/// session, which is always the safe choice.
+fn load_prior_session(path: &str, wish: &Wish) -> Option<WishSession> {
+    let text = fs::read_to_string(path).ok()?;
+    let session: WishSession = serde_json::from_str(&text).ok()?;
+    if session.wish().id == wish.id {
+        Some(session)
+    } else {
+        None // different wish — start fresh, don't silently merge trajectories
+    }
+}
+
+/// Serialize `session` as pretty-printed JSON and write it to `path`.
+fn save_session(path: &str, session: &WishSession) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(session)
+        .map_err(|e| format!("failed to serialize session: {e}"))?;
+    fs::write(path, json).map_err(|e| format!("failed to write session to {path}: {e}"))?;
+    Ok(())
+}
+
 // ─── Wish mode ──────────────────────────────────────────────────────────────
 
 /// Deterministic, offline front door: compile a prose wish, observe the
@@ -395,6 +428,10 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         } else {
             None
         };
+        let prior = args
+            .wish_session
+            .as_deref()
+            .and_then(|p| load_prior_session(p, &wish));
         let session = descend_to_wish(
             &args.path,
             &wish,
@@ -402,7 +439,11 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             args.validated,
             8,
             fallback.as_deref(),
+            prior,
         )?;
+        if let Some(ref sp) = args.wish_session {
+            save_session(sp, &session)?;
+        }
         if args.json {
             let json = serde_json::to_string_pretty(session.assessments())
                 .map_err(|e| format!("failed to serialize assessments: {e}"))?;
@@ -431,6 +472,14 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     .map_err(|e| format!("could not observe {}: {e}", args.path))?;
 
     let assessment = assess_wish(&wish, &observed, evidence);
+
+    // Persist a single-step session when requested — even without --apply this
+    // gives the caller an auditable record of the current workspace state.
+    if let Some(ref sp) = args.wish_session {
+        let mut one_step = WishSession::new(wish.clone(), evidence);
+        one_step.observe(&observed);
+        save_session(sp, &one_step)?;
+    }
 
     if args.json {
         let json = serde_json::to_string_pretty(&assessment)
@@ -588,6 +637,9 @@ fn apply_synthesis(
 /// apply, until it is realized, no further progress is possible, or `max_iters`
 /// is reached. Returns the [`WishSession`] carrying the full convergence
 /// trajectory — the attractor descent, executed.
+///
+/// `prior` resumes an earlier descent: the loaded session's assessments are
+/// prepended to the trajectory and the loop continues from the current state.
 fn descend_to_wish(
     path: &str,
     wish: &Wish,
@@ -595,8 +647,9 @@ fn descend_to_wish(
     validated: bool,
     max_iters: u32,
     fallback: Option<&dyn ActionSynthesizer>,
+    prior: Option<WishSession>,
 ) -> Result<WishSession, String> {
-    let mut session = WishSession::new(wish.clone(), evidence);
+    let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
     loop {
         let observed = if validated {
@@ -805,7 +858,7 @@ mod tests {
         let evidence = Digest::of_bytes(prose.as_bytes());
         let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None) {
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -872,7 +925,7 @@ mod tests {
         let evidence = Digest::of_bytes(prose.as_bytes());
         let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None) {
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -886,5 +939,70 @@ mod tests {
             Err(e) => eprintln!("observe (cargo metadata) unavailable, skipping: {e}"),
         }
         fs::remove_dir_all(&root).ok();
+    }
+
+    // ── Session persistence ───────────────────────────────────────────────
+
+    #[test]
+    fn wish_session_json_roundtrip() {
+        let prose = "a crate canary";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+        let mut session = WishSession::new(wish.clone(), evidence);
+        // iter 0: unmet — canary not present
+        session.observe(&ObservedTopology::empty());
+        // iter 1: realized — canary present
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("canary")]);
+        session.observe(&observed);
+
+        let json = serde_json::to_string_pretty(&session).unwrap();
+        let back: WishSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.iterations(), 2);
+        assert_eq!(back.wish().id, wish.id);
+        assert!(matches!(
+            back.latest().unwrap().status,
+            WishClosureStatus::Realized
+        ));
+    }
+
+    #[test]
+    fn wish_session_saved_and_loaded_from_file() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let session_path = std::env::temp_dir()
+            .join(format!("kosmo-run-session-{nanos}.json"))
+            .to_string_lossy()
+            .to_string();
+
+        let prose = "a crate sparrow";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        // Build a two-step session and save it.
+        let mut session = WishSession::new(wish.clone(), evidence);
+        session.observe(&ObservedTopology::empty());
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("sparrow")]);
+        session.observe(&observed);
+        save_session(&session_path, &session).expect("save must succeed");
+
+        // Load it back.
+        let loaded = load_prior_session(&session_path, &wish)
+            .expect("should load because wish id matches");
+        assert_eq!(loaded.iterations(), 2);
+        assert!(matches!(
+            loaded.latest().unwrap().status,
+            WishClosureStatus::Realized
+        ));
+
+        // A different wish must not be accepted.
+        let other_wish = compile_wish("a crate other", Digest::ZERO, evidence);
+        assert!(
+            load_prior_session(&session_path, &other_wish).is_none(),
+            "different wish id must be rejected"
+        );
+
+        fs::remove_file(&session_path).ok();
     }
 }

@@ -15,6 +15,17 @@ note explicitly says so.
 
 ### Added
 
+* **`--wish-session <path>` — every descent is now auditable and replayable**
+
+  `kosmo-run --wish … --wish-session trajectory.json` writes the complete
+  `WishSession` as pretty-printed, content-addressed JSON after every run (with
+  `--apply`) or observation (without `--apply`). If the file already exists and
+  carries the same wish id, it is loaded and the descent **resumes** from the
+  prior trajectory — the session accumulates iterations across invocations.
+  `load_prior_session` guards the identity check: a session for a different wish
+  is always discarded rather than silently merged. +2 tests (JSON round-trip;
+  save + load + identity rejection).
+
 * **`Dependency` facets are now deterministically scaffoldable — the last offline gap closes**
 
   `FacetScaffolder::scaffold_dependency` realizes a `"from->to"` edge by locating
