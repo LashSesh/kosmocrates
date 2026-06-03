@@ -1042,6 +1042,55 @@ mod tests {
     }
 
     #[test]
+    fn descend_targets_function_into_member_crate() {
+        // Crate-targeting: "helper@beta" must land in crates/beta, not the root.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-target-{nanos}"));
+        for name in ["alpha", "beta"] {
+            fs::create_dir_all(root.join("crates").join(name).join("src")).unwrap();
+            fs::write(
+                root.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            fs::write(root.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+
+        let prose = "a function helper@beta";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "crate-targeted wish should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                // The function landed in beta, not alpha, not the root.
+                let beta = fs::read_to_string(root.join("crates/beta/src/lib.rs")).unwrap();
+                assert!(beta.contains("pub fn helper"), "beta should have helper");
+                let alpha = fs::read_to_string(root.join("crates/alpha/src/lib.rs")).unwrap();
+                assert!(!alpha.contains("pub fn helper"), "alpha must NOT have helper");
+                assert!(!root.join("src/lib.rs").exists(), "root must not be touched");
+            }
+            Err(e) => eprintln!("observe (cargo metadata) unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn behavior_wish_forces_validation() {
         let w = compile_wish("a behavior add(2,3)=>5", Digest::ZERO, Digest::ZERO);
         assert!(wish_needs_validation(&w), "behaviour wish must force validation");

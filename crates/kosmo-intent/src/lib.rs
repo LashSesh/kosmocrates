@@ -447,18 +447,70 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Walk every `.rs` file under `dir` and union their `Module` / `Symbol` facets.
+/// Read `name = "…"` from a manifest's `[package]` section (the crate's
+/// package name). `None` for a `[workspace]`-only manifest.
+fn manifest_package_name(toml: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in toml.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+            continue;
+        }
+        if in_package {
+            if let Some(rest) = line.strip_prefix("name") {
+                if let Some(val) = rest.trim_start().strip_prefix('=') {
+                    let v = val.trim().trim_matches('"');
+                    if !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The package name of the crate a source `file` belongs to: the nearest
+/// ancestor (up to and including `root`) with a `[package]` `Cargo.toml`.
+fn crate_of(file: &Path, root: &Path) -> Option<String> {
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+        if let Ok(content) = std::fs::read_to_string(d.join("Cargo.toml")) {
+            if let Some(name) = manifest_package_name(&content) {
+                return Some(name);
+            }
+        }
+        if d == root {
+            break;
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Walk every `.rs` file under `dir` and union their source facets.
 ///
 /// Read-only. Heavier than the crate-level snapshot (it reads source), so it is
-/// opt-in via [`observe_workspace_deep`].
+/// opt-in via [`observe_workspace_deep`]. Each item is emitted **twice**: by its
+/// bare key, and — when the file belongs to a package — by its crate-qualified
+/// key `"<key>@<crate>"`, so a crate-targeted wish (e.g. `handle@kosmo-api`)
+/// round-trips against the crate the scaffolder wrote it into.
 pub fn facets_from_rust_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
+    let root = dir.as_ref();
     let mut files = Vec::new();
-    collect_rs(dir.as_ref(), &mut files);
+    collect_rs(root, &mut files);
     files.sort();
     let mut facets = BTreeSet::new();
-    for file in files {
-        if let Ok(content) = std::fs::read_to_string(&file) {
-            facets.extend(facets_from_source(&content));
+    for file in &files {
+        if let Ok(content) = std::fs::read_to_string(file) {
+            let crate_name = crate_of(file, root);
+            for f in facets_from_source(&content) {
+                if let Some(ref cr) = crate_name {
+                    facets.insert(WishFacet::new(f.kind.clone(), format!("{}@{}", f.key, cr)));
+                }
+                facets.insert(f);
+            }
         }
     }
     facets
@@ -1397,6 +1449,51 @@ mod tests {
         assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("api")));
         assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("user")));
         assert_eq!(w.predicate_count(), 5, "4 from crud + 1 crate");
+    }
+
+    // ── Crate-qualified observation (crate-targeting round-trip) ───────────
+
+    #[test]
+    fn manifest_package_name_reads_package_section() {
+        assert_eq!(
+            manifest_package_name("[package]\nname = \"kosmo-api\"\nversion = \"0.1.0\"\n"),
+            Some("kosmo-api".to_string())
+        );
+        // A workspace-only manifest has no package name.
+        assert_eq!(
+            manifest_package_name("[workspace]\nmembers = [\"a\"]\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn rust_dir_emits_crate_qualified_facets() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-intent-cratequal-{nanos}"));
+        std::fs::create_dir_all(root.join("crates/api/src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/api\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("crates/api/Cargo.toml"),
+            "[package]\nname = \"api\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("crates/api/src/lib.rs"), "pub fn handle() {}\n").unwrap();
+
+        let facets = facets_from_rust_dir(&root);
+        // Both the bare facet and the crate-qualified facet are present.
+        assert!(facets.contains(&WishFacet::symbol("handle")), "bare missing");
+        assert!(
+            facets.contains(&WishFacet::symbol("handle@api")),
+            "crate-qualified missing"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

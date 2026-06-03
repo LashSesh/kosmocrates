@@ -15,6 +15,25 @@ note explicitly says so.
 
 ### Added
 
+* **Crate-targeting — scaffold into the named member crate (multi-crate full-stack)**
+
+  A facet key may carry an `@<crate>` suffix to scaffold the item *into that
+  workspace member* instead of the root crate — the precondition for real
+  multi-crate full-stack wishes. `kosmo-synthesizer::FacetScaffolder` resolves
+  the crate by package name (`find_crate_manifests`), runs the per-kind
+  scaffolder as if the crate dir were the root, and re-bases the change paths to
+  workspace-root-relative (`scaffold_into_crate`); an unknown crate is an honest
+  no-op. `kosmo-intent::facets_from_rust_dir` now emits each source item twice —
+  bare and crate-qualified `<key>@<crate>` (via `crate_of` / the nearest
+  `[package]` manifest) — so the targeted item round-trips. Applies to in-crate
+  kinds (Symbol/Signature/Contract/Module/Capability/Test); Crate/Dependency/
+  Behavior stay workspace-level. The `@crate` form survives the prose compiler,
+  so `a function handle@api` works. Verified live:
+  `--wish "a function handle@api and a function compute@core" --apply` lands
+  `handle` in `crates/api` and `compute` in `crates/core`, root untouched,
+  `0/2 → 2/2 REALIZED`. +6 tests (kosmo-intent 55→57, kosmo-synthesizer 25→28,
+  kosmo-run 12→13).
+
 * **Archetype expansion — full-stack fan-out (Horizon floor, beam 3)**
 
   The breadth axis of `docs/HORIZON-behavior-archetype.md`: one prose word

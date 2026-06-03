@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1133 substrate tests** (kosmo-core 381, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 25, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 55, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 12) — 0 failures
+- **1139 substrate tests** (kosmo-core 381, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 28, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 57, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 13) — 0 failures
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,16 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Crate-targeting — scaffold into the named member crate (2026-06-03)
+
+The precondition for real multi-crate full-stack wishes: a facet key may carry an `@<crate>` suffix to scaffold the item *into that workspace member* instead of the root crate.
+
+- **`kosmo-synthesizer`**: `scaffold` splits an `@<crate>` suffix (for in-crate kinds — Symbol/Signature/Contract/Module/Capability/Test); `scaffold_into_crate` resolves the crate by package name, runs the per-kind scaffolder against the crate dir, and re-bases change paths to workspace-root-relative. Unknown crate → honest no-op. `scaffold_kind` factored out as the shared dispatch.
+- **`kosmo-intent`**: `facets_from_rust_dir` emits each source item twice — bare and crate-qualified `<key>@<crate>` (`crate_of` walks to the nearest `[package]` manifest; `manifest_package_name` reads it) — so a crate-targeted wish round-trips against the crate the scaffolder wrote into.
+- The `@crate` form survives the prose compiler (`clean_name` keeps the internal `@`), so `a function handle@api` compiles to `Symbol handle@api`.
+
+Verified live: `--wish "a function handle@api and a function compute@core" --apply` → `handle` in `crates/api`, `compute` in `crates/core`, root untouched, `0/2 → 2/2 REALIZED`. +6 tests.
 
 ### Archetype expansion — full-stack fan-out (Horizon floor, beam 3) (2026-06-03)
 

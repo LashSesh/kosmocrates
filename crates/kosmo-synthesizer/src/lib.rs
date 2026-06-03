@@ -324,19 +324,79 @@ pub struct FacetScaffolder;
 
 impl FacetScaffolder {
     fn scaffold(&self, ws: &Path, facet: &WishFacet) -> Vec<FileChange> {
-        match facet.kind {
-            WishFacetKind::Symbol => Self::scaffold_symbol(ws, &facet.key),
-            WishFacetKind::Signature => Self::scaffold_signature(ws, &facet.key),
-            WishFacetKind::Contract => Self::scaffold_contract(ws, &facet.key),
-            WishFacetKind::Module => Self::scaffold_module(ws, &facet.key),
-            WishFacetKind::Crate => Self::scaffold_crate(ws, &facet.key),
-            WishFacetKind::Capability => Self::scaffold_capability(ws, &facet.key),
-            WishFacetKind::Test => Self::scaffold_test(ws, &facet.key),
-            WishFacetKind::Behavior => Self::scaffold_behavior(ws, &facet.key),
-            WishFacetKind::Dependency => Self::scaffold_dependency(ws, &facet.key),
+        // Crate-targeting: a key ending in "@<crate>" scaffolds the item INTO
+        // that workspace member instead of the root crate. `@` appears in no
+        // other facet key, so it is an unambiguous separator.
+        if Self::crate_targetable(&facet.kind) {
+            if let Some((bare, crate_name)) = facet.key.rsplit_once('@') {
+                if !bare.is_empty() && !crate_name.is_empty() {
+                    return Self::scaffold_into_crate(ws, &facet.kind, bare, crate_name);
+                }
+            }
+        }
+        Self::scaffold_kind(ws, &facet.kind, &facet.key)
+    }
+
+    /// Dispatch a facet to its per-kind scaffolder, treating `ws` as the crate
+    /// root. Paths in the returned changes are relative to `ws`.
+    fn scaffold_kind(ws: &Path, kind: &WishFacetKind, key: &str) -> Vec<FileChange> {
+        match kind {
+            WishFacetKind::Symbol => Self::scaffold_symbol(ws, key),
+            WishFacetKind::Signature => Self::scaffold_signature(ws, key),
+            WishFacetKind::Contract => Self::scaffold_contract(ws, key),
+            WishFacetKind::Module => Self::scaffold_module(ws, key),
+            WishFacetKind::Crate => Self::scaffold_crate(ws, key),
+            WishFacetKind::Capability => Self::scaffold_capability(ws, key),
+            WishFacetKind::Test => Self::scaffold_test(ws, key),
+            WishFacetKind::Behavior => Self::scaffold_behavior(ws, key),
+            WishFacetKind::Dependency => Self::scaffold_dependency(ws, key),
             // A resolution ("the bad thing is gone") has no structural scaffold.
             WishFacetKind::Resolution => vec![],
         }
+    }
+
+    /// Which facet kinds describe an *item inside a crate* (and so can be
+    /// crate-targeted with `@<crate>`). `Crate` / `Dependency` / `Resolution`
+    /// are workspace-level, and `Behavior` is observed by a suite-wide test run,
+    /// so none of those take a crate suffix.
+    fn crate_targetable(kind: &WishFacetKind) -> bool {
+        matches!(
+            kind,
+            WishFacetKind::Symbol
+                | WishFacetKind::Signature
+                | WishFacetKind::Contract
+                | WishFacetKind::Module
+                | WishFacetKind::Capability
+                | WishFacetKind::Test
+        )
+    }
+
+    /// Scaffold `bare` (the key without its `@<crate>` suffix) of kind `kind`
+    /// INTO the member crate `crate_name`: run the per-kind scaffolder as if the
+    /// crate's directory were the root, then re-base the change paths to be
+    /// workspace-root-relative. An unknown crate is an honest no-op.
+    fn scaffold_into_crate(
+        ws: &Path,
+        kind: &WishFacetKind,
+        bare: &str,
+        crate_name: &str,
+    ) -> Vec<FileChange> {
+        let manifests = find_crate_manifests(ws);
+        let Some((_, manifest)) = manifests.iter().find(|(n, _)| n == crate_name) else {
+            return vec![];
+        };
+        let Some(crate_dir) = manifest.parent() else {
+            return vec![];
+        };
+        let rel = crate_dir.strip_prefix(ws).unwrap_or(crate_dir).to_path_buf();
+        Self::scaffold_kind(crate_dir, kind, bare)
+            .into_iter()
+            .map(|fc| FileChange {
+                path: rel.join(&fc.path),
+                kind: fc.kind,
+                content: fc.content,
+            })
+            .collect()
     }
 
     /// Append `snippet` to `src/lib.rs` (or `src/main.rs`, or create lib.rs) iff
@@ -1207,6 +1267,69 @@ mod tests {
         let res2 = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res2.patch.is_empty(), "second pass should be a no-op");
 
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    /// A multi-crate workspace with members `alpha` and `beta` under `crates/`.
+    fn temp_workspace() -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ws = std::env::temp_dir().join(format!("kosmo-synth-target-{nanos}"));
+        for name in ["alpha", "beta"] {
+            std::fs::create_dir_all(ws.join("crates").join(name).join("src")).unwrap();
+            std::fs::write(
+                ws.join("crates").join(name).join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .unwrap();
+            std::fs::write(ws.join("crates").join(name).join("src/lib.rs"), "// x\n").unwrap();
+        }
+        std::fs::write(
+            ws.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        ws
+    }
+
+    #[test]
+    fn scaffold_symbol_targets_named_crate() {
+        let ws = temp_workspace();
+        // "helper@beta" → into crates/beta, not the workspace root.
+        let req = wish_request(&ws, WishFacet::symbol("helper@beta"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(
+            fc.path,
+            std::path::Path::new("crates/beta/src/lib.rs"),
+            "should write into the beta crate"
+        );
+        assert!(fc.content.contains("pub fn helper"));
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    #[test]
+    fn scaffold_contract_targets_named_crate() {
+        let ws = temp_workspace();
+        let req = wish_request(
+            &ws,
+            WishFacet::contract_key("handle(String)->String@alpha"),
+        );
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.path, std::path::Path::new("crates/alpha/src/lib.rs"));
+        assert!(fc.content.contains("pub fn handle(_a0: String) -> String"));
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    #[test]
+    fn scaffold_into_unknown_crate_is_noop() {
+        let ws = temp_workspace();
+        let req = wish_request(&ws, WishFacet::symbol("helper@ghost"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "unknown crate → honest no-op");
         std::fs::remove_dir_all(&ws).ok();
     }
 }
