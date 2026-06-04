@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Capstone — the whole Horizon floor in one runnable artifact**
+
+  A binary-level integration test (`tools/kosmo-run/tests/capstone.rs`) that
+  drives the **real `kosmo-run` CLI** end-to-end (`CARGO_BIN_EXE_…`), proving the
+  keystone — *acceptance over generation* — in both directions through the actual
+  binary, not an in-process helper:
+  - **correct** impl (`add(a,b)=a+b`) + a typed `Contract` and a `Behavior` spec
+    → `1/2 APPROACHING → 2/2 REALIZED`, exit 0, the spec-test marker written;
+  - **incorrect** impl (`a+b+1`) + the same behaviour → stays `0/1 UNSTARTED`,
+    `✗ Behavior add(2,3)=>5`, exit 1 — the system does not lie.
+  The positive case validates by running `cargo test` nested; it skips (not
+  fails) where the sandbox forbids nested cargo, while the negative case is
+  robust regardless. This is the first reference scenario for the empirical
+  Prüfstand. +2 integration tests.
+
 * **Composition facets — typed data-flow wiring (Horizon floor, level 3)**
 
   The behavioural cousin of `Dependency`: a `Composition` facet `"from>>via>>to"`
