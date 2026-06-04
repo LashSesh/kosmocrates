@@ -350,6 +350,7 @@ impl FacetScaffolder {
             WishFacetKind::Test => Self::scaffold_test(ws, key),
             WishFacetKind::Behavior => Self::scaffold_behavior(ws, key),
             WishFacetKind::Composition => Self::scaffold_composition(ws, key),
+            WishFacetKind::Run => Self::scaffold_run(ws, key),
             WishFacetKind::Dependency => Self::scaffold_dependency(ws, key),
             // A resolution ("the bad thing is gone") has no structural scaffold.
             WishFacetKind::Resolution => vec![],
@@ -606,6 +607,34 @@ impl FacetScaffolder {
                 "// {marker}\n#[test]\nfn {test_name}() {{ assert_eq!({call}, {expected}); }}"
             ),
         )
+    }
+
+    /// Realize a runtime probe `"args=>expect"` by ensuring a **bin target**
+    /// exists and carries a `// kosmo:run:` marker (so the observer can find and
+    /// execute it). The stub `main` is **honestly empty** — it exits `0` and
+    /// prints nothing, so a `=>out~…` probe is red until the body is correct
+    /// (the keystone, at the process boundary). Idempotent via the marker.
+    fn scaffold_run(ws: &Path, key: &str) -> Vec<FileChange> {
+        let marker = format!("kosmo:run: {key}");
+        let main = ws.join("src/main.rs");
+        if main.exists() {
+            let mut content = std::fs::read_to_string(&main).unwrap_or_default();
+            if content.contains(&marker) {
+                return vec![];
+            }
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(&format!("// {marker}\n"));
+            vec![FileChange::modify("src/main.rs", content)]
+        } else {
+            vec![FileChange::create(
+                "src/main.rs",
+                format!(
+                    "// {marker}\nfn main() {{ /* kosmo: runtime stub — fill to satisfy the probe */ }}\n"
+                ),
+            )]
+        }
     }
 
     fn scaffold_module(ws: &Path, name: &str) -> Vec<FileChange> {
@@ -1372,6 +1401,32 @@ mod tests {
         let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "both fns present → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_run_creates_bin_with_marker() {
+        let dir = temp_ws("// lib\n"); // lib-only crate: no bin yet
+        let req = wish_request(&dir, WishFacet::run("add,2,3=>out~5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.path, std::path::Path::new("src/main.rs"));
+        assert!(fc.content.contains("// kosmo:run: add,2,3=>out~5"), "marker:\n{}", fc.content);
+        assert!(fc.content.contains("fn main"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_run_idempotent_when_marker_present() {
+        let dir = temp_ws("// lib\n");
+        std::fs::write(
+            dir.join("src/main.rs"),
+            "// kosmo:run: add,2,3=>out~5\nfn main() {}\n",
+        )
+        .unwrap();
+        let req = wish_request(&dir, WishFacet::run("add,2,3=>out~5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "marker present → no change");
         std::fs::remove_dir_all(&dir).ok();
     }
 

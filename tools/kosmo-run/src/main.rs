@@ -36,7 +36,10 @@ use kosmo_core::{
     assess_wish, Digest, GateResult, PolicyProfile, Q16, Wish, WishAssessment, WishClosureStatus,
     WishFacet, WishFacetKind,
 };
-use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated, WishSession};
+use kosmo_intent::{
+    compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_validated,
+    WishSession,
+};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
 use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
@@ -424,6 +427,15 @@ fn wish_needs_validation(wish: &Wish) -> bool {
         .any(|p| p.facet.kind == WishFacetKind::Behavior)
 }
 
+/// Whether a wish requires runtime observation (executing the built artifact).
+/// True iff it carries a [`WishFacetKind::Run`] facet — those are satisfied only
+/// by running the program under the sandbox, never by reading source.
+fn wish_needs_runtime(wish: &Wish) -> bool {
+    wish.predicates
+        .iter()
+        .any(|p| p.facet.kind == WishFacetKind::Run)
+}
+
 /// Deterministic, offline front door: compile a prose wish, observe the
 /// workspace, and report the distance to the wish (which facets are present,
 /// which are missing). With `--scaffold`, also print the changes that would
@@ -491,7 +503,9 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         });
     }
 
-    let observed = if validated {
+    let observed = if wish_needs_runtime(&wish) {
+        observe_workspace_runtime(args.path.as_str())
+    } else if validated {
         observe_workspace_validated(args.path.as_str())
     } else {
         observe_workspace_deep(args.path.as_str())
@@ -679,7 +693,9 @@ fn descend_to_wish(
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
     loop {
-        let observed = if validated {
+        let observed = if wish_needs_runtime(wish) {
+            observe_workspace_runtime(path)
+        } else if validated {
             observe_workspace_validated(path)
         } else {
             observe_workspace_deep(path)
@@ -1145,6 +1161,54 @@ mod tests {
                     );
                 }
                 Err(e) => eprintln!("validated observe unavailable, skipping: {e}"),
+            }
+            fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
+    fn descend_realizes_run_probe() {
+        // Beam 3 of the runtime floor: the built artifact is EXECUTED and its
+        // stdout probed. `a run add,2,3=>out~5` over a binary that prints the
+        // sum realizes; an empty `main` (prints nothing) is rejected.
+        let correct = "fn main() { let a: Vec<String> = std::env::args().skip(1).collect(); \
+                       if a.first().map(|s| s.as_str()) == Some(\"add\") { \
+                       let s: i32 = a[1..].iter().filter_map(|x| x.parse::<i32>().ok()).sum(); \
+                       println!(\"{s}\"); } }\n";
+        let empty = "fn main() {}\n";
+        let prose = "a run add,2,3=>out~5";
+
+        for (idx, (main_rs, want_realized)) in [(correct, true), (empty, false)].iter().enumerate() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("kosmo-run-runprobe-{idx}-{nanos}"));
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("Cargo.toml"),
+                "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            )
+            .unwrap();
+            fs::write(root.join("src/main.rs"), main_rs).unwrap();
+
+            let evidence = Digest::of_bytes(prose.as_bytes());
+            let wish = compile_wish(prose, Digest::ZERO, evidence);
+            // validated=false, but the Run facet forces runtime observation.
+            match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 4, None, None) {
+                Ok(session) => {
+                    let last = session.latest().expect("an observation");
+                    let realized = matches!(last.status, WishClosureStatus::Realized);
+                    assert_eq!(
+                        realized, *want_realized,
+                        "run-probe verdict wrong for main:\n{main_rs}\nstatus {:?} ({}/{})",
+                        last.status, last.met_count, last.total_count
+                    );
+                    // The probe marker was scaffolded into the bin either way.
+                    let m = fs::read_to_string(root.join("src/main.rs")).unwrap();
+                    assert!(m.contains("// kosmo:run: add,2,3=>out~5"), "marker:\n{m}");
+                }
+                Err(e) => eprintln!("runtime observe unavailable, skipping: {e}"),
             }
             fs::remove_dir_all(&root).ok();
         }

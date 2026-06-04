@@ -16,6 +16,7 @@ publish = false
 [dependencies]
 kosmo-core      = { path = "../kosmo-core" }
 kosmo-parseback = { path = "../kosmo-parseback" }
+kosmo-sandbox   = { path = "../kosmo-sandbox" }
 serde           = { workspace = true }
 
 [dev-dependencies]

@@ -253,10 +253,14 @@ Bottom-up — otherwise nothing bears load:
    ✅ 9 tests; timeout group-kills the whole tree (`process_group` + `killpg`);
    network isolation is honestly declared best-effort, not faked.
 3. **`Run` facet** (§2) — observed by `observe_workspace_runtime` (= build, then
-   `cargo run -- <args>` in the sandbox, match the probe).
+   `cargo run -- <args>` in the sandbox, match the probe). **[landed 2026-06-04]**
    *Acceptance:* a prose wish for a CLI that prints a value descends to a running
    binary; `observe` reports `Run` met iff the executed output matches; a wrong
-   binary is **rejected** (stalls at `Approaching`).
+   binary is **rejected** (stalls at `Approaching`). ✅ `a run add,2,3=>out~5`
+   realizes over a binary that prints the sum, is rejected over an empty `main`;
+   `run_matches` is fail-closed (timeout/crash never counts). Key shape settled
+   as `args=>expect` (comma-args; `exit:<n>` / `out~<substr>`) — survives the
+   prose tokenizer where the §2 `run(--flag)` sketch would not.
 4. **Runtime capstone + Prüfstand extension** — the §5 example end-to-end
    through the real CLI; extend the reference corpus (`tools/kosmo-run/src/
    pruefstand.rs`) with run-scenarios in both directions (correct → realized,

@@ -15,6 +15,25 @@ note explicitly says so.
 
 ### Added
 
+* **`Run` facet — observe by executing the artifact (Runtime floor, beam 3)**
+
+  The level-5 keystone is live: a wish is realized only when the **running
+  program** exhibits the probed behaviour — from *"the test is green"* to *"the
+  program, run, does the right thing."* A `Run` facet keys on `"args=>expect"`
+  (`add,2,3=>out~5` — comma-args passed after `cargo run --`; `exit:<n>` and/or
+  `out~<substr>`). Symmetric with `Behavior`: `kosmo-synthesizer::scaffold_run`
+  ensures a bin target and writes a `// kosmo:run:` marker (the stub `main` is
+  honestly empty — red until it prints the right thing);
+  `kosmo-intent::observe_workspace_runtime` reads the markers, **executes** each
+  probe through `kosmo-sandbox`, and emits the facet only on a *clean exit that
+  matches* (`run_matches` is fail-closed — a timeout/crash never counts, even if
+  the substring was printed). `kosmo-run` self-selects runtime observation when
+  the wish carries a `Run` facet (`wish_needs_runtime`), and a `run` trigger
+  compiles the prose. Verified live both ways: `a run add,2,3=>out~5` over a
+  binary that prints the sum → `0/1 → 1/1 REALIZED` (exit 0); over an empty
+  `main` → `✗ Run …`, exit 1 — rejected. +9 tests (kosmo-core 382→383,
+  kosmo-synthesizer 33→35, kosmo-intent 62→67, kosmo-run +1).
+
 * **`kosmo-sandbox` — the execution sandbox (Runtime floor, beam 2)**
 
   The load-bearing infra of the Runtime floor (`docs/RUNTIME-floor.md` §4): the
