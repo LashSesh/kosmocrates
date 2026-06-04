@@ -248,8 +248,10 @@ Bottom-up — otherwise nothing bears load:
 2. **`kosmo-sandbox`** (§4) — spawn / timeout-kill / capture / jail / teardown,
    network-deny by default, emitting a `RuntimeWitness`. Pure infra; unit-tested
    against trivial programs (`true`, `exit 7`, an infinite loop that must be
-   killed, a runaway printer that must be truncated).
+   killed, a runaway printer that must be truncated). **[landed 2026-06-04]**
    *Acceptance:* each guarantee in §4 has a test; a hang is killed within budget.
+   ✅ 9 tests; timeout group-kills the whole tree (`process_group` + `killpg`);
+   network isolation is honestly declared best-effort, not faked.
 3. **`Run` facet** (§2) — observed by `observe_workspace_runtime` (= build, then
    `cargo run -- <args>` in the sandbox, match the probe).
    *Acceptance:* a prose wish for a CLI that prints a value descends to a running

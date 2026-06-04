@@ -92,6 +92,7 @@ members = [
     "crates/kosmo-intent",
     "crates/kosmo-llm",
     "crates/kosmo-intent-llm",
+    "crates/kosmo-sandbox",
     "tools/kosmo-run",
 ]
 

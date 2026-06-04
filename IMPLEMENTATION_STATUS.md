@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1154 substrate tests** (kosmo-core 382, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 33, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 62, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 17) — 0 failures; plus 2 capstone integration tests (`cargo test --workspace`: 2972)
+- **1163 substrate tests** (kosmo-core 382, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 33, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 62, kosmo-llm 14, kosmo-intent-llm 9, kosmo-sandbox 9, kosmo-run 17) — 0 failures; plus 2 capstone integration tests (`cargo test --workspace`: 2981)
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,15 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### kosmo-sandbox — the execution sandbox (Runtime floor, beam 2) (2026-06-04)
+
+The load-bearing infra of the Runtime floor (`docs/RUNTIME-floor.md` §4): the safe room in which a built artifact — possibly code the loop generated — is run and *trusted as observed*. A capability, not a gate.
+
+- **Enforced (Unix):** the child runs in its own process group (`CommandExt::process_group(0)`), so a timeout fells the whole tree via `killpg(SIGKILL)` — a hung grandchild (the binary `cargo run` spawns) cannot outlive the budget. stdout/stderr drain on their own threads into capped buffers (runaway printer → truncated, never OOM or pipe-deadlock); the child is always reaped.
+- Every run returns a content-addressed `RuntimeWitness { verdict, exit_code, stdout, stdout_digest, duration, truncated }`; the digest witnesses the full output even when the text is truncated.
+- **Honest best-effort:** network isolation is declared (`NetworkPolicy::Deny` clears proxy env) but not yet hard-enforced — the crate refuses to claim isolation it cannot deliver (spec §8.1); filesystem containment is by the caller's throwaway `cwd`. Non-Unix reports a timeout but cannot force-kill.
+- The only `unsafe` is the single `killpg` call; grouping uses the safe std `process_group`. +9 tests, warning-free.
 
 ### Behavioural composition — validated data-flow (Runtime floor, beam 1) (2026-06-04)
 

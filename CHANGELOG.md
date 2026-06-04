@@ -15,6 +15,25 @@ note explicitly says so.
 
 ### Added
 
+* **`kosmo-sandbox` — the execution sandbox (Runtime floor, beam 2)**
+
+  The load-bearing infra of the Runtime floor (`docs/RUNTIME-floor.md` §4): the
+  safe room in which a built artifact — possibly code the loop generated — is
+  run and *trusted as observed*. A capability, not a gate. **Enforced (Unix):**
+  the child runs in its own process group (`CommandExt::process_group`) so a
+  **timeout fells the whole tree** via `killpg(SIGKILL)` — a hung grandchild
+  (the binary `cargo run` spawns) cannot outlive the budget; stdout/stderr are
+  drained on their own threads into **capped buffers** (a runaway printer is
+  truncated, never an OOM or pipe-deadlock); the child is always reaped. Every
+  run returns a content-addressed `RuntimeWitness { verdict, exit_code, stdout,
+  stdout_digest, duration, truncated }` — the digest witnesses the full output
+  even when the captured text is truncated. **Honest best-effort:** network
+  isolation is *declared* (`NetworkPolicy::Deny` clears proxy env) but not yet
+  hard-enforced — the crate does not claim isolation it cannot deliver (spec
+  §8.1); filesystem containment is by the caller's throwaway `cwd`. +9 tests
+  (exit codes, stdin, prompt kill of an infinite loop and a backgrounded child,
+  output truncation, spawn-failure-as-verdict).
+
 * **Behavioural composition — validated data-flow (Runtime floor, beam 1)**
 
   The sandbox-free on-ramp to the Runtime floor (`docs/RUNTIME-floor.md` §6): a
