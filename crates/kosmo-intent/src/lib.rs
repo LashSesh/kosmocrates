@@ -738,6 +738,9 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         "behavior" | "behaviors" | "behaviour" | "behaviours" | "spec" | "specs" => {
             Some(WishFacetKind::Behavior)
         }
+        // A validated data-flow: `a flow f(x)>>g=>y` is a Behavior over the
+        // composed call `g(f(x))` — the keystone applied to a level-3 wire.
+        "flow" | "flows" | "pipeline" | "pipelines" => Some(WishFacetKind::Behavior),
         "composition" | "compositions" | "compose" => Some(WishFacetKind::Composition),
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
@@ -1610,6 +1613,17 @@ mod tests {
             .predicates
             .iter()
             .any(|p| p.facet == WishFacet::composition("parse", "Ast", "eval")));
+    }
+
+    #[test]
+    fn flow_trigger_compiles_to_piped_behavior() {
+        // Behavioural composition rides the Behavior facet: the wire is in the
+        // call, validated green by the same judge.
+        let w = compile_wish("a flow parse(\"2+3\")>>eval=>5", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::behavior("parse(\"2+3\")>>eval=>5")));
     }
 
     #[test]

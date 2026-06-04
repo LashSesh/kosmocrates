@@ -15,6 +15,24 @@ note explicitly says so.
 
 ### Added
 
+* **Behavioural composition — validated data-flow (Runtime floor, beam 1)**
+
+  The sandbox-free on-ramp to the Runtime floor (`docs/RUNTIME-floor.md` §6): a
+  piped behaviour spec `f(x)>>g>>h=>expected` desugars to the nested call
+  `h(g(f(x)))` and is validated green by the *existing* `cargo test` judge — the
+  level-2 keystone applied to a level-3 wire, proving data actually *flows*
+  through a composition, not merely that the types align. Implementation is
+  deliberately tiny and reuses everything: `kosmo-synthesizer::parse_behavior_key`
+  detects `>>` and folds the pipeline (`parse_pipeline_behavior_key`; `>>`
+  overloads `>`, so it splits on `=>`/`>>` as plain strings rather than the
+  bracket-depth path); `kosmo-intent` adds a `flow`/`pipeline` trigger that
+  compiles to that Behavior facet. Observation is **untouched** — the
+  `// kosmo:behavior:` marker carries the piped key verbatim, so it round-trips.
+  Verified live in both directions: `a flow parse("2+3")>>eval=>5` over a correct
+  pipeline descends `0/1 → 1/1 REALIZED` (exit 0); over an `eval` that returns 6
+  it stays `0/1`, `✗ Behavior …`, exit 1 — rejected. +5 tests (kosmo-synthesizer
+  30→33, kosmo-intent 61→62, kosmo-run +1).
+
 * **Prüfstand — empirical fidelity harness (`--pruefstand`)**
 
   The capstone generalized into a *corpus*. A new `kosmo-run --pruefstand` mode

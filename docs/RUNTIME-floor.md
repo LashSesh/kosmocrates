@@ -240,9 +240,11 @@ the jump to process execution.
 Bottom-up — otherwise nothing bears load:
 
 1. **Behavioural composition** (§6) — validated data-flow over the existing
-   `cargo test` judge. No new infra. De-risks the rest.
-   *Acceptance:* a `parse>>eval(x)=>y` wish scaffolds a composed spec test and is
-   met only when it is observed green.
+   `cargo test` judge. No new infra. De-risks the rest. **[landed 2026-06-04]**
+   *Acceptance:* a `f(x)>>g=>y` wish scaffolds a composed spec test and is
+   met only when it is observed green. ✅ `a flow parse("2+3")>>eval=>5`
+   descends `0/1 → 1/1 REALIZED` over a correct pipeline; a wrong `eval` is
+   rejected (`✗`, exit 1).
 2. **`kosmo-sandbox`** (§4) — spawn / timeout-kill / capture / jail / teardown,
    network-deny by default, emitting a `RuntimeWitness`. Pure infra; unit-tested
    against trivial programs (`true`, `exit 7`, an infinite loop that must be

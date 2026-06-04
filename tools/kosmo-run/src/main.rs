@@ -1108,6 +1108,49 @@ mod tests {
     }
 
     #[test]
+    fn descend_validates_behavioral_composition() {
+        // Beam 1 of the runtime floor: a two-stage pipeline parse -> eval,
+        // validated by the COMPOSED spec test `assert_eq!(eval(parse("2+3")), 5)`.
+        // Acceptance over generation, applied to the wire — both directions.
+        let correct = "pub fn parse(s: &str) -> Vec<i32> { s.split('+').map(|x| x.trim().parse().unwrap()).collect() }\n\
+                       pub fn eval(v: Vec<i32>) -> i32 { v.iter().sum() }\n";
+        let wrong = "pub fn parse(s: &str) -> Vec<i32> { s.split('+').map(|x| x.trim().parse().unwrap()).collect() }\n\
+                     pub fn eval(v: Vec<i32>) -> i32 { v.iter().sum::<i32>() + 1 }\n";
+        let prose = "a flow parse(\"2+3\")>>eval=>5";
+
+        for (idx, (lib, want_realized)) in [(correct, true), (wrong, false)].iter().enumerate() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("kosmo-run-flow-{idx}-{nanos}"));
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("Cargo.toml"),
+                "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            )
+            .unwrap();
+            fs::write(root.join("src/lib.rs"), lib).unwrap();
+
+            let evidence = Digest::of_bytes(prose.as_bytes());
+            let wish = compile_wish(prose, Digest::ZERO, evidence);
+            match descend_to_wish(root.to_str().unwrap(), &wish, evidence, true, 8, None, None) {
+                Ok(session) => {
+                    let last = session.latest().expect("an observation");
+                    let realized = matches!(last.status, WishClosureStatus::Realized);
+                    assert_eq!(
+                        realized, *want_realized,
+                        "pipeline verdict wrong for lib:\n{lib}\nstatus {:?} ({}/{})",
+                        last.status, last.met_count, last.total_count
+                    );
+                }
+                Err(e) => eprintln!("validated observe unavailable, skipping: {e}"),
+            }
+            fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
     fn descend_targets_function_into_member_crate() {
         // Crate-targeting: "helper@beta" must land in crates/beta, not the root.
         let nanos = std::time::SystemTime::now()

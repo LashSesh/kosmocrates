@@ -743,6 +743,14 @@ fn parse_contract_key(key: &str) -> Option<(String, Vec<String>, String)> {
 /// `", "`) and `expected` is the verbatim expected expression. `None` if the
 /// key has no `=>` separator or no parameter list.
 fn parse_behavior_key(key: &str) -> Option<(String, String)> {
+    // Behavioural composition (the runtime floor's sandbox-free on-ramp): a
+    // piped spec `"f(x)>>g>>h=>expected"` desugars to the nested application
+    // `"h(g(f(x)))"`, validated by the very same green-test judge. `>>` overloads
+    // `>`, which `split_on_fat_arrow` reads as a bracket, so pipes take a
+    // dedicated parser that splits on `=>` and `>>` as plain strings.
+    if key.contains(">>") {
+        return parse_pipeline_behavior_key(key);
+    }
     let (lhs, rhs) = split_on_fat_arrow(key)?;
     let lhs = lhs.trim();
     let expected = rhs.trim().to_string();
@@ -776,6 +784,34 @@ fn parse_behavior_key(key: &str) -> Option<(String, String)> {
     let args_str: String = chars[open + 1..close].iter().collect();
     let args = split_type_list(&args_str); // depth-aware top-level split
     Some((format!("{name}({})", args.join(", ")), expected))
+}
+
+/// Desugar a piped behaviour key `"f(x)>>g>>h=>expected"` into the composed
+/// call `("h(g(f(x)))", "expected")`. The head stage carries the pipeline input
+/// (`f(x)`); each later stage is a bare function the piped value flows into. The
+/// expected value is taken after the last `=>` (robust to `=>` inside a string
+/// literal arg). Fewer than two stages, or an empty stage/expected, is a no-op.
+fn parse_pipeline_behavior_key(key: &str) -> Option<(String, String)> {
+    let (call_part, expected) = key.rsplit_once("=>")?;
+    let expected = expected.trim().to_string();
+    if expected.is_empty() {
+        return None;
+    }
+    let stages: Vec<&str> = call_part.split(">>").map(|s| s.trim()).collect();
+    if stages.len() < 2 {
+        return None;
+    }
+    let mut acc = stages[0].to_string();
+    if acc.is_empty() {
+        return None;
+    }
+    for stage in &stages[1..] {
+        if stage.is_empty() {
+            return None;
+        }
+        acc = format!("{stage}({acc})");
+    }
+    Some((acc, expected))
 }
 
 /// Find the first **top-level** `=>` (ignoring `()`, `<>`, `[]` nesting) and
@@ -1278,6 +1314,38 @@ mod tests {
         assert_eq!(expected, "\"hi x\"");
         // Missing `=>` → not a behaviour key.
         assert!(parse_behavior_key("add(2,3)").is_none());
+    }
+
+    #[test]
+    fn parse_pipeline_behavior_key_folds_into_nested_call() {
+        // Behavioural composition: input on the head stage, piped forward.
+        let (call, expected) = parse_behavior_key("parse(\"2+3\")>>eval=>5").unwrap();
+        assert_eq!(call, "eval(parse(\"2+3\"))");
+        assert_eq!(expected, "5");
+    }
+
+    #[test]
+    fn parse_pipeline_behavior_key_chains_three_stages() {
+        let (call, expected) = parse_behavior_key("a(1)>>b>>c=>9").unwrap();
+        assert_eq!(call, "c(b(a(1)))");
+        assert_eq!(expected, "9");
+        // A lone stage (no pipe) is not a pipeline.
+        assert!(parse_behavior_key("a(1)>>=>9").is_none());
+    }
+
+    #[test]
+    fn scaffold_behavior_pipeline_emits_composed_assert() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::behavior("parse(\"2+3\")>>eval=>5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(
+            c.contains("assert_eq!(eval(parse(\"2+3\")), 5)"),
+            "composed assert missing:\n{c}"
+        );
+        // The marker carries the piped key verbatim, so it round-trips on observe.
+        assert!(c.contains("// kosmo:behavior: parse(\"2+3\")>>eval=>5"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
