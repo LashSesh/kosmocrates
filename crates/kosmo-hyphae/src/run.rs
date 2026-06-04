@@ -4,8 +4,7 @@ use crate::gates::GateCascade;
 use crate::host::HostCube;
 use crate::structural_yield::{StructuralYield, StructuralYieldKind};
 use kosmo_core::{
-    AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
-    PolicyProfile, ReplayStatus, TaintLabel,
+    Digest, EvidenceBundle, EvidenceKind, EvidenceRef, PolicyProfile, ReplayStatus,
 };
 use kosmo_workbench::workspace::WorkspaceIndex;
 use serde::{Deserialize, Serialize};

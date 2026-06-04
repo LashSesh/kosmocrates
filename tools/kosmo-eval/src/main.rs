@@ -1472,7 +1472,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
     v.push(run_check("rx-pipeline-cartography-persist-succeeds-with-operator-approved", "RX:Pipeline", || {
         // OperatorApproved policy (allow_host_write=true) must allow persistence.
         // The stored commit's payload_digest must equal the update's update_id.
-        use kosmo_core::{CartographyEntryKind, CartographyStoreError, CorpusScope};
+        use kosmo_core::{CartographyEntryKind, CorpusScope};
         use kosmo_pipeline::persist_cartography_update;
         use kosmo_store::JsonlCartographyStore;
         use kosmo_core::CorpusCartographyStore;
@@ -2839,7 +2839,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
     v.push(run_check("rx-crystal-certify-pending-candidate-produces-record", "RX:Crystal", || {
         // A Pending StructuralCrystalCandidate from an accepted Clean decision must
         // certify and produce a non-ZERO StructuralCrystalRecord (INVARIANT-007).
-        use kosmo_hyphae::crystal::{ConstraintProgram, StructuralCrystalCandidate};
+        use kosmo_hyphae::crystal::StructuralCrystalCandidate;
         use kosmo_hyphae::gates::GateCascade;
         use kosmo_hyphae::structural_yield::{StructuralYield, StructuralYieldKind};
         use kosmo_hyphae::assimilation::AssimilationDecision;
@@ -3044,9 +3044,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
     // ── RX:Crystal — structural fingerprint on record + Resonite::from_records ─
 
     v.push(run_check("rx-crystal-record-carries-structural-signals", "RX:Crystal", || {
-        use kosmo_hyphae::crystal::{
-            Resonite, StructuralCrystalCandidate, StructuralCrystalRecord,
-        };
+        use kosmo_hyphae::crystal::StructuralCrystalCandidate;
         use kosmo_core::{AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
             PolicyProfile, Q16, ReplayStatus, TaintLabel};
         use kosmo_hyphae::assimilation::AssimilationDecision;
@@ -3349,7 +3347,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
     // ── RX: run_workspace_pipeline / WorkspacePipelineSession ────────────────
 
     v.push(run_check("rx-pipeline-run-workspace-pipeline-on-temp-dir", "RX:WorkspacePipeline", || {
-        use kosmo_pipeline::{IntegrationRunOptions, WorkspacePipelineSession, run_workspace_pipeline};
+        use kosmo_pipeline::{IntegrationRunOptions, run_workspace_pipeline};
         use kosmo_core::PolicyProfile;
         use std::fs;
 
