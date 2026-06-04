@@ -21,4 +21,4 @@ path = "src/main.rs"
 kosmo-core = { path = "../../crates/kosmo-core" }
 kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = "0.29"
