@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Runtime capstone + Prüfstand extension (Runtime floor, beam 4)**
+
+  The runtime floor proven end-to-end and measured empirically. A **runtime
+  capstone** (`tools/kosmo-run/tests/capstone.rs`) drives the spec's §5 worked
+  example through the real CLI: a typed `Contract`, a unit `Behavior`, and a
+  `Run` probe of the built binary over one little calculator — the *same truth*
+  validated at the function boundary and the process boundary
+  (`add(2,3)=>5` **and** `run add,2,3=>out~5`), reaching `3/3 REALIZED`. The
+  **Prüfstand corpus** (`pruefstand.rs`) gains the keystone at the process
+  boundary in both directions — `run-correct` (a binary that prints the sum →
+  realized) and `run-empty` (an empty `main` → rejected) — via a new `bin`
+  scenario flag that writes `src/main.rs`. Live `--pruefstand --validated` now
+  reports **11/11 matched** across every facet axis plus the keystone at both
+  boundaries. +1 capstone integration test (2→3).
+
 * **`Run` facet — observe by executing the artifact (Runtime floor, beam 3)**
 
   The level-5 keystone is live: a wish is realized only when the **running

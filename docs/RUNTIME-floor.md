@@ -265,7 +265,10 @@ Bottom-up — otherwise nothing bears load:
    through the real CLI; extend the reference corpus (`tools/kosmo-run/src/
    pruefstand.rs`) with run-scenarios in both directions (correct → realized,
    wrong/panicking → rejected), gated behind sandbox availability like the
-   behavioural scenarios are gated behind cargo.
+   behavioural scenarios are gated behind cargo. **[landed 2026-06-04]**
+   ✅ runtime capstone (`Contract` + `Behavior` + `Run` over one calculator →
+   `3/3 REALIZED`); `--pruefstand --validated` reports 11/11, incl. `run-correct`
+   and `run-empty`.
 5. **`Service` facet** (§2) — start the artifact, await readiness by polling,
    probe a loopback endpoint. Builds on the sandbox; adds process lifecycle and
    port management. The largest lift; deliberately last.

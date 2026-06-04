@@ -31,11 +31,14 @@ pub enum Expectation {
 /// One reference system: a `src/lib.rs`, a wish, and the expected verdict.
 pub struct Scenario {
     pub name: &'static str,
+    /// The crate's source. Written to `src/main.rs` when `bin`, else `src/lib.rs`.
     pub lib: &'static str,
     pub wish: &'static str,
     pub expect: Expectation,
-    /// Behavioural scenarios validate by running the suite (nested `cargo`).
+    /// Behavioural and runtime scenarios validate by running (nested `cargo`).
     pub needs_cargo: bool,
+    /// `true` writes the source as a binary (`src/main.rs`) — for `Run` probes.
+    pub bin: bool,
 }
 
 /// How a scenario's actual verdict compared to its expectation.
@@ -85,63 +88,32 @@ impl Report {
 /// The built-in reference corpus: one scenario per facet axis the floor builds,
 /// plus the behavioural keystone in **both** directions.
 pub fn reference_corpus() -> Vec<Scenario> {
+    // Structural scenarios (offline, lexical) — one per facet axis the floor
+    // builds. All `bin: false`, `needs_cargo: false`.
+    let lib = |name, wish| Scenario {
+        name,
+        lib: "// calc\n",
+        wish,
+        expect: Expectation::Realized,
+        needs_cargo: false,
+        bin: false,
+    };
     vec![
-        Scenario {
-            name: "symbol",
-            lib: "// calc\n",
-            wish: "a function greet",
-            expect: Expectation::Realized,
-            needs_cargo: false,
-        },
-        Scenario {
-            name: "contract",
-            lib: "// calc\n",
-            wish: "a contract handle(String)->String",
-            expect: Expectation::Realized,
-            needs_cargo: false,
-        },
-        Scenario {
-            name: "module",
-            lib: "// calc\n",
-            wish: "a module routes",
-            expect: Expectation::Realized,
-            needs_cargo: false,
-        },
-        Scenario {
-            name: "capability",
-            lib: "// calc\n",
-            wish: "a capability crud:user",
-            expect: Expectation::Realized,
-            needs_cargo: false,
-        },
-        Scenario {
-            name: "test",
-            lib: "// calc\n",
-            wish: "a test greets_politely",
-            expect: Expectation::Realized,
-            needs_cargo: false,
-        },
-        Scenario {
-            name: "composition",
-            lib: "// calc\n",
-            wish: "a composition parse>>String>>eval",
-            expect: Expectation::Realized,
-            needs_cargo: false,
-        },
-        Scenario {
-            name: "archetype-crud",
-            lib: "// calc\n",
-            wish: "a crud user",
-            expect: Expectation::Realized,
-            needs_cargo: false,
-        },
-        // The keystone — acceptance over generation — in both directions.
+        lib("symbol", "a function greet"),
+        lib("contract", "a contract handle(String)->String"),
+        lib("module", "a module routes"),
+        lib("capability", "a capability crud:user"),
+        lib("test", "a test greets_politely"),
+        lib("composition", "a composition parse>>String>>eval"),
+        lib("archetype-crud", "a crud user"),
+        // The keystone — acceptance over generation — at the unit boundary.
         Scenario {
             name: "behavior-correct",
             lib: "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
             wish: "a behavior add(2,3)=>5",
             expect: Expectation::Realized,
             needs_cargo: true,
+            bin: false,
         },
         Scenario {
             name: "behavior-wrong",
@@ -149,12 +121,35 @@ pub fn reference_corpus() -> Vec<Scenario> {
             wish: "a behavior add(2,3)=>5",
             expect: Expectation::Rejected,
             needs_cargo: true,
+            bin: false,
+        },
+        // The keystone at the PROCESS boundary (level 5): the artifact is run.
+        Scenario {
+            name: "run-correct",
+            lib: "fn main() { let a: Vec<String> = std::env::args().skip(1).collect(); \
+                  if a.first().map(|s| s.as_str()) == Some(\"add\") { \
+                  let s: i32 = a[1..].iter().filter_map(|x| x.parse::<i32>().ok()).sum(); \
+                  println!(\"{s}\"); } }\n",
+            wish: "a run add,2,3=>out~5",
+            expect: Expectation::Realized,
+            needs_cargo: true,
+            bin: true,
+        },
+        Scenario {
+            name: "run-empty",
+            lib: "fn main() {}\n",
+            wish: "a run add,2,3=>out~5",
+            expect: Expectation::Rejected,
+            needs_cargo: true,
+            bin: true,
         },
     ]
 }
 
-/// A throwaway single-crate workspace named `calc` with the given `src/lib.rs`.
-fn make_workspace(name: &str, lib: &str) -> std::io::Result<PathBuf> {
+/// A throwaway single-crate workspace named `calc`. The source goes to
+/// `src/main.rs` for a `bin` scenario (so `cargo run` has a target), else
+/// `src/lib.rs`.
+fn make_workspace(name: &str, lib: &str, bin: bool) -> std::io::Result<PathBuf> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -165,7 +160,8 @@ fn make_workspace(name: &str, lib: &str) -> std::io::Result<PathBuf> {
         root.join("Cargo.toml"),
         "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )?;
-    std::fs::write(root.join("src/lib.rs"), lib)?;
+    let src = if bin { "src/main.rs" } else { "src/lib.rs" };
+    std::fs::write(root.join(src), lib)?;
     Ok(root)
 }
 
@@ -181,7 +177,7 @@ pub fn run_scenario(s: &Scenario, allow_cargo: bool) -> Outcome {
     if s.needs_cargo && !allow_cargo {
         return skip();
     }
-    let root = match make_workspace(s.name, s.lib) {
+    let root = match make_workspace(s.name, s.lib, s.bin) {
         Ok(r) => r,
         Err(_) => return skip(),
     };
@@ -294,16 +290,16 @@ mod tests {
 
     #[test]
     fn structural_corpus_is_faithful() {
-        // Gate cargo off: the behavioural scenarios skip, the structural ones
-        // must each reach exactly their expected verdict (or skip if cargo
-        // metadata is unavailable) — never a mismatch.
+        // Gate cargo off: the behavioural and runtime scenarios skip, the
+        // structural ones must each reach exactly their expected verdict (or
+        // skip if cargo metadata is unavailable) — never a mismatch.
         let report = run_corpus(reference_corpus(), false);
         assert!(
             report.is_faithful(),
             "structural fidelity broken:\n{}",
             render(&report, false)
         );
-        // The behavioural pair is gated off, so at most 2 skips from cargo here.
+        // The 4 cargo-gated scenarios (2 behaviour, 2 runtime) skip here.
         assert!(report.mismatched() == 0);
     }
 
