@@ -15,6 +15,23 @@ note explicitly says so.
 
 ### Added
 
+* **Prüfstand — empirical fidelity harness (`--pruefstand`)**
+
+  The capstone generalized into a *corpus*. A new `kosmo-run --pruefstand` mode
+  (module `tools/kosmo-run/src/pruefstand.rs`) descends a built-in reference
+  corpus of nine known systems — one per facet axis the floor builds
+  (symbol/contract/module/capability/test/composition/archetype) plus the
+  behavioural keystone in **both** directions — and checks the verdict the
+  substrate reaches against the verdict it *should* reach. It measures one
+  thing: does the loop accept exactly the systems it should? Each scenario runs
+  in a throwaway workspace through the real descent; structural ones converge
+  offline, behavioural ones run `cargo test` (gated by `--validated`), and an
+  unobservable scenario is *skipped*, never miscounted as a failure. Verified
+  live: `--pruefstand --validated` → **fidelity: 9/9 matched (0 mismatched,
+  0 skipped)**, exit 0 — including `behavior-wrong` (impl returns `a+b+1`)
+  correctly **rejected**. Exit 3 if any verdict is wrong. +2 unit tests
+  (kosmo-run 14→16).
+
 * **Capstone — the whole Horizon floor in one runnable artifact**
 
   A binary-level integration test (`tools/kosmo-run/tests/capstone.rs`) that

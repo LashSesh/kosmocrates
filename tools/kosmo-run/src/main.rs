@@ -24,6 +24,8 @@
 //! loop offline.
 //! ```
 
+mod pruefstand;
+
 use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
@@ -67,6 +69,9 @@ struct Args {
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
     wish_session: Option<String>,
+    /// Run the empirical Prüfstand: descend a reference corpus of known-good
+    /// (and deliberately broken) systems and report the fidelity.
+    pruefstand: bool,
 }
 
 impl Default for Args {
@@ -88,6 +93,7 @@ impl Default for Args {
             validated: false,
             provider_set: false,
             wish_session: None,
+            pruefstand: false,
         }
     }
 }
@@ -123,7 +129,13 @@ OPTIONS:\n\
 \n\
     --json                emit the report as JSON\n\
     --no-color            disable ANSI colour\n\
-    -h, --help            show this help\n\n\
+    -h, --help            show this help\n\
+\n\
+  PR\u{00dc}FSTAND MODE (empirical fidelity harness):\n\
+    --pruefstand          descend a built-in reference corpus of known-good and\n\
+                          deliberately broken systems; report fidelity and exit\n\
+                          non-zero if any verdict is wrong (--validated runs the\n\
+                          behavioural scenarios' suites too)\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -187,6 +199,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
+            "--pruefstand" | "--testbench" => args.pruefstand = true,
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -746,6 +759,18 @@ fn run() -> Result<ExitCode, String> {
         Some(a) => a,
         None => return Ok(ExitCode::SUCCESS),
     };
+
+    // The Prüfstand descends a built-in reference corpus and reports fidelity:
+    // every known-good system must be accepted, every broken one rejected.
+    if args.pruefstand {
+        let report = pruefstand::run_corpus(pruefstand::reference_corpus(), args.validated);
+        print!("{}", pruefstand::render(&report, args.color));
+        return Ok(if report.is_faithful() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(3)
+        });
+    }
 
     // Wish mode is deterministic and offline (no LLM, no key): compile the
     // prose, observe the workspace, and report the distance to the wish.
