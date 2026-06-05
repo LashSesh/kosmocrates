@@ -64,6 +64,13 @@ pub enum WishFacetKind {
     /// [`WishFacetKind::Dependency`]: a dependency says A *can see* B; a
     /// composition says A's output *fits* B's input.
     Composition,
+    /// A *runtime* probe, keyed `"args=>expect"` (e.g. `"add,2,3=>out~5"`):
+    /// the built artifact, **run** with `args`, exhibits `expect`
+    /// (`exit:<code>` and/or `out~<substr>`). The level-5 keystone — observed
+    /// not by reading source or running a unit test, but by *executing the
+    /// program* under the sandbox. Fail-closed: met only on a clean exit that
+    /// matches.
+    Run,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -147,6 +154,11 @@ impl WishFacet {
             WishFacetKind::Composition,
             format!("{}>>{}>>{}", from.as_ref(), via.as_ref(), to.as_ref()),
         )
+    }
+    /// A runtime probe facet, keyed `"args=>expect"` (e.g. `"add,2,3=>out~5"`):
+    /// the built artifact run with comma-separated `args` exhibits `expect`.
+    pub fn run(probe: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Run, probe)
     }
 }
 
@@ -545,6 +557,14 @@ mod tests {
         let f = WishFacet::composition("parse", "Ast", "eval");
         assert_eq!(f.kind, WishFacetKind::Composition);
         assert_eq!(f.key, "parse>>Ast>>eval");
+    }
+
+    #[test]
+    fn run_facet_key_is_the_probe() {
+        let f = WishFacet::run("add,2,3=>out~5");
+        assert_eq!(f.kind, WishFacetKind::Run);
+        assert_eq!(f.key, "add,2,3=>out~5");
+        assert_ne!(f, WishFacet::run("add,2,3=>out~6"));
     }
 
     // ── Wish content addressing ───────────────────────────────────────────

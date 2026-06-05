@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅ → RunFacet ✅ → RuntimeCapstone ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1147 substrate tests** (kosmo-core 382, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 30, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 61, kosmo-llm 14, kosmo-intent-llm 9, kosmo-run 14) — 0 failures
+- **1172 substrate tests** (kosmo-core 383, kosmo-hyphae 204, kosmo-pse-bridge 35, kosmo-kcube 46, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 20, kosmo-store 14, kosmo-pipeline 120, kosmo-synthesizer 35, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 67, kosmo-llm 14, kosmo-intent-llm 9, kosmo-sandbox 9, kosmo-run 18) — 0 failures; plus 3 capstone integration tests (`cargo test --workspace`: 2991). `--pruefstand --validated`: 11/11 corpus scenarios faithful (incl. runtime probes both directions)
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -19,6 +19,58 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Runtime capstone + Prüfstand extension (Runtime floor, beam 4) (2026-06-04)
+
+The runtime floor proven end-to-end and measured empirically.
+
+- **Runtime capstone** (`tools/kosmo-run/tests/capstone.rs`): the spec's §5 worked example through the real CLI — a `Contract`, a unit `Behavior`, and a `Run` probe over one calculator, the *same truth* at the function boundary and the process boundary (`add(2,3)=>5` **and** `run add,2,3=>out~5`) → `3/3 REALIZED`.
+- **Prüfstand corpus** gains the keystone at the process boundary both ways — `run-correct` (prints the sum → realized) and `run-empty` (empty `main` → rejected) — via a `bin` scenario flag that writes `src/main.rs`.
+- Live `--pruefstand --validated`: **11/11 matched** (every facet axis + the keystone at both the unit and process boundaries). +1 capstone integration test.
+
+### Run facet — observe by executing the artifact (Runtime floor, beam 3) (2026-06-04)
+
+The level-5 keystone lands: a wish is realized only when the *running program* exhibits the probed behaviour — from "the test is green" to "the program, run, does the right thing."
+
+- A `Run` facet keys on `"args=>expect"` (`add,2,3=>out~5`): comma-args passed after `cargo run --`; `expect` is `exit:<n>` and/or `out~<substr>`.
+- Symmetric with `Behavior`: `kosmo-synthesizer::scaffold_run` ensures a bin target and writes a `// kosmo:run:` marker (the stub `main` is honestly empty — red until correct). `kosmo-intent::observe_workspace_runtime` reads the markers, **executes** each probe through `kosmo-sandbox`, and emits the facet only on a clean exit that matches (`run_matches` fail-closed: a timeout/crash never counts, even if the substring printed).
+- `kosmo-run` self-selects runtime observation when the wish carries a `Run` facet (`wish_needs_runtime`); a `run` trigger compiles the prose.
+- Verified live both ways: `a run add,2,3=>out~5` over a binary printing the sum → `0/1 → 1/1 REALIZED` (exit 0); over an empty `main` → `✗ Run …`, exit 1 (rejected). +9 tests.
+
+### kosmo-sandbox — the execution sandbox (Runtime floor, beam 2) (2026-06-04)
+
+The load-bearing infra of the Runtime floor (`docs/RUNTIME-floor.md` §4): the safe room in which a built artifact — possibly code the loop generated — is run and *trusted as observed*. A capability, not a gate.
+
+- **Enforced (Unix):** the child runs in its own process group (`CommandExt::process_group(0)`), so a timeout fells the whole tree via `killpg(SIGKILL)` — a hung grandchild (the binary `cargo run` spawns) cannot outlive the budget. stdout/stderr drain on their own threads into capped buffers (runaway printer → truncated, never OOM or pipe-deadlock); the child is always reaped.
+- Every run returns a content-addressed `RuntimeWitness { verdict, exit_code, stdout, stdout_digest, duration, truncated }`; the digest witnesses the full output even when the text is truncated.
+- **Honest best-effort:** network isolation is declared (`NetworkPolicy::Deny` clears proxy env) but not yet hard-enforced — the crate refuses to claim isolation it cannot deliver (spec §8.1); filesystem containment is by the caller's throwaway `cwd`. Non-Unix reports a timeout but cannot force-kill.
+- The only `unsafe` is the single `killpg` call; grouping uses the safe std `process_group`. +9 tests, warning-free.
+
+### Behavioural composition — validated data-flow (Runtime floor, beam 1) (2026-06-04)
+
+First beam of the Runtime floor (`docs/RUNTIME-floor.md`), and its sandbox-free on-ramp: the level-2 keystone applied to a level-3 wire — proving data actually *flows* through a composition, not merely that the types align.
+
+- A piped behaviour spec `f(x)>>g>>h=>expected` desugars to the nested call `h(g(f(x)))`, validated green by the **existing** `cargo test` judge. `kosmo-synthesizer::parse_behavior_key` routes any `>>`-bearing key to `parse_pipeline_behavior_key`, which folds the pipeline (splitting on `=>`/`>>` as plain strings — `>>` overloads `>`, which the bracket-depth path misreads).
+- `kosmo-intent` adds a `flow`/`pipeline` trigger compiling to that Behavior facet. **Observation is untouched**: the `// kosmo:behavior:` marker carries the piped key verbatim, so it round-trips through the existing green-test machinery.
+- Verified live both ways: `a flow parse("2+3")>>eval=>5` over a correct pipeline → `0/1 → 1/1 REALIZED` (exit 0); over an `eval` returning 6 → stays `0/1`, `✗ Behavior …`, exit 1 (rejected). +5 tests.
+
+### Prüfstand — empirical fidelity harness (2026-06-04)
+
+The capstone generalized into a *corpus*. `kosmo-run --pruefstand` (module `tools/kosmo-run/src/pruefstand.rs`) descends nine reference systems — one per facet axis the floor builds (symbol/contract/module/capability/test/composition/archetype) plus the behavioural keystone in **both** directions — each in a throwaway workspace through the real descent, and compares the reached verdict to the expected one (`Match` / `Mismatch` / `Skipped`).
+
+- Structural scenarios converge offline; behavioural ones run `cargo test` (gated by `--validated`). An unobservable scenario is *skipped*, never counted as a failure — the harness reports honestly. `is_faithful()` ⇔ zero mismatches; the CLI exits 3 otherwise.
+- The corpus is the natural home for new reference systems as the substrate grows — the empirical complement to the unit suite.
+
+Verified live: `--pruefstand --validated` → **fidelity: 9/9 matched (0 mismatched, 0 skipped)**, exit 0, with `behavior-wrong` (`a+b+1`) correctly rejected. +2 unit tests (kosmo-run 14→16).
+
+### Capstone — the whole floor in one runnable artifact (2026-06-04)
+
+`tools/kosmo-run/tests/capstone.rs` drives the **real `kosmo-run` binary** end-to-end, proving *acceptance over generation* in both directions through the actual CLI:
+
+- **correct** impl + a typed `Contract` and a `Behavior` spec → `1/2 APPROACHING → 2/2 REALIZED`, exit 0, spec-test marker written;
+- **incorrect** impl (`a+b+1`) + the same behaviour → stays `0/1 UNSTARTED`, `✗ Behavior add(2,3)=>5`, exit 1 — the system does not lie.
+
+The positive case runs `cargo test` nested (skips, not fails, where the sandbox forbids it); the negative case is robust regardless. The first reference scenario for the empirical Prüfstand. +2 integration tests (verified live: both directions confirmed at the CLI).
 
 ### Composition — typed data-flow wiring (Horizon floor, level 3) (2026-06-03)
 

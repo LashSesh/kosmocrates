@@ -1516,6 +1516,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-sandbox"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "libc",
+]
+
+[[package]]
 name = "kosmo-server"
 version = "0.1.0"
 dependencies = [

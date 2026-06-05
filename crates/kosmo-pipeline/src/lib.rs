@@ -33,7 +33,7 @@ use std::collections::BTreeMap;
 use kosmo_core::ReplayStatus;
 use kosmo_store::CrystalRecordStore;
 use kosmo_hyphae::{
-    AssimilationLedger, CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography,
+    CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography,
     CorpusCartographyUpdate, CorpusEntity, CorpusEntityKind, CubeSwarm, CubeDimensionProfile,
     DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
     MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport, MicroTopologyDiagnostic,
@@ -1896,7 +1896,6 @@ mod tests {
 
     #[test]
     fn pipeline_prior_motifs_inject_suggest_pattern_intents() {
-        use kosmo_core::TaintLabel;
         let p = policy();
         // First run: collect motif candidates.
         let opts1 = IntegrationRunOptions {

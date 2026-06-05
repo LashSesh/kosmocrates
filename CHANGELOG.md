@@ -15,6 +15,109 @@ note explicitly says so.
 
 ### Added
 
+* **Runtime capstone + Prüfstand extension (Runtime floor, beam 4)**
+
+  The runtime floor proven end-to-end and measured empirically. A **runtime
+  capstone** (`tools/kosmo-run/tests/capstone.rs`) drives the spec's §5 worked
+  example through the real CLI: a typed `Contract`, a unit `Behavior`, and a
+  `Run` probe of the built binary over one little calculator — the *same truth*
+  validated at the function boundary and the process boundary
+  (`add(2,3)=>5` **and** `run add,2,3=>out~5`), reaching `3/3 REALIZED`. The
+  **Prüfstand corpus** (`pruefstand.rs`) gains the keystone at the process
+  boundary in both directions — `run-correct` (a binary that prints the sum →
+  realized) and `run-empty` (an empty `main` → rejected) — via a new `bin`
+  scenario flag that writes `src/main.rs`. Live `--pruefstand --validated` now
+  reports **11/11 matched** across every facet axis plus the keystone at both
+  boundaries. +1 capstone integration test (2→3).
+
+* **`Run` facet — observe by executing the artifact (Runtime floor, beam 3)**
+
+  The level-5 keystone is live: a wish is realized only when the **running
+  program** exhibits the probed behaviour — from *"the test is green"* to *"the
+  program, run, does the right thing."* A `Run` facet keys on `"args=>expect"`
+  (`add,2,3=>out~5` — comma-args passed after `cargo run --`; `exit:<n>` and/or
+  `out~<substr>`). Symmetric with `Behavior`: `kosmo-synthesizer::scaffold_run`
+  ensures a bin target and writes a `// kosmo:run:` marker (the stub `main` is
+  honestly empty — red until it prints the right thing);
+  `kosmo-intent::observe_workspace_runtime` reads the markers, **executes** each
+  probe through `kosmo-sandbox`, and emits the facet only on a *clean exit that
+  matches* (`run_matches` is fail-closed — a timeout/crash never counts, even if
+  the substring was printed). `kosmo-run` self-selects runtime observation when
+  the wish carries a `Run` facet (`wish_needs_runtime`), and a `run` trigger
+  compiles the prose. Verified live both ways: `a run add,2,3=>out~5` over a
+  binary that prints the sum → `0/1 → 1/1 REALIZED` (exit 0); over an empty
+  `main` → `✗ Run …`, exit 1 — rejected. +9 tests (kosmo-core 382→383,
+  kosmo-synthesizer 33→35, kosmo-intent 62→67, kosmo-run +1).
+
+* **`kosmo-sandbox` — the execution sandbox (Runtime floor, beam 2)**
+
+  The load-bearing infra of the Runtime floor (`docs/RUNTIME-floor.md` §4): the
+  safe room in which a built artifact — possibly code the loop generated — is
+  run and *trusted as observed*. A capability, not a gate. **Enforced (Unix):**
+  the child runs in its own process group (`CommandExt::process_group`) so a
+  **timeout fells the whole tree** via `killpg(SIGKILL)` — a hung grandchild
+  (the binary `cargo run` spawns) cannot outlive the budget; stdout/stderr are
+  drained on their own threads into **capped buffers** (a runaway printer is
+  truncated, never an OOM or pipe-deadlock); the child is always reaped. Every
+  run returns a content-addressed `RuntimeWitness { verdict, exit_code, stdout,
+  stdout_digest, duration, truncated }` — the digest witnesses the full output
+  even when the captured text is truncated. **Honest best-effort:** network
+  isolation is *declared* (`NetworkPolicy::Deny` clears proxy env) but not yet
+  hard-enforced — the crate does not claim isolation it cannot deliver (spec
+  §8.1); filesystem containment is by the caller's throwaway `cwd`. +9 tests
+  (exit codes, stdin, prompt kill of an infinite loop and a backgrounded child,
+  output truncation, spawn-failure-as-verdict).
+
+* **Behavioural composition — validated data-flow (Runtime floor, beam 1)**
+
+  The sandbox-free on-ramp to the Runtime floor (`docs/RUNTIME-floor.md` §6): a
+  piped behaviour spec `f(x)>>g>>h=>expected` desugars to the nested call
+  `h(g(f(x)))` and is validated green by the *existing* `cargo test` judge — the
+  level-2 keystone applied to a level-3 wire, proving data actually *flows*
+  through a composition, not merely that the types align. Implementation is
+  deliberately tiny and reuses everything: `kosmo-synthesizer::parse_behavior_key`
+  detects `>>` and folds the pipeline (`parse_pipeline_behavior_key`; `>>`
+  overloads `>`, so it splits on `=>`/`>>` as plain strings rather than the
+  bracket-depth path); `kosmo-intent` adds a `flow`/`pipeline` trigger that
+  compiles to that Behavior facet. Observation is **untouched** — the
+  `// kosmo:behavior:` marker carries the piped key verbatim, so it round-trips.
+  Verified live in both directions: `a flow parse("2+3")>>eval=>5` over a correct
+  pipeline descends `0/1 → 1/1 REALIZED` (exit 0); over an `eval` that returns 6
+  it stays `0/1`, `✗ Behavior …`, exit 1 — rejected. +5 tests (kosmo-synthesizer
+  30→33, kosmo-intent 61→62, kosmo-run +1).
+
+* **Prüfstand — empirical fidelity harness (`--pruefstand`)**
+
+  The capstone generalized into a *corpus*. A new `kosmo-run --pruefstand` mode
+  (module `tools/kosmo-run/src/pruefstand.rs`) descends a built-in reference
+  corpus of nine known systems — one per facet axis the floor builds
+  (symbol/contract/module/capability/test/composition/archetype) plus the
+  behavioural keystone in **both** directions — and checks the verdict the
+  substrate reaches against the verdict it *should* reach. It measures one
+  thing: does the loop accept exactly the systems it should? Each scenario runs
+  in a throwaway workspace through the real descent; structural ones converge
+  offline, behavioural ones run `cargo test` (gated by `--validated`), and an
+  unobservable scenario is *skipped*, never miscounted as a failure. Verified
+  live: `--pruefstand --validated` → **fidelity: 9/9 matched (0 mismatched,
+  0 skipped)**, exit 0 — including `behavior-wrong` (impl returns `a+b+1`)
+  correctly **rejected**. Exit 3 if any verdict is wrong. +2 unit tests
+  (kosmo-run 14→16).
+
+* **Capstone — the whole Horizon floor in one runnable artifact**
+
+  A binary-level integration test (`tools/kosmo-run/tests/capstone.rs`) that
+  drives the **real `kosmo-run` CLI** end-to-end (`CARGO_BIN_EXE_…`), proving the
+  keystone — *acceptance over generation* — in both directions through the actual
+  binary, not an in-process helper:
+  - **correct** impl (`add(a,b)=a+b`) + a typed `Contract` and a `Behavior` spec
+    → `1/2 APPROACHING → 2/2 REALIZED`, exit 0, the spec-test marker written;
+  - **incorrect** impl (`a+b+1`) + the same behaviour → stays `0/1 UNSTARTED`,
+    `✗ Behavior add(2,3)=>5`, exit 1 — the system does not lie.
+  The positive case validates by running `cargo test` nested; it skips (not
+  fails) where the sandbox forbids nested cargo, while the negative case is
+  robust regardless. This is the first reference scenario for the empirical
+  Prüfstand. +2 integration tests.
+
 * **Composition facets — typed data-flow wiring (Horizon floor, level 3)**
 
   The behavioural cousin of `Dependency`: a `Composition` facet `"from>>via>>to"`

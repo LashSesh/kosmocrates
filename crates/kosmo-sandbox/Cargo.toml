@@ -1,0 +1,15 @@
+[package]
+name = "kosmo-sandbox"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Safe execution sandbox for the kosmo-* substrate: run a built artifact under a hard timeout (process-group kill), bounded output capture, and guaranteed reaping, emitting a content-addressed RuntimeWitness. The load-bearing infra of the Runtime floor."
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

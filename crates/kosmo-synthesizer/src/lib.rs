@@ -350,6 +350,7 @@ impl FacetScaffolder {
             WishFacetKind::Test => Self::scaffold_test(ws, key),
             WishFacetKind::Behavior => Self::scaffold_behavior(ws, key),
             WishFacetKind::Composition => Self::scaffold_composition(ws, key),
+            WishFacetKind::Run => Self::scaffold_run(ws, key),
             WishFacetKind::Dependency => Self::scaffold_dependency(ws, key),
             // A resolution ("the bad thing is gone") has no structural scaffold.
             WishFacetKind::Resolution => vec![],
@@ -608,6 +609,34 @@ impl FacetScaffolder {
         )
     }
 
+    /// Realize a runtime probe `"args=>expect"` by ensuring a **bin target**
+    /// exists and carries a `// kosmo:run:` marker (so the observer can find and
+    /// execute it). The stub `main` is **honestly empty** — it exits `0` and
+    /// prints nothing, so a `=>out~…` probe is red until the body is correct
+    /// (the keystone, at the process boundary). Idempotent via the marker.
+    fn scaffold_run(ws: &Path, key: &str) -> Vec<FileChange> {
+        let marker = format!("kosmo:run: {key}");
+        let main = ws.join("src/main.rs");
+        if main.exists() {
+            let mut content = std::fs::read_to_string(&main).unwrap_or_default();
+            if content.contains(&marker) {
+                return vec![];
+            }
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(&format!("// {marker}\n"));
+            vec![FileChange::modify("src/main.rs", content)]
+        } else {
+            vec![FileChange::create(
+                "src/main.rs",
+                format!(
+                    "// {marker}\nfn main() {{ /* kosmo: runtime stub — fill to satisfy the probe */ }}\n"
+                ),
+            )]
+        }
+    }
+
     fn scaffold_module(ws: &Path, name: &str) -> Vec<FileChange> {
         let mut changes = Vec::new();
         let modfile = ws.join(format!("src/{name}.rs"));
@@ -743,6 +772,14 @@ fn parse_contract_key(key: &str) -> Option<(String, Vec<String>, String)> {
 /// `", "`) and `expected` is the verbatim expected expression. `None` if the
 /// key has no `=>` separator or no parameter list.
 fn parse_behavior_key(key: &str) -> Option<(String, String)> {
+    // Behavioural composition (the runtime floor's sandbox-free on-ramp): a
+    // piped spec `"f(x)>>g>>h=>expected"` desugars to the nested application
+    // `"h(g(f(x)))"`, validated by the very same green-test judge. `>>` overloads
+    // `>`, which `split_on_fat_arrow` reads as a bracket, so pipes take a
+    // dedicated parser that splits on `=>` and `>>` as plain strings.
+    if key.contains(">>") {
+        return parse_pipeline_behavior_key(key);
+    }
     let (lhs, rhs) = split_on_fat_arrow(key)?;
     let lhs = lhs.trim();
     let expected = rhs.trim().to_string();
@@ -776,6 +813,34 @@ fn parse_behavior_key(key: &str) -> Option<(String, String)> {
     let args_str: String = chars[open + 1..close].iter().collect();
     let args = split_type_list(&args_str); // depth-aware top-level split
     Some((format!("{name}({})", args.join(", ")), expected))
+}
+
+/// Desugar a piped behaviour key `"f(x)>>g>>h=>expected"` into the composed
+/// call `("h(g(f(x)))", "expected")`. The head stage carries the pipeline input
+/// (`f(x)`); each later stage is a bare function the piped value flows into. The
+/// expected value is taken after the last `=>` (robust to `=>` inside a string
+/// literal arg). Fewer than two stages, or an empty stage/expected, is a no-op.
+fn parse_pipeline_behavior_key(key: &str) -> Option<(String, String)> {
+    let (call_part, expected) = key.rsplit_once("=>")?;
+    let expected = expected.trim().to_string();
+    if expected.is_empty() {
+        return None;
+    }
+    let stages: Vec<&str> = call_part.split(">>").map(|s| s.trim()).collect();
+    if stages.len() < 2 {
+        return None;
+    }
+    let mut acc = stages[0].to_string();
+    if acc.is_empty() {
+        return None;
+    }
+    for stage in &stages[1..] {
+        if stage.is_empty() {
+            return None;
+        }
+        acc = format!("{stage}({acc})");
+    }
+    Some((acc, expected))
 }
 
 /// Find the first **top-level** `=>` (ignoring `()`, `<>`, `[]` nesting) and
@@ -1281,6 +1346,38 @@ mod tests {
     }
 
     #[test]
+    fn parse_pipeline_behavior_key_folds_into_nested_call() {
+        // Behavioural composition: input on the head stage, piped forward.
+        let (call, expected) = parse_behavior_key("parse(\"2+3\")>>eval=>5").unwrap();
+        assert_eq!(call, "eval(parse(\"2+3\"))");
+        assert_eq!(expected, "5");
+    }
+
+    #[test]
+    fn parse_pipeline_behavior_key_chains_three_stages() {
+        let (call, expected) = parse_behavior_key("a(1)>>b>>c=>9").unwrap();
+        assert_eq!(call, "c(b(a(1)))");
+        assert_eq!(expected, "9");
+        // A lone stage (no pipe) is not a pipeline.
+        assert!(parse_behavior_key("a(1)>>=>9").is_none());
+    }
+
+    #[test]
+    fn scaffold_behavior_pipeline_emits_composed_assert() {
+        let dir = temp_ws("// root\n");
+        let req = wish_request(&dir, WishFacet::behavior("parse(\"2+3\")>>eval=>5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        assert!(
+            c.contains("assert_eq!(eval(parse(\"2+3\")), 5)"),
+            "composed assert missing:\n{c}"
+        );
+        // The marker carries the piped key verbatim, so it round-trips on observe.
+        assert!(c.contains("// kosmo:behavior: parse(\"2+3\")>>eval=>5"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn scaffold_composition_emits_two_compatible_stubs_in_one_change() {
         let dir = temp_ws("// root\n");
         let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
@@ -1304,6 +1401,32 @@ mod tests {
         let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "both fns present → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_run_creates_bin_with_marker() {
+        let dir = temp_ws("// lib\n"); // lib-only crate: no bin yet
+        let req = wish_request(&dir, WishFacet::run("add,2,3=>out~5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.path, std::path::Path::new("src/main.rs"));
+        assert!(fc.content.contains("// kosmo:run: add,2,3=>out~5"), "marker:\n{}", fc.content);
+        assert!(fc.content.contains("fn main"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_run_idempotent_when_marker_present() {
+        let dir = temp_ws("// lib\n");
+        std::fs::write(
+            dir.join("src/main.rs"),
+            "// kosmo:run: add,2,3=>out~5\nfn main() {}\n",
+        )
+        .unwrap();
+        let req = wish_request(&dir, WishFacet::run("add,2,3=>out~5"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert!(res.patch.is_empty(), "marker present → no change");
         std::fs::remove_dir_all(&dir).ok();
     }
 

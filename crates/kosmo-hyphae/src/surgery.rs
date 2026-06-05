@@ -323,7 +323,7 @@ mod tests {
     use crate::collapse::{CollapseAction, CollapseStep};
     use crate::metatron::{diagnose_micrograph, lift_region};
     use crate::void_map::HostVoidKind;
-    use kosmo_core::{Digest, EnergyAssessment, GateResult, PolicyProfile, TaintLabel, rank_by_energy};
+    use kosmo_core::{Digest, EnergyAssessment, GateResult, PolicyProfile, TaintLabel};
 
     fn pid() -> Digest {
         Digest::of_bytes(b"p")

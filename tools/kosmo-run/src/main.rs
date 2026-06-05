@@ -24,6 +24,8 @@
 //! loop offline.
 //! ```
 
+mod pruefstand;
+
 use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
@@ -34,7 +36,10 @@ use kosmo_core::{
     assess_wish, Digest, GateResult, PolicyProfile, Q16, Wish, WishAssessment, WishClosureStatus,
     WishFacet, WishFacetKind,
 };
-use kosmo_intent::{compile_wish, observe_workspace_deep, observe_workspace_validated, WishSession};
+use kosmo_intent::{
+    compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_validated,
+    WishSession,
+};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
 use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
@@ -67,6 +72,9 @@ struct Args {
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
     wish_session: Option<String>,
+    /// Run the empirical Prüfstand: descend a reference corpus of known-good
+    /// (and deliberately broken) systems and report the fidelity.
+    pruefstand: bool,
 }
 
 impl Default for Args {
@@ -88,6 +96,7 @@ impl Default for Args {
             validated: false,
             provider_set: false,
             wish_session: None,
+            pruefstand: false,
         }
     }
 }
@@ -123,7 +132,13 @@ OPTIONS:\n\
 \n\
     --json                emit the report as JSON\n\
     --no-color            disable ANSI colour\n\
-    -h, --help            show this help\n\n\
+    -h, --help            show this help\n\
+\n\
+  PR\u{00dc}FSTAND MODE (empirical fidelity harness):\n\
+    --pruefstand          descend a built-in reference corpus of known-good and\n\
+                          deliberately broken systems; report fidelity and exit\n\
+                          non-zero if any verdict is wrong (--validated runs the\n\
+                          behavioural scenarios' suites too)\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -187,6 +202,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
+            "--pruefstand" | "--testbench" => args.pruefstand = true,
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -411,6 +427,15 @@ fn wish_needs_validation(wish: &Wish) -> bool {
         .any(|p| p.facet.kind == WishFacetKind::Behavior)
 }
 
+/// Whether a wish requires runtime observation (executing the built artifact).
+/// True iff it carries a [`WishFacetKind::Run`] facet — those are satisfied only
+/// by running the program under the sandbox, never by reading source.
+fn wish_needs_runtime(wish: &Wish) -> bool {
+    wish.predicates
+        .iter()
+        .any(|p| p.facet.kind == WishFacetKind::Run)
+}
+
 /// Deterministic, offline front door: compile a prose wish, observe the
 /// workspace, and report the distance to the wish (which facets are present,
 /// which are missing). With `--scaffold`, also print the changes that would
@@ -478,7 +503,9 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         });
     }
 
-    let observed = if validated {
+    let observed = if wish_needs_runtime(&wish) {
+        observe_workspace_runtime(args.path.as_str())
+    } else if validated {
         observe_workspace_validated(args.path.as_str())
     } else {
         observe_workspace_deep(args.path.as_str())
@@ -666,7 +693,9 @@ fn descend_to_wish(
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
     loop {
-        let observed = if validated {
+        let observed = if wish_needs_runtime(wish) {
+            observe_workspace_runtime(path)
+        } else if validated {
             observe_workspace_validated(path)
         } else {
             observe_workspace_deep(path)
@@ -746,6 +775,18 @@ fn run() -> Result<ExitCode, String> {
         Some(a) => a,
         None => return Ok(ExitCode::SUCCESS),
     };
+
+    // The Prüfstand descends a built-in reference corpus and reports fidelity:
+    // every known-good system must be accepted, every broken one rejected.
+    if args.pruefstand {
+        let report = pruefstand::run_corpus(pruefstand::reference_corpus(), args.validated);
+        print!("{}", pruefstand::render(&report, args.color));
+        return Ok(if report.is_faithful() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(3)
+        });
+    }
 
     // Wish mode is deterministic and offline (no LLM, no key): compile the
     // prose, observe the workspace, and report the distance to the wish.
@@ -1080,6 +1121,97 @@ mod tests {
             Err(e) => eprintln!("observe unavailable, skipping: {e}"),
         }
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descend_validates_behavioral_composition() {
+        // Beam 1 of the runtime floor: a two-stage pipeline parse -> eval,
+        // validated by the COMPOSED spec test `assert_eq!(eval(parse("2+3")), 5)`.
+        // Acceptance over generation, applied to the wire — both directions.
+        let correct = "pub fn parse(s: &str) -> Vec<i32> { s.split('+').map(|x| x.trim().parse().unwrap()).collect() }\n\
+                       pub fn eval(v: Vec<i32>) -> i32 { v.iter().sum() }\n";
+        let wrong = "pub fn parse(s: &str) -> Vec<i32> { s.split('+').map(|x| x.trim().parse().unwrap()).collect() }\n\
+                     pub fn eval(v: Vec<i32>) -> i32 { v.iter().sum::<i32>() + 1 }\n";
+        let prose = "a flow parse(\"2+3\")>>eval=>5";
+
+        for (idx, (lib, want_realized)) in [(correct, true), (wrong, false)].iter().enumerate() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("kosmo-run-flow-{idx}-{nanos}"));
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("Cargo.toml"),
+                "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            )
+            .unwrap();
+            fs::write(root.join("src/lib.rs"), lib).unwrap();
+
+            let evidence = Digest::of_bytes(prose.as_bytes());
+            let wish = compile_wish(prose, Digest::ZERO, evidence);
+            match descend_to_wish(root.to_str().unwrap(), &wish, evidence, true, 8, None, None) {
+                Ok(session) => {
+                    let last = session.latest().expect("an observation");
+                    let realized = matches!(last.status, WishClosureStatus::Realized);
+                    assert_eq!(
+                        realized, *want_realized,
+                        "pipeline verdict wrong for lib:\n{lib}\nstatus {:?} ({}/{})",
+                        last.status, last.met_count, last.total_count
+                    );
+                }
+                Err(e) => eprintln!("validated observe unavailable, skipping: {e}"),
+            }
+            fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
+    fn descend_realizes_run_probe() {
+        // Beam 3 of the runtime floor: the built artifact is EXECUTED and its
+        // stdout probed. `a run add,2,3=>out~5` over a binary that prints the
+        // sum realizes; an empty `main` (prints nothing) is rejected.
+        let correct = "fn main() { let a: Vec<String> = std::env::args().skip(1).collect(); \
+                       if a.first().map(|s| s.as_str()) == Some(\"add\") { \
+                       let s: i32 = a[1..].iter().filter_map(|x| x.parse::<i32>().ok()).sum(); \
+                       println!(\"{s}\"); } }\n";
+        let empty = "fn main() {}\n";
+        let prose = "a run add,2,3=>out~5";
+
+        for (idx, (main_rs, want_realized)) in [(correct, true), (empty, false)].iter().enumerate() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("kosmo-run-runprobe-{idx}-{nanos}"));
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("Cargo.toml"),
+                "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            )
+            .unwrap();
+            fs::write(root.join("src/main.rs"), main_rs).unwrap();
+
+            let evidence = Digest::of_bytes(prose.as_bytes());
+            let wish = compile_wish(prose, Digest::ZERO, evidence);
+            // validated=false, but the Run facet forces runtime observation.
+            match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 4, None, None) {
+                Ok(session) => {
+                    let last = session.latest().expect("an observation");
+                    let realized = matches!(last.status, WishClosureStatus::Realized);
+                    assert_eq!(
+                        realized, *want_realized,
+                        "run-probe verdict wrong for main:\n{main_rs}\nstatus {:?} ({}/{})",
+                        last.status, last.met_count, last.total_count
+                    );
+                    // The probe marker was scaffolded into the bin either way.
+                    let m = fs::read_to_string(root.join("src/main.rs")).unwrap();
+                    assert!(m.contains("// kosmo:run: add,2,3=>out~5"), "marker:\n{m}");
+                }
+                Err(e) => eprintln!("runtime observe unavailable, skipping: {e}"),
+            }
+            fs::remove_dir_all(&root).ok();
+        }
     }
 
     #[test]

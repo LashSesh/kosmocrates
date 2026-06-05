@@ -714,6 +714,138 @@ pub fn observe_workspace_validated(
     Ok(observed)
 }
 
+// ─── Runtime observation (level 5 — execute and probe) ──────────────────────
+
+/// A runtime probe's expectation: an exit code and/or a stdout substring.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RunExpect {
+    exit: Option<i32>,
+    stdout_contains: Option<String>,
+}
+
+/// Parse a `Run` facet key `"args=>expect"` into `(args, expect)`. `args` is
+/// comma-separated (passed after `cargo run --`); `expect` is `exit:<n>` and/or
+/// `out~<substr>`. `None` if malformed.
+fn parse_run_key(key: &str) -> Option<(Vec<String>, RunExpect)> {
+    let (args_str, expect_str) = key.split_once("=>")?;
+    let args = args_str
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let expect = parse_run_expect(expect_str.trim())?;
+    Some((args, expect))
+}
+
+fn parse_run_expect(s: &str) -> Option<RunExpect> {
+    let mut exit = None;
+    let rest = if let Some(r) = s.strip_prefix("exit:") {
+        let digits: String = r
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '-')
+            .collect();
+        exit = Some(digits.parse::<i32>().ok()?);
+        let r2 = &r[digits.len()..];
+        r2.strip_prefix(',').unwrap_or(r2)
+    } else {
+        s
+    };
+    let stdout_contains = rest.strip_prefix("out~").map(|x| x.to_string());
+    if exit.is_none() && stdout_contains.is_none() {
+        return None;
+    }
+    Some(RunExpect {
+        exit,
+        stdout_contains,
+    })
+}
+
+/// A clean-exit witness that matches the expectation. Fail-closed: a timeout,
+/// crash, or spawn failure never matches, even if the substring was printed.
+fn run_matches(w: &kosmo_sandbox::RuntimeWitness, e: &RunExpect) -> bool {
+    if w.verdict != kosmo_sandbox::RunVerdict::Exited {
+        return false;
+    }
+    if let Some(code) = e.exit {
+        if w.exit_code != Some(code) {
+            return false;
+        }
+    }
+    if let Some(sub) = &e.stdout_contains {
+        if !w.stdout.contains(sub) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Extract a `// kosmo:run:` probe key from a source line.
+fn run_marker(trimmed: &str) -> Option<String> {
+    let rest = trimmed.strip_prefix("//")?.trim_start();
+    let key = rest.strip_prefix("kosmo:run:")?.trim();
+    (!key.is_empty()).then(|| key.to_string())
+}
+
+/// Read all `// kosmo:run:` probe keys under `dir` (sorted, deduped). Read-only.
+fn run_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
+    let mut files = Vec::new();
+    collect_rs(dir.as_ref(), &mut files);
+    files.sort();
+    let mut out = Vec::new();
+    for file in files {
+        if let Ok(content) = std::fs::read_to_string(&file) {
+            for line in content.lines() {
+                if let Some(key) = run_marker(line.trim()) {
+                    out.push(key);
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Observe a workspace **with runtime probes**: everything
+/// [`observe_workspace_validated`] sees, plus — for each `// kosmo:run:` marker
+/// — the built artifact is *executed* under the sandbox and the `Run` facet is
+/// emitted iff the program exits cleanly and matches the probe (fail-closed).
+///
+/// The heaviest observation (it builds and runs the binary). Opt-in: used only
+/// when the wish carries a `Run` facet.
+pub fn observe_workspace_runtime(
+    root: impl Into<PathBuf>,
+) -> Result<ObservedTopology, ParseBackError> {
+    use kosmo_sandbox::{RunSpec, Sandbox};
+    let root = root.into();
+    let mut observed = observe_workspace_validated(&root)?;
+    let probes = run_probes_from_dir(&root);
+    if !probes.is_empty() {
+        let manifest = root.join("Cargo.toml").to_string_lossy().into_owned();
+        let sandbox = Sandbox::new()
+            .with_cwd(&root)
+            .with_timeout(std::time::Duration::from_secs(60));
+        for key in probes {
+            let Some((args, expect)) = parse_run_key(&key) else {
+                continue;
+            };
+            let mut run_args = vec![
+                "run".to_string(),
+                "--quiet".to_string(),
+                "--manifest-path".to_string(),
+                manifest.clone(),
+                "--".to_string(),
+            ];
+            run_args.extend(args);
+            let witness = sandbox.run(&RunSpec::new("cargo", run_args));
+            if run_matches(&witness, &expect) {
+                observed.insert(WishFacet::run(key));
+            }
+        }
+    }
+    Ok(observed)
+}
+
 // ─── Natural-language → Wish (the human front door) ─────────────────────────
 
 /// Normalize a word to lowercase alphanumerics (strips punctuation/markup).
@@ -738,7 +870,13 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         "behavior" | "behaviors" | "behaviour" | "behaviours" | "spec" | "specs" => {
             Some(WishFacetKind::Behavior)
         }
+        // A validated data-flow: `a flow f(x)>>g=>y` is a Behavior over the
+        // composed call `g(f(x))` — the keystone applied to a level-3 wire.
+        "flow" | "flows" | "pipeline" | "pipelines" => Some(WishFacetKind::Behavior),
         "composition" | "compositions" | "compose" => Some(WishFacetKind::Composition),
+        // A runtime probe: `a run add,2,3=>out~5` runs the built binary and
+        // checks its exit/stdout (level 5, observed by execution).
+        "run" | "runs" => Some(WishFacetKind::Run),
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
@@ -1610,6 +1748,90 @@ mod tests {
             .predicates
             .iter()
             .any(|p| p.facet == WishFacet::composition("parse", "Ast", "eval")));
+    }
+
+    #[test]
+    fn flow_trigger_compiles_to_piped_behavior() {
+        // Behavioural composition rides the Behavior facet: the wire is in the
+        // call, validated green by the same judge.
+        let w = compile_wish("a flow parse(\"2+3\")>>eval=>5", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::behavior("parse(\"2+3\")>>eval=>5")));
+    }
+
+    // ── Runtime probes (level 5 — execute and observe) ────────────────────
+
+    #[test]
+    fn parse_run_key_splits_args_and_expect() {
+        let (args, expect) = parse_run_key("add,2,3=>out~5").unwrap();
+        assert_eq!(args, vec!["add", "2", "3"]);
+        assert_eq!(expect.stdout_contains.as_deref(), Some("5"));
+        assert!(parse_run_key("noarrow").is_none());
+    }
+
+    #[test]
+    fn parse_run_expect_forms() {
+        assert_eq!(
+            parse_run_expect("exit:0"),
+            Some(RunExpect { exit: Some(0), stdout_contains: None })
+        );
+        assert_eq!(
+            parse_run_expect("out~hi"),
+            Some(RunExpect { exit: None, stdout_contains: Some("hi".into()) })
+        );
+        assert_eq!(
+            parse_run_expect("exit:0,out~hi"),
+            Some(RunExpect { exit: Some(0), stdout_contains: Some("hi".into()) })
+        );
+        assert!(parse_run_expect("garbage").is_none());
+    }
+
+    #[test]
+    fn run_marker_reads_probe() {
+        assert_eq!(
+            run_marker("// kosmo:run: add,2,3=>out~5"),
+            Some("add,2,3=>out~5".to_string())
+        );
+        assert_eq!(run_marker("let x = 1;"), None);
+    }
+
+    #[test]
+    fn run_matches_is_failclosed_on_nonexit() {
+        use kosmo_sandbox::{RunVerdict, RuntimeWitness};
+        let e = RunExpect { exit: Some(0), stdout_contains: Some("5".into()) };
+        // A timed-out run never matches — even with the right stdout printed.
+        let timed = RuntimeWitness {
+            verdict: RunVerdict::TimedOut,
+            exit_code: None,
+            stdout: "5".into(),
+            stderr: String::new(),
+            stdout_digest: Digest::ZERO,
+            duration: std::time::Duration::ZERO,
+            truncated: false,
+        };
+        assert!(!run_matches(&timed, &e));
+        // A clean matching exit does match.
+        let ok = RuntimeWitness {
+            verdict: RunVerdict::Exited,
+            exit_code: Some(0),
+            stdout: "answer=5".into(),
+            stderr: String::new(),
+            stdout_digest: Digest::ZERO,
+            duration: std::time::Duration::ZERO,
+            truncated: false,
+        };
+        assert!(run_matches(&ok, &e));
+    }
+
+    #[test]
+    fn run_trigger_compiles() {
+        let w = compile_wish("a run add,2,3=>out~5", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::run("add,2,3=>out~5")));
     }
 
     #[test]

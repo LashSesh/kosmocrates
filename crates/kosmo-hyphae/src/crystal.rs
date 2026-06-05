@@ -737,7 +737,6 @@ mod tests {
     fn record_id_differs_with_different_signals() {
         let policy = PolicyProfile::default_report_only();
         let d1 = make_accepted_decision(&policy);
-        let d2 = make_accepted_decision(&policy);
         let c1 = StructuralCrystalCandidate::from_decision_with_signals(
             &d1, None, Q16::HALF, Q16::ONE,
         );
