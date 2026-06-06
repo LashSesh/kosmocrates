@@ -1920,7 +1920,7 @@ dependencies = [
  "mef-solvecoagula",
  "mef-spiral",
  "mef-tic",
- "ndarray",
+ "ndarray 0.15.6",
  "num-complex",
  "rand 0.8.6",
  "rustfft",
@@ -1960,7 +1960,7 @@ name = "mef-solvecoagula"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "ndarray",
+ "ndarray 0.15.6",
  "rand 0.9.4",
  "rand_distr",
  "serde",
@@ -1975,7 +1975,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "nalgebra 0.33.3",
- "ndarray",
+ "ndarray 0.17.2",
  "num-complex",
  "proptest",
  "rustfft",
@@ -1992,7 +1992,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "ndarray",
+ "ndarray 0.17.2",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2129,26 +2129,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix"
-version = "0.29.0"
+name = "ndarray"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
 dependencies = [
- "bitflags 2.12.1",
- "cfg-if",
- "cfg_aliases",
- "libc",
- "memoffset",
-]
-
-[[package]]
-name = "nom"
-version = "7.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
-dependencies = [
- "memchr",
- "minimal-lexical",
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
 ]
 
 [[package]]
@@ -2498,6 +2490,15 @@ name = "portable-atomic"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
+
+[[package]]
+name = "portable-atomic-util"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
+dependencies = [
+ "portable-atomic",
+]
 
 [[package]]
 name = "potential_utf"
