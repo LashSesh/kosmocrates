@@ -20,5 +20,5 @@ path = "src/main.rs"
 [dependencies]
 kosmo-core = { path = "../../crates/kosmo-core" }
 kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.29"
