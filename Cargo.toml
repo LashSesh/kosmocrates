@@ -137,7 +137,7 @@ reqwest = { version = "0.13", features = ["blocking", "json"] }
 anyhow   = "1"
 ndarray  = "0.17"
 rand     = "0.9"
-rand_distr = "0.4"
+rand_distr = "0.6"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Release profile: tuned for the single-binary, single-thread-fast

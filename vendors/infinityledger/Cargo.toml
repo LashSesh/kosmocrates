@@ -52,7 +52,7 @@ nalgebra = "0.34"
 
 # Random number generation
 rand = "0.9"
-rand_distr = "0.4"
+rand_distr = "0.6"
 
 # Cryptography
 sha2 = "0.11"
