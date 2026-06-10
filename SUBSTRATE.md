@@ -405,13 +405,13 @@ is hardcoded `false` on the output report (CROSS-013).
 Everything from `SourceCube` upward is language-agnostic: the cube pipeline
 consumes a `CodeHDAG` and the ρ/ω poles derived from it, never the source text.
 The only Rust-specific link was the extractor at the head of the chain. The
-`xlang` module removes it, so a Python, JavaScript, or Go file lifts into the
-**same** content-addressed `CodeHDAG` a Rust file would — and flows into the
-identical hypercube with no downstream change.
+`xlang` module removes it, so a Python, JavaScript, Go, C, Java, or C++ file
+lifts into the **same** content-addressed `CodeHDAG` a Rust file would — and
+flows into the identical hypercube with no downstream change.
 
 | Type / fn | Role |
 |---|---|
-| `SourceLanguage` | `Rust`, `Python`, `JavaScript`, `Go`; `from_path` detects by extension, fail-closed (`None` for unknown) |
+| `SourceLanguage` | `Rust`, `Python`, `JavaScript`, `Go`, `C`, `Java`, `Cpp`; `from_path` detects by extension, fail-closed (`None` for unknown) |
 | `CodeHDAG::extract_from_source` | Language-dispatched lexical extraction; Rust delegates verbatim to `extract_from_rust_source` (byte-identical ids) |
 | `CodeHDAG::extract_auto` | Detect language from path and extract, or `None` — the host-scan integration entry point |
 | `CrossLanguageFingerprint` | Content-addressed `Q16` structural-ratio vector (function/type/import/test density); `similarity` is integer-only (CROSS-007) |
@@ -422,6 +422,15 @@ import, a test, per language. PSE-Codex's tree-sitter + `f64` spectral/Kuramoto
 machinery is deliberately **not** ported: it is float-heavy and dependency-bound,
 which the substrate forbids (CROSS-007, no external deps). What carries over is
 the taxonomy, re-expressed as a deterministic, dependency-free lexical extractor.
+
+Rust, Python, JavaScript, and Go are **keyword-anchored** (`fn`/`def`/`function`/
+`func`) and validated against the PSE-Codex corpus. C, Java, and C++ extend
+coverage to the rest of the `normalize` taxonomy; their function definitions
+carry no leading keyword, so they use a deliberately **conservative** heuristic
+(`detect_clike_function`) that **under-counts rather than emit a false positive** —
+a control statement, call, or initialiser is never misread as a definition. Type
+and import detection for the C family is exact (`#include`/`import`/`using`,
+`struct`/`class`/`interface`/`enum`).
 
 Wiring: `kosmo-workbench`'s scanner now classifies `.py`/`.js`/`.go` (and the
 common variants) as source/test files per each language's convention, and
@@ -575,7 +584,7 @@ planning artifacts only — they have no live execution path:
 | Cross-session corpus persistence | ✅ `kosmo-store`: JSONL append-only store, `verify_integrity()` |
 | ParseBack topology scan (crate-level) | ✅ `kosmo-parseback`: `cargo metadata`, `CrateFingerprint`, INVARIANT-007 |
 | Intra-file code topology (module/import/fn/type/test graph) | ✅ `kosmo-hyphae::code_hdag::extract_from_rust_source` — lexical, dependency-free, content-addressed; ρ/ω feed the energy kernel |
-| Cross-language code topology (Python, JavaScript, Go + Rust) | ✅ `kosmo-hyphae::xlang` — `extract_from_source`/`extract_auto`, dependency-free lexical, `Q16` `CrossLanguageFingerprint`; polyglot workspaces materialize into the same hypercube |
+| Cross-language code topology (Rust, Python, JavaScript, Go, C, Java, C++) | ✅ `kosmo-hyphae::xlang` — `extract_from_source`/`extract_auto`, dependency-free lexical, `Q16` `CrossLanguageFingerprint`; keyword-anchored for the first four, conservative heuristic for the C family; polyglot workspaces materialize into the same hypercube |
 | Unified tripolar energy selection (`D = ψ·ρ·ω`) | ✅ `kosmo-core::energy` — Q16, content-addressed, ranks-never-gates |
 | R1→R2→R3 operator pipeline | ✅ `kosmo-operator`: `OperatorExecutor::execute()`, closure synthesis |
 | Empirical validation (52-scenario benchmark) | ✅ `tools/kosmo-eval`: EXIT 0, all 52 scenarios pass |

@@ -46,15 +46,24 @@ use serde::{Deserialize, Serialize};
 
 /// A source language the substrate can lift into a [`CodeHDAG`].
 ///
-/// The four corpus languages of the PSE-Codex cross-language proof. The set is
-/// closed on purpose: each variant carries hand-verified lexical rules, so
-/// adding a language is a deliberate, tested act — never an inferred guess.
+/// A language the substrate can lift into a [`CodeHDAG`].
+///
+/// The first four (Rust, Python, JavaScript, Go) are the PSE-Codex
+/// cross-language-proof corpus languages and use keyword-anchored lexical rules.
+/// C, Java, and C++ extend coverage to the rest of the PSE-Codex `normalize`
+/// taxonomy; their function definitions carry no leading keyword, so they use a
+/// deliberately **conservative** heuristic that under-counts rather than emit a
+/// false positive (see [`detect_clike_function`]). The set is closed on purpose:
+/// each variant carries hand-verified rules, never an inferred guess.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SourceLanguage {
     Rust,
     Python,
     JavaScript,
     Go,
+    C,
+    Java,
+    Cpp,
 }
 
 impl SourceLanguage {
@@ -70,6 +79,9 @@ impl SourceLanguage {
             "py" | "pyi" => Some(Self::Python),
             "js" | "mjs" | "cjs" | "jsx" => Some(Self::JavaScript),
             "go" => Some(Self::Go),
+            "c" | "h" => Some(Self::C),
+            "java" => Some(Self::Java),
+            "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some(Self::Cpp),
             _ => None,
         }
     }
@@ -81,6 +93,9 @@ impl SourceLanguage {
             Self::Python => "python",
             Self::JavaScript => "javascript",
             Self::Go => "go",
+            Self::C => "c",
+            Self::Java => "java",
+            Self::Cpp => "cpp",
         }
     }
 }
@@ -110,6 +125,19 @@ pub fn is_test_path(language: SourceLanguage, path: &str) -> bool {
                 || filename.ends_with(".spec.mjs")
         }
         SourceLanguage::Go => filename.ends_with("_test.go"),
+        SourceLanguage::C => under_tests_dir || filename.ends_with("_test.c"),
+        SourceLanguage::Java => {
+            under_tests_dir
+                || path.contains("/test/")
+                || filename.ends_with("Test.java")
+                || filename.starts_with("Test")
+        }
+        SourceLanguage::Cpp => {
+            under_tests_dir
+                || filename.ends_with("_test.cpp")
+                || filename.ends_with("_test.cc")
+                || filename.ends_with(".test.cpp")
+        }
     }
 }
 
@@ -190,6 +218,9 @@ fn classifier_for(language: SourceLanguage) -> fn(&str, &mut LexState) -> LineOu
         SourceLanguage::Python => classify_python_line,
         SourceLanguage::JavaScript => classify_javascript_line,
         SourceLanguage::Go => classify_go_line,
+        SourceLanguage::C => classify_c_line,
+        SourceLanguage::Java => classify_java_line,
+        SourceLanguage::Cpp => classify_cpp_line,
     }
 }
 
@@ -462,6 +493,189 @@ fn classify_rust_line(line: &str, state: &mut LexState) -> LineOutcome {
         }
     }
     LineOutcome::Skip
+}
+
+/// C: `#include`, `struct`/`union`/`enum`/`typedef`, keyword-less functions.
+fn classify_c_line(line: &str, state: &mut LexState) -> LineOutcome {
+    if let Some(outcome) = skip_c_comment(line, state) {
+        return outcome;
+    }
+    if let Some(module) = parse_include(line) {
+        return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+    }
+    if let Some(name) = parse_keyword_name(line, &["struct", "union", "enum"]) {
+        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+    }
+    if let Some((name, arity)) = detect_clike_function(line) {
+        return function_or_test(name, arity, false);
+    }
+    LineOutcome::Skip
+}
+
+/// C++: C plus `class`, `namespace`, and `using` imports.
+fn classify_cpp_line(line: &str, state: &mut LexState) -> LineOutcome {
+    if let Some(outcome) = skip_c_comment(line, state) {
+        return outcome;
+    }
+    if let Some(module) = parse_include(line) {
+        return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+    }
+    if let Some(rest) = line.strip_prefix("using ") {
+        // `using namespace std;` / `using std::vector;`
+        let module = rest.trim().trim_end_matches(';').trim_start_matches("namespace ").trim();
+        if let Some(module) = non_empty(module) {
+            return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+        }
+    }
+    if let Some(name) = parse_keyword_name(line, &["class", "struct", "union", "enum"]) {
+        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+    }
+    if let Some((name, arity)) = detect_clike_function(line) {
+        return function_or_test(name, arity, false);
+    }
+    LineOutcome::Skip
+}
+
+/// Java: `import`, `class`/`interface`/`enum`/`record`, `@Test`, modifier-led methods.
+fn classify_java_line(line: &str, state: &mut LexState) -> LineOutcome {
+    if let Some(outcome) = skip_c_comment(line, state) {
+        return outcome;
+    }
+    // `@Test` annotation marks the next method as a test.
+    if line == "@Test" || line.starts_with("@Test(") || line.starts_with("@Test ") {
+        state.pending_test = true;
+        return LineOutcome::Skip;
+    }
+    if line.starts_with('@') {
+        return LineOutcome::Skip; // other annotations are inert
+    }
+    if let Some(rest) = line.strip_prefix("import ") {
+        let module = rest.trim().trim_end_matches(';').trim_start_matches("static ").trim();
+        if let Some(module) = non_empty(module) {
+            return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+        }
+    }
+    let was_pending = state.pending_test;
+    if let Some(name) =
+        parse_keyword_name(strip_java_modifiers(line), &["class", "interface", "enum", "record"])
+    {
+        state.pending_test = false;
+        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+    }
+    if let Some((name, arity)) = detect_clike_function(line) {
+        state.pending_test = false;
+        let is_test = was_pending || name.starts_with("test");
+        return function_or_test(name, arity, is_test);
+    }
+    LineOutcome::Skip
+}
+
+/// Conservative, keyword-less function-definition detector for C / C++ / Java.
+///
+/// These languages write a definition as `<return-type/modifiers> name(params) {`
+/// — no `fn`/`def`/`func` to anchor on. To stay dependency-free *and* false-
+/// positive-free, this matches only lines that clearly open a definition and
+/// rejects everything ambiguous, accepting that it **under-counts** (missed
+/// constructors, multi-line signatures, K&R style) rather than misclassify a
+/// control statement, call, or declaration as a function. Returns `(name, arity)`.
+fn detect_clike_function(line: &str) -> Option<(String, u32)> {
+    let s = line.trim();
+    // Never a definition if it starts with punctuation/keywords that open blocks,
+    // continuations, comments, labels, or preprocessor lines.
+    if s.is_empty()
+        || s.starts_with(['}', ')', '{', '#', '*', '/', '@', ':', '.'])
+    {
+        return None;
+    }
+    let open = s.find('(')?;
+    let before = &s[..open];
+    // Assignment, statement terminator, or empty head → call / declaration, not a def.
+    if before.contains('=') || before.contains(';') || before.trim().is_empty() {
+        return None;
+    }
+    // The signature must open a body or continue — never end in `;` (prototype/call).
+    let close_rel = s[open..].find(')')?;
+    let after = s[open + close_rel + 1..].trim();
+    if after.ends_with(';') {
+        return None;
+    }
+    // A definition has a return type / modifier *and* a name: ≥ 2 whitespace tokens.
+    let tokens: Vec<&str> = before.split_whitespace().collect();
+    if tokens.len() < 2 {
+        return None;
+    }
+    const CONTROL: &[&str] = &[
+        "if", "for", "while", "switch", "return", "else", "do", "catch", "case",
+        "sizeof", "synchronized", "throw", "new", "delete", "typedef",
+    ];
+    if CONTROL.contains(&tokens[0]) {
+        return None;
+    }
+    // Name is the last token before `(`, stripped of pointer/ref/scope decoration.
+    let raw = tokens[tokens.len() - 1]
+        .trim_start_matches(['*', '&']);
+    let raw = raw.rsplit("::").next().unwrap_or(raw); // C++ `Foo::bar` → `bar`
+    let name = first_ident(raw)?;
+    // Arity from the first parameter group; `(void)` and `()` are zero.
+    let inner = s[open + 1..open + close_rel].trim();
+    let arity = if inner.is_empty() || inner == "void" {
+        0
+    } else {
+        inner.matches(',').count() as u32 + 1
+    };
+    Some((name, arity))
+}
+
+/// Shared `//` and `/* … */` comment handling for the C-family classifiers.
+/// Returns `Some(Skip)` when the line is (or is inside) a comment, else `None`.
+fn skip_c_comment(line: &str, state: &mut LexState) -> Option<LineOutcome> {
+    if state.in_block_comment {
+        if line.contains("*/") {
+            state.in_block_comment = false;
+        }
+        return Some(LineOutcome::Skip);
+    }
+    if line.starts_with("/*") {
+        if !line.contains("*/") {
+            state.in_block_comment = true;
+        }
+        return Some(LineOutcome::Skip);
+    }
+    if line.starts_with("//") || line.starts_with('*') {
+        return Some(LineOutcome::Skip);
+    }
+    None
+}
+
+/// Parse a C/C++ `#include <x>` / `#include "x"` directive → the header name.
+fn parse_include(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("#")?.trim_start().strip_prefix("include")?;
+    let rest = rest.trim();
+    if let Some(start) = rest.find('<') {
+        let end = rest[start + 1..].find('>')?;
+        return non_empty(rest[start + 1..start + 1 + end].trim());
+    }
+    first_quoted(rest)
+}
+
+/// Strip leading Java member modifiers so the type keyword (if any) is at the front.
+fn strip_java_modifiers(line: &str) -> &str {
+    let mut s = line.trim_start();
+    loop {
+        let mut advanced = false;
+        for m in [
+            "public ", "private ", "protected ", "static ", "final ", "abstract ",
+            "sealed ", "strictfp ",
+        ] {
+            if let Some(rest) = s.strip_prefix(m) {
+                s = rest.trim_start();
+                advanced = true;
+            }
+        }
+        if !advanced {
+            return s;
+        }
+    }
 }
 
 // ─── Shared lexical helpers ─────────────────────────────────────────────────────
@@ -1111,5 +1325,194 @@ fn is_fibonacci(value: u64) -> bool {
         assert_eq!(f.structural_count, 0);
         assert_eq!(f.function_density, Q16::ZERO);
         assert!(f.verify_id());
+    }
+
+    // ── C / Java / C++ (the keyword-less C-family extension) ───────────────────
+
+    const C_FIB: &str = r#"
+#include <stdio.h>
+#include "fib.h"
+
+struct Memo {
+    int values[100];
+};
+
+long fib_memo(int n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fib_memo(n - 1) + fib_memo(n - 2);
+}
+
+long fib_iterative(int n) {
+    long prev = 0, curr = 1;
+    for (int i = 2; i <= n; i++) {
+        long next = prev + curr;
+        prev = curr;
+        curr = next;
+    }
+    return curr;
+}
+
+int main(void) {
+    printf("%ld\n", fib_memo(10));
+    return 0;
+}
+"#;
+
+    const JAVA_FIB: &str = r#"
+package com.example;
+
+import java.util.List;
+import java.util.Map;
+
+public class Fibonacci {
+    public long fibMemo(int n, Map<Integer, Long> memo) {
+        if (n <= 1) {
+            return n;
+        }
+        return fibMemo(n - 1, memo) + fibMemo(n - 2, memo);
+    }
+
+    private long fibIterative(int n) {
+        long prev = 0;
+        long curr = 1;
+        return curr;
+    }
+}
+"#;
+
+    const CPP_LIST: &str = r#"
+#include <vector>
+#include "node.hpp"
+
+using namespace std;
+
+class LinkedList {
+public:
+    void push(int value) {
+        size++;
+    }
+    int size = 0;
+};
+
+int sum(const vector<int>& v) {
+    int total = 0;
+    return total;
+}
+"#;
+
+    #[test]
+    fn detects_c_family_extensions() {
+        assert_eq!(SourceLanguage::from_path("a.c"), Some(SourceLanguage::C));
+        assert_eq!(SourceLanguage::from_path("a.h"), Some(SourceLanguage::C));
+        assert_eq!(SourceLanguage::from_path("Foo.java"), Some(SourceLanguage::Java));
+        assert_eq!(SourceLanguage::from_path("a.cpp"), Some(SourceLanguage::Cpp));
+        assert_eq!(SourceLanguage::from_path("a.hpp"), Some(SourceLanguage::Cpp));
+        assert_eq!(SourceLanguage::from_path("a.cc"), Some(SourceLanguage::Cpp));
+    }
+
+    #[test]
+    fn c_captures_includes_struct_and_functions() {
+        let h = CodeHDAG::extract_from_source(SourceLanguage::C, ev(), "fib.c", C_FIB, TaintLabel::Clean);
+        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 2, "two #include directives");
+        // struct Memo + fib_memo + fib_iterative + main = 4 defs; control/calls excluded.
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Contains),
+            4,
+            "struct + three functions, got {}",
+            h.edges_of_kind(&HDAGEdgeKind::Contains)
+        );
+    }
+
+    #[test]
+    fn java_captures_imports_class_and_methods() {
+        let h = CodeHDAG::extract_from_source(SourceLanguage::Java, ev(), "Fib.java", JAVA_FIB, TaintLabel::Clean);
+        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 2, "two imports");
+        // class Fibonacci + fibMemo + fibIterative = 3 (package line and returns excluded).
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Contains),
+            3,
+            "class + two methods, got {}",
+            h.edges_of_kind(&HDAGEdgeKind::Contains)
+        );
+    }
+
+    #[test]
+    fn java_detects_test_annotation_and_name() {
+        let src = "@Test\npublic void testAddition() {\n    assertEquals(4, add(2, 2));\n}\n";
+        let h = CodeHDAG::extract_from_source(SourceLanguage::Java, ev(), "FooTest.java", src, TaintLabel::Clean);
+        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Tests), 1, "@Test method is a test");
+        // The calls assertEquals(...) / add(...) must not be counted as definitions.
+        assert_eq!(h.definition_count(), 1, "only the test method, got {}", h.definition_count());
+    }
+
+    #[test]
+    fn cpp_captures_includes_using_class_and_functions() {
+        let h = CodeHDAG::extract_from_source(SourceLanguage::Cpp, ev(), "list.cpp", CPP_LIST, TaintLabel::Clean);
+        // 2 #include + 1 using = 3 imports
+        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 3, "two includes + one using");
+        // class LinkedList + push + sum = 3
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Contains),
+            3,
+            "class + two functions, got {}",
+            h.edges_of_kind(&HDAGEdgeKind::Contains)
+        );
+    }
+
+    #[test]
+    fn clike_function_detector_rejects_non_definitions() {
+        // The critical safety property: control statements, calls, and declarations
+        // with initializers must never be misread as function definitions.
+        assert!(super::detect_clike_function("if (n <= 1) {").is_none(), "if");
+        assert!(super::detect_clike_function("for (int i = 0; i < n; i++) {").is_none(), "for");
+        assert!(super::detect_clike_function("while (running) {").is_none(), "while");
+        assert!(super::detect_clike_function("return fib(n - 1) + fib(n - 2);").is_none(), "return-call");
+        assert!(super::detect_clike_function("printf(\"%d\", x);").is_none(), "bare call");
+        assert!(super::detect_clike_function("int result = compute(a, b);").is_none(), "assignment");
+        assert!(super::detect_clike_function("} else if (x) {").is_none(), "else-if");
+        assert!(super::detect_clike_function("int prototype(int);").is_none(), "prototype");
+        // Positive cases.
+        assert_eq!(
+            super::detect_clike_function("int add(int a, int b) {"),
+            Some(("add".to_string(), 2))
+        );
+        assert_eq!(
+            super::detect_clike_function("int main(void) {"),
+            Some(("main".to_string(), 0))
+        );
+        assert_eq!(
+            super::detect_clike_function("public static void run() {"),
+            Some(("run".to_string(), 0))
+        );
+    }
+
+    #[test]
+    fn c_family_extraction_is_deterministic() {
+        let a = CodeHDAG::extract_from_source(SourceLanguage::C, ev(), "fib.c", C_FIB, TaintLabel::Clean);
+        let b = CodeHDAG::extract_from_source(SourceLanguage::C, ev(), "fib.c", C_FIB, TaintLabel::Clean);
+        assert_eq!(a.hdag_id, b.hdag_id, "identical source → identical hdag_id");
+    }
+
+    #[test]
+    fn c_family_test_paths() {
+        assert!(is_test_path(SourceLanguage::Java, "FooTest.java"));
+        assert!(is_test_path(SourceLanguage::Java, "src/test/Foo.java"));
+        assert!(!is_test_path(SourceLanguage::Java, "Foo.java"));
+        assert!(is_test_path(SourceLanguage::Cpp, "list_test.cpp"));
+        assert!(is_test_path(SourceLanguage::C, "fib_test.c"));
+    }
+
+    #[test]
+    fn c_family_fingerprint_cross_language_resonance() {
+        // The same fibonacci algorithm in C and Java should resonate with the
+        // keyword-anchored languages — proving the C-family extends the same proof.
+        let c = CrossLanguageFingerprint::from_source(SourceLanguage::C, ev(), C_FIB);
+        let java = CrossLanguageFingerprint::from_source(SourceLanguage::Java, ev(), JAVA_FIB);
+        assert!(c.verify_id() && java.verify_id());
+        // Both are import-bearing, function-dominated structural profiles.
+        let threshold = Q16::ratio(50, 100).unwrap();
+        assert!(c.similarity(&java).at_least(threshold), "C~Java similarity {} below 0.50", c.similarity(&java));
     }
 }

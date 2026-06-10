@@ -200,11 +200,12 @@ fn collect_entries(
 /// Classify a workspace file by its relative path.
 ///
 /// Recognises the substrate's cross-language source set — Rust, Python,
-/// JavaScript, and Go — so a polyglot workspace yields `SourceFile`/`TestFile`
-/// entries the HYPHAE layer can lift into a topology. Test detection follows each
-/// language's own convention; the function is fail-closed for unknown extensions
-/// (`Unknown`), never guessing. The language-extraction dispatch itself lives in
-/// `kosmo-hyphae::xlang`; this layer only needs to know which files are source.
+/// JavaScript, Go, C, Java, and C++ — so a polyglot workspace yields
+/// `SourceFile`/`TestFile` entries the HYPHAE layer can lift into a topology.
+/// Test detection follows each language's own convention; the function is
+/// fail-closed for unknown extensions (`Unknown`), never guessing. The
+/// language-extraction dispatch itself lives in `kosmo-hyphae::xlang`; this
+/// layer only needs to know which files are source.
 fn classify_entry(rel: &str) -> WorkspaceEntryKind {
     if rel == "build.rs" || rel.ends_with("/build.rs") {
         return WorkspaceEntryKind::BuildScript;
@@ -241,6 +242,32 @@ fn classify_entry(rel: &str) -> WorkspaceEntryKind {
     // Go
     if rel.ends_with(".go") {
         return source_or_test(name.ends_with("_test.go"));
+    }
+    // C (and shared `.h` headers)
+    if rel.ends_with(".c") || rel.ends_with(".h") {
+        return source_or_test(under_tests_dir || name.ends_with("_test.c"));
+    }
+    // Java
+    if rel.ends_with(".java") {
+        let is_test = under_tests_dir
+            || rel.contains("/test/")
+            || name.ends_with("Test.java")
+            || name.starts_with("Test");
+        return source_or_test(is_test);
+    }
+    // C++
+    if rel.ends_with(".cpp")
+        || rel.ends_with(".cc")
+        || rel.ends_with(".cxx")
+        || rel.ends_with(".hpp")
+        || rel.ends_with(".hh")
+        || rel.ends_with(".hxx")
+    {
+        let is_test = under_tests_dir
+            || name.ends_with("_test.cpp")
+            || name.ends_with("_test.cc")
+            || name.ends_with(".test.cpp");
+        return source_or_test(is_test);
     }
 
     if rel.ends_with(".toml")
@@ -342,6 +369,20 @@ mod tests {
         assert_eq!(classify_entry("web/app.js"), WorkspaceEntryKind::SourceFile);
         assert_eq!(classify_entry("lib/x.mjs"), WorkspaceEntryKind::SourceFile);
         assert_eq!(classify_entry("cmd/main.go"), WorkspaceEntryKind::SourceFile);
+    }
+
+    #[test]
+    fn workspace_classify_c_family_sources() {
+        // C, Java, C++ source files are recognised as source.
+        assert_eq!(classify_entry("src/fib.c"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(classify_entry("include/fib.h"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(classify_entry("com/example/Fib.java"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(classify_entry("src/list.cpp"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(classify_entry("src/node.hpp"), WorkspaceEntryKind::SourceFile);
+        // Test conventions per language.
+        assert_eq!(classify_entry("fib_test.c"), WorkspaceEntryKind::TestFile);
+        assert_eq!(classify_entry("com/example/FibTest.java"), WorkspaceEntryKind::TestFile);
+        assert_eq!(classify_entry("src/list_test.cpp"), WorkspaceEntryKind::TestFile);
     }
 
     #[test]
