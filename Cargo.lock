@@ -1660,6 +1660,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-promote"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-hyphae",
+ "kosmo-pipeline",
+ "kosmo-pse-bridge",
+ "pse-adapter-kosmo",
+ "pse-core",
+ "pse-types",
+ "serde_json",
+]
+
+[[package]]
 name = "kosmo-pse-bridge"
 version = "0.1.0"
 dependencies = [

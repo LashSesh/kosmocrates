@@ -85,6 +85,7 @@ members = [
     "tools/kosmo-substrate",
     "tools/kosmo-tui",
     "tools/kosmo-server",
+    "tools/kosmo-promote",
     "crates/kosmo-kcube",
     "crates/kosmo-synthesizer",
     "crates/kosmo-synthesizer-llm",

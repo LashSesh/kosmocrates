@@ -1,0 +1,25 @@
+[package]
+name = "kosmo-promote"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Operator tool: run the substrate pipeline and offer its gated candidates to the PSE engine (substrate-to-core promotion)"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
+kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
+pse-adapter-kosmo = { path = "../../adapters/pse-adapter-kosmo" }
+pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
+pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+kosmo-hyphae = { path = "../../crates/kosmo-hyphae" }
+
+[[bin]]
+name = "kosmo-promote"
+path = "src/main.rs"

@@ -145,6 +145,26 @@ Response fields: `gate`, `void_count`, `total_severity`, `action_items[]`,
 
 `GET /api/health` returns `{ "status": "ok", "version": "..." }`.
 
+### 5. Promotion — `kosmo-promote` (substrate→core)
+
+```bash
+# Report-only (default, fail-closed): list what WOULD be offered to PSE;
+# the engine is never touched.
+kosmo-promote . --all-kinds
+
+# Actually feed the PSE engine (DryRun profile; in-memory, no host writes).
+# PSE's own gate cascade alone decides crystallization.
+kosmo-promote . --all-kinds --offer
+
+# Machine-readable verdicts (Accepted | Deferred | Rejected | Skipped…)
+kosmo-promote . --offer --json | jq '.offers[] | {label, outcome}'
+```
+
+Runs the full pipeline, filters its `pse_candidates` (default:
+`CertifiedCrystal` only; `--all-kinds` adds Structural/Topology
+observations), and offers them through `pse-adapter-kosmo` — the
+sanctioned crossing into the PSE crystallization engine.
+
 ---
 
 
