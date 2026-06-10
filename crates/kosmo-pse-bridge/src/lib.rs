@@ -1,5 +1,10 @@
 //! Candidate-only bridge from `kosmo-*` artifacts to PSE observations.
 //!
+//! The substrate analyses topology and synthesizes systems (see
+//! [`docs/SUBSTRATE.md`] and [`docs/WISH_TO_SYSTEM.md`]); when one of its
+//! artifacts is worth remembering, it is *offered* to the PSE crystallization
+//! engine — never committed directly. This crate is that one-way offer desk.
+//!
 //! ## Architecture contract
 //!
 //! This crate is the ONLY permitted crossing point between the `kosmo-*` layer
@@ -14,6 +19,33 @@
 //! - It does NOT call any PSE-internal gate or cascade.
 //! - It does NOT promote `CorpusCartography` to trusted memory.
 //! - In `ReportOnly` mode, all submission attempts produce `SkippedByReportOnly`.
+//!
+//! ## Promotion lifecycle
+//!
+//! 1. **Wrap.** A `kosmo-*` artifact (a structural yield, a topology diff, a
+//!    validation closure, a `.kcube` descriptor) becomes a [`PseBridgeCandidate`]
+//!    — content-addressed by *reference* (`observation_digest`), carrying a `Q16`
+//!    `confidence` and full evidence/policy provenance.
+//! 2. **Bundle.** One or more candidates are gathered into a [`PromotionRequest`].
+//! 3. **Gate.** [`validate_candidate`] applies the policy: outside an execution
+//!    mode that permits it, the request is refused fail-closed.
+//! 4. **Decide.** PSE returns a [`PromotionOutcome`] — `Promoted`, `Rejected`,
+//!    `SkippedByReportOnly`, or `SkippedByPolicy`. This crate models the outcome;
+//!    it never makes the crystallization decision itself.
+//! 5. **Feed back.** [`build_promotion_feedback`] turns the outcome into a
+//!    [`PromotionFeedback`] the agent loop consumes, so a promoted observation
+//!    raises — and a rejected one lowers — the confidence of similar future work.
+//!
+//! ## Constraints
+//!
+//! - **No floats (CROSS-007).** `confidence` and every score are `Q16`.
+//! - **Fail-closed.** Default `ReportOnly` policy yields `SkippedByReportOnly`;
+//!   promotion requires an explicit execution mode.
+//! - **Content-addressed & evidence-bound.** Each candidate's `id` is the digest
+//!   of its fields; `evidence_bundle_id` is non-zero (CROSS-006).
+//!
+//! [`docs/SUBSTRATE.md`]: ../../../SUBSTRATE.md
+//! [`docs/WISH_TO_SYSTEM.md`]: ../../../docs/WISH_TO_SYSTEM.md
 
 use kosmo_core::{Digest, EvidenceRef, FeedbackOutcome, ImplementationMode, PolicyProfile, PromotionFeedback, Q16};
 use serde::{Deserialize, Serialize};
