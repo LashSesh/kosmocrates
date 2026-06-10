@@ -2691,6 +2691,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pse-adapter-kosmo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kosmo-core",
+ "kosmo-pse-bridge",
+ "pse-core",
+ "pse-graph",
+ "pse-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pse-adapter-modelmon"
 version = "0.1.0"
 dependencies = [

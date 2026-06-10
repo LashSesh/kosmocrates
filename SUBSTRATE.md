@@ -615,16 +615,30 @@ policy-governed topology assimilation substrate that decides what is
 worth sending to PSE in the first place.
 
 The integration path — wrapping `StructuralCrystalRecord` in a PSE
-observation adapter — is **implemented on the offer side**, now that the
-empirical validation it was gated on has passed (147/147 eval scenarios).
-`kosmo-pipeline::crystal_to_pse_candidate` wraps every crystal certified in
-a run as a `PseBridgeCandidate` of kind `CertifiedCrystal` (confidence
-`(ρ+ω)/2` in `Q16`, cross-language fingerprint as metadata, evidence-bound
-via the certifying candidate's bundle), and `run_dry_pipeline` includes
-them in `pse_candidates` when `enable_pse_candidates` is set. The offer is
-candidate-only by the bridge's architecture contract: PSE runs its own
-gate cascade and alone decides crystallization. The PSE-side consumption
-of `CertifiedCrystal` candidates is the remaining half of the unification.
+observation adapter — is **implemented end to end**, now that the
+empirical validation it was gated on has passed (147/147 eval scenarios):
+
+- **Offer side** (`kosmo-pipeline::crystal_to_pse_candidate`): every crystal
+  certified in a run is wrapped as a `PseBridgeCandidate` of kind
+  `CertifiedCrystal` (confidence `(ρ+ω)/2` in `Q16`, cross-language
+  fingerprint as metadata, evidence-bound via the certifying candidate's
+  bundle) and included in `pse_candidates` when `enable_pse_candidates`
+  is set.
+- **Consumption side** (`adapters/pse-adapter-kosmo`): the PSE-side
+  `KosmoBridgeAdapter` canonicalizes candidates into PSE `Observation`s
+  (fail-closed: unparseable, tampered, evidence-free, or disallowed-kind
+  payloads are rejected) and `offer_candidate` feeds them through
+  `pse_core::macro_step` under full policy gating — `ReportOnly` profiles
+  and denying bridge policies never touch the engine. The `Q16→f64`
+  conversion happens exactly at this seam: confidence becomes the
+  observation's semantic `phase_hint`, so structurally similar crystals
+  can resonate.
+
+The dependency direction holds: no `kosmo-*` crate imports `pse-*`; the
+adapter lives on the PSE side and consumes the bridge. PSE runs its own
+gate cascade and alone decides crystallization — a committed
+`SemanticCrystal` maps to `PromotionOutcome::Accepted`, clean ingestion
+without crystallization to `Deferred`, for the substrate's feedback loop.
 
 ---
 

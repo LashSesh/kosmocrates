@@ -47,6 +47,7 @@ members = [
     "adapters/pse-adapter-tabular",
     "adapters/pse-adapter-il",
     "adapters/pse-adapter-modelmon",
+    "adapters/pse-adapter-kosmo",
     "crates/pse-traverse",
     "crates/pse-eval-matrix",
     "crates/pse-eval-runner",
