@@ -71,6 +71,12 @@ pub enum WishFacetKind {
     /// program* under the sandbox. Fail-closed: met only on a clean exit that
     /// matches.
     Run,
+    /// A *service* probe, keyed `"method:path=>expect"`
+    /// (e.g. `"GET:/health=>200"`): the built artifact, **started as a server**,
+    /// answers the request with `expect` (an HTTP status and/or `body~<substr>`).
+    /// The deepest observation — start, await readiness, probe, tear down —
+    /// fail-closed: met only if the server actually answers and matches.
+    Service,
 }
 
 /// A single normalized structural facet: a `(kind, key)` pair.
@@ -159,6 +165,12 @@ impl WishFacet {
     /// the built artifact run with comma-separated `args` exhibits `expect`.
     pub fn run(probe: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Run, probe)
+    }
+    /// A service probe facet, keyed `"method:path=>expect"` (e.g.
+    /// `"GET:/health=>200"`): the built artifact, started as a server, answers
+    /// the request with the expected status and/or `body~<substr>`.
+    pub fn service(probe: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Service, probe)
     }
 }
 
@@ -565,6 +577,15 @@ mod tests {
         assert_eq!(f.kind, WishFacetKind::Run);
         assert_eq!(f.key, "add,2,3=>out~5");
         assert_ne!(f, WishFacet::run("add,2,3=>out~6"));
+    }
+
+    #[test]
+    fn service_facet_key_is_the_probe() {
+        let f = WishFacet::service("GET:/health=>200");
+        assert_eq!(f.kind, WishFacetKind::Service);
+        assert_eq!(f.key, "GET:/health=>200");
+        // Distinct from a Run facet with a similar key shape.
+        assert_ne!(f.kind, WishFacet::run("GET:/health=>200").kind);
     }
 
     // ── Wish content addressing ───────────────────────────────────────────

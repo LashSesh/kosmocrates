@@ -31,6 +31,7 @@
 //!   (no portable group kill); documented rather than pretended.
 
 use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -315,6 +316,195 @@ fn kill_group(pid: u32) {
     }
 }
 
+// ─── Service mode (start a server, await readiness, probe, tear down) ────────
+
+/// One HTTP request to issue against a started service.
+#[derive(Debug, Clone)]
+pub struct HttpProbe {
+    pub method: String,
+    pub path: String,
+}
+
+impl HttpProbe {
+    pub fn get(path: impl Into<String>) -> Self {
+        Self {
+            method: "GET".into(),
+            path: path.into(),
+        }
+    }
+}
+
+/// How a service probe ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceVerdict {
+    /// The server became ready and answered the probe (see `status`/`body`).
+    Probed,
+    /// The server never bound its port (or crashed) within the budget.
+    NeverReady,
+    /// The server could not be started at all.
+    SpawnFailed,
+}
+
+/// The evidence of one service probe. Content-addressed like [`RuntimeWitness`].
+#[derive(Debug, Clone)]
+pub struct ServiceWitness {
+    pub verdict: ServiceVerdict,
+    pub status: Option<u16>,
+    pub body: String,
+    pub body_digest: Digest,
+    /// Wall time from spawn to a successful probe (zero if never ready).
+    pub startup: Duration,
+}
+
+impl ServiceWitness {
+    pub fn answered(&self) -> bool {
+        matches!(self.verdict, ServiceVerdict::Probed)
+    }
+    fn spawn_failed() -> Self {
+        Self {
+            verdict: ServiceVerdict::SpawnFailed,
+            status: None,
+            body: String::new(),
+            body_digest: Digest::of_bytes(&[]),
+            startup: Duration::ZERO,
+        }
+    }
+    fn never_ready() -> Self {
+        Self {
+            verdict: ServiceVerdict::NeverReady,
+            status: None,
+            body: String::new(),
+            body_digest: Digest::of_bytes(&[]),
+            startup: Duration::ZERO,
+        }
+    }
+}
+
+impl Sandbox {
+    /// Start `spec` as a **long-running server**, wait for it to answer, issue
+    /// one `probe`, then tear the whole process group down. The server is told
+    /// its port via the `KOSMO_PORT` env var (a free loopback port this sandbox
+    /// picks). Readiness is detected by *actually probing* — we retry the HTTP
+    /// request until it answers or [`Sandbox::with_timeout`] elapses, so a
+    /// server that binds but isn't serving yet is not mistaken for ready.
+    ///
+    /// Always reaps and group-kills the server (it will not exit on its own).
+    pub fn serve_and_probe(&self, spec: &RunSpec, probe: &HttpProbe) -> ServiceWitness {
+        let Some(port) = free_port() else {
+            return ServiceWitness::spawn_failed();
+        };
+        let mut cmd = Command::new(&spec.program);
+        cmd.args(&spec.args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env("KOSMO_PORT", port.to_string())
+            .env("KOSMO_SEED", self.seed.to_string());
+        if let Some(cwd) = &self.cwd {
+            cmd.current_dir(cwd);
+        }
+        for (k, v) in &self.env {
+            cmd.env(k, v);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(_) => return ServiceWitness::spawn_failed(),
+        };
+        let pid = child.id();
+        // Drain output so a chatty server never blocks on a full pipe.
+        let out = spawn_reader(child.stdout.take(), self.output_cap);
+        let err = spawn_reader(child.stderr.take(), self.output_cap);
+
+        let start = Instant::now();
+        let mut answer = None;
+        while start.elapsed() < self.timeout {
+            // A server that exits before answering has crashed — stop early.
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            if let Some((status, body)) = http_probe(port, probe, self.output_cap) {
+                answer = Some((status, body, start.elapsed()));
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        kill_group(pid);
+        let _ = child.wait();
+        let _ = out.join();
+        let _ = err.join();
+
+        match answer {
+            Some((status, body, startup)) => ServiceWitness {
+                verdict: ServiceVerdict::Probed,
+                status: Some(status),
+                body_digest: Digest::of_bytes(body.as_bytes()),
+                body,
+                startup,
+            },
+            None => ServiceWitness::never_ready(),
+        }
+    }
+}
+
+/// Pick a free loopback TCP port by binding `:0` and reading the assignment.
+/// Inherently racy (the port is released before the child rebinds), but the
+/// standard pragmatic approach for ephemeral test servers.
+fn free_port() -> Option<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0").ok()?;
+    let port = listener.local_addr().ok()?.port();
+    drop(listener);
+    Some(port)
+}
+
+/// Issue one HTTP/1.1 request over a raw TCP socket and parse the response.
+/// `None` if the server isn't answering yet (used as the readiness signal).
+fn http_probe(port: u16, probe: &HttpProbe, cap: usize) -> Option<(u16, String)> {
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().ok()?;
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
+    stream.set_write_timeout(Some(Duration::from_secs(3))).ok()?;
+    let req = format!(
+        "{} {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+        probe.method, probe.path
+    );
+    stream.write_all(req.as_bytes()).ok()?;
+    let mut resp = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                resp.extend_from_slice(&chunk[..n]);
+                if resp.len() >= cap {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    parse_http_response(&resp)
+}
+
+/// Parse a raw HTTP/1.1 response into `(status, body)`. `None` if there is no
+/// parseable status line (e.g. the connection produced no data).
+fn parse_http_response(bytes: &[u8]) -> Option<(u16, String)> {
+    let text = String::from_utf8_lossy(bytes);
+    let status_line = text.lines().next()?; // "HTTP/1.1 200 OK"
+    let status: u16 = status_line.split_whitespace().nth(1)?.parse().ok()?;
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b.to_string())
+        .unwrap_or_default();
+    Some((status, body))
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -413,5 +603,47 @@ mod tests {
         assert!(w.succeeded());
         // pwd may resolve symlinks; just assert it ran and produced a path.
         assert!(!w.stdout.trim().is_empty());
+    }
+
+    // ── Service mode ──────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_http_response_extracts_status_and_body() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+        assert_eq!(parse_http_response(raw), Some((200, "ok".to_string())));
+        assert_eq!(
+            parse_http_response(b"HTTP/1.1 404 Not Found\r\n\r\n"),
+            Some((404, String::new()))
+        );
+        assert_eq!(parse_http_response(b""), None);
+    }
+
+    #[test]
+    fn free_port_returns_a_usable_port() {
+        let p = free_port().expect("a free port");
+        assert!(p > 0);
+        // It is free right now: we can bind it ourselves.
+        assert!(std::net::TcpListener::bind(("127.0.0.1", p)).is_ok());
+    }
+
+    #[test]
+    fn serve_spawn_failure_is_a_verdict() {
+        let w = Sandbox::new().serve_and_probe(
+            &RunSpec::new("kosmo-no-such-server-xyz", Vec::<String>::new()),
+            &HttpProbe::get("/"),
+        );
+        assert_eq!(w.verdict, ServiceVerdict::SpawnFailed);
+        assert!(!w.answered());
+    }
+
+    #[test]
+    fn serve_never_ready_is_killed_within_budget() {
+        // A process that never binds the port → NeverReady, and torn down
+        // promptly (not left running for its full 30s sleep).
+        let w = Sandbox::new()
+            .with_timeout(Duration::from_millis(400))
+            .serve_and_probe(&sh("sleep 30"), &HttpProbe::get("/health"));
+        assert_eq!(w.verdict, ServiceVerdict::NeverReady);
+        assert!(!w.answered());
     }
 }

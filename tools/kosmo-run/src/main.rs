@@ -37,8 +37,8 @@ use kosmo_core::{
     WishFacet, WishFacetKind,
 };
 use kosmo_intent::{
-    compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_validated,
-    WishSession,
+    compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
+    observe_workspace_validated, WishSession,
 };
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
 use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
@@ -436,6 +436,14 @@ fn wish_needs_runtime(wish: &Wish) -> bool {
         .any(|p| p.facet.kind == WishFacetKind::Run)
 }
 
+/// Whether a wish requires service observation (starting a server and probing
+/// it). True iff it carries a [`WishFacetKind::Service`] facet.
+fn wish_needs_service(wish: &Wish) -> bool {
+    wish.predicates
+        .iter()
+        .any(|p| p.facet.kind == WishFacetKind::Service)
+}
+
 /// Deterministic, offline front door: compile a prose wish, observe the
 /// workspace, and report the distance to the wish (which facets are present,
 /// which are missing). With `--scaffold`, also print the changes that would
@@ -503,7 +511,9 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         });
     }
 
-    let observed = if wish_needs_runtime(&wish) {
+    let observed = if wish_needs_service(&wish) {
+        observe_workspace_service(args.path.as_str())
+    } else if wish_needs_runtime(&wish) {
         observe_workspace_runtime(args.path.as_str())
     } else if validated {
         observe_workspace_validated(args.path.as_str())
@@ -693,7 +703,9 @@ fn descend_to_wish(
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
     loop {
-        let observed = if wish_needs_runtime(wish) {
+        let observed = if wish_needs_service(wish) {
+            observe_workspace_service(path)
+        } else if wish_needs_runtime(wish) {
             observe_workspace_runtime(path)
         } else if validated {
             observe_workspace_validated(path)
@@ -1209,6 +1221,62 @@ mod tests {
                     assert!(m.contains("// kosmo:run: add,2,3=>out~5"), "marker:\n{m}");
                 }
                 Err(e) => eprintln!("runtime observe unavailable, skipping: {e}"),
+            }
+            fs::remove_dir_all(&root).ok();
+        }
+    }
+
+    #[test]
+    fn descend_realizes_service_probe() {
+        // Beam 5 of the runtime floor: the artifact is STARTED AS A SERVER and
+        // probed over HTTP. A std-only server that binds KOSMO_PORT and answers
+        // 200 realizes `a service GET:/health=>200`; an empty `main` (binds
+        // nothing) is rejected.
+        let server = r#"use std::io::{Read, Write};
+use std::net::TcpListener;
+fn main() {
+    let port = std::env::var("KOSMO_PORT").unwrap();
+    let l = TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+    for s in l.incoming() {
+        let mut s = s.unwrap();
+        let mut b = [0u8; 512];
+        let _ = s.read(&mut b);
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    }
+}
+"#;
+        let empty = "fn main() {}\n";
+        let prose = "a service GET:/health=>200";
+
+        for (idx, (main_rs, want_realized)) in [(server, true), (empty, false)].iter().enumerate() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("kosmo-run-svc-{idx}-{nanos}"));
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(
+                root.join("Cargo.toml"),
+                "[package]\nname = \"srv\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            )
+            .unwrap();
+            fs::write(root.join("src/main.rs"), main_rs).unwrap();
+
+            let evidence = Digest::of_bytes(prose.as_bytes());
+            let wish = compile_wish(prose, Digest::ZERO, evidence);
+            match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 4, None, None) {
+                Ok(session) => {
+                    let last = session.latest().expect("an observation");
+                    let realized = matches!(last.status, WishClosureStatus::Realized);
+                    assert_eq!(
+                        realized, *want_realized,
+                        "service-probe verdict wrong (status {:?}, {}/{})",
+                        last.status, last.met_count, last.total_count
+                    );
+                    let m = fs::read_to_string(root.join("src/main.rs")).unwrap();
+                    assert!(m.contains("// kosmo:service: GET:/health=>200"), "marker:\n{m}");
+                }
+                Err(e) => eprintln!("service observe unavailable, skipping: {e}"),
             }
             fs::remove_dir_all(&root).ok();
         }

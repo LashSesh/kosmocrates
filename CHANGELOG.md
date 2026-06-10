@@ -15,6 +15,29 @@ note explicitly says so.
 
 ### Added
 
+* **`Service` facet — observe by serving and probing (Runtime floor, beam 5)**
+
+  The deepest observation, and the **completion of the Runtime floor**: a wish
+  realized only when the artifact, **started as a server**, answers an HTTP
+  probe. `kosmo-sandbox` gains a service mode — `serve_and_probe` picks a free
+  loopback port, starts the server (told its port via `KOSMO_PORT`), detects
+  readiness by *actually probing* over a raw-TCP HTTP/1.1 request (retry until it
+  answers or the budget elapses — a server that binds but isn't serving yet is
+  not mistaken for ready), then **group-kills** the whole tree (a server never
+  exits on its own), returning a content-addressed `ServiceWitness`. A `Service`
+  facet keys on `"method:path=>expect"` (`GET:/health=>200`; status and/or
+  `body~<substr>`). `scaffold_service` ensures a bin + `// kosmo:service:`
+  marker (sharing the bin-probe mechanism with `Run`);
+  `observe_workspace_service` pre-builds, then for each marker serves + probes,
+  emitting the facet only if the server answers and matches (`service_matches`
+  fail-closed — never-ready/spawn-failed never counts). `kosmo-run` self-selects
+  service observation (`wish_needs_service`); a `service` trigger compiles the
+  prose. Verified end-to-end with a std-only HTTP server: `a service
+  GET:/health=>200` realizes when served, is rejected over an empty `main`.
+  Live `--pruefstand --validated` now reports **13/13** — the keystone proven at
+  all three boundaries (unit, process, service). +12 tests (kosmo-sandbox 9→13,
+  kosmo-core 383→384, kosmo-synthesizer 35→36, kosmo-intent 67→72, kosmo-run +1).
+
 * **Runtime capstone + Prüfstand extension (Runtime floor, beam 4)**
 
   The runtime floor proven end-to-end and measured empirically. A **runtime
