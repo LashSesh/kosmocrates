@@ -143,6 +143,36 @@ pub fn reference_corpus() -> Vec<Scenario> {
             needs_cargo: true,
             bin: true,
         },
+        // The keystone at the SERVICE boundary (level 6): the server is started,
+        // awaited, probed over HTTP, torn down.
+        Scenario {
+            name: "service-correct",
+            lib: r#"use std::io::{Read, Write};
+use std::net::TcpListener;
+fn main() {
+    let port = std::env::var("KOSMO_PORT").unwrap();
+    let l = TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+    for s in l.incoming() {
+        let mut s = s.unwrap();
+        let mut b = [0u8; 512];
+        let _ = s.read(&mut b);
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    }
+}
+"#,
+            wish: "a service GET:/health=>200",
+            expect: Expectation::Realized,
+            needs_cargo: true,
+            bin: true,
+        },
+        Scenario {
+            name: "service-empty",
+            lib: "fn main() {}\n",
+            wish: "a service GET:/health=>200",
+            expect: Expectation::Rejected,
+            needs_cargo: true,
+            bin: true,
+        },
     ]
 }
 
@@ -290,8 +320,8 @@ mod tests {
 
     #[test]
     fn structural_corpus_is_faithful() {
-        // Gate cargo off: the behavioural and runtime scenarios skip, the
-        // structural ones must each reach exactly their expected verdict (or
+        // Gate cargo off: the behavioural, runtime, and service scenarios skip,
+        // the structural ones must each reach exactly their expected verdict (or
         // skip if cargo metadata is unavailable) — never a mismatch.
         let report = run_corpus(reference_corpus(), false);
         assert!(
@@ -299,7 +329,7 @@ mod tests {
             "structural fidelity broken:\n{}",
             render(&report, false)
         );
-        // The 4 cargo-gated scenarios (2 behaviour, 2 runtime) skip here.
+        // The 6 cargo-gated scenarios (2 behaviour, 2 runtime, 2 service) skip.
         assert!(report.mismatched() == 0);
     }
 

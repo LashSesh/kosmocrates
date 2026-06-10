@@ -846,6 +846,138 @@ pub fn observe_workspace_runtime(
     Ok(observed)
 }
 
+// ─── Service observation (level 6 — start a server and probe it) ─────────────
+
+/// A service probe's expectation: an HTTP status and/or a body substring.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServiceExpect {
+    status: Option<u16>,
+    body_contains: Option<String>,
+}
+
+/// Parse a `Service` facet key `"method:path=>expect"` into a probe + its
+/// expectation. `expect` is an HTTP status and/or `body~<substr>`.
+fn parse_service_key(key: &str) -> Option<(kosmo_sandbox::HttpProbe, ServiceExpect)> {
+    let (method, rest) = key.split_once(':')?;
+    let (path, exp) = rest.split_once("=>")?;
+    if method.trim().is_empty() || path.trim().is_empty() {
+        return None;
+    }
+    let probe = kosmo_sandbox::HttpProbe {
+        method: method.trim().to_string(),
+        path: path.trim().to_string(),
+    };
+    Some((probe, parse_service_expect(exp.trim())?))
+}
+
+fn parse_service_expect(s: &str) -> Option<ServiceExpect> {
+    let (status_part, body) = match s.split_once(",body~") {
+        Some((st, b)) => (st, Some(b.to_string())),
+        None => (s, None),
+    };
+    let status = if status_part.is_empty() {
+        None
+    } else {
+        Some(status_part.parse::<u16>().ok()?)
+    };
+    if status.is_none() && body.is_none() {
+        return None;
+    }
+    Some(ServiceExpect {
+        status,
+        body_contains: body,
+    })
+}
+
+/// A served probe that matches. Fail-closed: a server that never answered (never
+/// ready / spawn failed) never matches.
+fn service_matches(w: &kosmo_sandbox::ServiceWitness, e: &ServiceExpect) -> bool {
+    if w.verdict != kosmo_sandbox::ServiceVerdict::Probed {
+        return false;
+    }
+    if let Some(st) = e.status {
+        if w.status != Some(st) {
+            return false;
+        }
+    }
+    if let Some(sub) = &e.body_contains {
+        if !w.body.contains(sub) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Extract a `// kosmo:service:` probe key from a source line.
+fn service_marker(trimmed: &str) -> Option<String> {
+    let rest = trimmed.strip_prefix("//")?.trim_start();
+    let key = rest.strip_prefix("kosmo:service:")?.trim();
+    (!key.is_empty()).then(|| key.to_string())
+}
+
+/// Read all `// kosmo:service:` probe keys under `dir` (sorted, deduped).
+fn service_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
+    let mut files = Vec::new();
+    collect_rs(dir.as_ref(), &mut files);
+    files.sort();
+    let mut out = Vec::new();
+    for file in files {
+        if let Ok(content) = std::fs::read_to_string(&file) {
+            for line in content.lines() {
+                if let Some(key) = service_marker(line.trim()) {
+                    out.push(key);
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Observe a workspace **with service probes**: everything
+/// [`observe_workspace_runtime`] sees, plus — for each `// kosmo:service:`
+/// marker — the built artifact is **started as a server**, awaited, probed over
+/// HTTP, and torn down; the `Service` facet is emitted iff the server answers
+/// and matches (fail-closed). The deepest, heaviest observation.
+pub fn observe_workspace_service(
+    root: impl Into<PathBuf>,
+) -> Result<ObservedTopology, ParseBackError> {
+    use kosmo_sandbox::{RunSpec, Sandbox};
+    let root = root.into();
+    let mut observed = observe_workspace_runtime(&root)?;
+    let probes = service_probes_from_dir(&root);
+    if !probes.is_empty() {
+        let manifest = root.join("Cargo.toml").to_string_lossy().into_owned();
+        // Pre-build once so each serve starts fast (the readiness budget then
+        // covers startup, not a cold compile).
+        let _ = Sandbox::new()
+            .with_cwd(&root)
+            .with_timeout(std::time::Duration::from_secs(180))
+            .run(&RunSpec::new(
+                "cargo",
+                ["build", "--quiet", "--manifest-path", manifest.as_str()],
+            ));
+        let sandbox = Sandbox::new()
+            .with_cwd(&root)
+            .with_timeout(std::time::Duration::from_secs(20));
+        for key in probes {
+            let Some((probe, expect)) = parse_service_key(&key) else {
+                continue;
+            };
+            let spec = RunSpec::new(
+                "cargo",
+                ["run", "--quiet", "--manifest-path", manifest.as_str()],
+            );
+            let witness = sandbox.serve_and_probe(&spec, &probe);
+            if service_matches(&witness, &expect) {
+                observed.insert(WishFacet::service(key));
+            }
+        }
+    }
+    Ok(observed)
+}
+
 // ─── Natural-language → Wish (the human front door) ─────────────────────────
 
 /// Normalize a word to lowercase alphanumerics (strips punctuation/markup).
@@ -877,6 +1009,9 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         // A runtime probe: `a run add,2,3=>out~5` runs the built binary and
         // checks its exit/stdout (level 5, observed by execution).
         "run" | "runs" => Some(WishFacetKind::Run),
+        // A service probe: `a service GET:/health=>200` starts the binary as a
+        // server and probes it over HTTP (level 6, observed by serving).
+        "service" | "endpoint" => Some(WishFacetKind::Service),
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
         _ => None,
@@ -1832,6 +1967,72 @@ mod tests {
             .predicates
             .iter()
             .any(|p| p.facet == WishFacet::run("add,2,3=>out~5")));
+    }
+
+    // ── Service probes (level 6 — start a server and probe it) ────────────
+
+    #[test]
+    fn parse_service_key_splits_method_path_expect() {
+        let (probe, expect) = parse_service_key("GET:/health=>200").unwrap();
+        assert_eq!(probe.method, "GET");
+        assert_eq!(probe.path, "/health");
+        assert_eq!(expect.status, Some(200));
+        assert!(parse_service_key("noarrow").is_none());
+        assert!(parse_service_key("GET:=>200").is_none(), "empty path rejected");
+    }
+
+    #[test]
+    fn parse_service_expect_forms() {
+        assert_eq!(
+            parse_service_expect("200"),
+            Some(ServiceExpect { status: Some(200), body_contains: None })
+        );
+        assert_eq!(
+            parse_service_expect("200,body~ok"),
+            Some(ServiceExpect { status: Some(200), body_contains: Some("ok".into()) })
+        );
+        assert!(parse_service_expect("xyz").is_none());
+    }
+
+    #[test]
+    fn service_marker_reads_only_service_probes() {
+        assert_eq!(
+            service_marker("// kosmo:service: GET:/health=>200"),
+            Some("GET:/health=>200".to_string())
+        );
+        assert_eq!(service_marker("// kosmo:run: a=>b"), None);
+    }
+
+    #[test]
+    fn service_matches_is_failclosed_on_never_ready() {
+        use kosmo_sandbox::{ServiceVerdict, ServiceWitness};
+        let e = ServiceExpect { status: Some(200), body_contains: None };
+        // A server that never came up never matches.
+        let never = ServiceWitness {
+            verdict: ServiceVerdict::NeverReady,
+            status: None,
+            body: String::new(),
+            body_digest: Digest::ZERO,
+            startup: std::time::Duration::ZERO,
+        };
+        assert!(!service_matches(&never, &e));
+        let ok = ServiceWitness {
+            verdict: ServiceVerdict::Probed,
+            status: Some(200),
+            body: "ok".into(),
+            body_digest: Digest::ZERO,
+            startup: std::time::Duration::ZERO,
+        };
+        assert!(service_matches(&ok, &e));
+    }
+
+    #[test]
+    fn service_trigger_compiles() {
+        let w = compile_wish("a service GET:/health=>200", Digest::ZERO, Digest::ZERO);
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::service("GET:/health=>200")));
     }
 
     #[test]

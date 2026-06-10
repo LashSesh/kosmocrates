@@ -271,12 +271,23 @@ Bottom-up — otherwise nothing bears load:
    and `run-empty`.
 5. **`Service` facet** (§2) — start the artifact, await readiness by polling,
    probe a loopback endpoint. Builds on the sandbox; adds process lifecycle and
-   port management. The largest lift; deliberately last.
+   port management. The largest lift; deliberately last. **[landed 2026-06-04]**
+   ✅ `kosmo-sandbox::serve_and_probe` (free-port pick, `KOSMO_PORT`, readiness
+   by re-probing over raw-TCP HTTP/1.1, group-kill teardown, `ServiceWitness`);
+   `Service` key `method:path=>expect` (`GET:/health=>200`; status / `body~`);
+   `observe_workspace_service` serves + probes each `// kosmo:service:` marker,
+   fail-closed. `a service GET:/health=>200` realizes over a std-only server, is
+   rejected over an empty `main`; `--pruefstand --validated` reports 13/13.
+   *Honest scope:* richer body predicates (the §2 `json.len>=1` sketch) are a
+   follow-up; status + `body~<substr>` ship now.
 
 Each step is a self-contained run in the rhythm of the Horizon beams: new facet
 kind in `kosmo-core`, observation in `kosmo-intent`, deterministic scaffold in
 `kosmo-synthesizer`, wired through `descend_to_wish`, with tests and a live
 verification, committed and pushed green before the next.
+
+**All five beams landed (2026-06-04): the Runtime floor is complete** — the
+wish loop now observes truth at the unit, process, *and* service boundaries.
 
 ---
 

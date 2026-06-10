@@ -351,6 +351,7 @@ impl FacetScaffolder {
             WishFacetKind::Behavior => Self::scaffold_behavior(ws, key),
             WishFacetKind::Composition => Self::scaffold_composition(ws, key),
             WishFacetKind::Run => Self::scaffold_run(ws, key),
+            WishFacetKind::Service => Self::scaffold_service(ws, key),
             WishFacetKind::Dependency => Self::scaffold_dependency(ws, key),
             // A resolution ("the bad thing is gone") has no structural scaffold.
             WishFacetKind::Resolution => vec![],
@@ -611,11 +612,23 @@ impl FacetScaffolder {
 
     /// Realize a runtime probe `"args=>expect"` by ensuring a **bin target**
     /// exists and carries a `// kosmo:run:` marker (so the observer can find and
-    /// execute it). The stub `main` is **honestly empty** — it exits `0` and
-    /// prints nothing, so a `=>out~…` probe is red until the body is correct
-    /// (the keystone, at the process boundary). Idempotent via the marker.
+    /// execute it). The stub `main` is **honestly inert** — red until the body
+    /// is correct (the keystone, at the process boundary).
     fn scaffold_run(ws: &Path, key: &str) -> Vec<FileChange> {
-        let marker = format!("kosmo:run: {key}");
+        Self::scaffold_bin_probe(ws, "run", key)
+    }
+
+    /// Realize a service probe `"method:path=>expect"` by ensuring a bin target
+    /// carrying a `// kosmo:service:` marker. The stub `main` exits immediately
+    /// (binds nothing) — so the probe is red until a real server is written.
+    fn scaffold_service(ws: &Path, key: &str) -> Vec<FileChange> {
+        Self::scaffold_bin_probe(ws, "service", key)
+    }
+
+    /// Ensure a bin target carrying a `// kosmo:<kind>:` probe marker — the
+    /// shared mechanism behind `Run` and `Service`. Idempotent via the marker.
+    fn scaffold_bin_probe(ws: &Path, kind: &str, key: &str) -> Vec<FileChange> {
+        let marker = format!("kosmo:{kind}: {key}");
         let main = ws.join("src/main.rs");
         if main.exists() {
             let mut content = std::fs::read_to_string(&main).unwrap_or_default();
@@ -631,7 +644,7 @@ impl FacetScaffolder {
             vec![FileChange::create(
                 "src/main.rs",
                 format!(
-                    "// {marker}\nfn main() {{ /* kosmo: runtime stub — fill to satisfy the probe */ }}\n"
+                    "// {marker}\nfn main() {{ /* kosmo: {kind} stub — fill to satisfy the probe */ }}\n"
                 ),
             )]
         }
@@ -1427,6 +1440,21 @@ mod tests {
         let req = wish_request(&dir, WishFacet::run("add,2,3=>out~5"));
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "marker present → no change");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_service_creates_bin_with_marker() {
+        let dir = temp_ws("// lib\n");
+        let req = wish_request(&dir, WishFacet::service("GET:/health=>200"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.path, std::path::Path::new("src/main.rs"));
+        assert!(
+            fc.content.contains("// kosmo:service: GET:/health=>200"),
+            "marker:\n{}",
+            fc.content
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
