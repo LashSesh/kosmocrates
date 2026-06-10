@@ -555,12 +555,11 @@ fn best_cross_language_resonance(
 /// - When the record carries a [`CrossLanguageFingerprint`], its language and
 ///   `fingerprint_id` travel as metadata so the PSE side can route and de-dupe
 ///   cross-language patterns.
-/// - `evidence_bundle_id` is the certifying candidate's bundle (CROSS-006); the
-///   caller supplies it because the record stores the candidate linkage, not the
-///   bundle itself.
+/// - `evidence_bundle_id` comes from the record itself — every certified record
+///   is directly evidence-bound (CROSS-006), so store-loaded CAD-library
+///   crystals are promotable without resolving their certifying candidate.
 pub fn crystal_to_pse_candidate(
     record: &StructuralCrystalRecord,
-    evidence_bundle_id: Digest,
     source_run_id: Digest,
     policy_id: Digest,
 ) -> PseBridgeCandidate {
@@ -577,7 +576,7 @@ pub fn crystal_to_pse_candidate(
         label,
         confidence,
         source_run_id,
-        evidence_bundle_id,
+        record.evidence_bundle_id,
         policy_id,
     );
     match record.fingerprint.as_ref() {
@@ -1369,22 +1368,10 @@ pub fn run_dry_pipeline(
             ));
         }
         // StructuralCrystalRecord → CertifiedCrystal — the unification path.
-        // Every crystal certified in THIS run is offered to PSE. The evidence
-        // bundle comes from the certifying candidate (looked up by candidate_id);
-        // a record without a resolvable candidate is skipped fail-closed rather
-        // than offered with fabricated evidence (CROSS-006).
+        // Every crystal certified in THIS run is offered to PSE; the record is
+        // directly evidence-bound (CROSS-006), so no candidate lookup is needed.
         for r in &certified_crystals {
-            if let Some(cand) = crystal_candidates
-                .iter()
-                .find(|c| c.candidate_id == r.candidate_id)
-            {
-                raw.push(crystal_to_pse_candidate(
-                    r,
-                    cand.evidence_bundle_id,
-                    hyphae.run_id,
-                    policy.id,
-                ));
-            }
+            raw.push(crystal_to_pse_candidate(r, hyphae.run_id, policy.id));
         }
         // Sort by confidence descending (deterministic: stable sort, then by id).
         raw.sort_by(|a, b| b.confidence.cmp(&a.confidence).then(a.id.cmp(&b.id)));
@@ -2941,8 +2928,7 @@ mod tests {
             .expect("clean-taint candidate must certify");
 
         let run_id = Digest::of_bytes(b"run");
-        let c =
-            crystal_to_pse_candidate(&record, candidate.evidence_bundle_id, run_id, policy().id);
+        let c = crystal_to_pse_candidate(&record, run_id, policy().id);
 
         assert_eq!(c.kind, PseBridgeCandidateKind::CertifiedCrystal);
         assert_eq!(
@@ -2951,7 +2937,9 @@ mod tests {
         );
         // confidence = (ρ + ω) / 2 = (0.5 + 1.0) / 2 = 0.75
         assert_eq!(c.confidence, Q16::ratio(3, 4).unwrap());
-        assert_eq!(c.evidence_bundle_id, candidate.evidence_bundle_id);
+        // The record is directly evidence-bound; the candidate inherits it.
+        assert_eq!(record.evidence_bundle_id, candidate.evidence_bundle_id);
+        assert_eq!(c.evidence_bundle_id, record.evidence_bundle_id);
         assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006");
         assert!(
             c.label.starts_with("crystal:python:"),
@@ -2970,8 +2958,7 @@ mod tests {
         assert!(c.verify_id(), "candidate is content-addressed");
 
         // Deterministic: same record → same candidate id.
-        let c2 =
-            crystal_to_pse_candidate(&record, candidate.evidence_bundle_id, run_id, policy().id);
+        let c2 = crystal_to_pse_candidate(&record, run_id, policy().id);
         assert_eq!(c.id, c2.id);
     }
 
@@ -2980,12 +2967,7 @@ mod tests {
         use kosmo_core::ReplayStatus;
         let candidate = make_certifiable_candidate();
         let (_cert, record) = candidate.certify(ReplayStatus::Replayable).unwrap();
-        let c = crystal_to_pse_candidate(
-            &record,
-            candidate.evidence_bundle_id,
-            Digest::of_bytes(b"run"),
-            policy().id,
-        );
+        let c = crystal_to_pse_candidate(&record, Digest::of_bytes(b"run"), policy().id);
         assert_eq!(c.kind, PseBridgeCandidateKind::CertifiedCrystal);
         assert!(
             c.label.starts_with("crystal:-:"),

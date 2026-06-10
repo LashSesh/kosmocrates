@@ -12,6 +12,7 @@ rust-version.workspace = true
 kosmo-core = { path = "../../crates/kosmo-core" }
 kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
 kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
+kosmo-store = { path = "../../crates/kosmo-store" }
 pse-adapter-kosmo = { path = "../../adapters/pse-adapter-kosmo" }
 pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
 pse-types = { path = "../../crates/pse-types", version = "0.1.0" }

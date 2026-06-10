@@ -1667,6 +1667,7 @@ dependencies = [
  "kosmo-hyphae",
  "kosmo-pipeline",
  "kosmo-pse-bridge",
+ "kosmo-store",
  "pse-adapter-kosmo",
  "pse-core",
  "pse-types",

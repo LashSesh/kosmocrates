@@ -38,8 +38,11 @@ use std::path::PathBuf;
 use std::process;
 
 use kosmo_core::{ImplementationMode, PolicyProfile};
-use kosmo_pipeline::{run_workspace_pipeline, IntegrationRunOptions};
-use kosmo_pse_bridge::{PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit};
+use kosmo_pipeline::{crystal_to_pse_candidate, run_workspace_pipeline, IntegrationRunOptions};
+use kosmo_pse_bridge::{
+    PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
+};
+use kosmo_store::CrystalRecordStore;
 use pse_adapter_kosmo::{describe_crystal, offer_candidates, KosmoBridgeAdapter};
 use pse_core::{load_memory_from_crystals, GlobalState};
 use pse_types::{Config, SemanticCrystal};
@@ -50,6 +53,7 @@ struct Args {
     all_kinds: bool,
     json: bool,
     state: Option<PathBuf>,
+    store: Option<PathBuf>,
 }
 
 const HELP: &str = "kosmo-promote — substrate→core promotion (PSE decides crystallization)\n\
@@ -63,6 +67,9 @@ OPTIONS:\n\
                     SkippedByReportOnly and the engine is never touched.\n\
     --all-kinds     Offer all pipeline candidate kinds, not only\n\
                     CertifiedCrystal.\n\
+    --store <path>  Also offer the certified crystals in this CAD-library\n\
+                    store (kosmo-substrate --store JSONL). Integrity-checked;\n\
+                    read-only.\n\
     --state <path>  Persist the crystal archive across sessions (JSON).\n\
                     Loaded on start when present; written back only in\n\
                     --offer mode. The flag is the write authorization.\n\
@@ -77,6 +84,7 @@ fn parse_args() -> Result<Args, String> {
         all_kinds: false,
         json: false,
         state: None,
+        store: None,
     };
     let mut i = 0;
     while i < raw.len() {
@@ -94,6 +102,13 @@ fn parse_args() -> Result<Args, String> {
                     return Err("--state requires a file path".into());
                 }
                 args.state = Some(PathBuf::from(&raw[i]));
+            }
+            "--store" => {
+                i += 1;
+                if i >= raw.len() {
+                    return Err("--store requires a file path".into());
+                }
+                args.store = Some(PathBuf::from(&raw[i]));
             }
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown flag '{flag}'; run --help for usage"));
@@ -159,12 +174,41 @@ fn main() {
     } else {
         vec![PseBridgeCandidateKind::CertifiedCrystal]
     };
-    let candidates: Vec<_> = report
+    let mut candidates: Vec<PseBridgeCandidate> = report
         .pse_candidates
         .iter()
         .filter(|c| kinds.contains(&c.kind))
         .cloned()
         .collect();
+
+    // 2b. CAD-library store as a candidate source (read-only). Every record is
+    //     directly evidence-bound, so it wraps without resolving its candidate.
+    //     The store is integrity-checked first — a record whose content does not
+    //     match its record_id is a hard error, never offered.
+    let store_loaded = match &args.store {
+        Some(path) => {
+            let store = match CrystalRecordStore::open(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: cannot open store {}: {e}", path.display());
+                    process::exit(1);
+                }
+            };
+            if let Err(e) = store.verify_integrity() {
+                eprintln!("error: store integrity {}: {e}", path.display());
+                process::exit(1);
+            }
+            let n = store.len();
+            candidates.extend(
+                store
+                    .records()
+                    .iter()
+                    .map(|r| crystal_to_pse_candidate(r, report.report_id, pipeline_policy.id)),
+            );
+            n
+        }
+        None => 0,
+    };
 
     // 3. Promotion profile — the gate that decides whether the engine runs.
     //    Default ReportOnly: validate_candidate short-circuits, engine untouched.
@@ -247,6 +291,7 @@ fn main() {
             "offered": candidates.len(),
             "engine_commit_index": state.commit_index,
             "mode": if args.offer { "offer" } else { "report-only" },
+            "store_loaded": store_loaded,
             "memory_loaded": memory_loaded,
             "pattern_hits": state.pattern_hits,
             "new_crystals": session_crystals.len(),
@@ -257,9 +302,10 @@ fn main() {
     } else {
         println!("kosmo-promote  {}", args.path);
         println!(
-            "  pipeline report {} | pse_candidates {} | selected {}",
+            "  pipeline report {} | pse_candidates {} | store {} | selected {}",
             &report.report_id.to_hex()[..16],
             report.pse_candidates.len(),
+            store_loaded,
             candidates.len()
         );
         println!(

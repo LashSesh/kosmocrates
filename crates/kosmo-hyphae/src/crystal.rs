@@ -432,6 +432,7 @@ struct RecordContent {
     omega_phase: i64,
     /// `Digest::ZERO` when no cross-language fingerprint is attached.
     fingerprint_id: Digest,
+    evidence_bundle_id: Digest,
     policy_id: Digest,
 }
 
@@ -458,7 +459,18 @@ pub struct StructuralCrystalRecord {
     /// match a structurally-similar void in another.
     #[serde(default)]
     pub fingerprint: Option<CrossLanguageFingerprint>,
+    /// The evidence bundle that backed the certifying candidate — the record's
+    /// **direct** evidence binding (CROSS-006), so a store-loaded record can be
+    /// promoted without resolving its candidate. `Digest::ZERO` appears only in
+    /// records deserialized from pre-field stores; such records fail the
+    /// evidence gate at promotion, fail-closed.
+    #[serde(default = "zero_digest")]
+    pub evidence_bundle_id: Digest,
     pub policy_id: Digest,
+}
+
+fn zero_digest() -> Digest {
+    Digest::ZERO
 }
 
 impl StructuralCrystalRecord {
@@ -481,6 +493,7 @@ impl StructuralCrystalRecord {
             rho_coherence: self.rho_coherence.raw(),
             omega_phase: self.omega_phase.raw(),
             fingerprint_id: self.fingerprint_id(),
+            evidence_bundle_id: self.evidence_bundle_id,
             policy_id: self.policy_id,
         });
         self.record_id == expected
@@ -521,6 +534,7 @@ impl StructuralCrystalRecord {
             rho_coherence: candidate.rho_coherence.raw(),
             omega_phase: candidate.omega_phase.raw(),
             fingerprint_id,
+            evidence_bundle_id: candidate.evidence_bundle_id,
             policy_id: cert.policy_id,
         });
         Self {
@@ -531,6 +545,7 @@ impl StructuralCrystalRecord {
             rho_coherence: candidate.rho_coherence,
             omega_phase: candidate.omega_phase,
             fingerprint: candidate.fingerprint.clone(),
+            evidence_bundle_id: candidate.evidence_bundle_id,
             policy_id: cert.policy_id,
         }
     }

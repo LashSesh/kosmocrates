@@ -70,7 +70,6 @@ fn certified_crystal_candidate(
         Q16::ONE,
     )
     .with_fingerprint(fingerprint);
-    let evidence_bundle_id = candidate.evidence_bundle_id;
     let (_cert, record) = candidate
         .certify(ReplayStatus::Replayable)
         .expect("pending candidate with full constraints must certify");
@@ -79,14 +78,14 @@ fn certified_crystal_candidate(
         record.fingerprint.is_some(),
         "fingerprint travels into the record"
     );
+    assert_ne!(
+        record.evidence_bundle_id,
+        Digest::ZERO,
+        "record is directly evidence-bound (CROSS-006)"
+    );
 
     // Layer 3 — wrap for the bridge (the offer side of the unification).
-    crystal_to_pse_candidate(
-        &record,
-        evidence_bundle_id,
-        Digest::of_bytes(b"capstone-run"),
-        policy.id,
-    )
+    crystal_to_pse_candidate(&record, Digest::of_bytes(b"capstone-run"), policy.id)
 }
 
 #[test]

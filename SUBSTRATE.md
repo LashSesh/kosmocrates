@@ -161,6 +161,9 @@ kosmo-promote . --offer --json | jq '.offers[] | {label, outcome}'
 
 # Accumulate engine memory across sessions (the flag authorizes the write):
 kosmo-promote . --offer --state ~/.kosmo/pse-archive.json
+
+# Offer the CAD library (kosmo-substrate --store) to the engine, read-only:
+kosmo-promote . --offer --store ~/.kosmo/cadlib.jsonl
 ```
 
 Runs the full pipeline, filters its `pse_candidates` (default:
@@ -174,6 +177,13 @@ mechanism) — repeated promotions of recurring substrate output build the
 resonance that can eventually flip `Deferred` into `Accepted`. Fail-closed:
 report-only mode never writes, and a corrupt archive is a hard error, never
 silently cold-started over.
+
+With `--store`, the durable CAD library is itself a promotion source:
+`StructuralCrystalRecord`s are **directly evidence-bound** (each carries its
+certifying candidate's `evidence_bundle_id` — CROSS-006 as a first-class
+field), so store-loaded crystals wrap into bridge candidates without
+resolving their candidates. The store is integrity-checked before any record
+is offered; a tampered record is a hard error.
 
 ---
 
