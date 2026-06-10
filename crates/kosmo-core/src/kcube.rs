@@ -423,7 +423,7 @@ impl KcubeWriteReport {
     }
 
     pub fn roundtrip_passed(&self) -> bool {
-        self.roundtrip.as_ref().map_or(false, |r| r.verification_passed)
+        self.roundtrip.as_ref().is_some_and(|r| r.verification_passed)
     }
 }
 

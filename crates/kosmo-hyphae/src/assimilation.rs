@@ -189,12 +189,12 @@ impl AssimilationLedger {
 
     /// Number of events with a `Pass` gate result.
     pub fn accepted_count(&self) -> usize {
-        self.events.iter().filter(|e| e.gate_result.as_ref().map_or(false, |r| r.is_pass())).count()
+        self.events.iter().filter(|e| e.gate_result.as_ref().is_some_and(|r| r.is_pass())).count()
     }
 
     /// Number of events with a `Reject` gate result.
     pub fn rejected_count(&self) -> usize {
-        self.events.iter().filter(|e| e.gate_result.as_ref().map_or(false, |r| r.is_rejected())).count()
+        self.events.iter().filter(|e| e.gate_result.as_ref().is_some_and(|r| r.is_rejected())).count()
     }
 }
 
@@ -430,7 +430,7 @@ mod tests {
         let ev = make_evidence(policy.id);
         let run_id = Digest::of_bytes(b"run");
         let d = make_decision(&policy, &ev, b"z", true);
-        let l1 = AssimilationLedger::from_decisions(&[d.clone()], run_id, policy.id);
+        let l1 = AssimilationLedger::from_decisions(std::slice::from_ref(&d), run_id, policy.id);
         let l2 = AssimilationLedger::from_decisions(&[d], run_id, policy.id);
         assert_eq!(l1.ledger_id, l2.ledger_id, "same decisions → same ledger_id (INVARIANT-007)");
     }

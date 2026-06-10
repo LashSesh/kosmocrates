@@ -526,7 +526,7 @@ fn parse_impl_for(line: &str) -> Option<(String, String)> {
     let trait_name = rest[..for_pos].trim();
     let after_for = rest[for_pos + 5..].trim();
     let type_name = after_for
-        .split(|c: char| c == '{' || c == ' ' || c == '<' || c == '\n')
+        .split(['{', ' ', '<', '\n'])
         .next()
         .unwrap_or("")
         .trim();

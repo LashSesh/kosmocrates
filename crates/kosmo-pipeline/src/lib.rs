@@ -297,6 +297,9 @@ pub struct IntegrationRunReport {
 }
 
 impl IntegrationRunReport {
+    // One argument per content-addressed field: this aggregates every sub-report of
+    // a pipeline run, so the 1:1 field mapping is the point. A builder would hide it.
+    #[allow(clippy::too_many_arguments)]
     fn new(
         hyphae_result: HyphaeRunResult,
         deficiency_vector: DeficiencyVector,
@@ -490,7 +493,7 @@ impl IntegrationRunReport {
             && self
                 .systemcube_export
                 .as_ref()
-                .map_or(true, |e| e.policy_id == pid)
+                .is_none_or(|e| e.policy_id == pid)
     }
 }
 
@@ -543,7 +546,7 @@ pub fn run_dry_pipeline(
     // If a crystal_store_path is set and the file exists, open the store and
     // merge its records into the effective prior_crystals. Dedup by record_id
     // so manually-provided prior_crystals are not duplicated.
-    let effective_prior_crystals: std::borrow::Cow<Vec<StructuralCrystalRecord>> =
+    let effective_prior_crystals: std::borrow::Cow<[StructuralCrystalRecord]> =
         if let Some(ref store_path) = options.crystal_store_path {
             if store_path.exists() {
                 match CrystalRecordStore::open(store_path) {
@@ -556,13 +559,13 @@ pub fn run_dry_pipeline(
                         }
                         std::borrow::Cow::Owned(merged)
                     }
-                    _ => std::borrow::Cow::Borrowed(&options.prior_crystals),
+                    _ => std::borrow::Cow::Borrowed(options.prior_crystals.as_slice()),
                 }
             } else {
-                std::borrow::Cow::Borrowed(&options.prior_crystals)
+                std::borrow::Cow::Borrowed(options.prior_crystals.as_slice())
             }
         } else {
-            std::borrow::Cow::Borrowed(&options.prior_crystals)
+            std::borrow::Cow::Borrowed(options.prior_crystals.as_slice())
         };
     let prior_crystals: &[StructuralCrystalRecord] = &effective_prior_crystals;
 
@@ -1165,7 +1168,7 @@ pub fn run_dry_pipeline(
             raw.push(PseBridgeCandidate::new(
                 PseBridgeCandidateKind::StructuralObservation,
                 c.candidate_id,
-                &format!("norm:{}", &c.name[..c.name.len().min(32)]),
+                format!("norm:{}", &c.name[..c.name.len().min(32)]),
                 c.fitness_score,
                 hyphae.run_id,
                 c.evidence_bundle_id,
@@ -1177,7 +1180,7 @@ pub fn run_dry_pipeline(
             raw.push(PseBridgeCandidate::new(
                 PseBridgeCandidateKind::TopologyObservation,
                 a.profile_id,
-                &format!("ambiguity:{:?}", a.ambiguity_kind),
+                format!("ambiguity:{:?}", a.ambiguity_kind),
                 a.confidence_score,
                 hyphae.run_id,
                 a.micrograph_id,
@@ -1189,7 +1192,7 @@ pub fn run_dry_pipeline(
             raw.push(PseBridgeCandidate::new(
                 PseBridgeCandidateKind::TopologyObservation,
                 h.hypothesis_id,
-                &format!("void_hyp:{}", &h.hypothesized_void_kind[..h.hypothesized_void_kind.len().min(24)]),
+                format!("void_hyp:{}", &h.hypothesized_void_kind[..h.hypothesized_void_kind.len().min(24)]),
                 h.confidence_score,
                 hyphae.run_id,
                 h.hypothesis_id,
@@ -1201,7 +1204,7 @@ pub fn run_dry_pipeline(
             raw.push(PseBridgeCandidate::new(
                 PseBridgeCandidateKind::StructuralObservation,
                 m.motif_id,
-                &format!("motif:{}", &m.name[..m.name.len().min(32)]),
+                format!("motif:{}", &m.name[..m.name.len().min(32)]),
                 m.support_score,
                 hyphae.run_id,
                 m.evidence_bundle_id,

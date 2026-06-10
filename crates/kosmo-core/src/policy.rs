@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 /// The default and mandatory starting mode is `ReportOnly`.
 /// Escalation requires an explicit `PolicyProfile` and operator action.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ImplementationMode {
     /// Scan, report, and produce diagnostics only. No host writes. No execution.
+    #[default]
     ReportOnly,
     /// May execute checks in an isolated sandbox but does not write host files.
     DryRun,
@@ -17,11 +19,6 @@ pub enum ImplementationMode {
     AutonomousBounded,
 }
 
-impl Default for ImplementationMode {
-    fn default() -> Self {
-        ImplementationMode::ReportOnly
-    }
-}
 
 /// Internal struct used for content-addressing `PolicyProfile`.
 /// Excludes the `id` field to avoid self-reference in digest computation.

@@ -225,7 +225,7 @@ pub fn run_scenario(s: &Scenario, allow_cargo: bool) -> Outcome {
     std::fs::remove_dir_all(&root).ok(); // clean up regardless of outcome
     match descent {
         Ok(session) => {
-            let realized = session.latest().map_or(false, |a| {
+            let realized = session.latest().is_some_and(|a| {
                 matches!(
                     a.status,
                     WishClosureStatus::Realized | WishClosureStatus::Vacuous

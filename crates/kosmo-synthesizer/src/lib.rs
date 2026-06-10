@@ -946,7 +946,7 @@ fn find_crate_manifests(ws: &Path) -> Vec<(String, PathBuf)> {
                     continue;
                 }
                 stack.push(path);
-            } else if path.file_name().map_or(false, |f| f == "Cargo.toml") {
+            } else if path.file_name().is_some_and(|f| f == "Cargo.toml") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Some(name) = package_name(&content) {
                         out.push((name, path));
@@ -990,8 +990,7 @@ fn relative_path(from: &Path, to: &Path) -> String {
     while i < from_comps.len() && i < to_comps.len() && from_comps[i] == to_comps[i] {
         i += 1;
     }
-    let mut parts: Vec<String> = std::iter::repeat("..".to_string())
-        .take(from_comps.len() - i)
+    let mut parts: Vec<String> = std::iter::repeat_n("..".to_string(), from_comps.len() - i)
         .collect();
     for c in &to_comps[i..] {
         parts.push(c.as_os_str().to_string_lossy().into_owned());
@@ -1008,7 +1007,7 @@ fn dep_already_present(toml: &str, dep: &str) -> bool {
     toml.lines().any(|l| {
         l.trim()
             .strip_prefix(dep)
-            .map_or(false, |rest| rest.trim_start().starts_with('='))
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
     })
 }
 

@@ -203,10 +203,10 @@ fn build_scenarios() -> Vec<ScenarioResult> {
     }));
 
     v.push(run_check("r2-severity-worst-wins-ordering", "R2:ParseBack", || {
-        if !(ParseBackSeverity::Info < ParseBackSeverity::Warning) {
+        if ParseBackSeverity::Info >= ParseBackSeverity::Warning  {
             return Err("Info must be less than Warning".into());
         }
-        if !(ParseBackSeverity::Warning < ParseBackSeverity::Critical) {
+        if ParseBackSeverity::Warning >= ParseBackSeverity::Critical  {
             return Err("Warning must be less than Critical".into());
         }
         let worst = [ParseBackSeverity::Warning, ParseBackSeverity::Info, ParseBackSeverity::Critical]
@@ -2105,11 +2105,10 @@ fn build_scenarios() -> Vec<ScenarioResult> {
             return Err("deficiency_vector must always have non-ZERO vector_id".into());
         }
         // total_severity must be consistent: either zero (no entries) or positive.
-        if !r.deficiency_vector.entries.is_empty() {
-            if r.deficiency_vector.total_severity == Q16::ZERO {
+        if !r.deficiency_vector.entries.is_empty()
+            && r.deficiency_vector.total_severity == Q16::ZERO {
                 return Err("non-empty deficiency entries must yield non-zero total_severity".into());
             }
-        }
         Ok(())
     }));
 
@@ -2811,14 +2810,14 @@ fn build_scenarios() -> Vec<ScenarioResult> {
         let d2 = make_decision(b"q", false);
 
         // Content-addressed: same input → same id.
-        let l1 = AssimilationLedger::from_decisions(&[d1.clone()], run_id, policy.id);
-        let l2 = AssimilationLedger::from_decisions(&[d1.clone()], run_id, policy.id);
+        let l1 = AssimilationLedger::from_decisions(std::slice::from_ref(&d1), run_id, policy.id);
+        let l2 = AssimilationLedger::from_decisions(std::slice::from_ref(&d1), run_id, policy.id);
         if l1.ledger_id != l2.ledger_id {
             return Err("same decisions must produce same ledger_id (INVARIANT-007)".into());
         }
 
         // Different decisions → different ledger_ids.
-        let l3 = AssimilationLedger::from_decisions(&[d2.clone()], run_id, policy.id);
+        let l3 = AssimilationLedger::from_decisions(std::slice::from_ref(&d2), run_id, policy.id);
         if l1.ledger_id == l3.ledger_id {
             return Err("different decisions must produce different ledger_ids".into());
         }
@@ -2970,7 +2969,7 @@ fn build_scenarios() -> Vec<ScenarioResult> {
             if hdag.definition_count() < 3 {
                 return Err(format!(
                     "void {} HDAG must have >= 3 definitions, got {}",
-                    void_id.to_hex()[..8].to_string(), hdag.definition_count()
+                    &void_id.to_hex()[..8], hdag.definition_count()
                 ));
             }
         }
@@ -4632,7 +4631,7 @@ fn it_builds() { assert!(true); }
         let trace = NormFitnessTrace::empty(norm_cid, policy.id)
             .observe_from_feedback(&feedback);
         if trace.latest_fitness() != energy {
-            return Err(format!("NormFitnessTrace.latest_fitness must equal energy after feedback ingestion"));
+            return Err("NormFitnessTrace.latest_fitness must equal energy after feedback ingestion".to_string());
         }
         if trace.observations[0].evidence_ref != feedback.id {
             return Err("evidence_ref in trace observation must be feedback.id".into());

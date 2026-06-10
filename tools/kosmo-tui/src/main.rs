@@ -175,6 +175,9 @@ fn build_options(args: &Args) -> IntegrationRunOptions {
 
 // ─── App state ───────────────────────────────────────────────────────────────
 
+// Held as a single live value in the TUI's `App`; never stored in bulk, so the
+// size gap between `Ready` and the other variants costs nothing in practice.
+#[allow(clippy::large_enum_variant)]
 enum AppPhase {
     Analysing,
     Ready { report: IntegrationRunReport, items: Vec<ActionItem> },
@@ -279,7 +282,7 @@ impl App {
 
 fn q16_fmt(raw: i64) -> String {
     let i = raw / 65536;
-    let f = ((raw.unsigned_abs() % 65536) * 10000 / 65536) as u64;
+    let f = (raw.unsigned_abs() % 65536) * 10000 / 65536;
     format!("{}.{:04}", i, f)
 }
 

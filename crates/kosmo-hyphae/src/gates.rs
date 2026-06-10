@@ -168,14 +168,11 @@ impl GateCascade {
             },
 
             GateKind::PolicyGate => {
-                if self.policy.is_report_only() {
-                    // In ReportOnly mode all yields are accepted for reporting purposes
-                    GateResult::Pass
-                } else if self.policy.allow_host_write {
-                    GateResult::Pass
-                } else {
-                    GateResult::Pass // passive run never needs host write
-                }
+                // A passive run never writes to the host, so the policy gate passes in
+                // every mode: ReportOnly accepts yields for reporting, and both
+                // host-write-allowed and host-write-denied policies are inert here
+                // because no host write is attempted.
+                GateResult::Pass
             }
 
             GateKind::Custom(_) => GateResult::Pass,

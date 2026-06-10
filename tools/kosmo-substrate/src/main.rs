@@ -211,7 +211,7 @@ fn hex8(d: &kosmo_core::Digest) -> String {
 fn q16_fmt(raw: i64) -> String {
     // Display as decimal fraction with 4 places: raw / 65536.0
     let i = raw / 65536;
-    let f = ((raw.unsigned_abs() % 65536) * 10000 / 65536) as u64;
+    let f = (raw.unsigned_abs() % 65536) * 10000 / 65536;
     format!("{}.{:04}", i, f)
 }
 

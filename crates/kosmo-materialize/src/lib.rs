@@ -576,8 +576,7 @@ fn git_commit_patch(root: &Path, patch: &Patch) -> io::Result<String> {
         .args(["-C", &root_str, "add", "-A"])
         .output()?;
     if !add.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("git add: {}", String::from_utf8_lossy(&add.stderr).trim()),
         ));
     }
@@ -592,8 +591,7 @@ fn git_commit_patch(root: &Path, patch: &Patch) -> io::Result<String> {
         .args(["-C", &root_str, "commit", "-m", &msg])
         .output()?;
     if !commit.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("git commit: {}", String::from_utf8_lossy(&commit.stderr).trim()),
         ));
     }

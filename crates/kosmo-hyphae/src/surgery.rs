@@ -404,9 +404,7 @@ mod tests {
         let (_, diag) = make_diagnostic_single_node();
         let options = TopologicalSurgeryOption::from_diagnostic(&diag, &policy());
         let has_approved = options[0]
-            .preconditions
-            .iter()
-            .any(|c| *c == SurgeryPrecondition::PolicyApproved);
+            .preconditions.contains(&SurgeryPrecondition::PolicyApproved);
         assert!(has_approved, "surgery option must require PolicyApproved");
     }
 

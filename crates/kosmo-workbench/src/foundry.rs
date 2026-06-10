@@ -134,11 +134,10 @@ impl FoundryRunner {
     pub fn run_all(&self, workspace_evidence_id: Digest) -> FoundryRunOutput {
         let mut results = Vec::with_capacity(self.checks.len());
         let mut events = Vec::with_capacity(self.checks.len());
-        let mut seq = 0u64;
 
-        for spec in &self.checks {
+        for (seq, spec) in self.checks.iter().enumerate() {
             let result = self.run_check(spec, workspace_evidence_id);
-            let event = LedgerEvent::new(LedgerEventKind::GateCascadeDecision, seq)
+            let event = LedgerEvent::new(LedgerEventKind::GateCascadeDecision, seq as u64)
                 .with_run_id(workspace_evidence_id)
                 .with_gate_result(if result.outcome.is_passed() {
                     kosmo_core::GateResult::Pass
@@ -149,7 +148,6 @@ impl FoundryRunner {
                 });
             events.push(event);
             results.push(result);
-            seq += 1;
         }
 
         // Collect evidence refs from all check results

@@ -91,7 +91,7 @@ struct AnalyseResponse {
 fn q16_str(q: Q16) -> String {
     let raw = q.raw();
     let i = raw / 65536;
-    let f = ((raw.unsigned_abs() % 65536) * 10000 / 65536) as u64;
+    let f = (raw.unsigned_abs() % 65536) * 10000 / 65536;
     format!("{}.{:04}", i, f)
 }
 
@@ -229,7 +229,7 @@ async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse
         .void_priority_ranking
         .iter()
         .take(20)
-        .map(|d| hex16(d))
+        .map(hex16)
         .collect();
 
     let gate_warn = matches!(report.final_result, GateResult::Warn { .. });

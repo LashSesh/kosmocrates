@@ -498,7 +498,7 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         } else {
             print!("{}", descent_report(&session, args.color));
         }
-        let realized = session.latest().map_or(false, |a| {
+        let realized = session.latest().is_some_and(|a| {
             matches!(
                 a.status,
                 WishClosureStatus::Realized | WishClosureStatus::Vacuous
@@ -757,7 +757,7 @@ fn descent_report(session: &WishSession, color: bool) -> String {
             i, a.met_count, a.total_count, col, label, c(RESET)
         ));
     }
-    let realized = session.latest().map_or(false, |a| {
+    let realized = session.latest().is_some_and(|a| {
         matches!(
             a.status,
             WishClosureStatus::Realized | WishClosureStatus::Vacuous
