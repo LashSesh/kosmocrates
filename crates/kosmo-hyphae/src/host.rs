@@ -1,6 +1,7 @@
 use crate::code_hdag::CodeHDAG;
 use crate::deficiency::DeficiencyVector;
 use crate::void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
+use crate::xlang::CrossLanguageFingerprint;
 use kosmo_core::{Digest, PolicyProfile, Q16, TaintLabel};
 use kosmo_workbench::workspace::{WorkspaceEntryKind, WorkspaceIndex};
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,7 @@ struct HostCubeContent {
     deficiency_vector_id: Digest,
     entry_count: u64,
     hdag_count: u64,
+    fingerprint_count: u64,
     policy_id: Digest,
 }
 
@@ -55,16 +57,22 @@ pub struct HostCube {
     /// multiple voids (MissingTestFiber, MissingDocFiber, etc.).
     /// Empty when entries lack content.
     pub hdag_by_void_id: BTreeMap<Digest, CodeHDAG>,
+    /// Cross-language structural fingerprint keyed by `void.void_id`, populated
+    /// alongside `hdag_by_void_id` for every supported language (Rust, Python,
+    /// JavaScript, Go). This is the language-independent comparability artifact
+    /// the pipeline uses to rank cubes by cross-language structural resonance.
+    pub fingerprint_by_void_id: BTreeMap<Digest, CrossLanguageFingerprint>,
     pub policy_id: Digest,
 }
 
 impl HostCube {
     pub fn from_workspace_index(index: &WorkspaceIndex, policy: &PolicyProfile) -> Self {
         let binding = HostBinding::new(index.index_id, policy.id);
-        let (voids, hdag_by_void_id) = Self::derive_voids_and_hdags(index);
+        let (voids, hdag_by_void_id, fingerprint_by_void_id) = Self::derive_voids_and_hdags(index);
         let void_map = TopologicalVoidMap::from_voids(voids, policy.id);
         let deficiency_vector = DeficiencyVector::from_void_map(&void_map);
         let hdag_count = hdag_by_void_id.len() as u64;
+        let fingerprint_count = fingerprint_by_void_id.len() as u64;
 
         let cube_id = Digest::of(&HostCubeContent {
             binding_id: binding.binding_id,
@@ -72,6 +80,7 @@ impl HostCube {
             deficiency_vector_id: deficiency_vector.vector_id,
             entry_count: index.entry_count,
             hdag_count,
+            fingerprint_count,
             policy_id: policy.id,
         });
 
@@ -82,23 +91,37 @@ impl HostCube {
             deficiency_vector,
             entry_count: index.entry_count,
             hdag_by_void_id,
+            fingerprint_by_void_id,
             policy_id: policy.id,
         }
     }
 
-    /// Derive topological voids and, when entry content is available, CodeHDAGs.
+    /// Derive topological voids and, when entry content is available, CodeHDAGs
+    /// and cross-language structural fingerprints.
     ///
     /// When `entry.content` is `Some`, a CodeHDAG is extracted from the source text
     /// and stored under each void_id created for that file. This lets downstream
     /// layers (pipeline SourceCube construction) enrich energy assessments with
     /// `rho_coherence` (test-to-definition ratio) and `omega_phase` (complexity signal).
     ///
+    /// A [`CrossLanguageFingerprint`] is computed in lockstep and stored under the
+    /// same void_ids, giving the pipeline a language-independent structural profile
+    /// per void for cross-language resonance ranking.
+    ///
     /// Void severity is also modulated by HDAG structure when content is available:
     /// `MissingTestFiber` severity scales with definition count (more definitions →
     /// higher urgency for test coverage).
-    fn derive_voids_and_hdags(index: &WorkspaceIndex) -> (Vec<HostVoid>, BTreeMap<Digest, CodeHDAG>) {
+    #[allow(clippy::type_complexity)]
+    fn derive_voids_and_hdags(
+        index: &WorkspaceIndex,
+    ) -> (
+        Vec<HostVoid>,
+        BTreeMap<Digest, CodeHDAG>,
+        BTreeMap<Digest, CrossLanguageFingerprint>,
+    ) {
         let mut voids: Vec<HostVoid> = Vec::new();
         let mut hdag_by_void_id: BTreeMap<Digest, CodeHDAG> = BTreeMap::new();
+        let mut fingerprint_by_void_id: BTreeMap<Digest, CrossLanguageFingerprint> = BTreeMap::new();
 
         let source_entries: Vec<_> = index
             .entries
@@ -131,6 +154,12 @@ impl HostCube {
                 CodeHDAG::extract_auto(entry.digest, src, text, TaintLabel::Unverified)
             });
 
+            // The language-independent structural fingerprint, in lockstep with the HDAG.
+            let fp_opt: Option<CrossLanguageFingerprint> = entry
+                .content
+                .as_deref()
+                .and_then(|text| CrossLanguageFingerprint::from_auto(entry.digest, src, text));
+
             let has_test = test_paths.iter().any(|t| path_contains_stem(t, stem));
             if !has_test {
                 // Severity scales with definition count: more definitions → higher urgency.
@@ -151,6 +180,9 @@ impl HostCube {
                 if let Some(ref hdag) = hdag_opt {
                     hdag_by_void_id.insert(void.void_id, hdag.clone());
                 }
+                if let Some(ref fp) = fp_opt {
+                    fingerprint_by_void_id.insert(void.void_id, fp.clone());
+                }
                 voids.push(void);
             }
 
@@ -164,11 +196,14 @@ impl HostCube {
                 if let Some(ref hdag) = hdag_opt {
                     hdag_by_void_id.insert(void.void_id, hdag.clone());
                 }
+                if let Some(ref fp) = fp_opt {
+                    fingerprint_by_void_id.insert(void.void_id, fp.clone());
+                }
                 voids.push(void);
             }
         }
 
-        (voids, hdag_by_void_id)
+        (voids, hdag_by_void_id, fingerprint_by_void_id)
     }
 
     pub fn void_count(&self) -> usize {
@@ -360,6 +395,24 @@ mod tests {
                 "expected at least two Python defs, got {}",
                 hdag.definition_count()
             );
+        }
+    }
+
+    #[test]
+    fn host_cube_stores_cross_language_fingerprint() {
+        let policy = PolicyProfile::default_report_only();
+        let py = "import os\n\ndef alpha(x):\n    return x\n";
+        let index = make_index(vec![src_with_content("pkg/mod.py", py)]);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+        assert!(!cube.fingerprint_by_void_id.is_empty(), "fingerprint must be stored");
+        assert_eq!(
+            cube.fingerprint_by_void_id.len(),
+            cube.hdag_by_void_id.len(),
+            "fingerprint and HDAG maps populate in lockstep"
+        );
+        for fp in cube.fingerprint_by_void_id.values() {
+            assert!(fp.verify_id(), "stored fingerprint must be content-addressed");
+            assert!(fp.structural_count >= 2, "one import + one def");
         }
     }
 

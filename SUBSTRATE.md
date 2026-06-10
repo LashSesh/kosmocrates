@@ -419,8 +419,14 @@ the taxonomy, re-expressed as a deterministic, dependency-free lexical extractor
 
 Wiring: `kosmo-workbench`'s scanner now classifies `.py`/`.js`/`.go` (and the
 common variants) as source/test files per each language's convention, and
-`HostCube` dispatches extraction by detected language. Running `kosmo-substrate`
-over a polyglot workspace therefore produces voids, HDAG-scaled severities, and
+`HostCube` dispatches extraction by detected language. `HostCube` also stores a
+`CrossLanguageFingerprint` per void (`fingerprint_by_void_id`, content-addressed
+into `cube_id`), and `run_dry_pipeline` adds a `cross_language_resonance`
+`SourceCube` dimension — the maximum fingerprint similarity to any *other* file
+in the workspace, across languages. So a Python file structurally echoing a Go
+file resonates and ranks higher; a structural outlier does not. (Energy ranks,
+never gates — CROSS-010.) Running `kosmo-substrate` over a polyglot workspace
+therefore produces voids, HDAG-scaled severities, fingerprints, and
 energy-ranked `SourceCube`s for all four languages, materializing into the same
 `.kcube` archive.
 

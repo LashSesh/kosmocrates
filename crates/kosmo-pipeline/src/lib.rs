@@ -34,7 +34,7 @@ use kosmo_core::ReplayStatus;
 use kosmo_store::CrystalRecordStore;
 use kosmo_hyphae::{
     CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography,
-    CorpusCartographyUpdate, CorpusEntity, CorpusEntityKind, CubeSwarm, CubeDimensionProfile,
+    CorpusCartographyUpdate, CorpusEntity, CorpusEntityKind, CrossLanguageFingerprint, CubeSwarm, CubeDimensionProfile,
     DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
     MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport, MicroTopologyDiagnostic,
     MicroTopologyIndex, MorphogenicCorpusUpdate, MotifCandidate, NormFitnessTrace,
@@ -500,6 +500,30 @@ fn hex_prefix(d: &Digest) -> String {
 
 // ─── Pipeline Entry Point ──────────────────────────────────────────────────────
 
+/// Best cross-language structural resonance of `fp` against its distinct peers.
+///
+/// Returns the maximum [`CrossLanguageFingerprint::similarity`] to any fingerprint
+/// in `distinct` whose source differs from `fp`'s (a true peer, not itself), or
+/// `None` when there is no positive resonance or no distinct peer. Integer `Q16`
+/// throughout (CROSS-007). Energy ranks, never gates (CROSS-010): the returned
+/// value only reorders gate-passed candidates.
+fn best_cross_language_resonance(
+    fp: &CrossLanguageFingerprint,
+    distinct: &[CrossLanguageFingerprint],
+) -> Option<Q16> {
+    let best = distinct
+        .iter()
+        .filter(|other| other.source_evidence_id != fp.source_evidence_id)
+        .map(|other| fp.similarity(other).raw())
+        .max()
+        .unwrap_or(0);
+    if best > 0 {
+        Some(Q16::from_raw(best))
+    } else {
+        None
+    }
+}
+
 /// Run the full Kosmocrates dry-run pipeline on a workspace index.
 ///
 /// No host files are written. All outputs are passive/advisory reports.
@@ -752,6 +776,21 @@ pub fn run_dry_pipeline(
         })
         .collect();
 
+    // Distinct per-file cross-language fingerprints (deduped by source evidence),
+    // used to rank cubes by how strongly each void's source resonates structurally
+    // with the rest of the workspace — across languages. Energy ranks, never gates
+    // (CROSS-010), so this can only reorder gate-passed candidates.
+    let distinct_fingerprints: Vec<CrossLanguageFingerprint> = {
+        let mut seen: std::collections::BTreeSet<Digest> = std::collections::BTreeSet::new();
+        let mut out: Vec<CrossLanguageFingerprint> = Vec::new();
+        for fp in hyphae.host_cube.fingerprint_by_void_id.values() {
+            if seen.insert(fp.source_evidence_id) {
+                out.push(fp.clone());
+            }
+        }
+        out
+    };
+
     // Build SourceCubes from accepted decisions. intents and decisions are
     // produced in lockstep by passive_run, so zip is safe.
     // When a CodeHDAG is available for the void (entry had source content),
@@ -791,6 +830,16 @@ pub fn run_dry_pipeline(
                             .unwrap_or(Q16::ZERO);
                         if best.raw() > 0 {
                             d.insert("crystal_resonance".to_string(), best);
+                        }
+                    }
+                    // Cross-language structural resonance: how closely this void's
+                    // source fingerprint matches any *other* file in the workspace,
+                    // regardless of language. A Python file structurally echoing a Go
+                    // file resonates; a structural outlier does not. Only set when a
+                    // distinct peer exists and resonance is positive (no false-zero).
+                    if let Some(fp) = hyphae.host_cube.fingerprint_by_void_id.get(&void_id) {
+                        if let Some(res) = best_cross_language_resonance(fp, &distinct_fingerprints) {
+                            d.insert("cross_language_resonance".to_string(), res);
                         }
                     }
                     CubeDimensionProfile::from_raw_map(d)
@@ -2304,6 +2353,68 @@ mod tests {
     // ── Resonite map — Step 5e-resonite ──────────────────────────────────────
 
     // ── Crystal-boosted SourceCube scoring (crystal_resonance dimension) ────
+
+    #[test]
+    fn cross_language_resonance_helper_picks_best_distinct_peer() {
+        use kosmo_hyphae::{CrossLanguageFingerprint, SourceLanguage};
+        // Structurally-identical algorithm in two languages → similarity 1.0.
+        let py = CrossLanguageFingerprint::from_source(
+            SourceLanguage::Python,
+            Digest::of_bytes(b"py"),
+            "import os\ndef a(x):\n    return x\ndef b(y):\n    return y\n",
+        );
+        let rs = CrossLanguageFingerprint::from_source(
+            SourceLanguage::Rust,
+            Digest::of_bytes(b"rs"),
+            "use std::io;\npub fn a(x: u32) -> u32 { x }\npub fn b(y: u32) -> u32 { y }\n",
+        );
+        // A distinct peer exists → resonance equals the similarity to that peer.
+        let res = best_cross_language_resonance(&py, &[py.clone(), rs.clone()]);
+        assert_eq!(res, Some(py.similarity(&rs)), "resonance is similarity to the distinct peer");
+        assert_eq!(res, Some(Q16::ONE), "identical structural mix → resonance 1.0");
+        // Only itself in the set → no distinct peer → None.
+        assert!(best_cross_language_resonance(&py, std::slice::from_ref(&py)).is_none());
+        // Empty peer set → None.
+        assert!(best_cross_language_resonance(&py, &[]).is_none());
+    }
+
+    #[test]
+    fn pipeline_cross_language_resonance_invariant_and_fingerprints_stored() {
+        use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
+        // Two structurally-similar modules in different languages. The HostCube must
+        // store a fingerprint per void (the real cross-language proof through the
+        // pipeline scan), and the resonance-dimension invariant must hold: any
+        // SourceCube produced for an HDAG void carries cross_language_resonance.
+        // (source_cubes is empty in report_only + Unverified taint, so the invariant
+        // is vacuously satisfied there; the helper test above covers the computation.)
+        let py = "import os\n\ndef alpha(x):\n    return x\n\ndef beta(y):\n    return y\n";
+        let rs = "use std::io;\n\npub fn alpha(x: u32) -> u32 { x }\npub fn beta(y: u32) -> u32 { y }\n";
+        let mk = |path: &str, src: &str| WorkspaceEntry {
+            path: path.into(),
+            digest: Digest::of_bytes(src.as_bytes()),
+            size_bytes: src.len() as u64,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: Some(src.to_string()),
+        };
+        let index = WorkspaceIndex::from_entries(
+            "/repo".into(),
+            vec![mk("src/mod_a.py", py), mk("src/mod_b.rs", rs)],
+            policy().id,
+        );
+        let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy());
+        let fps = &r.hyphae_result.host_cube.fingerprint_by_void_id;
+        assert!(fps.len() >= 2, "both polyglot files must have fingerprints stored, got {}", fps.len());
+        for cube in &r.source_cubes {
+            if let Some(void_id) = cube.target_void_id {
+                if fps.contains_key(&void_id) {
+                    assert!(
+                        cube.dimension_profile.dimensions.contains_key("cross_language_resonance"),
+                        "SourceCube for an HDAG void with a distinct peer must carry cross_language_resonance"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn pipeline_crystal_resonance_absent_without_prior_crystals() {

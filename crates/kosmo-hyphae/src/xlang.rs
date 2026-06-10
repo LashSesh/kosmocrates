@@ -689,6 +689,13 @@ impl CrossLanguageFingerprint {
         Self::from_counts(language, count_kinds(language, content), source_evidence_id)
     }
 
+    /// Detect the language from `location` and fingerprint, or `None` for an
+    /// unrecognised extension (fail-closed). The host-scan integration entry point.
+    pub fn from_auto(source_evidence_id: Digest, location: &str, content: &str) -> Option<Self> {
+        SourceLanguage::from_path(location)
+            .map(|lang| Self::from_source(lang, source_evidence_id, content))
+    }
+
     fn from_counts(language: SourceLanguage, counts: KindCounts, source_evidence_id: Digest) -> Self {
         let total = counts.total();
         let density = |count: u64| -> Q16 {
