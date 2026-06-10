@@ -8,6 +8,7 @@ publish gate flips) will be served on
 | Document | What it covers |
 |---|---|
 | [`OVERVIEW.md`](OVERVIEW.md) | Full architecture: every tier, every feature, theory background. Long read. |
+| [`WISH_TO_SYSTEM.md`](WISH_TO_SYSTEM.md) | The wish-to-system machine — "CAD/CAM for software": the closed loop from a stated intent to a validated workspace change. Consolidated reference for the `kosmo-intent` / `-synthesizer` / `-materialize` / `-agent` layer. |
 | [`HORIZON-behavior-archetype.md`](HORIZON-behavior-archetype.md) | Design spec for the next floor: behavior facets (correctness, not just presence) + archetype expansion (full-stack fan-out). Not yet implemented. |
 | [`GETTING_STARTED.md`](GETTING_STARTED.md) | Step-by-step setup for first-time users. Complements `../README.md` quickstart. |
 | [`COMPLIANCE.md`](COMPLIANCE.md) | EU AI Act / determinism / replay compliance posture. |

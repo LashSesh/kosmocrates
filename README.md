@@ -115,6 +115,7 @@ API), see [`DEMO.md`](DEMO.md).
 | **Open the browser UI** | `kosmo-server --open` → http://localhost:7777 |
 | **Use the REST API** | `POST /api/analyse` — see [`SUBSTRATE.md`](SUBSTRATE.md) |
 | Understand the layered architecture | [`docs/OVERVIEW.md`](docs/OVERVIEW.md) |
+| **Understand the wish→system loop (CAD/CAM for software)** | [`docs/WISH_TO_SYSTEM.md`](docs/WISH_TO_SYSTEM.md) |
 | See the 3-session LLM proof | [`DEMO.md`](DEMO.md) |
 | Integrate from Python | [`bindings/python/README.md`](bindings/python/README.md) |
 | Integrate from Node / browser | [`bindings/node/README.md`](bindings/node/README.md) |

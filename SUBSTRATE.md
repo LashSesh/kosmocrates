@@ -28,6 +28,12 @@ content-addressed reports. It does not patch files, execute generated
 code, or write to disk without an explicit operator-issued approval
 token and a Foundry validation gate.
 
+> **This file documents the CAD/metrology half** — topology analysis and
+> ranking, fail-closed, writing nothing on its own. The *generative* half — the
+> closed loop that turns a stated intent into a validated workspace change ("the
+> wish-to-system machine", CAD/CAM for software) — is documented in
+> [`docs/WISH_TO_SYSTEM.md`](docs/WISH_TO_SYSTEM.md).
+
 ---
 
 ## Crate map
