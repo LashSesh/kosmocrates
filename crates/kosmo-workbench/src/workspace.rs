@@ -197,20 +197,53 @@ fn collect_entries(
     Ok(entries)
 }
 
+/// Classify a workspace file by its relative path.
+///
+/// Recognises the substrate's cross-language source set — Rust, Python,
+/// JavaScript, and Go — so a polyglot workspace yields `SourceFile`/`TestFile`
+/// entries the HYPHAE layer can lift into a topology. Test detection follows each
+/// language's own convention; the function is fail-closed for unknown extensions
+/// (`Unknown`), never guessing. The language-extraction dispatch itself lives in
+/// `kosmo-hyphae::xlang`; this layer only needs to know which files are source.
 fn classify_entry(rel: &str) -> WorkspaceEntryKind {
     if rel == "build.rs" || rel.ends_with("/build.rs") {
-        WorkspaceEntryKind::BuildScript
-    } else if rel.ends_with(".rs") {
-        let is_test = rel.starts_with("tests/")
-            || rel.contains("/tests/")
-            || rel.ends_with("_test.rs")
-            || rel == "tests.rs";
-        if is_test {
-            WorkspaceEntryKind::TestFile
-        } else {
-            WorkspaceEntryKind::SourceFile
-        }
-    } else if rel.ends_with(".toml")
+        return WorkspaceEntryKind::BuildScript;
+    }
+
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    let under_tests_dir = rel.starts_with("tests/")
+        || rel.starts_with("__tests__/")
+        || rel.contains("/tests/")
+        || rel.contains("/__tests__/");
+
+    // Rust
+    if rel.ends_with(".rs") {
+        let is_test =
+            under_tests_dir || rel.ends_with("_test.rs") || rel == "tests.rs";
+        return source_or_test(is_test);
+    }
+    // Python
+    if rel.ends_with(".py") || rel.ends_with(".pyi") {
+        let is_test =
+            under_tests_dir || name.starts_with("test_") || name.ends_with("_test.py");
+        return source_or_test(is_test);
+    }
+    // JavaScript
+    if rel.ends_with(".js") || rel.ends_with(".mjs") || rel.ends_with(".cjs") || rel.ends_with(".jsx")
+    {
+        let is_test = under_tests_dir
+            || name.ends_with(".test.js")
+            || name.ends_with(".spec.js")
+            || name.ends_with(".test.mjs")
+            || name.ends_with(".spec.mjs");
+        return source_or_test(is_test);
+    }
+    // Go
+    if rel.ends_with(".go") {
+        return source_or_test(name.ends_with("_test.go"));
+    }
+
+    if rel.ends_with(".toml")
         || rel.ends_with(".json")
         || rel.ends_with(".yaml")
         || rel.ends_with(".yml")
@@ -221,6 +254,14 @@ fn classify_entry(rel: &str) -> WorkspaceEntryKind {
         WorkspaceEntryKind::Documentation
     } else {
         WorkspaceEntryKind::Unknown
+    }
+}
+
+fn source_or_test(is_test: bool) -> WorkspaceEntryKind {
+    if is_test {
+        WorkspaceEntryKind::TestFile
+    } else {
+        WorkspaceEntryKind::SourceFile
     }
 }
 
@@ -292,6 +333,27 @@ mod tests {
         assert_eq!(classify_entry("Cargo.toml"), WorkspaceEntryKind::ConfigFile);
         assert_eq!(classify_entry("README.md"), WorkspaceEntryKind::Documentation);
         assert_eq!(classify_entry("img.png"), WorkspaceEntryKind::Unknown);
+    }
+
+    #[test]
+    fn workspace_classify_cross_language_sources() {
+        // Python, JavaScript, Go source files are recognised as source.
+        assert_eq!(classify_entry("src/fib.py"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(classify_entry("web/app.js"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(classify_entry("lib/x.mjs"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(classify_entry("cmd/main.go"), WorkspaceEntryKind::SourceFile);
+    }
+
+    #[test]
+    fn workspace_classify_cross_language_tests() {
+        assert_eq!(classify_entry("test_fib.py"), WorkspaceEntryKind::TestFile);
+        assert_eq!(classify_entry("pkg/fib_test.py"), WorkspaceEntryKind::TestFile);
+        assert_eq!(classify_entry("fib.test.js"), WorkspaceEntryKind::TestFile);
+        assert_eq!(classify_entry("__tests__/app.js"), WorkspaceEntryKind::TestFile);
+        assert_eq!(classify_entry("fib_test.go"), WorkspaceEntryKind::TestFile);
+        // A plain Rust file named with a Python test prefix stays a source file:
+        // test conventions are applied per language.
+        assert_eq!(classify_entry("test_helpers.rs"), WorkspaceEntryKind::SourceFile);
     }
 
     #[test]

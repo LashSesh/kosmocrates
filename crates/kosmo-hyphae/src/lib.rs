@@ -34,6 +34,7 @@ pub mod structural_yield;
 pub mod surgery;
 pub mod swarm;
 pub mod void_map;
+pub mod xlang;
 
 pub use assimilation::{AssimilationDecision, AssimilationLedger, AssimilationOutcome, NegativeEvidenceRecord};
 pub use code_hdag::{CodeHDAG, CodeObservation, HDAGEdge, HDAGEdgeKind, HDAGNode, ObservationKind};
@@ -79,3 +80,4 @@ pub use lpcm::{
     SeamEdge, SeamGraph, SupportMassVector, monotone_contractive_filter,
 };
 pub use void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
+pub use xlang::{CrossLanguageFingerprint, SourceLanguage, is_test_path};

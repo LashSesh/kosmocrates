@@ -124,14 +124,11 @@ impl HostCube {
             let src = entry.path.as_str();
             let stem = module_stem(src);
 
-            // Extract HDAG when source content is available.
-            let hdag_opt: Option<CodeHDAG> = entry.content.as_deref().map(|text| {
-                CodeHDAG::extract_from_rust_source(
-                    entry.digest,
-                    src,
-                    text,
-                    TaintLabel::Unverified,
-                )
+            // Extract HDAG when source content is available. Language is detected
+            // from the path, so Rust, Python, JavaScript, and Go all lift into the
+            // same content-addressed graph (fail-closed: unknown extension → no HDAG).
+            let hdag_opt: Option<CodeHDAG> = entry.content.as_deref().and_then(|text| {
+                CodeHDAG::extract_auto(entry.digest, src, text, TaintLabel::Unverified)
             });
 
             let has_test = test_paths.iter().any(|t| path_contains_stem(t, stem));
@@ -183,10 +180,17 @@ impl HostCube {
     }
 }
 
-/// Extract the module stem from a source path (filename without extension).
+/// Extract the module stem from a source path (filename without its extension).
+///
+/// Language-agnostic: strips the final extension so `fib.py`, `fib.go`, and
+/// `fib.rs` all share the stem `fib`, letting test/doc companion detection work
+/// uniformly across languages.
 fn module_stem(path: &str) -> &str {
-    let filename = path.split('/').last().unwrap_or(path);
-    filename.strip_suffix(".rs").unwrap_or(filename)
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    match filename.rfind('.') {
+        Some(dot) if dot > 0 => &filename[..dot],
+        _ => filename,
+    }
 }
 
 /// True if `path` contains `stem` as a substring (case-sensitive).
@@ -338,6 +342,25 @@ mod tests {
             severity_dense.raw() > severity_sparse.raw(),
             "more definitions must produce higher MissingTestFiber severity"
         );
+    }
+
+    #[test]
+    fn host_cube_extracts_hdag_from_python_source() {
+        // Cross-language hypercube materialization: a Python file with no test
+        // companion produces a MissingTestFiber void carrying a real CodeHDAG,
+        // extracted by the polyglot path — not the Rust extractor.
+        let policy = PolicyProfile::default_report_only();
+        let py = "import os\n\ndef alpha(x):\n    return x\n\ndef beta(y):\n    return y\n";
+        let index = make_index(vec![src_with_content("pkg/fib.py", py)]);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+        assert!(!cube.hdag_by_void_id.is_empty(), "Python source must yield an HDAG");
+        for hdag in cube.hdag_by_void_id.values() {
+            assert!(
+                hdag.definition_count() >= 2,
+                "expected at least two Python defs, got {}",
+                hdag.definition_count()
+            );
+        }
     }
 
     #[test]

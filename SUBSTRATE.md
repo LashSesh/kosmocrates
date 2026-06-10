@@ -394,7 +394,38 @@ is hardcoded `false` on the output report (CROSS-013).
 | `CompositeSupportCube` | Integer-averaged Q16 aggregate support |
 | `HostTargetDelta` | Planning-only, `from_host_and_composite` |
 
-**Test count:** 127 passing, 0 failing.
+### Cross-language extraction (`xlang`) — polyglot hypercube materialization
+
+Everything from `SourceCube` upward is language-agnostic: the cube pipeline
+consumes a `CodeHDAG` and the ρ/ω poles derived from it, never the source text.
+The only Rust-specific link was the extractor at the head of the chain. The
+`xlang` module removes it, so a Python, JavaScript, or Go file lifts into the
+**same** content-addressed `CodeHDAG` a Rust file would — and flows into the
+identical hypercube with no downstream change.
+
+| Type / fn | Role |
+|---|---|
+| `SourceLanguage` | `Rust`, `Python`, `JavaScript`, `Go`; `from_path` detects by extension, fail-closed (`None` for unknown) |
+| `CodeHDAG::extract_from_source` | Language-dispatched lexical extraction; Rust delegates verbatim to `extract_from_rust_source` (byte-identical ids) |
+| `CodeHDAG::extract_auto` | Detect language from path and extract, or `None` — the host-scan integration entry point |
+| `CrossLanguageFingerprint` | Content-addressed `Q16` structural-ratio vector (function/type/import/test density); `similarity` is integer-only (CROSS-007) |
+
+The taxonomy is mined from the PSE-Codex corpus (10 algorithms × 4 languages)
+and its `normalize` Rosetta table — *what counts as* a function, a type, an
+import, a test, per language. PSE-Codex's tree-sitter + `f64` spectral/Kuramoto
+machinery is deliberately **not** ported: it is float-heavy and dependency-bound,
+which the substrate forbids (CROSS-007, no external deps). What carries over is
+the taxonomy, re-expressed as a deterministic, dependency-free lexical extractor.
+
+Wiring: `kosmo-workbench`'s scanner now classifies `.py`/`.js`/`.go` (and the
+common variants) as source/test files per each language's convention, and
+`HostCube` dispatches extraction by detected language. Running `kosmo-substrate`
+over a polyglot workspace therefore produces voids, HDAG-scaled severities, and
+energy-ranked `SourceCube`s for all four languages, materializing into the same
+`.kcube` archive.
+
+**Test count:** 127 passing, 0 failing (HYPHAE core) + 22 cross-language
+(`xlang`) + host/scanner integration tests.
 
 ---
 
@@ -532,6 +563,7 @@ planning artifacts only — they have no live execution path:
 | Cross-session corpus persistence | ✅ `kosmo-store`: JSONL append-only store, `verify_integrity()` |
 | ParseBack topology scan (crate-level) | ✅ `kosmo-parseback`: `cargo metadata`, `CrateFingerprint`, INVARIANT-007 |
 | Intra-file code topology (module/import/fn/type/test graph) | ✅ `kosmo-hyphae::code_hdag::extract_from_rust_source` — lexical, dependency-free, content-addressed; ρ/ω feed the energy kernel |
+| Cross-language code topology (Python, JavaScript, Go + Rust) | ✅ `kosmo-hyphae::xlang` — `extract_from_source`/`extract_auto`, dependency-free lexical, `Q16` `CrossLanguageFingerprint`; polyglot workspaces materialize into the same hypercube |
 | Unified tripolar energy selection (`D = ψ·ρ·ω`) | ✅ `kosmo-core::energy` — Q16, content-addressed, ranks-never-gates |
 | R1→R2→R3 operator pipeline | ✅ `kosmo-operator`: `OperatorExecutor::execute()`, closure synthesis |
 | Empirical validation (52-scenario benchmark) | ✅ `tools/kosmo-eval`: EXIT 0, all 52 scenarios pass |
@@ -566,6 +598,7 @@ that the substrate's output quality warrants it.
 | `crates/kosmo-core/src/digest.rs` | `Digest`, `canonical_bytes` |
 | `crates/kosmo-core/src/energy.rs` | `TripolarEnergy`, `EnergyFactors`, `EnergyKernel`, `EnergyAssessment`, `rank_by_energy` |
 | `crates/kosmo-hyphae/src/code_hdag.rs` | `CodeHDAG::extract_from_rust_source`, `rho_coherence`, `omega_phase`, `energy_kernel` |
+| `crates/kosmo-hyphae/src/xlang.rs` | `SourceLanguage`, `CodeHDAG::extract_from_source`/`extract_auto`, `CrossLanguageFingerprint` (cross-language extraction) |
 | `crates/kosmo-hyphae/src/run.rs` | `passive_run()`, `HyphaeRunResult` |
 | `crates/kosmo-hyphae/src/gates.rs` | `GateCascade` (5 gates, no short-circuit) |
 | `crates/kosmo-hyphae/src/lpcm.rs` | LPCM v0.4.2 full pipeline |
