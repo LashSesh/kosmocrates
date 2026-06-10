@@ -539,6 +539,55 @@ fn best_cross_language_resonance(
     }
 }
 
+/// Wrap a certified [`StructuralCrystalRecord`] as a [`PseBridgeCandidate`] —
+/// the substrate→core unification adapter.
+///
+/// The certified crystal is the substrate's strongest durable artifact
+/// (gate-passed, constraint-certified, replay-proofed), so this is the primary
+/// offer path from the CAD library into PSE crystallization. The candidate is
+/// **offer-only**: PSE runs its own gate cascade and decides crystallization
+/// (the bridge's architecture contract).
+///
+/// - `observation_digest` = `record.record_id` (content-addressing by reference).
+/// - `confidence` = `(ρ + ω) / 2` in `Q16` integer arithmetic — the record's
+///   structural poles, following the substrate convention that a record without
+///   HDAG provenance carries the unconstrained baseline `Q16::ONE` for both.
+/// - When the record carries a [`CrossLanguageFingerprint`], its language and
+///   `fingerprint_id` travel as metadata so the PSE side can route and de-dupe
+///   cross-language patterns.
+/// - `evidence_bundle_id` is the certifying candidate's bundle (CROSS-006); the
+///   caller supplies it because the record stores the candidate linkage, not the
+///   bundle itself.
+pub fn crystal_to_pse_candidate(
+    record: &StructuralCrystalRecord,
+    evidence_bundle_id: Digest,
+    source_run_id: Digest,
+    policy_id: Digest,
+) -> PseBridgeCandidate {
+    let confidence = Q16::from_raw((record.rho_coherence.raw() + record.omega_phase.raw()) / 2);
+    let language = record
+        .fingerprint
+        .as_ref()
+        .map(|f| f.language.as_str())
+        .unwrap_or("-");
+    let label = format!("crystal:{}:{}", language, &record.record_id.to_hex()[..12]);
+    let candidate = PseBridgeCandidate::new(
+        PseBridgeCandidateKind::CertifiedCrystal,
+        record.record_id,
+        label,
+        confidence,
+        source_run_id,
+        evidence_bundle_id,
+        policy_id,
+    );
+    match record.fingerprint.as_ref() {
+        Some(f) => candidate
+            .with_metadata("language", f.language.as_str())
+            .with_metadata("fingerprint_id", f.fingerprint_id.to_hex()),
+        None => candidate,
+    }
+}
+
 /// Run the full Kosmocrates dry-run pipeline on a workspace index.
 ///
 /// No host files are written. All outputs are passive/advisory reports.
@@ -1318,6 +1367,24 @@ pub fn run_dry_pipeline(
                 m.evidence_bundle_id,
                 policy.id,
             ));
+        }
+        // StructuralCrystalRecord → CertifiedCrystal — the unification path.
+        // Every crystal certified in THIS run is offered to PSE. The evidence
+        // bundle comes from the certifying candidate (looked up by candidate_id);
+        // a record without a resolvable candidate is skipped fail-closed rather
+        // than offered with fabricated evidence (CROSS-006).
+        for r in &certified_crystals {
+            if let Some(cand) = crystal_candidates
+                .iter()
+                .find(|c| c.candidate_id == r.candidate_id)
+            {
+                raw.push(crystal_to_pse_candidate(
+                    r,
+                    cand.evidence_bundle_id,
+                    hyphae.run_id,
+                    policy.id,
+                ));
+            }
         }
         // Sort by confidence descending (deterministic: stable sort, then by id).
         raw.sort_by(|a, b| b.confidence.cmp(&a.confidence).then(a.id.cmp(&b.id)));
@@ -2817,6 +2884,141 @@ mod tests {
     }
 
     // ── Resonite map — Step 5e-resonite ──────────────────────────────────────
+
+    // ── Crystal → PSE unification adapter ───────────────────────────────────
+
+    /// Build a gate-passing decision (Clean taint, Foundry authority) so the
+    /// crystal candidate is certifiable — the same construction crystal.rs uses.
+    fn make_certifiable_candidate() -> kosmo_hyphae::StructuralCrystalCandidate {
+        use kosmo_core::{
+            AuthorityLabel, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus, TaintLabel,
+        };
+        use kosmo_hyphae::{
+            AssimilationDecision, GateCascade, StructuralYield, StructuralYieldKind,
+        };
+        let policy = policy();
+        let ev = EvidenceBundle::seal(
+            vec![EvidenceRef::new(
+                Digest::of_bytes(b"e"),
+                EvidenceKind::HostScan,
+                "scan",
+            )],
+            policy.id,
+            ReplayStatus::Replayable,
+        );
+        let yield_ = StructuralYield::new(
+            StructuralYieldKind::DeficiencyFill,
+            Some(Digest::of_bytes(b"v")),
+            None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            ev.bundle_id,
+            policy.id,
+        );
+        let cascade = GateCascade::standard_gates(policy.clone());
+        let trace = cascade.apply(&yield_, &ev);
+        let decision = AssimilationDecision::from_trace(&yield_, &trace, &ev, policy.id);
+        kosmo_hyphae::StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(Digest::of_bytes(b"v")),
+            Q16::HALF,
+            Q16::ONE,
+        )
+    }
+
+    #[test]
+    fn crystal_to_pse_candidate_wraps_record() {
+        use kosmo_core::ReplayStatus;
+        use kosmo_hyphae::{CrossLanguageFingerprint, SourceLanguage};
+        let fp = CrossLanguageFingerprint::from_source(
+            SourceLanguage::Python,
+            Digest::of_bytes(b"src"),
+            "import os\ndef a(x):\n    return x\n",
+        );
+        let candidate = make_certifiable_candidate().with_fingerprint(fp.clone());
+        let (_cert, record) = candidate
+            .certify(ReplayStatus::Replayable)
+            .expect("clean-taint candidate must certify");
+
+        let run_id = Digest::of_bytes(b"run");
+        let c =
+            crystal_to_pse_candidate(&record, candidate.evidence_bundle_id, run_id, policy().id);
+
+        assert_eq!(c.kind, PseBridgeCandidateKind::CertifiedCrystal);
+        assert_eq!(
+            c.observation_digest, record.record_id,
+            "addressed by record_id"
+        );
+        // confidence = (ρ + ω) / 2 = (0.5 + 1.0) / 2 = 0.75
+        assert_eq!(c.confidence, Q16::ratio(3, 4).unwrap());
+        assert_eq!(c.evidence_bundle_id, candidate.evidence_bundle_id);
+        assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006");
+        assert!(
+            c.label.starts_with("crystal:python:"),
+            "label carries language: {}",
+            c.label
+        );
+        assert_eq!(
+            c.metadata.get("language").map(String::as_str),
+            Some("python")
+        );
+        assert_eq!(
+            c.metadata.get("fingerprint_id"),
+            Some(&fp.fingerprint_id.to_hex()),
+            "fingerprint travels as metadata"
+        );
+        assert!(c.verify_id(), "candidate is content-addressed");
+
+        // Deterministic: same record → same candidate id.
+        let c2 =
+            crystal_to_pse_candidate(&record, candidate.evidence_bundle_id, run_id, policy().id);
+        assert_eq!(c.id, c2.id);
+    }
+
+    #[test]
+    fn crystal_to_pse_candidate_without_fingerprint_is_plain() {
+        use kosmo_core::ReplayStatus;
+        let candidate = make_certifiable_candidate();
+        let (_cert, record) = candidate.certify(ReplayStatus::Replayable).unwrap();
+        let c = crystal_to_pse_candidate(
+            &record,
+            candidate.evidence_bundle_id,
+            Digest::of_bytes(b"run"),
+            policy().id,
+        );
+        assert_eq!(c.kind, PseBridgeCandidateKind::CertifiedCrystal);
+        assert!(
+            c.label.starts_with("crystal:-:"),
+            "no-fingerprint label: {}",
+            c.label
+        );
+        assert!(c.metadata.is_empty(), "no fingerprint → no metadata");
+        assert!(c.verify_id());
+    }
+
+    #[test]
+    fn pipeline_offers_every_certified_crystal_to_pse() {
+        // Wiring invariant: with both layers enabled, the pipeline offers exactly
+        // one CertifiedCrystal candidate per crystal certified in this run (zero
+        // in report_only fixtures, where decisions are EvidenceOnly — the
+        // equality must hold in both regimes).
+        let opts = IntegrationRunOptions {
+            enable_pse_candidates: true,
+            enable_crystal_candidates: true,
+            ..IntegrationRunOptions::report_only()
+        };
+        let r = run_dry_pipeline(&content_fixture_index(), &opts, &policy());
+        let offered = r
+            .pse_candidates
+            .iter()
+            .filter(|c| c.kind == PseBridgeCandidateKind::CertifiedCrystal)
+            .count();
+        assert_eq!(
+            offered,
+            r.certified_crystals.len(),
+            "every certified crystal must be offered to PSE, and none invented"
+        );
+    }
 
     // ── Crystal-boosted SourceCube scoring (crystal_resonance dimension) ────
 

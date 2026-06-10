@@ -23,9 +23,10 @@
 //! ## Promotion lifecycle
 //!
 //! 1. **Wrap.** A `kosmo-*` artifact (a structural yield, a topology diff, a
-//!    validation closure, a `.kcube` descriptor) becomes a [`PseBridgeCandidate`]
-//!    — content-addressed by *reference* (`observation_digest`), carrying a `Q16`
-//!    `confidence` and full evidence/policy provenance.
+//!    validation closure, a `.kcube` descriptor, a certified structural crystal)
+//!    becomes a [`PseBridgeCandidate`] — content-addressed by *reference*
+//!    (`observation_digest`), carrying a `Q16` `confidence` and full
+//!    evidence/policy provenance.
 //! 2. **Bundle.** One or more candidates are gathered into a [`PromotionRequest`].
 //! 3. **Gate.** [`validate_candidate`] applies the policy: outside an execution
 //!    mode that permits it, the request is refused fail-closed.
@@ -66,6 +67,12 @@ pub enum PseBridgeCandidateKind {
     ValidationResult,
     /// A `KcubePackage` descriptor offered as a knowledge artifact.
     KcubeArtifact,
+    /// A certified `StructuralCrystalRecord` — the substrate's strongest durable
+    /// artifact: gate-passed, constraint-certified, replay-proofed, and (when the
+    /// source carried content) bearing a cross-language structural fingerprint.
+    /// This is the primary unification path from the substrate's CAD library
+    /// into PSE crystallization.
+    CertifiedCrystal,
     Custom(String),
 }
 
@@ -887,5 +894,29 @@ mod tests {
         );
         assert!(c.verify_id());
         assert_ne!(c.evidence_bundle_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn certified_crystal_kind_roundtrips_and_is_distinct() {
+        // The unification kind: serde-stable and distinct from the scan kind, so
+        // PSE-side routing can tell a certified crystal from a raw observation.
+        let c = PseBridgeCandidate::new(
+            PseBridgeCandidateKind::CertifiedCrystal,
+            d(b"record"),
+            "crystal:python:abc",
+            Q16::ratio(3, 4).unwrap(),
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
+        );
+        assert!(c.verify_id());
+        let json = serde_json::to_string(&c).unwrap();
+        let back: PseBridgeCandidate = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, c, "serde roundtrip must be lossless");
+        assert_eq!(back.kind, PseBridgeCandidateKind::CertifiedCrystal);
+        assert_ne!(
+            PseBridgeCandidateKind::CertifiedCrystal,
+            PseBridgeCandidateKind::StructuralObservation
+        );
     }
 }
