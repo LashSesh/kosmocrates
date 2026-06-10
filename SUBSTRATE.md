@@ -440,10 +440,20 @@ into `cube_id`), and `run_dry_pipeline` adds a `cross_language_resonance`
 `SourceCube` dimension — the maximum fingerprint similarity to any *other* file
 in the workspace, across languages. So a Python file structurally echoing a Go
 file resonates and ranks higher; a structural outlier does not. (Energy ranks,
-never gates — CROSS-010.) Running `kosmo-substrate` over a polyglot workspace
-therefore produces voids, HDAG-scaled severities, fingerprints, and
-energy-ranked `SourceCube`s for all four languages, materializing into the same
-`.kcube` archive.
+never gates — CROSS-010.)
+
+The fingerprint also travels into the durable CAD library: a certified
+`StructuralCrystalCandidate`/`StructuralCrystalRecord` carries the originating
+file's `CrossLanguageFingerprint` (`with_fingerprint`, content-addressed into the
+record id). `StructuralCrystalRecord::fingerprint_resonance` then lets the
+pipeline's `crystal_resonance` dimension match a void against certified crystals
+**across languages and across runs** — a Go crystal can resonate with a
+structurally-similar Python void — using the richer four-axis fingerprint when
+both sides carry one, and falling back to the two-axis ρ/ω proximity otherwise.
+
+Running `kosmo-substrate` over a polyglot workspace therefore produces voids,
+HDAG-scaled severities, fingerprints, and energy-ranked `SourceCube`s for all
+supported languages, materializing into the same `.kcube` archive.
 
 **Test count:** 127 passing, 0 failing (HYPHAE core) + 22 cross-language
 (`xlang`) + host/scanner integration tests.

@@ -1,5 +1,6 @@
 use crate::assimilation::{AssimilationDecision, AssimilationOutcome};
 use crate::gates::GateTrace;
+use crate::xlang::CrossLanguageFingerprint;
 use kosmo_core::{
     Digest, EnergyAssessment, EnergyFactors, EnergyKernel, EvidenceBundle, FoundrySurvival,
     GateResult, LicenseStatus, PolicyProfile, Q16, ReplayStatus, TripolarEnergy,
@@ -30,6 +31,8 @@ struct CandidateContent {
     source_void_id: Digest,
     rho_coherence: i64,
     omega_phase: i64,
+    /// `Digest::ZERO` when no cross-language fingerprint is attached.
+    fingerprint_id: Digest,
     policy_id: Digest,
 }
 
@@ -61,6 +64,11 @@ pub struct StructuralCrystalCandidate {
     /// Structural-complexity pole ω from the originating `CodeHDAG`.
     /// `Q16::ONE` when no HDAG is available (unconstrained baseline).
     pub omega_phase: Q16,
+    /// Language-independent structural fingerprint of the originating source file,
+    /// when one was available at host-scan time. Carries the four density axes that
+    /// let `crystal_resonance` match certified crystals to voids *across languages*.
+    #[serde(default)]
+    pub fingerprint: Option<CrossLanguageFingerprint>,
     pub policy_id: Digest,
 }
 
@@ -100,6 +108,7 @@ impl StructuralCrystalCandidate {
             source_void_id: source_void_id.unwrap_or(Digest::ZERO),
             rho_coherence: rho_coherence.raw(),
             omega_phase: omega_phase.raw(),
+            fingerprint_id: Digest::ZERO,
             policy_id: decision.policy_id,
         });
 
@@ -113,8 +122,30 @@ impl StructuralCrystalCandidate {
             source_void_id,
             rho_coherence,
             omega_phase,
+            fingerprint: None,
             policy_id: decision.policy_id,
         }
+    }
+
+    /// Attach the originating source file's cross-language fingerprint, recomputing
+    /// `candidate_id` so the enriched candidate is content-addressed distinctly. The
+    /// fingerprint propagates into the certified [`StructuralCrystalRecord`], making
+    /// cross-language crystal matching possible across runs.
+    pub fn with_fingerprint(mut self, fingerprint: CrossLanguageFingerprint) -> Self {
+        let fingerprint_id = fingerprint.fingerprint_id;
+        self.candidate_id = Digest::of(&CandidateContent {
+            yield_id: self.yield_id,
+            decision_id: self.decision_id,
+            support_score: 0,
+            evidence_bundle_id: self.evidence_bundle_id,
+            source_void_id: self.source_void_id.unwrap_or(Digest::ZERO),
+            rho_coherence: self.rho_coherence.raw(),
+            omega_phase: self.omega_phase.raw(),
+            fingerprint_id,
+            policy_id: self.policy_id,
+        });
+        self.fingerprint = Some(fingerprint);
+        self
     }
 
     pub fn is_certifiable(&self) -> bool {
@@ -368,6 +399,8 @@ struct RecordContent {
     source_void_id: Digest,
     rho_coherence: i64,
     omega_phase: i64,
+    /// `Digest::ZERO` when no cross-language fingerprint is attached.
+    fingerprint_id: Digest,
     policy_id: Digest,
 }
 
@@ -389,10 +422,19 @@ pub struct StructuralCrystalRecord {
     pub rho_coherence: Q16,
     /// Structural-complexity pole ω from the originating `CodeHDAG`.
     pub omega_phase: Q16,
+    /// Language-independent structural fingerprint carried over from the candidate.
+    /// Enables cross-language resonance: a crystal certified from one language can
+    /// match a structurally-similar void in another.
+    #[serde(default)]
+    pub fingerprint: Option<CrossLanguageFingerprint>,
     pub policy_id: Digest,
 }
 
 impl StructuralCrystalRecord {
+    fn fingerprint_id(&self) -> Digest {
+        self.fingerprint.as_ref().map(|f| f.fingerprint_id).unwrap_or(Digest::ZERO)
+    }
+
     /// Recompute and verify the `record_id` against the record's fields.
     ///
     /// Returns `true` iff the stored `record_id` matches the expected content-addressed
@@ -404,9 +446,19 @@ impl StructuralCrystalRecord {
             source_void_id: self.source_void_id.unwrap_or(Digest::ZERO),
             rho_coherence: self.rho_coherence.raw(),
             omega_phase: self.omega_phase.raw(),
+            fingerprint_id: self.fingerprint_id(),
             policy_id: self.policy_id,
         });
         self.record_id == expected
+    }
+
+    /// Cross-language structural resonance between this crystal and a void's
+    /// fingerprint — the four-axis [`CrossLanguageFingerprint::similarity`], in
+    /// `Q16` integer arithmetic. `None` when this crystal carries no fingerprint
+    /// (callers fall back to `rho`/`omega` proximity). Language-independent: a Go
+    /// crystal can resonate with a Python void.
+    pub fn fingerprint_resonance(&self, void_fingerprint: &CrossLanguageFingerprint) -> Option<Q16> {
+        self.fingerprint.as_ref().map(|f| f.similarity(void_fingerprint))
     }
 
     /// Build a record from an issued certificate and the originating candidate.
@@ -415,12 +467,18 @@ impl StructuralCrystalRecord {
     /// so the CAD library element retains code-structure provenance. All three
     /// participate in `record_id` content-addressing.
     pub fn from_certificate(cert: &AssimilationCertificate, candidate: &StructuralCrystalCandidate) -> Self {
+        let fingerprint_id = candidate
+            .fingerprint
+            .as_ref()
+            .map(|f| f.fingerprint_id)
+            .unwrap_or(Digest::ZERO);
         let record_id = Digest::of(&RecordContent {
             candidate_id: cert.candidate_id,
             certificate_id: cert.certificate_id,
             source_void_id: candidate.source_void_id.unwrap_or(Digest::ZERO),
             rho_coherence: candidate.rho_coherence.raw(),
             omega_phase: candidate.omega_phase.raw(),
+            fingerprint_id,
             policy_id: cert.policy_id,
         });
         Self {
@@ -430,6 +488,7 @@ impl StructuralCrystalRecord {
             source_void_id: candidate.source_void_id,
             rho_coherence: candidate.rho_coherence,
             omega_phase: candidate.omega_phase,
+            fingerprint: candidate.fingerprint.clone(),
             policy_id: cert.policy_id,
         }
     }
@@ -938,5 +997,82 @@ mod tests {
         let a1 = r1.energy_assessment(&GateResult::Pass);
         let a2 = r2.energy_assessment(&GateResult::Pass);
         assert_eq!(a1.id, a2.id, "resonite energy must be symmetric (r(a,b) == r(b,a))");
+    }
+
+    // ── Cross-language crystal fingerprint ─────────────────────────────────────
+
+    #[test]
+    fn crystal_with_fingerprint_changes_id_and_propagates_to_record() {
+        use crate::xlang::{CrossLanguageFingerprint, SourceLanguage};
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        let plain = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(Digest::of_bytes(b"v")),
+            Q16::HALF,
+            Q16::HALF,
+        );
+        let fp = CrossLanguageFingerprint::from_source(
+            SourceLanguage::Python,
+            Digest::of_bytes(b"src"),
+            "import os\ndef a(x):\n    return x\ndef b(y):\n    return y\n",
+        );
+        let rich = plain.clone().with_fingerprint(fp);
+        assert_ne!(plain.candidate_id, rich.candidate_id, "fingerprint changes the candidate id");
+        assert!(rich.fingerprint.is_some());
+
+        let (_c, record) = rich.certify(ReplayStatus::Replayable).expect("certifiable");
+        assert!(record.fingerprint.is_some(), "record must carry the fingerprint");
+        assert!(record.verify_id(), "record_id is content-addressed incl. fingerprint");
+
+        let (_c2, plain_record) = plain.certify(ReplayStatus::Replayable).expect("certifiable");
+        assert!(plain_record.fingerprint.is_none());
+        assert_ne!(record.record_id, plain_record.record_id, "fingerprint distinguishes records");
+    }
+
+    #[test]
+    fn crystal_record_resonates_across_languages() {
+        use crate::xlang::{CrossLanguageFingerprint, SourceLanguage};
+        let policy = PolicyProfile::default_report_only();
+        let decision = make_accepted_decision(&policy);
+        // A crystal certified from a Go file.
+        let go_fp = CrossLanguageFingerprint::from_source(
+            SourceLanguage::Go,
+            Digest::of_bytes(b"go"),
+            "package main\nimport \"fmt\"\nfunc a(n int) int { return n }\nfunc b(n int) int { return n }\n",
+        );
+        let (_c, record) = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(Digest::of_bytes(b"v")),
+            Q16::HALF,
+            Q16::HALF,
+        )
+        .with_fingerprint(go_fp)
+        .certify(ReplayStatus::Replayable)
+        .unwrap();
+
+        // A structurally-equivalent Python void: import + two functions.
+        let py_fp = CrossLanguageFingerprint::from_source(
+            SourceLanguage::Python,
+            Digest::of_bytes(b"py"),
+            "import os\ndef a(n):\n    return n\ndef b(n):\n    return n\n",
+        );
+        let res = record.fingerprint_resonance(&py_fp);
+        assert_eq!(
+            res,
+            Some(Q16::ONE),
+            "identical structural mix → cross-language resonance 1.0"
+        );
+
+        // A record without a fingerprint cannot resonate by fingerprint.
+        let (_c2, plain) = StructuralCrystalCandidate::from_decision_with_signals(
+            &decision,
+            Some(Digest::of_bytes(b"v")),
+            Q16::HALF,
+            Q16::HALF,
+        )
+        .certify(ReplayStatus::Replayable)
+        .unwrap();
+        assert!(plain.fingerprint_resonance(&py_fp).is_none());
     }
 }

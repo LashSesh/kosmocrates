@@ -816,8 +816,19 @@ pub fn run_dry_pipeline(
                     // crystal_resonance dimension boosts ρ (coherence) in energy ranking.
                     // Only set when prior_crystals is non-empty (no false-zero baseline).
                     if !prior_crystals.is_empty() {
+                        // Prefer the richer, language-independent four-axis fingerprint
+                        // resonance when both the void and the prior crystal carry one;
+                        // fall back to the two-axis ρ/ω proximity otherwise. This makes
+                        // crystal matching work across languages: a Go crystal can
+                        // resonate with a structurally-similar Python void.
+                        let void_fp = hyphae.host_cube.fingerprint_by_void_id.get(&void_id);
                         let best = prior_crystals.iter()
                             .map(|prior| {
+                                if let Some(vfp) = void_fp {
+                                    if let Some(sim) = prior.fingerprint_resonance(vfp) {
+                                        return sim;
+                                    }
+                                }
                                 let rho_diff = (rho.raw() - prior.rho_coherence.raw())
                                     .unsigned_abs() as i64;
                                 let omega_diff = (omega.raw() - prior.omega_phase.raw())
@@ -943,12 +954,21 @@ pub fn run_dry_pipeline(
                         .and_then(|vid| hyphae.host_cube.hdag_by_void_id.get(&vid))
                         .map(|hdag| (hdag.rho_coherence(), hdag.omega_phase()))
                         .unwrap_or((Q16::ONE, Q16::ONE));
-                    StructuralCrystalCandidate::from_decision_with_signals(
+                    let candidate = StructuralCrystalCandidate::from_decision_with_signals(
                         decision,
                         intent.target_void_id,
                         rho,
                         omega,
-                    )
+                    );
+                    // Attach the source file's cross-language fingerprint so the
+                    // certified crystal can resonate with same-shaped voids in any
+                    // language on a later run.
+                    match intent.target_void_id
+                        .and_then(|vid| hyphae.host_cube.fingerprint_by_void_id.get(&vid))
+                    {
+                        Some(fp) => candidate.with_fingerprint(fp.clone()),
+                        None => candidate,
+                    }
                 })
                 .collect()
         } else {
