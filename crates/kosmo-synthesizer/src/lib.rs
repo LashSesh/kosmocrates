@@ -215,7 +215,7 @@ pub struct SynthesisResult {
     /// Why this patch was chosen. Used for audit trails and human review.
     pub rationale: String,
     /// Synthesizer's self-assessed confidence that this patch is correct.
-    /// Downstream callers (e.g. [`AgentSession`]) may skip low-confidence results.
+    /// Downstream callers (e.g. `kosmo-agent`'s `AgentSession`) may skip low-confidence results.
     pub confidence: Q16,
     /// Optional hint: which test to run first to validate the patch.
     pub test_hint: Option<String>,

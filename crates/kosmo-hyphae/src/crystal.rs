@@ -549,7 +549,7 @@ struct ResoniteContent {
 /// candidates). Resonance is symmetric: (a, b) and (b, a) produce the same
 /// resonite_id.
 ///
-/// Score is Q16 in [0, 1] — no floats (CROSS-007).
+/// Score is Q16 in `[0, 1]` — no floats (CROSS-007).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Resonite {
     pub resonite_id: Digest,

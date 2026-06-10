@@ -55,8 +55,8 @@ use serde::{Deserialize, Serialize};
 /// C, Java, and C++ extend coverage to the rest of the PSE-Codex `normalize`
 /// taxonomy; their function definitions carry no leading keyword, so they use a
 /// deliberately **conservative** heuristic that under-counts rather than emit a
-/// false positive (see [`detect_clike_function`]). The set is closed on purpose:
-/// each variant carries hand-verified rules, never an inferred guess.
+/// false positive (the private `detect_clike_function`). The set is closed on
+/// purpose: each variant carries hand-verified rules, never an inferred guess.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SourceLanguage {
     Rust,

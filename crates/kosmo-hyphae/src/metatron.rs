@@ -172,7 +172,7 @@ struct LossContent {
 
 /// Records semantic information lost when projecting a HDAG region.
 ///
-/// `loss_ratio` is Q16 in [0, 1] (no floats — CROSS-007).
+/// `loss_ratio` is Q16 in `[0, 1]` (no floats — CROSS-007).
 /// `lost_node_ids` are sorted for determinism.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SemanticLossRecord {

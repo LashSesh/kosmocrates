@@ -69,7 +69,7 @@ pub struct CubeMandorla {
     pub mandorla_id: Digest,
     /// Sorted cube IDs — order-independent.
     pub cube_ids: Vec<Digest>,
-    /// Overlap score in [0, 1] as Q16 (integer arithmetic, no floats).
+    /// Overlap score in `[0, 1]` as Q16 (integer arithmetic, no floats).
     pub overlap_score: Q16,
     pub policy_id: Digest,
 }

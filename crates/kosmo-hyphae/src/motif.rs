@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// A recurring structural pattern candidate observed across source evidence.
 ///
-/// `support_score` is a Q16 value in [0, 1]. Gate comparisons use
+/// `support_score` is a Q16 value in `[0, 1]`. Gate comparisons use
 /// `support_score.raw()` (integer) — no float in gate paths (CROSS-007).
 /// High support does not bypass gates (CROSS-010).
 #[derive(Clone, Debug, Serialize, Deserialize)]

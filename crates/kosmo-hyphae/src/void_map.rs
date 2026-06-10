@@ -29,7 +29,7 @@ struct VoidContent<'a> {
 pub struct HostVoid {
     pub void_id: Digest,
     pub kind: HostVoidKind,
-    /// Severity in [0, 1] as Q16 — no floats in gate paths.
+    /// Severity in `[0, 1]` as Q16 — no floats in gate paths.
     pub severity: Q16,
     pub location: String,
 }
@@ -60,7 +60,7 @@ impl HostVoid {
 
     /// Build an [`EnergyAssessment`] for this void, ranking it by urgency.
     ///
-    /// - ψ (meaning)  = `severity` — how urgent this void is (Q16 in [0,1]).
+    /// - ψ (meaning)  = `severity` — how urgent this void is (Q16 in `[0,1]`).
     /// - ρ (coherence) = `Q16::ONE` — no structural coherence data at void level.
     /// - ω (phase)    = `Q16::ONE` — no phase data at void level.
     /// - `evidence_bundle_id` = `void_id`: the void's own content address,

@@ -10,7 +10,7 @@
 //!
 //! **Enforced (Unix):**
 //! - **Timeout → group kill.** The child runs in its own process group
-//!   ([`CommandExt::process_group`]); on timeout the whole group is
+//!   (`CommandExt::process_group`); on timeout the whole group is
 //!   `SIGKILL`ed, so a hung grandchild (e.g. the binary `cargo run` spawned)
 //!   cannot outlive the budget. A timeout is a **verdict**, never a hang.
 //! - **Bounded capture.** stdout/stderr are drained on their own threads into
