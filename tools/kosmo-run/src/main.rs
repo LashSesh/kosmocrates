@@ -868,6 +868,17 @@ mod tests {
     use super::*;
     use kosmo_core::ObservedTopology;
 
+    /// Serializes the heavy descent tests (each spawns nested `cargo`, the
+    /// service one also starts servers). Under a full `cargo test --workspace`
+    /// run they would otherwise pile concurrent toolchain processes up; one at a
+    /// time keeps peak load — and thus the chance of a spawn failing — low.
+    /// Poison-tolerant so a panic in one does not cascade.
+    static HEAVY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn heavy() -> std::sync::MutexGuard<'static, ()> {
+        HEAVY.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn assess_against(prose: &str, present: &[WishFacet]) -> (Wish, WishAssessment) {
         let wish = compile_wish(prose, Digest::ZERO, Digest::ZERO);
         let mut observed = ObservedTopology::empty();
@@ -1137,6 +1148,7 @@ mod tests {
 
     #[test]
     fn descend_validates_behavioral_composition() {
+        let _heavy = heavy();
         // Beam 1 of the runtime floor: a two-stage pipeline parse -> eval,
         // validated by the COMPOSED spec test `assert_eq!(eval(parse("2+3")), 5)`.
         // Acceptance over generation, applied to the wire — both directions.
@@ -1180,6 +1192,7 @@ mod tests {
 
     #[test]
     fn descend_realizes_run_probe() {
+        let _heavy = heavy();
         // Beam 3 of the runtime floor: the built artifact is EXECUTED and its
         // stdout probed. `a run add,2,3=>out~5` over a binary that prints the
         // sum realizes; an empty `main` (prints nothing) is rejected.
@@ -1228,6 +1241,7 @@ mod tests {
 
     #[test]
     fn descend_realizes_service_probe() {
+        let _heavy = heavy();
         // Beam 5 of the runtime floor: the artifact is STARTED AS A SERVER and
         // probed over HTTP. A std-only server that binds KOSMO_PORT and answers
         // 200 realizes `a service GET:/health=>200`; an empty `main` (binds
@@ -1284,6 +1298,7 @@ fn main() {
 
     #[test]
     fn descend_targets_function_into_member_crate() {
+        let _heavy = heavy();
         // Crate-targeting: "helper@beta" must land in crates/beta, not the root.
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1341,6 +1356,7 @@ fn main() {
 
     #[test]
     fn descend_realizes_behavior_when_impl_is_correct() {
+        let _heavy = heavy();
         // The keystone, demonstrated offline: given a CORRECT implementation,
         // a behaviour wish converges to Realized — the loop scaffolds the
         // spec-test and observes it green. (With a wrong/todo!() body it would
