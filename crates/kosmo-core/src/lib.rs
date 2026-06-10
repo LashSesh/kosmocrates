@@ -29,34 +29,34 @@ pub use acquisition::{
     AcquiredSource, AcquisitionSandbox, AcquisitionSourceKind, AcquisitionTaint,
     LicenseCheckOutcome, SecretScanOutcome, SourceAcquisitionCapability,
 };
-pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
 pub use attractor::{
     AttractorStatus, ConvergenceStep, WishConvergenceTrace, MAX_STRICT_CONTRACTION_STEPS,
 };
+pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
 pub use cartography::{
     CartographyEntryKind, CartographyIntegrityReport, CartographyIntegrityStatus,
-    CartographyStoreCommit, CartographyStoreError, CartographyStorageManifest,
+    CartographyStorageManifest, CartographyStoreCommit, CartographyStoreError,
     CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
 };
 pub use digest::{canonical_bytes, Digest};
 pub use energy::{
     rank_by_energy, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, TripolarEnergy,
 };
-pub use evidence::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
 pub use evaluation::{
     EvaluationCriteria, EvaluationDimension, EvaluationHarness, EvaluationMetrics,
     EvaluationOutcome, EvaluationRunReport, EvaluationScenario, EvaluationSuiteOutcome,
     EvaluationSuiteReport, StubEvaluationHarness,
 };
+pub use evidence::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
 pub use fixed_point::Q16;
-pub use kcube::{
-    KcubeArtifactKind, KcubeExportPolicy, KcubeManifestEntry, KcubePackage,
-    KcubeRoundtripVerification, KcubeWriteOutcome, KcubeWriteReport,
-};
 pub use foundry::{
     AllowedFoundryCommand, FoundryCheckSpec, FoundryCommandPolicy, FoundryEnvironmentPolicy,
     FoundryExecutionOutcome, FoundryExecutionPlan, FoundryExecutionReport, FoundrySandboxKind,
     FoundrySandboxSpec, FoundryTimeoutPolicy, PathDigest,
+};
+pub use kcube::{
+    KcubeArtifactKind, KcubeExportPolicy, KcubeManifestEntry, KcubePackage,
+    KcubeRoundtripVerification, KcubeWriteOutcome, KcubeWriteReport,
 };
 pub use materialization::{
     IsolatedWorktreeSpec, MaterializationExecutionPlan, MaterializationExecutionReport,
@@ -69,14 +69,12 @@ pub use parseback::{
 };
 pub use policy::{ImplementationMode, PolicyProfile, PolicyViolation};
 pub use promotion_feedback::{FeedbackOutcome, PromotionFeedback};
-pub use validation::{
-    determine_closure_status, ValidationClosureReport, ValidationClosureStatus,
+pub use run::{
+    FoundryCheckKind, FoundryCheckResult, FoundryOutcome, GateResult, LedgerEvent, LedgerEventKind,
+    RunDescriptor,
 };
+pub use validation::{determine_closure_status, ValidationClosureReport, ValidationClosureStatus};
 pub use wish::{
     assess_wish, ObservedTopology, Wish, WishAssessment, WishClosureStatus, WishFacet,
     WishFacetKind, WishPredicate,
-};
-pub use run::{
-    FoundryCheckKind, FoundryCheckResult, FoundryOutcome, GateResult, LedgerEvent,
-    LedgerEventKind, RunDescriptor,
 };

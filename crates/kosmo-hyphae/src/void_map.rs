@@ -1,6 +1,6 @@
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, Q16, TripolarEnergy, rank_by_energy,
+    rank_by_energy, Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
+    GateResult, LicenseStatus, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,7 +41,12 @@ impl HostVoid {
             severity,
             location: &location,
         });
-        Self { void_id, kind, severity, location }
+        Self {
+            void_id,
+            kind,
+            severity,
+            location,
+        }
     }
 
     pub fn verify_id(&self) -> bool {
@@ -104,7 +109,11 @@ impl TopologicalVoidMap {
             voids: vec![],
             policy_id,
         });
-        Self { map_id, voids: vec![], policy_id }
+        Self {
+            map_id,
+            voids: vec![],
+            policy_id,
+        }
     }
 
     pub fn from_voids(mut voids: Vec<HostVoid>, policy_id: Digest) -> Self {
@@ -113,7 +122,11 @@ impl TopologicalVoidMap {
             voids: voids.iter().map(|v| v.void_id).collect(),
             policy_id,
         });
-        Self { map_id, voids, policy_id }
+        Self {
+            map_id,
+            voids,
+            policy_id,
+        }
     }
 
     pub fn void_count(&self) -> usize {
@@ -137,7 +150,9 @@ impl TopologicalVoidMap {
     /// Ties are broken deterministically by `void_id` (content address). An
     /// empty map returns an empty vec.
     pub fn priority_ranking(&self, gate: &GateResult) -> Vec<Digest> {
-        let assessments: Vec<EnergyAssessment> = self.voids.iter()
+        let assessments: Vec<EnergyAssessment> = self
+            .voids
+            .iter()
             .map(|v| v.energy_assessment(gate, self.policy_id))
             .collect();
         rank_by_energy(&assessments)
@@ -155,12 +170,16 @@ mod tests {
     #[test]
     fn host_void_id_deterministic() {
         let v1 = HostVoid::new(
-            HostVoidKind::MissingTestFiber { for_module: "src/foo.rs".into() },
+            HostVoidKind::MissingTestFiber {
+                for_module: "src/foo.rs".into(),
+            },
             Q16::HALF,
             "src/foo.rs".into(),
         );
         let v2 = HostVoid::new(
-            HostVoidKind::MissingTestFiber { for_module: "src/foo.rs".into() },
+            HostVoidKind::MissingTestFiber {
+                for_module: "src/foo.rs".into(),
+            },
             Q16::HALF,
             "src/foo.rs".into(),
         );
@@ -171,11 +190,26 @@ mod tests {
     #[test]
     fn void_map_sorted_deterministic() {
         let pid = Digest::of_bytes(b"p");
-        let v1 = HostVoid::new(HostVoidKind::Custom { description: "z".into() }, Q16::HALF, "z".into());
-        let v2 = HostVoid::new(HostVoidKind::Custom { description: "a".into() }, Q16::HALF, "a".into());
+        let v1 = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "z".into(),
+            },
+            Q16::HALF,
+            "z".into(),
+        );
+        let v2 = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "a".into(),
+            },
+            Q16::HALF,
+            "a".into(),
+        );
         let m1 = TopologicalVoidMap::from_voids(vec![v1.clone(), v2.clone()], pid);
         let m2 = TopologicalVoidMap::from_voids(vec![v2, v1], pid);
-        assert_eq!(m1.map_id, m2.map_id, "map_id must be stable regardless of insertion order");
+        assert_eq!(
+            m1.map_id, m2.map_id,
+            "map_id must be stable regardless of insertion order"
+        );
         assert!(m1.verify_id());
     }
 
@@ -189,45 +223,99 @@ mod tests {
     #[test]
     fn host_void_energy_assessment_content_addressed() {
         let pid = Digest::of_bytes(b"p");
-        let v = HostVoid::new(HostVoidKind::Custom { description: "gap".into() }, Q16::HALF, "x".into());
+        let v = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "gap".into(),
+            },
+            Q16::HALF,
+            "x".into(),
+        );
         let a1 = v.energy_assessment(&GateResult::Pass, pid);
         let a2 = v.energy_assessment(&GateResult::Pass, pid);
         assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
         assert_eq!(a1.subject_id, v.void_id);
-        assert_eq!(a1.evidence_bundle_id, v.void_id, "evidence_bundle_id must equal void_id");
-        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a1.evidence_bundle_id, v.void_id,
+            "evidence_bundle_id must equal void_id"
+        );
+        assert_ne!(
+            a1.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 
     #[test]
     fn host_void_reject_gate_zeroes_energy() {
         let pid = Digest::of_bytes(b"p");
-        let v = HostVoid::new(HostVoidKind::Custom { description: "gap".into() }, Q16::ONE, "x".into());
-        let a = v.energy_assessment(&GateResult::Reject { reason: "test".into() }, pid);
+        let v = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "gap".into(),
+            },
+            Q16::ONE,
+            "x".into(),
+        );
+        let a = v.energy_assessment(
+            &GateResult::Reject {
+                reason: "test".into(),
+            },
+            pid,
+        );
         assert!(a.kernel.is_zeroed(), "Reject gate must zero void energy");
     }
 
     #[test]
     fn void_map_priority_ranking_orders_by_severity() {
         let pid = Digest::of_bytes(b"p");
-        let high = HostVoid::new(HostVoidKind::Custom { description: "high".into() }, Q16::ONE, "h".into());
-        let low  = HostVoid::new(HostVoidKind::Custom { description: "low".into() },  Q16::ratio(1, 4).unwrap(), "l".into());
-        let mid  = HostVoid::new(HostVoidKind::Custom { description: "mid".into() },  Q16::HALF, "m".into());
+        let high = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "high".into(),
+            },
+            Q16::ONE,
+            "h".into(),
+        );
+        let low = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "low".into(),
+            },
+            Q16::ratio(1, 4).unwrap(),
+            "l".into(),
+        );
+        let mid = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "mid".into(),
+            },
+            Q16::HALF,
+            "m".into(),
+        );
         let high_id = high.void_id;
-        let mid_id  = mid.void_id;
-        let low_id  = low.void_id;
+        let mid_id = mid.void_id;
+        let low_id = low.void_id;
         let vm = TopologicalVoidMap::from_voids(vec![low, mid, high], pid);
         let ranking = vm.priority_ranking(&GateResult::Pass);
         assert_eq!(ranking.len(), 3);
         assert_eq!(ranking[0], high_id, "highest severity void must rank first");
-        assert_eq!(ranking[1], mid_id,  "mid severity void must rank second");
-        assert_eq!(ranking[2], low_id,  "lowest severity void must rank last");
+        assert_eq!(ranking[1], mid_id, "mid severity void must rank second");
+        assert_eq!(ranking[2], low_id, "lowest severity void must rank last");
     }
 
     #[test]
     fn void_map_priority_ranking_deterministic() {
         let pid = Digest::of_bytes(b"p");
-        let v1 = HostVoid::new(HostVoidKind::Custom { description: "a".into() }, Q16::HALF, "a".into());
-        let v2 = HostVoid::new(HostVoidKind::Custom { description: "b".into() }, Q16::HALF, "b".into());
+        let v1 = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "a".into(),
+            },
+            Q16::HALF,
+            "a".into(),
+        );
+        let v2 = HostVoid::new(
+            HostVoidKind::Custom {
+                description: "b".into(),
+            },
+            Q16::HALF,
+            "b".into(),
+        );
         let vm = TopologicalVoidMap::from_voids(vec![v1, v2], pid);
         let r1 = vm.priority_ranking(&GateResult::Pass);
         let r2 = vm.priority_ranking(&GateResult::Pass);

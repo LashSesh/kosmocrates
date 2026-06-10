@@ -63,7 +63,12 @@ impl GateTrace {
             policy_id,
         });
 
-        Self { trace_id, checks, final_result, policy_id }
+        Self {
+            trace_id,
+            checks,
+            final_result,
+            policy_id,
+        }
     }
 
     pub fn passed(&self) -> bool {
@@ -121,27 +126,29 @@ impl GateCascade {
     ) -> GateResult {
         match gate {
             GateKind::TaintGate => match &yield_.taint {
-                TaintLabel::Quarantined { reason } => {
-                    GateResult::Reject { reason: format!("quarantined: {}", reason) }
-                }
-                TaintLabel::External => {
-                    GateResult::Reject { reason: "external taint — CROSS-005".into() }
-                }
-                TaintLabel::Synthetic => {
-                    GateResult::Warn { message: "synthetic taint — low authority".into() }
-                }
-                TaintLabel::Unverified => {
-                    GateResult::Warn { message: "unverified taint — requires review".into() }
-                }
-                TaintLabel::PolicyRestricted => {
-                    GateResult::Warn { message: "policy-restricted taint".into() }
-                }
+                TaintLabel::Quarantined { reason } => GateResult::Reject {
+                    reason: format!("quarantined: {}", reason),
+                },
+                TaintLabel::External => GateResult::Reject {
+                    reason: "external taint — CROSS-005".into(),
+                },
+                TaintLabel::Synthetic => GateResult::Warn {
+                    message: "synthetic taint — low authority".into(),
+                },
+                TaintLabel::Unverified => GateResult::Warn {
+                    message: "unverified taint — requires review".into(),
+                },
+                TaintLabel::PolicyRestricted => GateResult::Warn {
+                    message: "policy-restricted taint".into(),
+                },
                 TaintLabel::Clean => GateResult::Pass,
             },
 
             GateKind::EvidenceGate => {
                 if evidence.is_empty() {
-                    GateResult::Reject { reason: "evidence bundle is empty — CROSS-006".into() }
+                    GateResult::Reject {
+                        reason: "evidence bundle is empty — CROSS-006".into(),
+                    }
                 } else {
                     GateResult::Pass
                 }
@@ -158,12 +165,12 @@ impl GateCascade {
             }
 
             GateKind::AuthorityGate => match &yield_.authority {
-                kosmo_core::AuthorityLabel::Unknown => {
-                    GateResult::Warn { message: "unknown authority — downgrade recommended".into() }
-                }
-                kosmo_core::AuthorityLabel::Agent { .. } => {
-                    GateResult::Warn { message: "agent authority — human review recommended".into() }
-                }
+                kosmo_core::AuthorityLabel::Unknown => GateResult::Warn {
+                    message: "unknown authority — downgrade recommended".into(),
+                },
+                kosmo_core::AuthorityLabel::Agent { .. } => GateResult::Warn {
+                    message: "agent authority — human review recommended".into(),
+                },
                 _ => GateResult::Pass,
             },
 
@@ -184,28 +191,40 @@ impl GateCascade {
 mod tests {
     use super::*;
     use crate::structural_yield::{StructuralYield, StructuralYieldKind};
-    use kosmo_core::{AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
-        PolicyProfile, ReplayStatus, TaintLabel};
+    use kosmo_core::{
+        AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef, PolicyProfile,
+        ReplayStatus, TaintLabel,
+    };
 
     fn make_evidence(policy_id: Digest, empty: bool) -> EvidenceBundle {
         if empty {
             EvidenceBundle::empty(policy_id)
         } else {
             EvidenceBundle::seal(
-                vec![EvidenceRef::new(Digest::of_bytes(b"e"), EvidenceKind::HostScan, "scan")],
+                vec![EvidenceRef::new(
+                    Digest::of_bytes(b"e"),
+                    EvidenceKind::HostScan,
+                    "scan",
+                )],
                 policy_id,
                 ReplayStatus::Replayable,
             )
         }
     }
 
-    fn make_yield(taint: TaintLabel, void_id: Option<Digest>, evidence_id: Digest) -> StructuralYield {
+    fn make_yield(
+        taint: TaintLabel,
+        void_id: Option<Digest>,
+        evidence_id: Digest,
+    ) -> StructuralYield {
         StructuralYield::new(
             StructuralYieldKind::DeficiencyFill,
             void_id,
             None,
             taint,
-            AuthorityLabel::Agent { name: "hyphae".into() },
+            AuthorityLabel::Agent {
+                name: "hyphae".into(),
+            },
             evidence_id,
             Digest::ZERO,
         )
@@ -218,7 +237,9 @@ mod tests {
         let void_id = Digest::of_bytes(b"void");
         let ev = make_evidence(policy.id, false);
         let y = make_yield(
-            TaintLabel::Quarantined { reason: "bad source".into() },
+            TaintLabel::Quarantined {
+                reason: "bad source".into(),
+            },
             Some(void_id),
             ev.bundle_id,
         );
@@ -244,7 +265,10 @@ mod tests {
         let ev = make_evidence(policy.id, false);
         let y = make_yield(TaintLabel::Clean, None, ev.bundle_id); // no void ref
         let trace = cascade.apply(&y, &ev);
-        assert!(trace.was_rejected(), "yield without void ref must be rejected by VoidRefGate");
+        assert!(
+            trace.was_rejected(),
+            "yield without void ref must be rejected by VoidRefGate"
+        );
     }
 
     #[test]
@@ -264,7 +288,10 @@ mod tests {
             Digest::ZERO,
         );
         let trace = cascade.apply(&y, &ev);
-        assert!(trace.passed(), "clean yield with void ref and evidence must pass");
+        assert!(
+            trace.passed(),
+            "clean yield with void ref and evidence must pass"
+        );
     }
 
     #[test]
@@ -272,9 +299,16 @@ mod tests {
         let policy = PolicyProfile::default_report_only();
         let cascade = GateCascade::standard_gates(policy.clone());
         let ev = make_evidence(policy.id, false);
-        let y = make_yield(TaintLabel::External, Some(Digest::of_bytes(b"v")), ev.bundle_id);
+        let y = make_yield(
+            TaintLabel::External,
+            Some(Digest::of_bytes(b"v")),
+            ev.bundle_id,
+        );
         let trace = cascade.apply(&y, &ev);
-        assert!(trace.was_rejected(), "external taint must be rejected (CROSS-005)");
+        assert!(
+            trace.was_rejected(),
+            "external taint must be rejected (CROSS-005)"
+        );
     }
 
     #[test]

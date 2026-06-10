@@ -389,7 +389,9 @@ impl CorpusCartographyStore for InMemoryCartographyStore {
             if !entry.verify_id() {
                 return Ok(CartographyIntegrityReport::new(
                     self.manifest.id,
-                    CartographyIntegrityStatus::DigestMismatch { commit_id: entry.id },
+                    CartographyIntegrityStatus::DigestMismatch {
+                        commit_id: entry.id,
+                    },
                     expected_seq - 1,
                     evidence_bundle_id,
                 ));
@@ -437,9 +439,15 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn bundle_id() -> Digest { d(b"bundle") }
-    fn payload_digest() -> Digest { d(b"payload") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
+    fn payload_digest() -> Digest {
+        d(b"payload")
+    }
 
     fn report_only_policy() -> PolicyProfile {
         PolicyProfile::default()
@@ -551,8 +559,15 @@ mod tests {
 
     #[test]
     fn integrity_status_failures_not_intact() {
-        assert!(!CartographyIntegrityStatus::SequenceGap { expected: 2, found: 3 }.is_intact());
-        assert!(!CartographyIntegrityStatus::DigestMismatch { commit_id: Digest::ZERO }.is_intact());
+        assert!(!CartographyIntegrityStatus::SequenceGap {
+            expected: 2,
+            found: 3
+        }
+        .is_intact());
+        assert!(!CartographyIntegrityStatus::DigestMismatch {
+            commit_id: Digest::ZERO
+        }
+        .is_intact());
     }
 
     // --- CartographyIntegrityReport ---
@@ -560,10 +575,16 @@ mod tests {
     #[test]
     fn integrity_report_id_deterministic() {
         let r1 = CartographyIntegrityReport::new(
-            d(b"manifest"), CartographyIntegrityStatus::Intact, 5, bundle_id(),
+            d(b"manifest"),
+            CartographyIntegrityStatus::Intact,
+            5,
+            bundle_id(),
         );
         let r2 = CartographyIntegrityReport::new(
-            d(b"manifest"), CartographyIntegrityStatus::Intact, 5, bundle_id(),
+            d(b"manifest"),
+            CartographyIntegrityStatus::Intact,
+            5,
+            bundle_id(),
         );
         assert_eq!(r1.id, r2.id);
     }
@@ -571,7 +592,10 @@ mod tests {
     #[test]
     fn integrity_report_verify_id() {
         let r = CartographyIntegrityReport::new(
-            d(b"manifest"), CartographyIntegrityStatus::Empty, 0, bundle_id(),
+            d(b"manifest"),
+            CartographyIntegrityStatus::Empty,
+            0,
+            bundle_id(),
         );
         assert!(r.verify_id());
     }
@@ -579,7 +603,10 @@ mod tests {
     #[test]
     fn integrity_report_evidence_mandatory() {
         let r = CartographyIntegrityReport::new(
-            d(b"manifest"), CartographyIntegrityStatus::Intact, 3, bundle_id(),
+            d(b"manifest"),
+            CartographyIntegrityStatus::Intact,
+            3,
+            bundle_id(),
         );
         assert_ne!(r.evidence_bundle_id, Digest::ZERO);
     }
@@ -591,7 +618,10 @@ mod tests {
         let mut store = InMemoryCartographyStore::new(CorpusScope::LocalHostProject, policy_id());
         let commit = make_commit(1, CorpusScope::LocalHostProject);
         let result = store.append(commit, &report_only_policy());
-        assert!(matches!(result, Err(CartographyStoreError::PolicyDenied { .. })));
+        assert!(matches!(
+            result,
+            Err(CartographyStoreError::PolicyDenied { .. })
+        ));
     }
 
     #[test]
@@ -610,7 +640,13 @@ mod tests {
         store.append(c1, &policy).unwrap();
         let c3 = make_commit(3, CorpusScope::LocalHostProject); // gap: should be 2
         let err = store.append(c3, &policy).unwrap_err();
-        assert!(matches!(err, CartographyStoreError::SequenceViolation { expected: 2, got: 3 }));
+        assert!(matches!(
+            err,
+            CartographyStoreError::SequenceViolation {
+                expected: 2,
+                got: 3
+            }
+        ));
     }
 
     #[test]
@@ -625,8 +661,12 @@ mod tests {
     fn store_read_manifest_after_appends() {
         let mut store = InMemoryCartographyStore::new(CorpusScope::LocalHostProject, policy_id());
         let policy = elevated_policy();
-        store.append(make_commit(1, CorpusScope::LocalHostProject), &policy).unwrap();
-        store.append(make_commit(2, CorpusScope::LocalHostProject), &policy).unwrap();
+        store
+            .append(make_commit(1, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
+        store
+            .append(make_commit(2, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
         let manifest = store.read_manifest().unwrap();
         assert_eq!(manifest.len(), 2);
         assert_eq!(manifest.head_sequence, 2);
@@ -646,9 +686,15 @@ mod tests {
     fn store_verify_integrity_intact() {
         let mut store = InMemoryCartographyStore::new(CorpusScope::LocalHostProject, policy_id());
         let policy = elevated_policy();
-        store.append(make_commit(1, CorpusScope::LocalHostProject), &policy).unwrap();
-        store.append(make_commit(2, CorpusScope::LocalHostProject), &policy).unwrap();
-        store.append(make_commit(3, CorpusScope::LocalHostProject), &policy).unwrap();
+        store
+            .append(make_commit(1, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
+        store
+            .append(make_commit(2, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
+        store
+            .append(make_commit(3, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
         let report = store.verify_integrity(bundle_id()).unwrap();
         assert_eq!(report.status, CartographyIntegrityStatus::Intact);
         assert_eq!(report.checked_count, 3);
@@ -666,9 +712,13 @@ mod tests {
         let mut store = InMemoryCartographyStore::new(CorpusScope::LocalHostProject, policy_id());
         let policy = elevated_policy();
         let id_0 = store.read_manifest().unwrap().id;
-        store.append(make_commit(1, CorpusScope::LocalHostProject), &policy).unwrap();
+        store
+            .append(make_commit(1, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
         let id_1 = store.read_manifest().unwrap().id;
-        store.append(make_commit(2, CorpusScope::LocalHostProject), &policy).unwrap();
+        store
+            .append(make_commit(2, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
         let id_2 = store.read_manifest().unwrap().id;
         assert_ne!(id_0, id_1);
         assert_ne!(id_1, id_2);
@@ -705,7 +755,9 @@ mod tests {
         );
         let mut store = InMemoryCartographyStore::new(CorpusScope::LocalHostProject, policy_id());
         let policy = elevated_policy();
-        store.append(make_commit(1, CorpusScope::LocalHostProject), &policy).unwrap();
+        store
+            .append(make_commit(1, CorpusScope::LocalHostProject), &policy)
+            .unwrap();
         let report = store.verify_integrity(ev_bundle.bundle_id).unwrap();
         assert_ne!(report.evidence_bundle_id, Digest::ZERO);
         assert!(report.verify_id());

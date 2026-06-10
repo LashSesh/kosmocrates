@@ -68,7 +68,13 @@ impl CrateFingerprint {
             files_id: &files_id,
             dep_names: &dep_names,
         });
-        Self { crate_id, name, files_id, file_count: file_paths.len() as u64, dep_names }
+        Self {
+            crate_id,
+            name,
+            files_id,
+            file_count: file_paths.len() as u64,
+            dep_names,
+        }
     }
 }
 
@@ -106,7 +112,12 @@ impl TopologySnapshot {
         dep_edges: BTreeSet<(String, String)>,
     ) -> Self {
         let snapshot_id = Self::compute_id(&scope, &crate_nodes, &dep_edges);
-        Self { snapshot_id, scope, crate_nodes, dep_edges }
+        Self {
+            snapshot_id,
+            scope,
+            crate_nodes,
+            dep_edges,
+        }
     }
 
     fn compute_id(
@@ -116,8 +127,10 @@ impl TopologySnapshot {
     ) -> Digest {
         // BTreeMap iteration order is deterministic (alphabetical by key).
         let crate_ids: Vec<Digest> = crate_nodes.values().map(|c| c.crate_id).collect();
-        let dep_edges_arr: Vec<[String; 2]> =
-            dep_edges.iter().map(|(a, b)| [a.clone(), b.clone()]).collect();
+        let dep_edges_arr: Vec<[String; 2]> = dep_edges
+            .iter()
+            .map(|(a, b)| [a.clone(), b.clone()])
+            .collect();
         Digest::of(&SnapshotContent {
             scope_tag: format!("{:?}", scope),
             crate_ids,
@@ -163,7 +176,10 @@ pub struct ParseBackExecutor {
 
 impl ParseBackExecutor {
     pub fn new(workspace_root: PathBuf) -> Self {
-        Self { workspace_root, cargo_program: "cargo".into() }
+        Self {
+            workspace_root,
+            cargo_program: "cargo".into(),
+        }
     }
 
     /// Override the cargo binary path (useful for testing).
@@ -176,10 +192,7 @@ impl ParseBackExecutor {
     ///
     /// Runs `cargo metadata --no-deps` and walks each package's `src/`
     /// directory for Rust source files. Read-only; no host mutations.
-    pub fn snapshot(
-        &self,
-        scope: &ParseBackScanScope,
-    ) -> Result<TopologySnapshot, ParseBackError> {
+    pub fn snapshot(&self, scope: &ParseBackScanScope) -> Result<TopologySnapshot, ParseBackError> {
         let metadata = self.run_cargo_metadata()?;
         self.build_snapshot(scope, &metadata)
     }
@@ -253,8 +266,11 @@ impl ParseBackExecutor {
 
         let deltas = diff_snapshots(pre, &post);
         let has_critical = deltas.iter().any(|d| d.is_critical());
-        let outcome =
-            if has_critical { ParseBackOutcome::Failed } else { ParseBackOutcome::Passed };
+        let outcome = if has_critical {
+            ParseBackOutcome::Failed
+        } else {
+            ParseBackOutcome::Passed
+        };
 
         ParseBackReport::new(
             plan.id,
@@ -275,7 +291,13 @@ impl ParseBackExecutor {
         }
 
         let output = Command::new(&self.cargo_program)
-            .args(["metadata", "--format-version", "1", "--no-deps", "--manifest-path"])
+            .args([
+                "metadata",
+                "--format-version",
+                "1",
+                "--no-deps",
+                "--manifest-path",
+            ])
             .arg(&manifest)
             .output()
             .map_err(|e| ParseBackError::CargoMetadataFailed(e.to_string()))?;
@@ -330,10 +352,17 @@ impl ParseBackExecutor {
                 dep_edges.insert((name.clone(), dep.clone()));
             }
 
-            crate_nodes.insert(name.clone(), CrateFingerprint::new(name, file_paths, dep_names));
+            crate_nodes.insert(
+                name.clone(),
+                CrateFingerprint::new(name, file_paths, dep_names),
+            );
         }
 
-        Ok(TopologySnapshot::from_parts(scope.clone(), crate_nodes, dep_edges))
+        Ok(TopologySnapshot::from_parts(
+            scope.clone(),
+            crate_nodes,
+            dep_edges,
+        ))
     }
 }
 
@@ -471,7 +500,11 @@ mod tests {
 
     fn bundle_id() -> Digest {
         let bundle = EvidenceBundle::seal(
-            vec![EvidenceRef::new(Digest::of_bytes(b"ev"), EvidenceKind::HostScan, "test")],
+            vec![EvidenceRef::new(
+                Digest::of_bytes(b"ev"),
+                EvidenceKind::HostScan,
+                "test",
+            )],
             pid(),
             ReplayStatus::Replayable,
         );
@@ -551,11 +584,15 @@ mod tests {
         let mut post = pre.clone();
         let new_fp = CrateFingerprint::new("beta".into(), vec!["lib.rs".into()], vec![]);
         post.crate_nodes.insert("beta".into(), new_fp);
-        post.snapshot_id = TopologySnapshot::compute_id(&post.scope, &post.crate_nodes, &post.dep_edges);
+        post.snapshot_id =
+            TopologySnapshot::compute_id(&post.scope, &post.crate_nodes, &post.dep_edges);
 
         let deltas = diff_snapshots(&pre, &post);
         assert_eq!(deltas.len(), 1);
-        assert!(matches!(deltas[0].change_kind, TopologyChangeKind::NodeAdded));
+        assert!(matches!(
+            deltas[0].change_kind,
+            TopologyChangeKind::NodeAdded
+        ));
         assert!(deltas[0].description.contains("beta"));
         assert_eq!(deltas[0].severity, ParseBackSeverity::Warning);
         assert!(deltas[0].verify_id());
@@ -572,7 +609,10 @@ mod tests {
 
         let deltas = diff_snapshots(&pre, &post);
         assert_eq!(deltas.len(), 1);
-        assert!(matches!(deltas[0].change_kind, TopologyChangeKind::NodeRemoved));
+        assert!(matches!(
+            deltas[0].change_kind,
+            TopologyChangeKind::NodeRemoved
+        ));
         assert_eq!(deltas[0].severity, ParseBackSeverity::Critical);
         assert!(deltas[0].verify_id());
     }
@@ -588,11 +628,15 @@ mod tests {
             vec![],
         );
         post.crate_nodes.insert("alpha".into(), modified_fp);
-        post.snapshot_id = TopologySnapshot::compute_id(&post.scope, &post.crate_nodes, &post.dep_edges);
+        post.snapshot_id =
+            TopologySnapshot::compute_id(&post.scope, &post.crate_nodes, &post.dep_edges);
 
         let deltas = diff_snapshots(&pre, &post);
         assert_eq!(deltas.len(), 1);
-        assert!(matches!(deltas[0].change_kind, TopologyChangeKind::NodeModified));
+        assert!(matches!(
+            deltas[0].change_kind,
+            TopologyChangeKind::NodeModified
+        ));
         assert_eq!(deltas[0].severity, ParseBackSeverity::Info);
         assert!(deltas[0].verify_id());
     }
@@ -604,7 +648,9 @@ mod tests {
 
         let deltas = diff_snapshots(&pre, &post);
         // NodeModified (deps changed) + EdgeAdded
-        assert!(deltas.iter().any(|d| matches!(d.change_kind, TopologyChangeKind::EdgeAdded)));
+        assert!(deltas
+            .iter()
+            .any(|d| matches!(d.change_kind, TopologyChangeKind::EdgeAdded)));
         assert!(deltas.iter().any(|d| d.description.contains("serde")));
     }
 
@@ -614,7 +660,9 @@ mod tests {
         let post = simple_snapshot("alpha", vec!["lib.rs"], vec![]);
 
         let deltas = diff_snapshots(&pre, &post);
-        assert!(deltas.iter().any(|d| matches!(d.change_kind, TopologyChangeKind::EdgeRemoved)));
+        assert!(deltas
+            .iter()
+            .any(|d| matches!(d.change_kind, TopologyChangeKind::EdgeRemoved)));
         assert!(deltas.iter().all(|d| d.verify_id()));
         let worst = deltas.iter().map(|d| &d.severity).max().unwrap();
         assert_eq!(*worst, ParseBackSeverity::Critical);
@@ -689,7 +737,10 @@ mod tests {
             }
         };
 
-        assert!(pre.crate_count() > 0, "workspace must have at least one crate");
+        assert!(
+            pre.crate_count() > 0,
+            "workspace must have at least one crate"
+        );
 
         let plan = ParseBackPlan::new(
             pid(),
@@ -758,6 +809,9 @@ mod tests {
                 return;
             }
         };
-        assert_eq!(s1.snapshot_id, s2.snapshot_id, "snapshots must be deterministic");
+        assert_eq!(
+            s1.snapshot_id, s2.snapshot_id,
+            "snapshots must be deterministic"
+        );
     }
 }

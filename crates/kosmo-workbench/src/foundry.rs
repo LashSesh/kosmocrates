@@ -153,7 +153,13 @@ impl FoundryRunner {
         // Collect evidence refs from all check results
         let refs: Vec<EvidenceRef> = results
             .iter()
-            .map(|r| EvidenceRef::new(r.check_id, EvidenceKind::FoundryCheck, format!("{:?}", r.check_kind)))
+            .map(|r| {
+                EvidenceRef::new(
+                    r.check_id,
+                    EvidenceKind::FoundryCheck,
+                    format!("{:?}", r.check_kind),
+                )
+            })
             .collect();
 
         let bundle = EvidenceBundle::seal(refs, self.policy.id, ReplayStatus::Replayable);

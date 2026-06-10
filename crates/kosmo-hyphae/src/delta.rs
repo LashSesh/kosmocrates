@@ -146,12 +146,20 @@ impl HostTargetDelta {
                     void_id,
                     candidate_cube_ids,
                     best_support_score: top.energy,
-                    action: DeltaAction::FillVoid { top_candidate_cube_id: top_cube_id },
+                    action: DeltaAction::FillVoid {
+                        top_candidate_cube_id: top_cube_id,
+                    },
                 });
             }
         }
 
-        Self::new(host_cube_id, composite_cube_id, void_fills, remaining_voids, policy_id)
+        Self::new(
+            host_cube_id,
+            composite_cube_id,
+            void_fills,
+            remaining_voids,
+            policy_id,
+        )
     }
 
     pub fn plannable_count(&self) -> usize {
@@ -170,10 +178,7 @@ impl HostTargetDelta {
         )
     }
 
-    fn compute_status(
-        void_fills: &[VoidFillDelta],
-        remaining_voids: &[Digest],
-    ) -> DeltaStatus {
+    fn compute_status(void_fills: &[VoidFillDelta], remaining_voids: &[Digest]) -> DeltaStatus {
         match (void_fills.is_empty(), remaining_voids.is_empty()) {
             (true, true) => DeltaStatus::Clean,
             (false, true) => DeltaStatus::FullyPlannable,
@@ -209,7 +214,9 @@ mod tests {
             void_id,
             candidate_cube_ids: vec![cube_id],
             best_support_score: Q16::HALF,
-            action: DeltaAction::FillVoid { top_candidate_cube_id: cube_id },
+            action: DeltaAction::FillVoid {
+                top_candidate_cube_id: cube_id,
+            },
         }];
         let delta = HostTargetDelta::new(Digest::ZERO, Digest::ZERO, fills, vec![], pid);
         assert_eq!(delta.status, DeltaStatus::FullyPlannable);
@@ -258,7 +265,9 @@ mod tests {
         assert_eq!(delta.status, DeltaStatus::FullyPlannable);
         assert_eq!(
             delta.void_fills[0].action,
-            DeltaAction::FillVoid { top_candidate_cube_id: cube_id }
+            DeltaAction::FillVoid {
+                top_candidate_cube_id: cube_id
+            }
         );
     }
 
@@ -282,7 +291,10 @@ mod tests {
         assert_eq!(delta.remaining_voids.len(), 1);
         assert!(matches!(
             delta.status,
-            DeltaStatus::PartiallyPlannable { plannable: 1, unresolvable: 1 }
+            DeltaStatus::PartiallyPlannable {
+                plannable: 1,
+                unresolvable: 1
+            }
         ));
     }
 

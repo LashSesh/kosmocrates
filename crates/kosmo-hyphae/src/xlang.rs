@@ -40,8 +40,10 @@
 //! * **Evidence-bound & taint-propagating.** Every observation backrefs its
 //!   source evidence; taint flows source → graph (CROSS-006).
 
-use crate::code_hdag::{CodeHDAG, CodeObservation, HDAGEdge, HDAGEdgeKind, HDAGNode, ObservationKind};
-use kosmo_core::{Digest, Q16, TaintLabel};
+use crate::code_hdag::{
+    CodeHDAG, CodeObservation, HDAGEdge, HDAGEdgeKind, HDAGNode, ObservationKind,
+};
+use kosmo_core::{Digest, TaintLabel, Q16};
 use serde::{Deserialize, Serialize};
 
 /// A source language the substrate can lift into a [`CodeHDAG`].
@@ -73,7 +75,11 @@ impl SourceLanguage {
     /// the fail-closed default. Matching is case-insensitive on the extension.
     pub fn from_path(path: &str) -> Option<Self> {
         let filename = path.rsplit('/').next().unwrap_or(path);
-        let ext = filename.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        let ext = filename
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
         match ext.as_str() {
             "rs" => Some(Self::Rust),
             "py" | "pyi" => Some(Self::Python),
@@ -205,8 +211,9 @@ impl CodeHDAG {
         content: &str,
         taint: TaintLabel,
     ) -> Option<Self> {
-        SourceLanguage::from_path(location)
-            .map(|lang| Self::extract_from_source(lang, source_evidence_id, location, content, taint))
+        SourceLanguage::from_path(location).map(|lang| {
+            Self::extract_from_source(lang, source_evidence_id, location, content, taint)
+        })
     }
 }
 
@@ -239,7 +246,9 @@ fn extract_lexical(
     taint: TaintLabel,
 ) -> CodeHDAG {
     let root_obs = CodeObservation::new(
-        ObservationKind::ModuleDeclaration { name: location.to_string() },
+        ObservationKind::ModuleDeclaration {
+            name: location.to_string(),
+        },
         location.to_string(),
         Digest::of_bytes(format!("{location}:0:<root>").as_bytes()),
         taint.clone(),
@@ -290,9 +299,19 @@ fn push(
     source_evidence_id: Digest,
     edge_kind: HDAGEdgeKind,
 ) {
-    let obs = CodeObservation::new(kind, location, fragment_digest, taint.clone(), source_evidence_id);
+    let obs = CodeObservation::new(
+        kind,
+        location,
+        fragment_digest,
+        taint.clone(),
+        source_evidence_id,
+    );
     let node = HDAGNode::from_observation(&obs);
-    edges.push(HDAGEdge { from_obs: root_id, to_obs: node.node_id, kind: edge_kind });
+    edges.push(HDAGEdge {
+        from_obs: root_id,
+        to_obs: node.node_id,
+        kind: edge_kind,
+    });
     nodes.push(node);
 }
 
@@ -318,13 +337,22 @@ fn classify_python_line(line: &str, state: &mut LexState) -> LineOutcome {
     }
 
     if let Some(module) = parse_python_import(line) {
-        return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+        return LineOutcome::Emit(
+            ObservationKind::ImportStatement { module },
+            HDAGEdgeKind::Imports,
+        );
     }
     if let Some(name) = parse_keyword_name(line, &["class"]) {
-        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+        return LineOutcome::Emit(
+            ObservationKind::TypeDefinition { name },
+            HDAGEdgeKind::Contains,
+        );
     }
     // `def name(...)` or `async def name(...)`.
-    let def_body = line.strip_prefix("async ").unwrap_or(line).strip_prefix("def ");
+    let def_body = line
+        .strip_prefix("async ")
+        .unwrap_or(line)
+        .strip_prefix("def ");
     if let Some(rest) = def_body {
         if let Some(name) = first_ident(rest) {
             let is_test = is_test_name(&name);
@@ -345,7 +373,10 @@ fn classify_go_line(line: &str, state: &mut LexState) -> LineOutcome {
             return LineOutcome::Skip;
         }
         if let Some(module) = first_quoted(line) {
-            return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+            return LineOutcome::Emit(
+                ObservationKind::ImportStatement { module },
+                HDAGEdgeKind::Imports,
+            );
         }
         return LineOutcome::Skip;
     }
@@ -355,17 +386,25 @@ fn classify_go_line(line: &str, state: &mut LexState) -> LineOutcome {
     }
     if let Some(rest) = line.strip_prefix("import ") {
         if let Some(module) = first_quoted(rest) {
-            return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+            return LineOutcome::Emit(
+                ObservationKind::ImportStatement { module },
+                HDAGEdgeKind::Imports,
+            );
         }
     }
     if let Some(name) = parse_keyword_name(line, &["type"]) {
-        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+        return LineOutcome::Emit(
+            ObservationKind::TypeDefinition { name },
+            HDAGEdgeKind::Contains,
+        );
     }
     // `func name(...)` or `func (recv) name(...)` (method).
     if let Some(rest) = line.strip_prefix("func ") {
         let rest = rest.trim_start();
         let after_recv = if rest.starts_with('(') {
-            rest.find(')').map(|c| rest[c + 1..].trim_start()).unwrap_or(rest)
+            rest.find(')')
+                .map(|c| rest[c + 1..].trim_start())
+                .unwrap_or(rest)
         } else {
             rest
         };
@@ -396,7 +435,10 @@ fn classify_javascript_line(line: &str, state: &mut LexState) -> LineOutcome {
     }
 
     if let Some(module) = parse_js_import(line) {
-        return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+        return LineOutcome::Emit(
+            ObservationKind::ImportStatement { module },
+            HDAGEdgeKind::Imports,
+        );
     }
 
     // Strip leading `export` / `export default` so exported defs are seen.
@@ -406,7 +448,10 @@ fn classify_javascript_line(line: &str, state: &mut LexState) -> LineOutcome {
         .unwrap_or(line);
 
     if let Some(name) = parse_keyword_name(body, &["class"]) {
-        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+        return LineOutcome::Emit(
+            ObservationKind::TypeDefinition { name },
+            HDAGEdgeKind::Contains,
+        );
     }
 
     // `function name(...)`, `async function name(...)`, `function* name(...)`.
@@ -435,8 +480,12 @@ fn classify_javascript_line(line: &str, state: &mut LexState) -> LineOutcome {
     // Test markers: `describe(`, `it(`, `test(` at statement start.
     for marker in ["describe(", "it(", "test("] {
         if line.starts_with(marker) {
-            let name = first_quoted(line).unwrap_or_else(|| marker.trim_end_matches('(').to_string());
-            return LineOutcome::Emit(ObservationKind::TestDefinition { name }, HDAGEdgeKind::Tests);
+            let name =
+                first_quoted(line).unwrap_or_else(|| marker.trim_end_matches('(').to_string());
+            return LineOutcome::Emit(
+                ObservationKind::TestDefinition { name },
+                HDAGEdgeKind::Tests,
+            );
         }
     }
 
@@ -463,13 +512,19 @@ fn classify_rust_line(line: &str, state: &mut LexState) -> LineOutcome {
     if let Some(rest) = s.strip_prefix("use ") {
         let module = rest.trim().trim_end_matches(';').trim();
         if let Some(module) = non_empty(module) {
-            return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+            return LineOutcome::Emit(
+                ObservationKind::ImportStatement { module },
+                HDAGEdgeKind::Imports,
+            );
         }
     }
     for kw in ["struct ", "enum ", "trait ", "union ", "type "] {
         if let Some(rest) = s.strip_prefix(kw) {
             if let Some(name) = first_ident(rest) {
-                return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+                return LineOutcome::Emit(
+                    ObservationKind::TypeDefinition { name },
+                    HDAGEdgeKind::Contains,
+                );
             }
         }
     }
@@ -501,10 +556,16 @@ fn classify_c_line(line: &str, state: &mut LexState) -> LineOutcome {
         return outcome;
     }
     if let Some(module) = parse_include(line) {
-        return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+        return LineOutcome::Emit(
+            ObservationKind::ImportStatement { module },
+            HDAGEdgeKind::Imports,
+        );
     }
     if let Some(name) = parse_keyword_name(line, &["struct", "union", "enum"]) {
-        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+        return LineOutcome::Emit(
+            ObservationKind::TypeDefinition { name },
+            HDAGEdgeKind::Contains,
+        );
     }
     if let Some((name, arity)) = detect_clike_function(line) {
         return function_or_test(name, arity, false);
@@ -518,17 +579,30 @@ fn classify_cpp_line(line: &str, state: &mut LexState) -> LineOutcome {
         return outcome;
     }
     if let Some(module) = parse_include(line) {
-        return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+        return LineOutcome::Emit(
+            ObservationKind::ImportStatement { module },
+            HDAGEdgeKind::Imports,
+        );
     }
     if let Some(rest) = line.strip_prefix("using ") {
         // `using namespace std;` / `using std::vector;`
-        let module = rest.trim().trim_end_matches(';').trim_start_matches("namespace ").trim();
+        let module = rest
+            .trim()
+            .trim_end_matches(';')
+            .trim_start_matches("namespace ")
+            .trim();
         if let Some(module) = non_empty(module) {
-            return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+            return LineOutcome::Emit(
+                ObservationKind::ImportStatement { module },
+                HDAGEdgeKind::Imports,
+            );
         }
     }
     if let Some(name) = parse_keyword_name(line, &["class", "struct", "union", "enum"]) {
-        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+        return LineOutcome::Emit(
+            ObservationKind::TypeDefinition { name },
+            HDAGEdgeKind::Contains,
+        );
     }
     if let Some((name, arity)) = detect_clike_function(line) {
         return function_or_test(name, arity, false);
@@ -550,17 +624,28 @@ fn classify_java_line(line: &str, state: &mut LexState) -> LineOutcome {
         return LineOutcome::Skip; // other annotations are inert
     }
     if let Some(rest) = line.strip_prefix("import ") {
-        let module = rest.trim().trim_end_matches(';').trim_start_matches("static ").trim();
+        let module = rest
+            .trim()
+            .trim_end_matches(';')
+            .trim_start_matches("static ")
+            .trim();
         if let Some(module) = non_empty(module) {
-            return LineOutcome::Emit(ObservationKind::ImportStatement { module }, HDAGEdgeKind::Imports);
+            return LineOutcome::Emit(
+                ObservationKind::ImportStatement { module },
+                HDAGEdgeKind::Imports,
+            );
         }
     }
     let was_pending = state.pending_test;
-    if let Some(name) =
-        parse_keyword_name(strip_java_modifiers(line), &["class", "interface", "enum", "record"])
-    {
+    if let Some(name) = parse_keyword_name(
+        strip_java_modifiers(line),
+        &["class", "interface", "enum", "record"],
+    ) {
         state.pending_test = false;
-        return LineOutcome::Emit(ObservationKind::TypeDefinition { name }, HDAGEdgeKind::Contains);
+        return LineOutcome::Emit(
+            ObservationKind::TypeDefinition { name },
+            HDAGEdgeKind::Contains,
+        );
     }
     if let Some((name, arity)) = detect_clike_function(line) {
         state.pending_test = false;
@@ -582,9 +667,7 @@ fn detect_clike_function(line: &str) -> Option<(String, u32)> {
     let s = line.trim();
     // Never a definition if it starts with punctuation/keywords that open blocks,
     // continuations, comments, labels, or preprocessor lines.
-    if s.is_empty()
-        || s.starts_with(['}', ')', '{', '#', '*', '/', '@', ':', '.'])
-    {
+    if s.is_empty() || s.starts_with(['}', ')', '{', '#', '*', '/', '@', ':', '.']) {
         return None;
     }
     let open = s.find('(')?;
@@ -605,15 +688,27 @@ fn detect_clike_function(line: &str) -> Option<(String, u32)> {
         return None;
     }
     const CONTROL: &[&str] = &[
-        "if", "for", "while", "switch", "return", "else", "do", "catch", "case",
-        "sizeof", "synchronized", "throw", "new", "delete", "typedef",
+        "if",
+        "for",
+        "while",
+        "switch",
+        "return",
+        "else",
+        "do",
+        "catch",
+        "case",
+        "sizeof",
+        "synchronized",
+        "throw",
+        "new",
+        "delete",
+        "typedef",
     ];
     if CONTROL.contains(&tokens[0]) {
         return None;
     }
     // Name is the last token before `(`, stripped of pointer/ref/scope decoration.
-    let raw = tokens[tokens.len() - 1]
-        .trim_start_matches(['*', '&']);
+    let raw = tokens[tokens.len() - 1].trim_start_matches(['*', '&']);
     let raw = raw.rsplit("::").next().unwrap_or(raw); // C++ `Foo::bar` → `bar`
     let name = first_ident(raw)?;
     // Arity from the first parameter group; `(void)` and `()` are zero.
@@ -649,7 +744,10 @@ fn skip_c_comment(line: &str, state: &mut LexState) -> Option<LineOutcome> {
 
 /// Parse a C/C++ `#include <x>` / `#include "x"` directive → the header name.
 fn parse_include(line: &str) -> Option<String> {
-    let rest = line.strip_prefix("#")?.trim_start().strip_prefix("include")?;
+    let rest = line
+        .strip_prefix("#")?
+        .trim_start()
+        .strip_prefix("include")?;
     let rest = rest.trim();
     if let Some(start) = rest.find('<') {
         let end = rest[start + 1..].find('>')?;
@@ -664,8 +762,14 @@ fn strip_java_modifiers(line: &str) -> &str {
     loop {
         let mut advanced = false;
         for m in [
-            "public ", "private ", "protected ", "static ", "final ", "abstract ",
-            "sealed ", "strictfp ",
+            "public ",
+            "private ",
+            "protected ",
+            "static ",
+            "final ",
+            "abstract ",
+            "sealed ",
+            "strictfp ",
         ] {
             if let Some(rest) = s.strip_prefix(m) {
                 s = rest.trim_start();
@@ -683,9 +787,15 @@ fn strip_java_modifiers(line: &str) -> &str {
 /// Emit a `FunctionDefinition` (Contains) or `TestDefinition` (Tests) edge.
 fn function_or_test(name: String, arity: u32, is_test: bool) -> LineOutcome {
     if is_test {
-        LineOutcome::Emit(ObservationKind::TestDefinition { name }, HDAGEdgeKind::Tests)
+        LineOutcome::Emit(
+            ObservationKind::TestDefinition { name },
+            HDAGEdgeKind::Tests,
+        )
     } else {
-        LineOutcome::Emit(ObservationKind::FunctionDefinition { name, arity }, HDAGEdgeKind::Contains)
+        LineOutcome::Emit(
+            ObservationKind::FunctionDefinition { name, arity },
+            HDAGEdgeKind::Contains,
+        )
     }
 }
 
@@ -695,7 +805,8 @@ fn is_test_name(name: &str) -> bool {
 }
 
 fn is_rust_test_attribute(line: &str) -> bool {
-    line == "#[test]" || (line.starts_with("#[") && line.ends_with("test]") && line.contains("test"))
+    line == "#[test]"
+        || (line.starts_with("#[") && line.ends_with("test]") && line.contains("test"))
 }
 
 /// Strip a leading Rust visibility qualifier (`pub`, `pub(crate)`, …).
@@ -910,7 +1021,11 @@ impl CrossLanguageFingerprint {
             .map(|lang| Self::from_source(lang, source_evidence_id, content))
     }
 
-    fn from_counts(language: SourceLanguage, counts: KindCounts, source_evidence_id: Digest) -> Self {
+    fn from_counts(
+        language: SourceLanguage,
+        counts: KindCounts,
+        source_evidence_id: Digest,
+    ) -> Self {
         let total = counts.total();
         let density = |count: u64| -> Q16 {
             if total == 0 {
@@ -1007,7 +1122,7 @@ impl CrossLanguageFingerprint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{Digest, EnergyFactors, Q16, TaintLabel};
+    use kosmo_core::{Digest, EnergyFactors, TaintLabel, Q16};
 
     // ── Real corpus fixtures (trimmed PSE-Codex "barbara" corpus) ──────────────
 
@@ -1142,17 +1257,32 @@ fn is_fibonacci(value: u64) -> bool {
 
     #[test]
     fn detects_language_from_extension() {
-        assert_eq!(SourceLanguage::from_path("src/a.rs"), Some(SourceLanguage::Rust));
-        assert_eq!(SourceLanguage::from_path("a/b/c.py"), Some(SourceLanguage::Python));
-        assert_eq!(SourceLanguage::from_path("x.mjs"), Some(SourceLanguage::JavaScript));
-        assert_eq!(SourceLanguage::from_path("main.go"), Some(SourceLanguage::Go));
+        assert_eq!(
+            SourceLanguage::from_path("src/a.rs"),
+            Some(SourceLanguage::Rust)
+        );
+        assert_eq!(
+            SourceLanguage::from_path("a/b/c.py"),
+            Some(SourceLanguage::Python)
+        );
+        assert_eq!(
+            SourceLanguage::from_path("x.mjs"),
+            Some(SourceLanguage::JavaScript)
+        );
+        assert_eq!(
+            SourceLanguage::from_path("main.go"),
+            Some(SourceLanguage::Go)
+        );
         assert_eq!(SourceLanguage::from_path("README.md"), None);
         assert_eq!(SourceLanguage::from_path("Makefile"), None);
     }
 
     #[test]
     fn detection_is_case_insensitive() {
-        assert_eq!(SourceLanguage::from_path("A.PY"), Some(SourceLanguage::Python));
+        assert_eq!(
+            SourceLanguage::from_path("A.PY"),
+            Some(SourceLanguage::Python)
+        );
         assert_eq!(SourceLanguage::from_path("B.Go"), Some(SourceLanguage::Go));
     }
 
@@ -1176,17 +1306,45 @@ fn is_fibonacci(value: u64) -> bool {
 
     #[test]
     fn python_captures_imports_and_functions() {
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Python, ev(), "fib.py", PY_FIB, TaintLabel::Clean);
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 2, "two `from … import` lines");
-        assert!(h.edges_of_kind(&HDAGEdgeKind::Contains) >= 4, "at least four defs");
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Python,
+            ev(),
+            "fib.py",
+            PY_FIB,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Imports),
+            2,
+            "two `from … import` lines"
+        );
+        assert!(
+            h.edges_of_kind(&HDAGEdgeKind::Contains) >= 4,
+            "at least four defs"
+        );
     }
 
     #[test]
     fn python_skips_docstrings_and_decorators() {
         let src = "\"\"\"\nimport not_a_real_import\ndef not_a_real_def():\n\"\"\"\n@decorator\ndef real(x):\n    pass\n";
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Python, ev(), "x.py", src, TaintLabel::Clean);
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 0, "docstring import ignored");
-        assert_eq!(h.definition_count(), 1, "only the real def, got {}", h.definition_count());
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Python,
+            ev(),
+            "x.py",
+            src,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Imports),
+            0,
+            "docstring import ignored"
+        );
+        assert_eq!(
+            h.definition_count(),
+            1,
+            "only the real def, got {}",
+            h.definition_count()
+        );
     }
 
     // ── Go extraction ──────────────────────────────────────────────────────────
@@ -1194,30 +1352,62 @@ fn is_fibonacci(value: u64) -> bool {
     #[test]
     fn go_captures_single_and_block_imports() {
         let block = "package main\nimport (\n\t\"fmt\"\n\t\"os\"\n)\nfunc main() {}\n";
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Go, ev(), "m.go", block, TaintLabel::Clean);
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 2, "two block imports");
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Go,
+            ev(),
+            "m.go",
+            block,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Imports),
+            2,
+            "two block imports"
+        );
         assert!(h.edges_of_kind(&HDAGEdgeKind::Contains) >= 1, "func main");
     }
 
     #[test]
     fn go_captures_types_and_methods() {
-        let src = "type Node struct {\n\tval int\n}\nfunc (n Node) Value() int {\n\treturn n.val\n}\n";
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Go, ev(), "n.go", src, TaintLabel::Clean);
-        assert!(h.definition_count() >= 2, "type + method, got {}", h.definition_count());
+        let src =
+            "type Node struct {\n\tval int\n}\nfunc (n Node) Value() int {\n\treturn n.val\n}\n";
+        let h =
+            CodeHDAG::extract_from_source(SourceLanguage::Go, ev(), "n.go", src, TaintLabel::Clean);
+        assert!(
+            h.definition_count() >= 2,
+            "type + method, got {}",
+            h.definition_count()
+        );
     }
 
     #[test]
     fn go_detects_test_functions() {
         let src = "func TestThing(t *testing.T) {\n}\nfunc Helper() {}\n";
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Go, ev(), "n_test.go", src, TaintLabel::Clean);
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Tests), 1, "one Test function");
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Go,
+            ev(),
+            "n_test.go",
+            src,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Tests),
+            1,
+            "one Test function"
+        );
     }
 
     // ── JavaScript extraction ──────────────────────────────────────────────────
 
     #[test]
     fn javascript_captures_functions_and_arrows() {
-        let h = CodeHDAG::extract_from_source(SourceLanguage::JavaScript, ev(), "fib.js", JS_FIB, TaintLabel::Clean);
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::JavaScript,
+            ev(),
+            "fib.js",
+            JS_FIB,
+            TaintLabel::Clean,
+        );
         assert!(
             h.edges_of_kind(&HDAGEdgeKind::Contains) >= 4,
             "three function decls + one arrow, got {}",
@@ -1228,38 +1418,86 @@ fn is_fibonacci(value: u64) -> bool {
     #[test]
     fn javascript_skips_jsdoc_block_comments() {
         let src = "/**\n * function ghost() {}\n * @param x\n */\nfunction real() {}\n";
-        let h = CodeHDAG::extract_from_source(SourceLanguage::JavaScript, ev(), "x.js", src, TaintLabel::Clean);
-        assert_eq!(h.definition_count(), 1, "block-comment function ignored, got {}", h.definition_count());
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::JavaScript,
+            ev(),
+            "x.js",
+            src,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.definition_count(),
+            1,
+            "block-comment function ignored, got {}",
+            h.definition_count()
+        );
     }
 
     #[test]
     fn javascript_captures_imports() {
         let src = "import { foo } from \"./mod.js\";\nconst bar = require(\"baz\");\n";
-        let h = CodeHDAG::extract_from_source(SourceLanguage::JavaScript, ev(), "x.js", src, TaintLabel::Clean);
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 2, "es import + require");
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::JavaScript,
+            ev(),
+            "x.js",
+            src,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Imports),
+            2,
+            "es import + require"
+        );
     }
 
     // ── Invariants: determinism, taint, content-addressing ─────────────────────
 
     #[test]
     fn extraction_is_deterministic() {
-        let a = CodeHDAG::extract_from_source(SourceLanguage::Python, ev(), "fib.py", PY_FIB, TaintLabel::Clean);
-        let b = CodeHDAG::extract_from_source(SourceLanguage::Python, ev(), "fib.py", PY_FIB, TaintLabel::Clean);
+        let a = CodeHDAG::extract_from_source(
+            SourceLanguage::Python,
+            ev(),
+            "fib.py",
+            PY_FIB,
+            TaintLabel::Clean,
+        );
+        let b = CodeHDAG::extract_from_source(
+            SourceLanguage::Python,
+            ev(),
+            "fib.py",
+            PY_FIB,
+            TaintLabel::Clean,
+        );
         assert_eq!(a.hdag_id, b.hdag_id, "identical source → identical hdag_id");
     }
 
     #[test]
     fn taint_propagates_to_graph() {
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Go, ev(), "m.go", GO_FIB, TaintLabel::External);
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Go,
+            ev(),
+            "m.go",
+            GO_FIB,
+            TaintLabel::External,
+        );
         assert_eq!(h.taint, TaintLabel::External);
     }
 
     #[test]
     fn rust_path_matches_canonical_extractor() {
         // extract_from_source(Rust, …) must be byte-identical to the existing path.
-        let a = CodeHDAG::extract_from_source(SourceLanguage::Rust, ev(), "f.rs", RS_FIB, TaintLabel::Clean);
+        let a = CodeHDAG::extract_from_source(
+            SourceLanguage::Rust,
+            ev(),
+            "f.rs",
+            RS_FIB,
+            TaintLabel::Clean,
+        );
         let b = CodeHDAG::extract_from_rust_source(ev(), "f.rs", RS_FIB, TaintLabel::Clean);
-        assert_eq!(a.hdag_id, b.hdag_id, "Rust dispatch must equal the canonical extractor");
+        assert_eq!(
+            a.hdag_id, b.hdag_id,
+            "Rust dispatch must equal the canonical extractor"
+        );
     }
 
     // ── Topology → energy bridge works for all languages ───────────────────────
@@ -1268,12 +1506,27 @@ fn is_fibonacci(value: u64) -> bool {
     fn cross_language_topology_feeds_energy_kernel() {
         // A rich Python module must out-rank an empty one under the same ψ — the
         // exact property the Rust path guarantees, now language-independent.
-        let rich = CodeHDAG::extract_from_source(SourceLanguage::Python, ev(), "fib.py", PY_FIB, TaintLabel::Clean);
-        let empty = CodeHDAG::extract_from_source(SourceLanguage::Python, ev(), "e.py", "# nothing\n", TaintLabel::Clean);
+        let rich = CodeHDAG::extract_from_source(
+            SourceLanguage::Python,
+            ev(),
+            "fib.py",
+            PY_FIB,
+            TaintLabel::Clean,
+        );
+        let empty = CodeHDAG::extract_from_source(
+            SourceLanguage::Python,
+            ev(),
+            "e.py",
+            "# nothing\n",
+            TaintLabel::Clean,
+        );
         let psi = Q16::ONE;
         let rich_k = rich.energy_kernel(psi, EnergyFactors::all_clean());
         let empty_k = empty.energy_kernel(psi, EnergyFactors::all_clean());
-        assert!(rich_k.energy().raw() > empty_k.energy().raw(), "rich module out-ranks empty");
+        assert!(
+            rich_k.energy().raw() > empty_k.energy().raw(),
+            "rich module out-ranks empty"
+        );
         assert_eq!(empty_k.energy(), Q16::ZERO, "empty topology → zero energy");
     }
 
@@ -1289,14 +1542,22 @@ fn is_fibonacci(value: u64) -> bool {
     #[test]
     fn fingerprint_self_similarity_is_one() {
         let f = CrossLanguageFingerprint::from_source(SourceLanguage::Go, ev(), GO_FIB);
-        assert_eq!(f.similarity(&f), Q16::ONE, "self-similarity must be exactly 1.0");
+        assert_eq!(
+            f.similarity(&f),
+            Q16::ONE,
+            "self-similarity must be exactly 1.0"
+        );
     }
 
     #[test]
     fn fingerprint_similarity_is_symmetric() {
         let py = CrossLanguageFingerprint::from_source(SourceLanguage::Python, ev(), PY_FIB);
         let rs = CrossLanguageFingerprint::from_source(SourceLanguage::Rust, ev(), RS_FIB);
-        assert_eq!(py.similarity(&rs), rs.similarity(&py), "similarity must be symmetric");
+        assert_eq!(
+            py.similarity(&rs),
+            rs.similarity(&py),
+            "similarity must be symmetric"
+        );
     }
 
     #[test]
@@ -1315,7 +1576,10 @@ fn is_fibonacci(value: u64) -> bool {
             (&go, &rs, "go~rs"),
         ] {
             let sim = a.similarity(b);
-            assert!(sim.at_least(threshold), "{label} similarity {sim} below 0.60");
+            assert!(
+                sim.at_least(threshold),
+                "{label} similarity {sim} below 0.60"
+            );
         }
     }
 
@@ -1406,16 +1670,35 @@ int sum(const vector<int>& v) {
     fn detects_c_family_extensions() {
         assert_eq!(SourceLanguage::from_path("a.c"), Some(SourceLanguage::C));
         assert_eq!(SourceLanguage::from_path("a.h"), Some(SourceLanguage::C));
-        assert_eq!(SourceLanguage::from_path("Foo.java"), Some(SourceLanguage::Java));
-        assert_eq!(SourceLanguage::from_path("a.cpp"), Some(SourceLanguage::Cpp));
-        assert_eq!(SourceLanguage::from_path("a.hpp"), Some(SourceLanguage::Cpp));
+        assert_eq!(
+            SourceLanguage::from_path("Foo.java"),
+            Some(SourceLanguage::Java)
+        );
+        assert_eq!(
+            SourceLanguage::from_path("a.cpp"),
+            Some(SourceLanguage::Cpp)
+        );
+        assert_eq!(
+            SourceLanguage::from_path("a.hpp"),
+            Some(SourceLanguage::Cpp)
+        );
         assert_eq!(SourceLanguage::from_path("a.cc"), Some(SourceLanguage::Cpp));
     }
 
     #[test]
     fn c_captures_includes_struct_and_functions() {
-        let h = CodeHDAG::extract_from_source(SourceLanguage::C, ev(), "fib.c", C_FIB, TaintLabel::Clean);
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 2, "two #include directives");
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::C,
+            ev(),
+            "fib.c",
+            C_FIB,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Imports),
+            2,
+            "two #include directives"
+        );
         // struct Memo + fib_memo + fib_iterative + main = 4 defs; control/calls excluded.
         assert_eq!(
             h.edges_of_kind(&HDAGEdgeKind::Contains),
@@ -1427,7 +1710,13 @@ int sum(const vector<int>& v) {
 
     #[test]
     fn java_captures_imports_class_and_methods() {
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Java, ev(), "Fib.java", JAVA_FIB, TaintLabel::Clean);
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Java,
+            ev(),
+            "Fib.java",
+            JAVA_FIB,
+            TaintLabel::Clean,
+        );
         assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 2, "two imports");
         // class Fibonacci + fibMemo + fibIterative = 3 (package line and returns excluded).
         assert_eq!(
@@ -1441,17 +1730,42 @@ int sum(const vector<int>& v) {
     #[test]
     fn java_detects_test_annotation_and_name() {
         let src = "@Test\npublic void testAddition() {\n    assertEquals(4, add(2, 2));\n}\n";
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Java, ev(), "FooTest.java", src, TaintLabel::Clean);
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Tests), 1, "@Test method is a test");
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Java,
+            ev(),
+            "FooTest.java",
+            src,
+            TaintLabel::Clean,
+        );
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Tests),
+            1,
+            "@Test method is a test"
+        );
         // The calls assertEquals(...) / add(...) must not be counted as definitions.
-        assert_eq!(h.definition_count(), 1, "only the test method, got {}", h.definition_count());
+        assert_eq!(
+            h.definition_count(),
+            1,
+            "only the test method, got {}",
+            h.definition_count()
+        );
     }
 
     #[test]
     fn cpp_captures_includes_using_class_and_functions() {
-        let h = CodeHDAG::extract_from_source(SourceLanguage::Cpp, ev(), "list.cpp", CPP_LIST, TaintLabel::Clean);
+        let h = CodeHDAG::extract_from_source(
+            SourceLanguage::Cpp,
+            ev(),
+            "list.cpp",
+            CPP_LIST,
+            TaintLabel::Clean,
+        );
         // 2 #include + 1 using = 3 imports
-        assert_eq!(h.edges_of_kind(&HDAGEdgeKind::Imports), 3, "two includes + one using");
+        assert_eq!(
+            h.edges_of_kind(&HDAGEdgeKind::Imports),
+            3,
+            "two includes + one using"
+        );
         // class LinkedList + push + sum = 3
         assert_eq!(
             h.edges_of_kind(&HDAGEdgeKind::Contains),
@@ -1465,14 +1779,38 @@ int sum(const vector<int>& v) {
     fn clike_function_detector_rejects_non_definitions() {
         // The critical safety property: control statements, calls, and declarations
         // with initializers must never be misread as function definitions.
-        assert!(super::detect_clike_function("if (n <= 1) {").is_none(), "if");
-        assert!(super::detect_clike_function("for (int i = 0; i < n; i++) {").is_none(), "for");
-        assert!(super::detect_clike_function("while (running) {").is_none(), "while");
-        assert!(super::detect_clike_function("return fib(n - 1) + fib(n - 2);").is_none(), "return-call");
-        assert!(super::detect_clike_function("printf(\"%d\", x);").is_none(), "bare call");
-        assert!(super::detect_clike_function("int result = compute(a, b);").is_none(), "assignment");
-        assert!(super::detect_clike_function("} else if (x) {").is_none(), "else-if");
-        assert!(super::detect_clike_function("int prototype(int);").is_none(), "prototype");
+        assert!(
+            super::detect_clike_function("if (n <= 1) {").is_none(),
+            "if"
+        );
+        assert!(
+            super::detect_clike_function("for (int i = 0; i < n; i++) {").is_none(),
+            "for"
+        );
+        assert!(
+            super::detect_clike_function("while (running) {").is_none(),
+            "while"
+        );
+        assert!(
+            super::detect_clike_function("return fib(n - 1) + fib(n - 2);").is_none(),
+            "return-call"
+        );
+        assert!(
+            super::detect_clike_function("printf(\"%d\", x);").is_none(),
+            "bare call"
+        );
+        assert!(
+            super::detect_clike_function("int result = compute(a, b);").is_none(),
+            "assignment"
+        );
+        assert!(
+            super::detect_clike_function("} else if (x) {").is_none(),
+            "else-if"
+        );
+        assert!(
+            super::detect_clike_function("int prototype(int);").is_none(),
+            "prototype"
+        );
         // Positive cases.
         assert_eq!(
             super::detect_clike_function("int add(int a, int b) {"),
@@ -1490,8 +1828,20 @@ int sum(const vector<int>& v) {
 
     #[test]
     fn c_family_extraction_is_deterministic() {
-        let a = CodeHDAG::extract_from_source(SourceLanguage::C, ev(), "fib.c", C_FIB, TaintLabel::Clean);
-        let b = CodeHDAG::extract_from_source(SourceLanguage::C, ev(), "fib.c", C_FIB, TaintLabel::Clean);
+        let a = CodeHDAG::extract_from_source(
+            SourceLanguage::C,
+            ev(),
+            "fib.c",
+            C_FIB,
+            TaintLabel::Clean,
+        );
+        let b = CodeHDAG::extract_from_source(
+            SourceLanguage::C,
+            ev(),
+            "fib.c",
+            C_FIB,
+            TaintLabel::Clean,
+        );
         assert_eq!(a.hdag_id, b.hdag_id, "identical source → identical hdag_id");
     }
 
@@ -1513,6 +1863,10 @@ int sum(const vector<int>& v) {
         assert!(c.verify_id() && java.verify_id());
         // Both are import-bearing, function-dominated structural profiles.
         let threshold = Q16::ratio(50, 100).unwrap();
-        assert!(c.similarity(&java).at_least(threshold), "C~Java similarity {} below 0.50", c.similarity(&java));
+        assert!(
+            c.similarity(&java).at_least(threshold),
+            "C~Java similarity {} below 0.50",
+            c.similarity(&java)
+        );
     }
 }

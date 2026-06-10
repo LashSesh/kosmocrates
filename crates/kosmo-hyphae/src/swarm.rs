@@ -1,7 +1,7 @@
 use crate::cube::SourceCube;
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, PolicyProfile, Q16, TripolarEnergy,
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult,
+    LicenseStatus, PolicyProfile, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,7 +34,10 @@ pub struct SourceCubeWorker {
 
 impl SourceCubeWorker {
     pub fn for_cube(cube: &SourceCube, policy_id: Digest) -> Self {
-        let worker_id = Digest::of(&WorkerContent { cube_id: cube.cube_id, policy_id });
+        let worker_id = Digest::of(&WorkerContent {
+            cube_id: cube.cube_id,
+            policy_id,
+        });
         Self {
             worker_id,
             cube_id: cube.cube_id,
@@ -79,7 +82,12 @@ impl CubeMandorla {
             overlap_score: overlap_score.raw(),
             policy_id,
         });
-        Self { mandorla_id, cube_ids, overlap_score, policy_id }
+        Self {
+            mandorla_id,
+            cube_ids,
+            overlap_score,
+            policy_id,
+        }
     }
 
     /// Build an [`EnergyAssessment`] for this mandorla using the tripolar kernel.
@@ -206,7 +214,10 @@ pub struct CubeSwarm {
 impl CubeSwarm {
     pub fn new(policy: PolicyProfile, mut source_cubes: Vec<SourceCube>) -> Self {
         source_cubes.sort_by_key(|c| c.cube_id);
-        Self { policy, source_cubes }
+        Self {
+            policy,
+            source_cubes,
+        }
     }
 
     /// Run passively: register workers, detect mandorlas, build composite.
@@ -253,7 +264,7 @@ impl CubeSwarm {
 mod tests {
     use super::*;
     use crate::cube::{CubeDimensionProfile, SourceCube};
-    use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, TaintLabel};
+    use kosmo_core::{Digest, GateResult, PolicyProfile, TaintLabel, Q16};
 
     fn make_cube(void_id: Digest, path: &str, policy_id: Digest) -> SourceCube {
         SourceCube::new(
@@ -295,7 +306,10 @@ mod tests {
         });
         let (_, c1) = swarm1.run();
         let (_, c2) = swarm2.run();
-        assert_eq!(c1.composite_id, c2.composite_id, "fixture SourceCubes must merge deterministically");
+        assert_eq!(
+            c1.composite_id, c2.composite_id,
+            "fixture SourceCubes must merge deterministically"
+        );
     }
 
     #[test]
@@ -309,7 +323,10 @@ mod tests {
         let swarm = CubeSwarm::new(policy, cubes);
         let (_, composite) = swarm.run();
         assert_eq!(composite.source_cube_ids.len(), 2);
-        assert!(!composite.mandorla_ids.is_empty(), "shared void must produce a mandorla");
+        assert!(
+            !composite.mandorla_ids.is_empty(),
+            "shared void must produce a mandorla"
+        );
     }
 
     #[test]
@@ -359,16 +376,28 @@ mod tests {
         let a2 = m.energy_assessment(&GateResult::Pass);
         assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
         assert_eq!(a1.subject_id, m.mandorla_id);
-        assert_eq!(a1.evidence_bundle_id, m.mandorla_id, "self-referential evidence must equal mandorla_id");
-        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a1.evidence_bundle_id, m.mandorla_id,
+            "self-referential evidence must equal mandorla_id"
+        );
+        assert_ne!(
+            a1.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 
     #[test]
     fn cube_mandorla_reject_gate_zeroes_energy() {
         let pid = Digest::of_bytes(b"p");
         let m = CubeMandorla::from_cubes(vec![Digest::of_bytes(b"a")], Q16::ONE, pid);
-        let a = m.energy_assessment(&GateResult::Reject { reason: "test".into() });
-        assert!(a.kernel.is_zeroed(), "Reject gate must zero mandorla energy");
+        let a = m.energy_assessment(&GateResult::Reject {
+            reason: "test".into(),
+        });
+        assert!(
+            a.kernel.is_zeroed(),
+            "Reject gate must zero mandorla energy"
+        );
     }
 
     #[test]
@@ -382,8 +411,15 @@ mod tests {
         let a2 = composite.energy_assessment(&GateResult::Pass);
         assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
         assert_eq!(a1.subject_id, composite.composite_id);
-        assert_eq!(a1.evidence_bundle_id, composite.composite_id, "self-referential evidence");
-        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a1.evidence_bundle_id, composite.composite_id,
+            "self-referential evidence"
+        );
+        assert_ne!(
+            a1.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 
     #[test]
@@ -393,7 +429,12 @@ mod tests {
         let cubes = vec![make_cube(void_id, "src/a.rs", policy.id)];
         let swarm = CubeSwarm::new(policy, cubes);
         let (_, composite) = swarm.run();
-        let a = composite.energy_assessment(&GateResult::Reject { reason: "test".into() });
-        assert!(a.kernel.is_zeroed(), "Reject gate must zero composite energy");
+        let a = composite.energy_assessment(&GateResult::Reject {
+            reason: "test".into(),
+        });
+        assert!(
+            a.kernel.is_zeroed(),
+            "Reject gate must zero composite energy"
+        );
     }
 }

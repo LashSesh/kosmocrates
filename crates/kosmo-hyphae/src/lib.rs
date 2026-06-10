@@ -36,10 +36,12 @@ pub mod swarm;
 pub mod void_map;
 pub mod xlang;
 
-pub use assimilation::{AssimilationDecision, AssimilationLedger, AssimilationOutcome, NegativeEvidenceRecord};
+pub use assimilation::{
+    AssimilationDecision, AssimilationLedger, AssimilationOutcome, NegativeEvidenceRecord,
+};
 pub use code_hdag::{CodeHDAG, CodeObservation, HDAGEdge, HDAGEdgeKind, HDAGNode, ObservationKind};
 pub use collapse::{
-    CollapseAction, CollapseStep, CollapsePlanStatus, HostTargetCollapsePlan,
+    CollapseAction, CollapsePlanStatus, CollapseStep, HostTargetCollapsePlan,
     MorphogenicCorpusUpdate,
 };
 pub use corpus::{
@@ -48,9 +50,9 @@ pub use corpus::{
     ReplayManifest, SourceCubeIndex,
 };
 pub use crystal::{
-    AssimilationCertificate, CertificationStatus, Constraint, ConstraintKind,
-    ConstraintProgram, DualFabricGateCascade, Resonite, ReplayProof,
-    StructuralCrystalCandidate, StructuralCrystalRecord,
+    AssimilationCertificate, CertificationStatus, Constraint, ConstraintKind, ConstraintProgram,
+    DualFabricGateCascade, ReplayProof, Resonite, StructuralCrystalCandidate,
+    StructuralCrystalRecord,
 };
 pub use cube::{CubeDimensionProfile, RepositoryCube, SourceCube};
 pub use deficiency::{DeficiencyEntry, DeficiencyKind, DeficiencyVector};
@@ -58,26 +60,26 @@ pub use delta::{DeltaAction, DeltaStatus, HostTargetDelta, VoidFillDelta};
 pub use frontier::{SourceEvidence, SourceFrontierGraph, SourceIntent, SourceIntentKind};
 pub use gates::{GateCascade, GateCheckRecord, GateKind, GateTrace};
 pub use host::{HostBinding, HostCube};
+pub use lpcm::{
+    monotone_contractive_filter, CandidateDirection, CandidateDirectionReason,
+    DoFContractionReport, Fragment, FragmentField, FragmentKind, LocalCondensationCandidate,
+    LpcmPassiveReport, MonotoneFilterOutcome, SeamEdge, SeamGraph, SupportMassVector,
+};
 pub use metatron::{
-    AmbiguityKind, AnomalyKind, AnomalyRecord, ComplementVoidHypothesis, ExtractionMethod,
-    MicrographLiftReport, MetatronMicrograph, MetatronRegionFingerprint, MicroTopologyDiagnostic,
-    MicroTopologyIndex, ProjectionKind, ProjectionProfile, RegionExtractionProfile,
-    SemanticLossRecord, TopologyAmbiguityProfile, TopologyRegionRef,
-    diagnose_micrograph, lift_region,
+    diagnose_micrograph, lift_region, AmbiguityKind, AnomalyKind, AnomalyRecord,
+    ComplementVoidHypothesis, ExtractionMethod, MetatronMicrograph, MetatronRegionFingerprint,
+    MicroTopologyDiagnostic, MicroTopologyIndex, MicrographLiftReport, ProjectionKind,
+    ProjectionProfile, RegionExtractionProfile, SemanticLossRecord, TopologyAmbiguityProfile,
+    TopologyRegionRef,
 };
 pub use motif::MotifCandidate;
 pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
 pub use run::{passive_run, passive_run_augmented, HyphaeRunResult};
 pub use structural_yield::{StructuralYield, StructuralYieldKind};
 pub use surgery::{
-    SurgeryBackedCollapseStep, SurgeryEffect, SurgeryPrecondition, SurgeryRisk,
-    SurgeryTaskStatus, SurgeryWorkbenchTask, TopologicalSurgeryKind, TopologicalSurgeryOption,
+    SurgeryBackedCollapseStep, SurgeryEffect, SurgeryPrecondition, SurgeryRisk, SurgeryTaskStatus,
+    SurgeryWorkbenchTask, TopologicalSurgeryKind, TopologicalSurgeryOption,
 };
 pub use swarm::{CompositeSupportCube, CubeMandorla, CubeSwarm, SourceCubeWorker, WorkerStatus};
-pub use lpcm::{
-    CandidateDirection, CandidateDirectionReason, DoFContractionReport, Fragment, FragmentField,
-    FragmentKind, LocalCondensationCandidate, LpcmPassiveReport, MonotoneFilterOutcome,
-    SeamEdge, SeamGraph, SupportMassVector, monotone_contractive_filter,
-};
 pub use void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
-pub use xlang::{CrossLanguageFingerprint, SourceLanguage, is_test_path};
+pub use xlang::{is_test_path, CrossLanguageFingerprint, SourceLanguage};

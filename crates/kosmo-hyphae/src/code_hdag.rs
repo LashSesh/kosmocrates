@@ -5,7 +5,7 @@
 //! All HDAG artifacts preserve backref to their source evidence (CROSS-006).
 
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, Q16, TaintLabel, TripolarEnergy,
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, TaintLabel, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +50,14 @@ impl CodeObservation {
             ]
             .concat(),
         );
-        Self { obs_id, kind, location, fragment_digest, taint, source_evidence_id }
+        Self {
+            obs_id,
+            kind,
+            location,
+            fragment_digest,
+            taint,
+            source_evidence_id,
+        }
     }
 }
 
@@ -135,13 +142,25 @@ impl CodeHDAG {
             source_evidence_id,
             taint: format!("{:?}", taint),
         });
-        Self { hdag_id, nodes, edges, source_evidence_id, taint }
+        Self {
+            hdag_id,
+            nodes,
+            edges,
+            source_evidence_id,
+            taint,
+        }
     }
 
     /// Minimal HDAG for one source file (skeleton — one node, no edges).
-    pub fn skeleton_for_source(source_evidence_id: Digest, location: &str, taint: TaintLabel) -> Self {
+    pub fn skeleton_for_source(
+        source_evidence_id: Digest,
+        location: &str,
+        taint: TaintLabel,
+    ) -> Self {
         let obs = CodeObservation::new(
-            ObservationKind::ModuleDeclaration { name: location.to_string() },
+            ObservationKind::ModuleDeclaration {
+                name: location.to_string(),
+            },
             location.to_string(),
             source_evidence_id,
             taint.clone(),
@@ -183,7 +202,9 @@ impl CodeHDAG {
     ) -> Self {
         // Root node for the file.
         let root_obs = CodeObservation::new(
-            ObservationKind::ModuleDeclaration { name: location.to_string() },
+            ObservationKind::ModuleDeclaration {
+                name: location.to_string(),
+            },
             location.to_string(),
             Digest::of_bytes(format!("{location}:0:<root>").as_bytes()),
             taint.clone(),
@@ -272,8 +293,15 @@ impl CodeHDAG {
                     )
                 };
                 push(
-                    &mut nodes, &mut edges, root_id, kind, lineloc, frag, &taint,
-                    source_evidence_id, edge,
+                    &mut nodes,
+                    &mut edges,
+                    root_id,
+                    kind,
+                    lineloc,
+                    frag,
+                    &taint,
+                    source_evidence_id,
+                    edge,
                 );
             }
 
@@ -321,11 +349,7 @@ impl CodeHDAG {
         } else {
             Q16::ratio(tests, contains).unwrap_or(Q16::ZERO)
         };
-        Q16::HALF.saturating_add(
-            Q16::HALF
-                .checked_mul(tested_ratio)
-                .unwrap_or(Q16::ZERO),
-        )
+        Q16::HALF.saturating_add(Q16::HALF.checked_mul(tested_ratio).unwrap_or(Q16::ZERO))
     }
 
     /// Phase / topological-coherence pole ω ∈ `[0, 1]`.
@@ -663,14 +687,20 @@ fn it_builds() {
             super::parse_fn("pub fn build(a: u32, b: u32) -> Widget {"),
             Some(("build".to_string(), 2))
         );
-        assert_eq!(super::parse_fn("fn helper() {}"), Some(("helper".to_string(), 0)));
+        assert_eq!(
+            super::parse_fn("fn helper() {}"),
+            Some(("helper".to_string(), 0))
+        );
     }
 
     #[test]
     fn extract_is_deterministic() {
         let h1 = extract();
         let h2 = extract();
-        assert_eq!(h1.hdag_id, h2.hdag_id, "identical source → identical hdag_id");
+        assert_eq!(
+            h1.hdag_id, h2.hdag_id,
+            "identical source → identical hdag_id"
+        );
     }
 
     #[test]
@@ -706,7 +736,11 @@ fn it_builds() {
             "// just a comment\n\n   \n// another",
             TaintLabel::Clean,
         );
-        assert_eq!(h.definition_count(), 0, "only the root node, no definitions");
+        assert_eq!(
+            h.definition_count(),
+            0,
+            "only the root node, no definitions"
+        );
     }
 
     #[test]
@@ -759,10 +793,14 @@ fn it_builds() {
 
     #[test]
     fn topology_energy_reject_gate_zeroes_energy() {
-        use kosmo_core::{EnergyFactors, FoundrySurvival, GateResult, LicenseStatus, Q16, TaintLabel as TL};
+        use kosmo_core::{
+            EnergyFactors, FoundrySurvival, GateResult, LicenseStatus, TaintLabel as TL, Q16,
+        };
         let h = extract();
         let factors = EnergyFactors::derive(
-            &GateResult::Reject { reason: "tainted".into() },
+            &GateResult::Reject {
+                reason: "tainted".into(),
+            },
             &TL::Clean,
             &LicenseStatus::Permissive { spdx: "MIT".into() },
             FoundrySurvival::Passed,
@@ -775,14 +813,26 @@ fn it_builds() {
 
     #[test]
     fn parse_helpers_handle_visibility_and_qualifiers() {
-        assert_eq!(super::parse_type("pub(crate) struct Foo {"), Some("Foo".to_string()));
+        assert_eq!(
+            super::parse_type("pub(crate) struct Foo {"),
+            Some("Foo".to_string())
+        );
         assert_eq!(super::parse_type("pub enum Bar {"), Some("Bar".to_string()));
-        assert_eq!(super::parse_mod("pub mod inner;"), Some("inner".to_string()));
-        assert_eq!(super::parse_use("pub use crate::x::Y;"), Some("crate::x::Y".to_string()));
+        assert_eq!(
+            super::parse_mod("pub mod inner;"),
+            Some("inner".to_string())
+        );
+        assert_eq!(
+            super::parse_use("pub use crate::x::Y;"),
+            Some("crate::x::Y".to_string())
+        );
         assert_eq!(
             super::parse_impl_for("impl<T> Render for Widget<T> {"),
             Some(("Render".to_string(), "Widget".to_string()))
         );
-        assert_eq!(super::parse_fn("pub async fn run(self) {"), Some(("run".to_string(), 1)));
+        assert_eq!(
+            super::parse_fn("pub async fn run(self) {"),
+            Some(("run".to_string(), 1))
+        );
     }
 }

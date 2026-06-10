@@ -151,11 +151,7 @@ impl WishFacet {
     }
     /// A typed data-flow composition facet `"from>>via>>to"`: `from` returns
     /// `via` and `to` consumes `via` as its first parameter.
-    pub fn composition(
-        from: impl AsRef<str>,
-        via: impl AsRef<str>,
-        to: impl AsRef<str>,
-    ) -> Self {
+    pub fn composition(from: impl AsRef<str>, via: impl AsRef<str>, to: impl AsRef<str>) -> Self {
         Self::new(
             WishFacetKind::Composition,
             format!("{}>>{}>>{}", from.as_ref(), via.as_ref(), to.as_ref()),
@@ -797,7 +793,10 @@ mod tests {
         let a = assess_wish(&w, &ObservedTopology::empty(), assess_bundle());
         let mut sorted = a.unmet_facets.clone();
         sorted.sort();
-        assert_eq!(a.unmet_facets, sorted, "unmet facets must be deterministically ordered");
+        assert_eq!(
+            a.unmet_facets, sorted,
+            "unmet facets must be deterministically ordered"
+        );
     }
 
     #[test]

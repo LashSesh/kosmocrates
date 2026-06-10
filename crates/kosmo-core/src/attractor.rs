@@ -417,7 +417,11 @@ mod tests {
     fn from_assessments_builds_converging_trajectory() {
         let w = sample_wish();
         let a0 = assess_wish(&w, &ObservedTopology::empty(), ev());
-        let a1 = assess_wish(&w, &ObservedTopology::from_facets([WishFacet::crate_("a")]), ev());
+        let a1 = assess_wish(
+            &w,
+            &ObservedTopology::from_facets([WishFacet::crate_("a")]),
+            ev(),
+        );
         let a2 = assess_wish(
             &w,
             &ObservedTopology::from_facets([WishFacet::crate_("a"), WishFacet::crate_("b")]),
@@ -432,8 +436,18 @@ mod tests {
 
     #[test]
     fn from_assessments_mixed_wish_is_indeterminate() {
-        let wa = Wish::new("a", [WishPredicate::require(WishFacet::crate_("a"))], d(b"p"), d(b"e"));
-        let wb = Wish::new("b", [WishPredicate::require(WishFacet::crate_("b"))], d(b"p"), d(b"e"));
+        let wa = Wish::new(
+            "a",
+            [WishPredicate::require(WishFacet::crate_("a"))],
+            d(b"p"),
+            d(b"e"),
+        );
+        let wb = Wish::new(
+            "b",
+            [WishPredicate::require(WishFacet::crate_("b"))],
+            d(b"p"),
+            d(b"e"),
+        );
         let aa = assess_wish(&wa, &ObservedTopology::empty(), ev());
         let ab = assess_wish(&wb, &ObservedTopology::empty(), ev());
         let trace = WishConvergenceTrace::from_assessments(&[aa, ab], ev());

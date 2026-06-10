@@ -6,9 +6,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CollapseAction {
     /// Fill a host void with a candidate source cube (planning only).
-    FillVoid { void_id: Digest, candidate_source_cube_id: Digest },
+    FillVoid {
+        void_id: Digest,
+        candidate_source_cube_id: Digest,
+    },
     /// Reduce a deficiency by a target amount.
-    ReduceDeficiency { deficiency_kind: String, target_score_raw: i64 },
+    ReduceDeficiency {
+        deficiency_kind: String,
+        target_score_raw: i64,
+    },
     /// Certify a crystal candidate.
     CertifyCrystal { candidate_id: Digest },
     /// Record a negative evidence entry.
@@ -51,7 +57,13 @@ impl CollapseStep {
             precondition_count: precondition_ids.len() as u64,
             policy_id,
         });
-        Self { step_id, sequence, action, precondition_ids, policy_id }
+        Self {
+            step_id,
+            sequence,
+            action,
+            precondition_ids,
+            policy_id,
+        }
     }
 }
 
@@ -102,7 +114,9 @@ impl HostTargetCollapsePlan {
             .enumerate()
             .map(|(seq, vf)| {
                 let candidate = match &vf.action {
-                    DeltaAction::FillVoid { top_candidate_cube_id } => *top_candidate_cube_id,
+                    DeltaAction::FillVoid {
+                        top_candidate_cube_id,
+                    } => *top_candidate_cube_id,
                     _ => Digest::ZERO,
                 };
                 CollapseStep::new(
@@ -178,7 +192,12 @@ impl MorphogenicCorpusUpdate {
             collapse_plan_id,
             policy_id,
         });
-        Self { update_id, cartography_update_id, collapse_plan_id, policy_id }
+        Self {
+            update_id,
+            cartography_update_id,
+            collapse_plan_id,
+            policy_id,
+        }
     }
 }
 
@@ -195,9 +214,17 @@ mod tests {
             void_id,
             candidate_cube_ids: vec![cube_id],
             best_support_score: Q16::HALF,
-            action: DeltaAction::FillVoid { top_candidate_cube_id: cube_id },
+            action: DeltaAction::FillVoid {
+                top_candidate_cube_id: cube_id,
+            },
         }];
-        HostTargetDelta::new(Digest::of_bytes(b"h"), Digest::of_bytes(b"comp"), fills, vec![], policy_id)
+        HostTargetDelta::new(
+            Digest::of_bytes(b"h"),
+            Digest::of_bytes(b"comp"),
+            fills,
+            vec![],
+            policy_id,
+        )
     }
 
     #[test]
@@ -235,13 +262,17 @@ mod tests {
         let b = Digest::of_bytes(b"bbb");
         let step = CollapseStep::new(
             0,
-            CollapseAction::RecordNegativeEvidence { record_id: Digest::ZERO },
+            CollapseAction::RecordNegativeEvidence {
+                record_id: Digest::ZERO,
+            },
             vec![b, a], // reversed
             pid,
         );
         // sorted → first element should be a (smaller byte value "aaa" < "bbb")
-        assert_eq!(step.precondition_ids[0].min(step.precondition_ids[1]),
-                   step.precondition_ids[0]);
+        assert_eq!(
+            step.precondition_ids[0].min(step.precondition_ids[1]),
+            step.precondition_ids[0]
+        );
     }
 
     #[test]

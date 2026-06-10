@@ -70,11 +70,7 @@ pub struct DDensityReport {
 
 impl DDensityReport {
     /// `capacity` = total number of host voids (denominator for D-density).
-    pub fn compute(
-        manifest: &SystemCubeManifest,
-        policy: &PolicyProfile,
-        capacity: u32,
-    ) -> Self {
+    pub fn compute(manifest: &SystemCubeManifest, policy: &PolicyProfile, capacity: u32) -> Self {
         let accepted = manifest.accepted_count() as u32;
         let (status, density) = if accepted == 0 || capacity == 0 {
             (DDensityStatus::Unavailable, Q16::ZERO)
@@ -159,18 +155,11 @@ impl SystemCube {
     /// Export a dry-run `.kcube` report without writing any host files.
     /// `capacity` is the total number of host voids (used for D-density).
     /// Returns a `KcubeExportReport` — purely advisory, no disk I/O.
-    pub fn export_dry_run(
-        &self,
-        capacity: u32,
-        policy: &PolicyProfile,
-    ) -> KcubeExportReport {
+    pub fn export_dry_run(&self, capacity: u32, policy: &PolicyProfile) -> KcubeExportReport {
         let d_density = DDensityReport::compute(&self.manifest, policy, capacity);
 
-        let energy = ContradictionEnergyReport::from_units(
-            self.manifest.manifest_id,
-            policy,
-            &self.units,
-        );
+        let energy =
+            ContradictionEnergyReport::from_units(self.manifest.manifest_id, policy, &self.units);
 
         let compatibility = if self.host_snapshot_id == Digest::ZERO {
             CompatibilityProfileReport::no_host_snapshot(self.manifest.manifest_id, policy)
@@ -217,7 +206,13 @@ impl SystemCube {
 
         let artifacts = self.to_kcube_artifacts(&dry_run);
         let scope = format!("systemcube-{}", &self.cube_id.to_hex()[..16]);
-        executor.write(&scope, artifacts, export_policy, evidence_bundle_id, sequence)
+        executor.write(
+            &scope,
+            artifacts,
+            export_policy,
+            evidence_bundle_id,
+            sequence,
+        )
     }
 
     /// Serializes the cube's manifest, dry-run export report, and accepted
@@ -226,8 +221,8 @@ impl SystemCube {
         let mut artifacts = Vec::new();
 
         // Canonical manifest descriptor
-        let manifest_bytes = serde_json::to_vec(&self.manifest)
-            .expect("SystemCubeManifest is always serializable");
+        let manifest_bytes =
+            serde_json::to_vec(&self.manifest).expect("SystemCubeManifest is always serializable");
         artifacts.push(KcubeArtifact::new(
             KcubeArtifactKind::CartographyManifest,
             "manifest.json",
@@ -235,8 +230,8 @@ impl SystemCube {
         ));
 
         // Dry-run export assessment (advisory; included for self-documentation)
-        let report_bytes = serde_json::to_vec(dry_run)
-            .expect("KcubeExportReport is always serializable");
+        let report_bytes =
+            serde_json::to_vec(dry_run).expect("KcubeExportReport is always serializable");
         artifacts.push(KcubeArtifact::new(
             KcubeArtifactKind::ValidationClosureReport,
             "export_report.json",
@@ -245,8 +240,8 @@ impl SystemCube {
 
         // Accepted blueprint units — one JSON file each, keyed by unit_id
         for unit in self.units.iter().filter(|u| u.is_accepted()) {
-            let unit_bytes = serde_json::to_vec(unit)
-                .expect("BlueprintUnit is always serializable");
+            let unit_bytes =
+                serde_json::to_vec(unit).expect("BlueprintUnit is always serializable");
             let path = format!("units/{}.json", unit.unit_id.to_hex());
             artifacts.push(KcubeArtifact::new(
                 KcubeArtifactKind::StructuralCrystal,
@@ -514,7 +509,8 @@ mod tests {
     #[test]
     fn kcube_export_compatibility_no_host_snapshot_when_zero_id() {
         // Build a cube with zero host_snapshot_id.
-        let manifest = SystemCubeManifest::new(Digest::ZERO, &run(), &policy(), &[make_unit(b"u1")]);
+        let manifest =
+            SystemCubeManifest::new(Digest::ZERO, &run(), &policy(), &[make_unit(b"u1")]);
         let cube_id = Digest::of(&SystemCubeContent {
             manifest_id: manifest.manifest_id,
             host_snapshot_id: Digest::ZERO,
@@ -562,7 +558,9 @@ mod tests {
     // ── export_to_kcube weld tests ─────────────────────────────────────────
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join("kosmo-systemcube-tests").join(tag);
+        let p = std::env::temp_dir()
+            .join("kosmo-systemcube-tests")
+            .join(tag);
         std::fs::remove_dir_all(&p).ok();
         std::fs::create_dir_all(&p).unwrap();
         p
@@ -586,10 +584,18 @@ mod tests {
         let exec = KcubeExecutor::new(&dir);
         let cube = make_cube(vec![make_unit(b"u1")]);
         // default policy has allow_systemcube_materialization = false
-        let r = cube.export_to_kcube(&exec, 4, &export_policy_full(), &policy(), Digest::of_bytes(b"ev"), 1);
+        let r = cube.export_to_kcube(
+            &exec,
+            4,
+            &export_policy_full(),
+            &policy(),
+            Digest::of_bytes(b"ev"),
+            1,
+        );
         assert!(
             r.outcome.is_skipped_report_only(),
-            "blocked export must be SkippedByReportOnly, got {:?}", r.outcome
+            "blocked export must be SkippedByReportOnly, got {:?}",
+            r.outcome
         );
         assert_eq!(r.written_bytes, 0);
         assert!(r.verify_id());
@@ -601,8 +607,19 @@ mod tests {
         let exec = KcubeExecutor::new(&dir);
         let cube = make_cube(vec![make_unit(b"u1"), make_unit(b"u2")]);
         let op = PolicyProfile::operator_approved_with_systemcube();
-        let r = cube.export_to_kcube(&exec, 4, &export_policy_full(), &op, Digest::of_bytes(b"ev"), 1);
-        assert!(r.outcome.is_written(), "export must succeed, got {:?}", r.outcome);
+        let r = cube.export_to_kcube(
+            &exec,
+            4,
+            &export_policy_full(),
+            &op,
+            Digest::of_bytes(b"ev"),
+            1,
+        );
+        assert!(
+            r.outcome.is_written(),
+            "export must succeed, got {:?}",
+            r.outcome
+        );
         assert!(r.roundtrip_passed(), "roundtrip must pass");
         assert!(r.written_bytes > 0);
         assert!(r.verify_id());
@@ -614,7 +631,14 @@ mod tests {
         let exec = KcubeExecutor::new(&dir);
         let cube = make_cube(vec![make_unit(b"u1")]);
         let op = PolicyProfile::operator_approved_with_systemcube();
-        let r = cube.export_to_kcube(&exec, 4, &export_policy_full(), &op, Digest::of_bytes(b"ev"), 7);
+        let r = cube.export_to_kcube(
+            &exec,
+            4,
+            &export_policy_full(),
+            &op,
+            Digest::of_bytes(b"ev"),
+            7,
+        );
         assert!(r.outcome.is_written(), "{:?}", r.outcome);
         // The scope is derived from cube_id hex; sequence = 7
         let scope = format!("systemcube-{}", &cube.cube_id.to_hex()[..16]);
@@ -623,7 +647,11 @@ mod tests {
         let pkg = exec.read(&fname).expect("read must succeed");
         assert!(pkg.verify_id());
         // Manifest + export_report + 1 accepted unit = 3 artifacts
-        assert_eq!(pkg.entry_count(), 3, "expected 3 artifacts (manifest, report, 1 unit)");
+        assert_eq!(
+            pkg.entry_count(),
+            3,
+            "expected 3 artifacts (manifest, report, 1 unit)"
+        );
     }
 
     #[test]
@@ -633,8 +661,19 @@ mod tests {
         let cube = make_cube(vec![]);
         // No units → export succeeds with manifest + report only (0 crystal artifacts)
         let op = PolicyProfile::operator_approved_with_systemcube();
-        let r = cube.export_to_kcube(&exec, 0, &export_policy_full(), &op, Digest::of_bytes(b"ev"), 1);
-        assert_ne!(r.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-zero");
+        let r = cube.export_to_kcube(
+            &exec,
+            0,
+            &export_policy_full(),
+            &op,
+            Digest::of_bytes(b"ev"),
+            1,
+        );
+        assert_ne!(
+            r.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: evidence must be non-zero"
+        );
         assert!(r.verify_id());
     }
 

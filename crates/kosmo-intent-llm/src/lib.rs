@@ -84,10 +84,12 @@ impl WishCompiler for LlmWishCompiler {
         evidence_bundle_id: Digest,
     ) -> Result<Wish, WishCompileError> {
         let user = build_prompt(prose);
-        let (raw, _tokens) = self
-            .config
-            .complete(system_prompt(), &user)
-            .map_err(|e| WishCompileError { message: e.to_string() })?;
+        let (raw, _tokens) =
+            self.config
+                .complete(system_prompt(), &user)
+                .map_err(|e| WishCompileError {
+                    message: e.to_string(),
+                })?;
         parse_wish_response(&raw, prose, policy_id, evidence_bundle_id)
     }
 
@@ -230,16 +232,28 @@ mod tests {
         ]}"#;
         let w = parse_wish_response(raw, "build a server", d(b"p"), d(b"e")).unwrap();
         assert_eq!(w.label, "build a server");
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("kosmo-server")));
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("routes")));
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::symbol("handle_request")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("kosmo-server")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::module("routes")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::symbol("handle_request")));
     }
 
     #[test]
     fn parse_wish_response_tolerates_fences() {
         let raw = "Sure:\n```json\n{\"facets\":[{\"kind\":\"crate\",\"key\":\"alpha\"}]}\n```";
         let w = parse_wish_response(raw, "alpha", d(b"p"), d(b"e")).unwrap();
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("alpha")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("alpha")));
     }
 
     #[test]
@@ -251,7 +265,10 @@ mod tests {
         ]}"#;
         let w = parse_wish_response(raw, "p", d(b"p"), d(b"e")).unwrap();
         assert_eq!(w.predicate_count(), 1);
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("real")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("real")));
     }
 
     #[test]
@@ -272,13 +289,34 @@ mod tests {
         assert_eq!(facet_kind_from_str("Module"), Some(WishFacetKind::Module));
         assert_eq!(facet_kind_from_str("fn"), Some(WishFacetKind::Symbol));
         assert_eq!(facet_kind_from_str("trait"), Some(WishFacetKind::Symbol));
-        assert_eq!(facet_kind_from_str("resolution"), Some(WishFacetKind::Resolution));
-        assert_eq!(facet_kind_from_str("dependency"), Some(WishFacetKind::Dependency));
-        assert_eq!(facet_kind_from_str("signature"), Some(WishFacetKind::Signature));
-        assert_eq!(facet_kind_from_str("contract"), Some(WishFacetKind::Contract));
-        assert_eq!(facet_kind_from_str("behavior"), Some(WishFacetKind::Behavior));
-        assert_eq!(facet_kind_from_str("composition"), Some(WishFacetKind::Composition));
-        assert_eq!(facet_kind_from_str("capability"), Some(WishFacetKind::Capability));
+        assert_eq!(
+            facet_kind_from_str("resolution"),
+            Some(WishFacetKind::Resolution)
+        );
+        assert_eq!(
+            facet_kind_from_str("dependency"),
+            Some(WishFacetKind::Dependency)
+        );
+        assert_eq!(
+            facet_kind_from_str("signature"),
+            Some(WishFacetKind::Signature)
+        );
+        assert_eq!(
+            facet_kind_from_str("contract"),
+            Some(WishFacetKind::Contract)
+        );
+        assert_eq!(
+            facet_kind_from_str("behavior"),
+            Some(WishFacetKind::Behavior)
+        );
+        assert_eq!(
+            facet_kind_from_str("composition"),
+            Some(WishFacetKind::Composition)
+        );
+        assert_eq!(
+            facet_kind_from_str("capability"),
+            Some(WishFacetKind::Capability)
+        );
         assert_eq!(facet_kind_from_str("test"), Some(WishFacetKind::Test));
         assert_eq!(facet_kind_from_str("nonsense"), None);
     }

@@ -223,7 +223,9 @@ impl CorpusCartographyStore for JsonlCartographyStore {
             if !entry.verify_id() {
                 return Ok(CartographyIntegrityReport::new(
                     self.manifest.id,
-                    CartographyIntegrityStatus::DigestMismatch { commit_id: entry.id },
+                    CartographyIntegrityStatus::DigestMismatch {
+                        commit_id: entry.id,
+                    },
                     expected_seq - 1,
                     evidence_bundle_id,
                 ));
@@ -273,7 +275,10 @@ impl fmt::Display for CrystalStoreError {
             Self::Io { message } => write!(f, "crystal store I/O: {message}"),
             Self::PolicyDenied { reason } => write!(f, "crystal store policy denied: {reason}"),
             Self::IntegrityViolation { record_id } => {
-                write!(f, "crystal store integrity violation: record_id={record_id:?}")
+                write!(
+                    f,
+                    "crystal store integrity violation: record_id={record_id:?}"
+                )
             }
         }
     }
@@ -427,8 +432,8 @@ impl CrystalRecordStore {
 mod crystal_store_tests {
     use super::*;
     use kosmo_core::{
-        AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef, Q16, ReplayStatus,
-        TaintLabel,
+        AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus,
+        TaintLabel, Q16,
     };
     use kosmo_hyphae::{
         assimilation::AssimilationDecision,
@@ -673,9 +678,18 @@ mod tests {
         let path = temp_path("ro");
         let mut store =
             JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, d(b"pol")).unwrap();
-        let res = store.append(commit(CorpusScope::LocalHostProject, 1), &PolicyProfile::default());
-        assert!(matches!(res, Err(CartographyStoreError::PolicyDenied { .. })));
-        assert!(!path.exists(), "no file may be created when persist is denied");
+        let res = store.append(
+            commit(CorpusScope::LocalHostProject, 1),
+            &PolicyProfile::default(),
+        );
+        assert!(matches!(
+            res,
+            Err(CartographyStoreError::PolicyDenied { .. })
+        ));
+        assert!(
+            !path.exists(),
+            "no file may be created when persist is denied"
+        );
     }
 
     #[test]
@@ -685,7 +699,10 @@ mod tests {
         let path = temp_path("dryrun");
         let mut store =
             JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, d(b"pol")).unwrap();
-        let res = store.append(commit(CorpusScope::LocalHostProject, 1), &PolicyProfile::dry_run());
+        let res = store.append(
+            commit(CorpusScope::LocalHostProject, 1),
+            &PolicyProfile::dry_run(),
+        );
         match res {
             Err(CartographyStoreError::PolicyDenied { reason }) => {
                 assert!(reason.contains("allow_host_write"));
@@ -700,7 +717,8 @@ mod tests {
         let path = temp_path("persist");
         {
             let mut store =
-                JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, d(b"pol")).unwrap();
+                JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, d(b"pol"))
+                    .unwrap();
             store
                 .append(commit(CorpusScope::LocalHostProject, 1), &op_approved())
                 .unwrap();
@@ -728,7 +746,10 @@ mod tests {
         let res = store.append(commit(CorpusScope::LocalHostProject, 2), &op_approved());
         assert!(matches!(
             res,
-            Err(CartographyStoreError::SequenceViolation { expected: 1, got: 2 })
+            Err(CartographyStoreError::SequenceViolation {
+                expected: 1,
+                got: 2
+            })
         ));
         assert!(!path.exists());
     }
@@ -748,7 +769,8 @@ mod tests {
         let path = temp_path("tamper");
         {
             let mut store =
-                JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, d(b"pol")).unwrap();
+                JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, d(b"pol"))
+                    .unwrap();
             store
                 .append(commit(CorpusScope::LocalHostProject, 1), &op_approved())
                 .unwrap();
@@ -768,7 +790,10 @@ mod tests {
             JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, d(b"pol")).unwrap();
         let report = reopened.verify_integrity(d(b"bundle")).unwrap();
         assert!(
-            matches!(report.status, CartographyIntegrityStatus::DigestMismatch { .. }),
+            matches!(
+                report.status,
+                CartographyIntegrityStatus::DigestMismatch { .. }
+            ),
             "tampered commit must be detected, got {:?}",
             report.status
         );

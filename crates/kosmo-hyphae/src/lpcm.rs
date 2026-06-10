@@ -178,7 +178,9 @@ impl SupportMassVector {
 
     /// Total support mass across all fragments (Q16 integer sum).
     pub fn total_mass(&self) -> Q16 {
-        self.entries.iter().fold(Q16::ZERO, |acc, (_, m)| acc.saturating_add(*m))
+        self.entries
+            .iter()
+            .fold(Q16::ZERO, |acc, (_, m)| acc.saturating_add(*m))
     }
 
     /// Returns the mass for the given fragment ID, or `Q16::ZERO` if absent.
@@ -276,10 +278,7 @@ impl CandidateDirection {
     /// Derive a `CandidateDirection` from a `SupportMassVector` if a local majority exists.
     ///
     /// Returns `None` if no fragment holds strict majority — no false candidate is emitted.
-    pub fn from_support_vector(
-        vector: &SupportMassVector,
-        policy: &PolicyProfile,
-    ) -> Option<Self> {
+    pub fn from_support_vector(vector: &SupportMassVector, policy: &PolicyProfile) -> Option<Self> {
         let dominant = vector.local_majority_candidate()?;
         Some(Self::new(
             vector.field_id,
@@ -383,7 +382,13 @@ impl SeamGraph {
         edges.sort_by_key(|e| (e.fragment_a_id, e.fragment_b_id));
         let edge_keys: Vec<(Digest, Digest, i64)> = edges
             .iter()
-            .map(|e| (e.fragment_a_id, e.fragment_b_id, e.compatibility_score.raw()))
+            .map(|e| {
+                (
+                    e.fragment_a_id,
+                    e.fragment_b_id,
+                    e.compatibility_score.raw(),
+                )
+            })
             .collect();
         let graph_id = Digest::of(&SeamGraphContent {
             field_id,
@@ -401,7 +406,10 @@ impl SeamGraph {
 
     /// Edges that meet or exceed the given compatibility threshold (Q16 integer).
     pub fn compatible_edges(&self, threshold: Q16) -> Vec<&SeamEdge> {
-        self.edges.iter().filter(|e| e.compatibility_score >= threshold).collect()
+        self.edges
+            .iter()
+            .filter(|e| e.compatibility_score >= threshold)
+            .collect()
     }
 }
 
@@ -608,8 +616,7 @@ impl LpcmPassiveReport {
         policy: &PolicyProfile,
     ) -> Self {
         let filter_outcome = monotone_contractive_filter(&support_vector, &field);
-        let candidate_direction =
-            CandidateDirection::from_support_vector(&support_vector, policy);
+        let candidate_direction = CandidateDirection::from_support_vector(&support_vector, policy);
 
         let condensation_candidates: Vec<LocalCondensationCandidate> = candidate_direction
             .as_ref()
@@ -696,8 +703,20 @@ mod tests {
     fn fragment_is_content_addressed() {
         let fid = Digest::of_bytes(b"f");
         let ev = ev_id();
-        let f1 = Fragment::new(fid, 0, FragmentKind::CohesiveRegion, vec![Digest::of_bytes(b"n")], ev);
-        let f2 = Fragment::new(fid, 0, FragmentKind::CohesiveRegion, vec![Digest::of_bytes(b"n")], ev);
+        let f1 = Fragment::new(
+            fid,
+            0,
+            FragmentKind::CohesiveRegion,
+            vec![Digest::of_bytes(b"n")],
+            ev,
+        );
+        let f2 = Fragment::new(
+            fid,
+            0,
+            FragmentKind::CohesiveRegion,
+            vec![Digest::of_bytes(b"n")],
+            ev,
+        );
         assert_eq!(f1.fragment_id, f2.fragment_id);
         assert_ne!(f1.fragment_id, Digest::ZERO);
     }
@@ -709,7 +728,11 @@ mod tests {
         let n1 = Digest::of_bytes(b"alpha");
         let n2 = Digest::of_bytes(b"beta");
         let f = Fragment::new(fid, 0, FragmentKind::CohesiveRegion, vec![n2, n1], ev);
-        assert_eq!(f.node_ids, vec![n1.min(n2), n1.max(n2)], "node_ids must be sorted");
+        assert_eq!(
+            f.node_ids,
+            vec![n1.min(n2), n1.max(n2)],
+            "node_ids must be sorted"
+        );
     }
 
     // ── Fragment Field ────────────────────────────────────────────────────────
@@ -755,7 +778,10 @@ mod tests {
         // fragment 0 gets 700, others 100 each → 700/900 > 50 %
         let v = make_vector(&field, &[700, 100, 100]);
         let dominant = v.local_majority_candidate();
-        assert!(dominant.is_some(), "strict majority fragment must be detected");
+        assert!(
+            dominant.is_some(),
+            "strict majority fragment must be detected"
+        );
     }
 
     #[test]
@@ -797,7 +823,10 @@ mod tests {
         let p = policy();
         let d1 = CandidateDirection::from_support_vector(&v, &p);
         let d2 = CandidateDirection::from_support_vector(&v, &p);
-        assert_eq!(d1.as_ref().map(|d| d.direction_id), d2.as_ref().map(|d| d.direction_id));
+        assert_eq!(
+            d1.as_ref().map(|d| d.direction_id),
+            d2.as_ref().map(|d| d.direction_id)
+        );
         assert!(d1.is_some());
         assert_ne!(d1.unwrap().direction_id, Digest::ZERO);
     }
@@ -882,15 +911,18 @@ mod tests {
     fn monotone_filter_contractive_when_equal() {
         let field = make_field(3);
         let v = make_vector(&field, &[200, 200, 200]);
-        assert_eq!(monotone_contractive_filter(&v, &field), MonotoneFilterOutcome::Contractive);
+        assert_eq!(
+            monotone_contractive_filter(&v, &field),
+            MonotoneFilterOutcome::Contractive
+        );
     }
 
     #[test]
     fn monotone_filter_spurious_when_increasing() {
         let _unused = make_field(3); // make_field call needed only for parity — actual test uses controlled field
-        // Mass increases from fragment[1] to fragment[2] → spurious expansion.
-        // We need to know fragment ordering by index. make_field assigns indices 0,1,2
-        // but fragments are sorted by fragment_id. Let's build a controlled field.
+                                     // Mass increases from fragment[1] to fragment[2] → spurious expansion.
+                                     // We need to know fragment ordering by index. make_field assigns indices 0,1,2
+                                     // but fragments are sorted by fragment_id. Let's build a controlled field.
         let ev = ev_id();
         let p = policy();
         // Create fragments in index order and capture their IDs.
@@ -984,11 +1016,15 @@ mod tests {
         let p = policy();
         let g = SeamGraph::new(field.field_id, &p, vec![]);
         let r1 = LpcmPassiveReport::build(
-            void_id(), field.clone(), v.clone(), g.clone(), Q16::ZERO, ev_id(), &p,
+            void_id(),
+            field.clone(),
+            v.clone(),
+            g.clone(),
+            Q16::ZERO,
+            ev_id(),
+            &p,
         );
-        let r2 = LpcmPassiveReport::build(
-            void_id(), field, v, g, Q16::ZERO, ev_id(), &p,
-        );
+        let r2 = LpcmPassiveReport::build(void_id(), field, v, g, Q16::ZERO, ev_id(), &p);
         assert_eq!(r1.report_id, r2.report_id);
         assert_ne!(r1.report_id, Digest::ZERO);
     }
@@ -1014,7 +1050,11 @@ mod tests {
         let p = policy();
         let g = SeamGraph::new(field.field_id, &p, vec![]);
         let r = LpcmPassiveReport::build(void_id(), field, v, g, Q16::ZERO, ev_id(), &p);
-        assert_eq!(r.condensation_candidates.len(), 1, "one condensation candidate expected");
+        assert_eq!(
+            r.condensation_candidates.len(),
+            1,
+            "one condensation candidate expected"
+        );
         assert!(r.contraction_report.candidate_direction.is_some());
     }
 

@@ -51,8 +51,7 @@ impl SystemCubeManifest {
             .collect();
         accepted_unit_ids.sort();
 
-        let rejected_unit_count =
-            units.iter().filter(|u| !u.is_accepted()).count() as u32;
+        let rejected_unit_count = units.iter().filter(|u| !u.is_accepted()).count() as u32;
 
         let manifest_id = Digest::of(&ManifestContent {
             host_snapshot_id,
@@ -164,7 +163,10 @@ mod tests {
         let m = SystemCubeManifest::new(host_snap(), &run(), &policy(), &units);
         let json = serde_json::to_string(&m).expect("serialize");
         let m2: SystemCubeManifest = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(m.manifest_id, m2.manifest_id, "manifest_id must survive round-trip");
+        assert_eq!(
+            m.manifest_id, m2.manifest_id,
+            "manifest_id must survive round-trip"
+        );
     }
 
     #[test]

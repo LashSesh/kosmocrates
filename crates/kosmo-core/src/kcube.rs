@@ -423,7 +423,9 @@ impl KcubeWriteReport {
     }
 
     pub fn roundtrip_passed(&self) -> bool {
-        self.roundtrip.as_ref().is_some_and(|r| r.verification_passed)
+        self.roundtrip
+            .as_ref()
+            .is_some_and(|r| r.verification_passed)
     }
 }
 
@@ -436,10 +438,18 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn bundle_id() -> Digest { d(b"bundle") }
-    fn pkg_digest() -> Digest { d(b"pkg-bytes") }
-    fn target_dir() -> Digest { d(b"target-dir") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
+    fn pkg_digest() -> Digest {
+        d(b"pkg-bytes")
+    }
+    fn target_dir() -> Digest {
+        d(b"target-dir")
+    }
 
     fn basic_entry(path: &str) -> KcubeManifestEntry {
         KcubeManifestEntry::new(
@@ -453,7 +463,10 @@ mod tests {
     fn basic_package() -> KcubePackage {
         KcubePackage::new(
             pkg_digest(),
-            vec![basic_entry("crystals/c1.bin"), basic_entry("crystals/c2.bin")],
+            vec![
+                basic_entry("crystals/c1.bin"),
+                basic_entry("crystals/c2.bin"),
+            ],
             "kosmo-core-v0.1",
             policy_id(),
             bundle_id(),
@@ -586,7 +599,10 @@ mod tests {
         let p = KcubeExportPolicy::write_once(
             policy_id(),
             target_dir(),
-            vec![KcubeArtifactKind::StructuralCrystal, KcubeArtifactKind::EvidenceBundle],
+            vec![
+                KcubeArtifactKind::StructuralCrystal,
+                KcubeArtifactKind::EvidenceBundle,
+            ],
         );
         assert!(p.is_artifact_kind_allowed(&KcubeArtifactKind::StructuralCrystal));
         assert!(p.is_artifact_kind_allowed(&KcubeArtifactKind::EvidenceBundle));
@@ -649,8 +665,14 @@ mod tests {
     #[test]
     fn write_outcome_failure_variants() {
         assert!(KcubeWriteOutcome::WrittenRoundtripFailed.is_failure_class());
-        assert!(KcubeWriteOutcome::Failed { reason: "io".into() }.is_failure_class());
-        assert!(KcubeWriteOutcome::DeniedByPolicy { reason: "mode".into() }.is_failure_class());
+        assert!(KcubeWriteOutcome::Failed {
+            reason: "io".into()
+        }
+        .is_failure_class());
+        assert!(KcubeWriteOutcome::DeniedByPolicy {
+            reason: "mode".into()
+        }
+        .is_failure_class());
     }
 
     // --- KcubeWriteReport ---
@@ -713,12 +735,26 @@ mod tests {
     #[test]
     fn write_report_new_deterministic() {
         let r1 = KcubeWriteReport::new(
-            d(b"pkg"), d(b"ep"), KcubeWriteOutcome::Written,
-            Some(d(b"path")), 1_024, None, vec![], bundle_id(), 100,
+            d(b"pkg"),
+            d(b"ep"),
+            KcubeWriteOutcome::Written,
+            Some(d(b"path")),
+            1_024,
+            None,
+            vec![],
+            bundle_id(),
+            100,
         );
         let r2 = KcubeWriteReport::new(
-            d(b"pkg"), d(b"ep"), KcubeWriteOutcome::Written,
-            Some(d(b"path")), 1_024, None, vec![], bundle_id(), 100,
+            d(b"pkg"),
+            d(b"ep"),
+            KcubeWriteOutcome::Written,
+            Some(d(b"path")),
+            1_024,
+            None,
+            vec![],
+            bundle_id(),
+            100,
         );
         assert_eq!(r1.id, r2.id);
     }
@@ -732,8 +768,15 @@ mod tests {
     #[test]
     fn write_report_no_floats_in_written_bytes() {
         let r = KcubeWriteReport::new(
-            d(b"pkg"), d(b"ep"), KcubeWriteOutcome::Written,
-            None, 8_192u64, None, vec![], bundle_id(), 50,
+            d(b"pkg"),
+            d(b"ep"),
+            KcubeWriteOutcome::Written,
+            None,
+            8_192u64,
+            None,
+            vec![],
+            bundle_id(),
+            50,
         );
         assert_eq!(r.written_bytes, 8_192u64);
         assert_eq!(r.elapsed_ms, 50u64);

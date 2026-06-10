@@ -94,10 +94,7 @@ impl CompatibilityProfileReport {
     }
 
     /// Build a report when no host snapshot is available for comparison.
-    pub fn no_host_snapshot(
-        manifest_id: Digest,
-        policy: &PolicyProfile,
-    ) -> Self {
+    pub fn no_host_snapshot(manifest_id: Digest, policy: &PolicyProfile) -> Self {
         Self::new(
             manifest_id,
             Digest::ZERO,
@@ -109,11 +106,7 @@ impl CompatibilityProfileReport {
     }
 
     /// Build a fully compatible report (no gaps, score = ONE).
-    pub fn perfect(
-        manifest_id: Digest,
-        host_snapshot_id: Digest,
-        policy: &PolicyProfile,
-    ) -> Self {
+    pub fn perfect(manifest_id: Digest, host_snapshot_id: Digest, policy: &PolicyProfile) -> Self {
         Self::new(
             manifest_id,
             host_snapshot_id,
@@ -171,7 +164,9 @@ impl CompatibilityProfileReport {
             }
         }
 
-        let total_severity = gaps.iter().fold(Q16::ZERO, |acc, g| acc.saturating_add(g.severity));
+        let total_severity = gaps
+            .iter()
+            .fold(Q16::ZERO, |acc, g| acc.saturating_add(g.severity));
         let score = {
             let avg_raw = total_severity.raw() / accepted.len() as i64;
             let raw = (Q16::ONE.raw() - avg_raw).max(0);
@@ -202,7 +197,7 @@ impl CompatibilityProfileReport {
 mod tests {
     use super::*;
     use crate::blueprint_unit::{BlueprintUnit, BlueprintUnitKind};
-    use kosmo_core::{AuthorityLabel, PolicyProfile, Q16, TaintLabel};
+    use kosmo_core::{AuthorityLabel, PolicyProfile, TaintLabel, Q16};
 
     fn policy() -> PolicyProfile {
         PolicyProfile::default_report_only()
@@ -277,13 +272,24 @@ mod tests {
         let u1 = Digest::of_bytes(b"u1");
         let u2 = Digest::of_bytes(b"u2");
         let gaps = vec![
-            CompatibilityGap { unit_id: u2, gap_kind: "B".into(), severity: Q16::from_raw(10) },
-            CompatibilityGap { unit_id: u1, gap_kind: "A".into(), severity: Q16::from_raw(20) },
+            CompatibilityGap {
+                unit_id: u2,
+                gap_kind: "B".into(),
+                severity: Q16::from_raw(10),
+            },
+            CompatibilityGap {
+                unit_id: u1,
+                gap_kind: "A".into(),
+                severity: Q16::from_raw(20),
+            },
         ];
         let r = CompatibilityProfileReport::new(
-            mid(), hid(), &policy(),
+            mid(),
+            hid(),
+            &policy(),
             CompatibilityStatus::Available,
-            Q16::HALF, gaps,
+            Q16::HALF,
+            gaps,
         );
         let ids: Vec<Digest> = r.gaps.iter().map(|g| g.unit_id).collect();
         let mut sorted = ids.clone();
@@ -303,7 +309,11 @@ mod tests {
         let units = vec![clean_unit(b"s1"), clean_unit(b"s2")];
         let r = CompatibilityProfileReport::from_units(mid(), hid(), &policy(), &units);
         assert_eq!(r.status, CompatibilityStatus::Available);
-        assert_eq!(r.compatibility_score, Q16::ONE, "all-clean units must yield score=ONE");
+        assert_eq!(
+            r.compatibility_score,
+            Q16::ONE,
+            "all-clean units must yield score=ONE"
+        );
         assert!(r.gaps.is_empty(), "no gaps for clean units");
     }
 
@@ -316,15 +326,22 @@ mod tests {
         assert_eq!(r.gaps[0].gap_kind, "TaintedUnit");
         assert_eq!(r.gaps[0].severity, Q16::HALF);
         // score = ONE - avg_severity = ONE - HALF = HALF
-        assert_eq!(r.compatibility_score, Q16::HALF, "tainted unit must reduce score to HALF");
+        assert_eq!(
+            r.compatibility_score,
+            Q16::HALF,
+            "tainted unit must reduce score to HALF"
+        );
     }
 
     #[test]
     fn from_units_empty_manifest_is_empty_status() {
         let opaque = opaque_unit(b"s1");
         let r = CompatibilityProfileReport::from_units(mid(), hid(), &policy(), &[opaque]);
-        assert_eq!(r.status, CompatibilityStatus::EmptyManifest,
-            "only-opaque input means no accepted units → EmptyManifest");
+        assert_eq!(
+            r.status,
+            CompatibilityStatus::EmptyManifest,
+            "only-opaque input means no accepted units → EmptyManifest"
+        );
     }
 
     #[test]
@@ -333,7 +350,11 @@ mod tests {
         let units = vec![clean_unit(b"s1"), opaque_unit(b"s2")];
         let r = CompatibilityProfileReport::from_units(mid(), hid(), &policy(), &units);
         assert_eq!(r.status, CompatibilityStatus::Available);
-        assert_eq!(r.compatibility_score, Q16::ONE, "opaque units must not affect score");
+        assert_eq!(
+            r.compatibility_score,
+            Q16::ONE,
+            "opaque units must not affect score"
+        );
         assert!(r.gaps.is_empty());
     }
 
@@ -341,8 +362,16 @@ mod tests {
     fn from_units_is_deterministic() {
         let u1 = clean_unit(b"s1");
         let u2 = tainted_unit(b"s2");
-        let r1 = CompatibilityProfileReport::from_units(mid(), hid(), &policy(), &[u1.clone(), u2.clone()]);
+        let r1 = CompatibilityProfileReport::from_units(
+            mid(),
+            hid(),
+            &policy(),
+            &[u1.clone(), u2.clone()],
+        );
         let r2 = CompatibilityProfileReport::from_units(mid(), hid(), &policy(), &[u2, u1]);
-        assert_eq!(r1.report_id, r2.report_id, "from_units must be order-independent (INVARIANT-007)");
+        assert_eq!(
+            r1.report_id, r2.report_id,
+            "from_units must be order-independent (INVARIANT-007)"
+        );
     }
 }

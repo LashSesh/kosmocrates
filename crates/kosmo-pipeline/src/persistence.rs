@@ -7,8 +7,8 @@
 //! disk.
 
 use kosmo_core::{
-    CartographyEntryKind, CartographyStoreCommit, CartographyStoreError,
-    CorpusCartographyStore, CorpusScope, Digest, PolicyProfile,
+    CartographyEntryKind, CartographyStoreCommit, CartographyStoreError, CorpusCartographyStore,
+    CorpusScope, Digest, PolicyProfile,
 };
 use kosmo_hyphae::CorpusCartographyUpdate;
 use kosmo_store::JsonlCartographyStore;
@@ -50,7 +50,10 @@ pub fn persist_cartography_update(
         policy.id,
     )
     .with_label("after_cartography_id", update.after_cartography_id.to_hex())
-    .with_label("added_entity_count", update.added_entity_ids.len().to_string());
+    .with_label(
+        "added_entity_count",
+        update.added_entity_ids.len().to_string(),
+    );
     store.append(commit, policy)
 }
 
@@ -58,7 +61,7 @@ pub fn persist_cartography_update(
 mod tests {
     use super::*;
     use kosmo_core::{Digest, PolicyProfile};
-    use kosmo_hyphae::{CorpusCartography, passive_run};
+    use kosmo_hyphae::{passive_run, CorpusCartography};
     use kosmo_workbench::WorkspaceIndex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -85,9 +88,8 @@ mod tests {
         let policy = PolicyProfile::default_report_only();
         let path = temp_path("ro");
         let update = make_update(&policy);
-        let res = persist_cartography_update(
-            &update, &path, CorpusScope::LocalHostProject, &policy,
-        );
+        let res =
+            persist_cartography_update(&update, &path, CorpusScope::LocalHostProject, &policy);
         assert!(
             matches!(res, Err(CartographyStoreError::PolicyDenied { .. })),
             "ReportOnly policy must deny persistence"
@@ -100,9 +102,9 @@ mod tests {
         let policy = PolicyProfile::operator_approved();
         let path = temp_path("oa");
         let update = make_update(&policy);
-        let commit_id = persist_cartography_update(
-            &update, &path, CorpusScope::LocalHostProject, &policy,
-        ).expect("OperatorApproved must allow persistence");
+        let commit_id =
+            persist_cartography_update(&update, &path, CorpusScope::LocalHostProject, &policy)
+                .expect("OperatorApproved must allow persistence");
         assert_ne!(commit_id, Digest::ZERO);
         assert!(path.exists(), "JSONL file must be created on success");
         let _ = std::fs::remove_file(&path);
@@ -113,10 +115,9 @@ mod tests {
         let policy = PolicyProfile::operator_approved();
         let path = temp_path("pd");
         let update = make_update(&policy);
-        persist_cartography_update(
-            &update, &path, CorpusScope::LocalHostProject, &policy,
-        ).unwrap();
-        let store = JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, policy.id).unwrap();
+        persist_cartography_update(&update, &path, CorpusScope::LocalHostProject, &policy).unwrap();
+        let store =
+            JsonlCartographyStore::open(&path, CorpusScope::LocalHostProject, policy.id).unwrap();
         let manifest = store.read_manifest().unwrap();
         assert_eq!(manifest.entries.len(), 1);
         assert_eq!(manifest.entries[0].payload_digest, update.update_id);

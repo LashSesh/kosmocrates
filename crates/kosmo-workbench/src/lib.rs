@@ -13,7 +13,9 @@ pub mod report;
 pub mod task_spec;
 pub mod workspace;
 
-pub use context_pack::{ContextEntryKind, ContextPack, ContextPackEntry, ContextPackError, PermittedUse};
+pub use context_pack::{
+    ContextEntryKind, ContextPack, ContextPackEntry, ContextPackError, PermittedUse,
+};
 pub use foundry::{FoundryCheckSpec, FoundryRunOutput, FoundryRunner};
 pub use report::RunReport;
 pub use task_spec::{TaskKind, TaskSpec};

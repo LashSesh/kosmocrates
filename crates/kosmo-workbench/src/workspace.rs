@@ -65,11 +65,7 @@ pub struct WorkspaceIndex {
 
 impl WorkspaceIndex {
     /// Build from pre-supplied entries (sorts by path, computes `index_id`).
-    pub fn from_entries(
-        root: String,
-        mut entries: Vec<WorkspaceEntry>,
-        policy_id: Digest,
-    ) -> Self {
+    pub fn from_entries(root: String, mut entries: Vec<WorkspaceEntry>, policy_id: Digest) -> Self {
         entries.sort_by(|a, b| a.path.cmp(&b.path));
         let id = Digest::of(&IndexContent {
             root: &root,
@@ -92,10 +88,7 @@ impl WorkspaceIndex {
     /// Files larger than 1 MB and excluded directories are skipped.
     /// Entry `content` fields are always `None`; use `scan_path_with_content`
     /// when HDAG extraction is needed.
-    pub fn scan_path(
-        root: &str,
-        policy_id: Digest,
-    ) -> Result<Self, WorkspaceError> {
+    pub fn scan_path(root: &str, policy_id: Digest) -> Result<Self, WorkspaceError> {
         let root_path = Path::new(root);
         if !root_path.exists() {
             return Err(WorkspaceError::PathNotFound(root.to_string()));
@@ -109,10 +102,7 @@ impl WorkspaceIndex {
     /// Enables `HostCube::from_workspace_index` to extract `CodeHDAG`s and produce
     /// code-structure-aware void severity and SourceCube dimensions. Files that are
     /// not valid UTF-8 get `content = None`.
-    pub fn scan_path_with_content(
-        root: &str,
-        policy_id: Digest,
-    ) -> Result<Self, WorkspaceError> {
+    pub fn scan_path_with_content(root: &str, policy_id: Digest) -> Result<Self, WorkspaceError> {
         let root_path = Path::new(root);
         if !root_path.exists() {
             return Err(WorkspaceError::PathNotFound(root.to_string()));
@@ -185,13 +175,21 @@ fn collect_entries(
                 .to_string();
             let kind = classify_entry(&rel);
             let content = if with_content
-                && matches!(kind, WorkspaceEntryKind::SourceFile | WorkspaceEntryKind::TestFile)
-            {
+                && matches!(
+                    kind,
+                    WorkspaceEntryKind::SourceFile | WorkspaceEntryKind::TestFile
+                ) {
                 String::from_utf8(raw_bytes).ok()
             } else {
                 None
             };
-            entries.push(WorkspaceEntry { kind, path: rel, digest, size_bytes: meta.len(), content });
+            entries.push(WorkspaceEntry {
+                kind,
+                path: rel,
+                digest,
+                size_bytes: meta.len(),
+                content,
+            });
         }
     }
     Ok(entries)
@@ -219,18 +217,19 @@ fn classify_entry(rel: &str) -> WorkspaceEntryKind {
 
     // Rust
     if rel.ends_with(".rs") {
-        let is_test =
-            under_tests_dir || rel.ends_with("_test.rs") || rel == "tests.rs";
+        let is_test = under_tests_dir || rel.ends_with("_test.rs") || rel == "tests.rs";
         return source_or_test(is_test);
     }
     // Python
     if rel.ends_with(".py") || rel.ends_with(".pyi") {
-        let is_test =
-            under_tests_dir || name.starts_with("test_") || name.ends_with("_test.py");
+        let is_test = under_tests_dir || name.starts_with("test_") || name.ends_with("_test.py");
         return source_or_test(is_test);
     }
     // JavaScript
-    if rel.ends_with(".js") || rel.ends_with(".mjs") || rel.ends_with(".cjs") || rel.ends_with(".jsx")
+    if rel.ends_with(".js")
+        || rel.ends_with(".mjs")
+        || rel.ends_with(".cjs")
+        || rel.ends_with(".jsx")
     {
         let is_test = under_tests_dir
             || name.ends_with(".test.js")
@@ -358,7 +357,10 @@ mod tests {
         assert_eq!(classify_entry("tests/foo.rs"), WorkspaceEntryKind::TestFile);
         assert_eq!(classify_entry("build.rs"), WorkspaceEntryKind::BuildScript);
         assert_eq!(classify_entry("Cargo.toml"), WorkspaceEntryKind::ConfigFile);
-        assert_eq!(classify_entry("README.md"), WorkspaceEntryKind::Documentation);
+        assert_eq!(
+            classify_entry("README.md"),
+            WorkspaceEntryKind::Documentation
+        );
         assert_eq!(classify_entry("img.png"), WorkspaceEntryKind::Unknown);
     }
 
@@ -368,33 +370,63 @@ mod tests {
         assert_eq!(classify_entry("src/fib.py"), WorkspaceEntryKind::SourceFile);
         assert_eq!(classify_entry("web/app.js"), WorkspaceEntryKind::SourceFile);
         assert_eq!(classify_entry("lib/x.mjs"), WorkspaceEntryKind::SourceFile);
-        assert_eq!(classify_entry("cmd/main.go"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(
+            classify_entry("cmd/main.go"),
+            WorkspaceEntryKind::SourceFile
+        );
     }
 
     #[test]
     fn workspace_classify_c_family_sources() {
         // C, Java, C++ source files are recognised as source.
         assert_eq!(classify_entry("src/fib.c"), WorkspaceEntryKind::SourceFile);
-        assert_eq!(classify_entry("include/fib.h"), WorkspaceEntryKind::SourceFile);
-        assert_eq!(classify_entry("com/example/Fib.java"), WorkspaceEntryKind::SourceFile);
-        assert_eq!(classify_entry("src/list.cpp"), WorkspaceEntryKind::SourceFile);
-        assert_eq!(classify_entry("src/node.hpp"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(
+            classify_entry("include/fib.h"),
+            WorkspaceEntryKind::SourceFile
+        );
+        assert_eq!(
+            classify_entry("com/example/Fib.java"),
+            WorkspaceEntryKind::SourceFile
+        );
+        assert_eq!(
+            classify_entry("src/list.cpp"),
+            WorkspaceEntryKind::SourceFile
+        );
+        assert_eq!(
+            classify_entry("src/node.hpp"),
+            WorkspaceEntryKind::SourceFile
+        );
         // Test conventions per language.
         assert_eq!(classify_entry("fib_test.c"), WorkspaceEntryKind::TestFile);
-        assert_eq!(classify_entry("com/example/FibTest.java"), WorkspaceEntryKind::TestFile);
-        assert_eq!(classify_entry("src/list_test.cpp"), WorkspaceEntryKind::TestFile);
+        assert_eq!(
+            classify_entry("com/example/FibTest.java"),
+            WorkspaceEntryKind::TestFile
+        );
+        assert_eq!(
+            classify_entry("src/list_test.cpp"),
+            WorkspaceEntryKind::TestFile
+        );
     }
 
     #[test]
     fn workspace_classify_cross_language_tests() {
         assert_eq!(classify_entry("test_fib.py"), WorkspaceEntryKind::TestFile);
-        assert_eq!(classify_entry("pkg/fib_test.py"), WorkspaceEntryKind::TestFile);
+        assert_eq!(
+            classify_entry("pkg/fib_test.py"),
+            WorkspaceEntryKind::TestFile
+        );
         assert_eq!(classify_entry("fib.test.js"), WorkspaceEntryKind::TestFile);
-        assert_eq!(classify_entry("__tests__/app.js"), WorkspaceEntryKind::TestFile);
+        assert_eq!(
+            classify_entry("__tests__/app.js"),
+            WorkspaceEntryKind::TestFile
+        );
         assert_eq!(classify_entry("fib_test.go"), WorkspaceEntryKind::TestFile);
         // A plain Rust file named with a Python test prefix stays a source file:
         // test conventions are applied per language.
-        assert_eq!(classify_entry("test_helpers.rs"), WorkspaceEntryKind::SourceFile);
+        assert_eq!(
+            classify_entry("test_helpers.rs"),
+            WorkspaceEntryKind::SourceFile
+        );
     }
 
     #[test]

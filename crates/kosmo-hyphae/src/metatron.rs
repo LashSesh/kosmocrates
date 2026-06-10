@@ -11,8 +11,8 @@
 
 use crate::void_map::HostVoidKind;
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, PolicyProfile, Q16, TaintLabel, TripolarEnergy,
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult,
+    LicenseStatus, PolicyProfile, TaintLabel, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 
@@ -58,7 +58,14 @@ impl TopologyRegionRef {
             evidence_bundle_id,
             policy_id,
         });
-        Self { region_id, host_void_id, node_ids, radius, evidence_bundle_id, policy_id }
+        Self {
+            region_id,
+            host_void_id,
+            node_ids,
+            radius,
+            evidence_bundle_id,
+            policy_id,
+        }
     }
 
     pub fn node_count(&self) -> usize {
@@ -102,7 +109,12 @@ impl RegionExtractionProfile {
             max_depth,
             max_nodes,
         });
-        Self { profile_id, extraction_method, max_depth, max_nodes }
+        Self {
+            profile_id,
+            extraction_method,
+            max_depth,
+            max_nodes,
+        }
     }
 }
 
@@ -137,7 +149,12 @@ impl ProjectionProfile {
             dimension_count,
             policy_id,
         });
-        Self { profile_id, projection_kind: ProjectionKind::Structural, dimension_count, policy_id }
+        Self {
+            profile_id,
+            projection_kind: ProjectionKind::Structural,
+            dimension_count,
+            policy_id,
+        }
     }
 }
 
@@ -189,7 +206,14 @@ impl SemanticLossRecord {
             loss_ratio: loss_ratio.raw(),
             policy_id,
         });
-        Self { loss_id, region_id, lost_node_ids, lost_edge_count, loss_ratio, policy_id }
+        Self {
+            loss_id,
+            region_id,
+            lost_node_ids,
+            lost_edge_count,
+            loss_ratio,
+            policy_id,
+        }
     }
 
     pub fn is_lossless(&self) -> bool {
@@ -444,10 +468,14 @@ pub struct AnomalyRecord {
 
 impl AnomalyRecord {
     pub fn new(kind: AnomalyKind, severity: Q16, location: String) -> Self {
-        let anomaly_id = Digest::of_bytes(
-            format!("{:?}:{}:{}", kind, severity.raw(), location).as_bytes(),
-        );
-        Self { anomaly_id, kind, severity, location }
+        let anomaly_id =
+            Digest::of_bytes(format!("{:?}:{}:{}", kind, severity.raw(), location).as_bytes());
+        Self {
+            anomaly_id,
+            kind,
+            severity,
+            location,
+        }
     }
 }
 
@@ -601,7 +629,8 @@ impl ComplementVoidHypothesis {
             seam: Q16::ONE,
             contradiction: Q16::ONE,
         };
-        let evidence_bundle_id = self.evidence_ids
+        let evidence_bundle_id = self
+            .evidence_ids
             .iter()
             .find(|&&id| id != Digest::ZERO)
             .copied()
@@ -782,7 +811,11 @@ pub fn lift_region(
     source_evidence_id: Digest,
     taint: TaintLabel,
     policy: &PolicyProfile,
-) -> (MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport) {
+) -> (
+    MetatronMicrograph,
+    MetatronRegionFingerprint,
+    MicrographLiftReport,
+) {
     let extraction_profile = RegionExtractionProfile::standard();
     let projection_profile = ProjectionProfile::structural(4, policy.id);
 
@@ -817,8 +850,7 @@ pub fn lift_region(
     );
 
     let fingerprint = MetatronRegionFingerprint::from_micrograph(&micrograph, 0);
-    let report =
-        MicrographLiftReport::new(&micrograph, total_nodes, 0, loss_record.loss_ratio);
+    let report = MicrographLiftReport::new(&micrograph, total_nodes, 0, loss_record.loss_ratio);
 
     (micrograph, fingerprint, report)
 }
@@ -871,7 +903,7 @@ pub fn diagnose_micrograph(
 mod tests {
     use super::*;
     use crate::void_map::HostVoidKind;
-    use kosmo_core::{Digest, GateResult, PolicyProfile, Q16, TaintLabel};
+    use kosmo_core::{Digest, GateResult, PolicyProfile, TaintLabel, Q16};
 
     fn pid() -> Digest {
         Digest::of_bytes(b"p")
@@ -886,7 +918,9 @@ mod tests {
     }
 
     fn node_ids(n: usize) -> Vec<Digest> {
-        (0..n).map(|i| Digest::of_bytes(format!("node{}", i).as_bytes())).collect()
+        (0..n)
+            .map(|i| Digest::of_bytes(format!("node{}", i).as_bytes()))
+            .collect()
     }
 
     #[test]
@@ -904,7 +938,10 @@ mod tests {
         let r1 = TopologyRegionRef::new(void_id(), nodes.clone(), 2, ev_id(), pid());
         nodes.reverse();
         let r2 = TopologyRegionRef::new(void_id(), nodes, 2, ev_id(), pid());
-        assert_eq!(r1.region_id, r2.region_id, "node order must not affect region_id");
+        assert_eq!(
+            r1.region_id, r2.region_id,
+            "node order must not affect region_id"
+        );
     }
 
     #[test]
@@ -934,7 +971,11 @@ mod tests {
             TaintLabel::Synthetic,
             &policy,
         );
-        assert_eq!(micrograph.source_evidence_id, ev_id(), "CROSS-006: backref must be preserved");
+        assert_eq!(
+            micrograph.source_evidence_id,
+            ev_id(),
+            "CROSS-006: backref must be preserved"
+        );
         assert_ne!(micrograph.micrograph_id, Digest::ZERO);
     }
 
@@ -942,7 +983,13 @@ mod tests {
     fn lift_region_pipeline_is_deterministic() {
         let policy = PolicyProfile::default_report_only();
         let nodes = node_ids(2);
-        let (m1, f1, r1) = lift_region(void_id(), nodes.clone(), ev_id(), TaintLabel::Synthetic, &policy);
+        let (m1, f1, r1) = lift_region(
+            void_id(),
+            nodes.clone(),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         let (m2, f2, r2) = lift_region(void_id(), nodes, ev_id(), TaintLabel::Synthetic, &policy);
         assert_eq!(m1.micrograph_id, m2.micrograph_id);
         assert_eq!(f1.fingerprint_id, f2.fingerprint_id);
@@ -952,8 +999,13 @@ mod tests {
     #[test]
     fn fingerprint_from_micrograph_is_deterministic() {
         let policy = PolicyProfile::default_report_only();
-        let (micrograph, _, _) =
-            lift_region(void_id(), node_ids(3), ev_id(), TaintLabel::Synthetic, &policy);
+        let (micrograph, _, _) = lift_region(
+            void_id(),
+            node_ids(3),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         let f1 = MetatronRegionFingerprint::from_micrograph(&micrograph, 2);
         let f2 = MetatronRegionFingerprint::from_micrograph(&micrograph, 2);
         assert_eq!(f1.fingerprint_id, f2.fingerprint_id);
@@ -962,28 +1014,51 @@ mod tests {
     #[test]
     fn diagnostic_has_boundary_ambiguity_for_single_node() {
         let policy = PolicyProfile::default_report_only();
-        let (micrograph, fingerprint, _) =
-            lift_region(void_id(), node_ids(1), ev_id(), TaintLabel::Synthetic, &policy);
+        let (micrograph, fingerprint, _) = lift_region(
+            void_id(),
+            node_ids(1),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         let diag = diagnose_micrograph(&micrograph, &fingerprint, None, &policy);
-        assert!(diag.has_ambiguities(), "single-node region must produce Boundary ambiguity");
+        assert!(
+            diag.has_ambiguities(),
+            "single-node region must produce Boundary ambiguity"
+        );
         assert_eq!(diag.ambiguities[0].ambiguity_kind, AmbiguityKind::Boundary);
     }
 
     #[test]
     fn diagnostic_no_ambiguity_for_multi_node() {
         let policy = PolicyProfile::default_report_only();
-        let (micrograph, fingerprint, _) =
-            lift_region(void_id(), node_ids(3), ev_id(), TaintLabel::Synthetic, &policy);
+        let (micrograph, fingerprint, _) = lift_region(
+            void_id(),
+            node_ids(3),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         let diag = diagnose_micrograph(&micrograph, &fingerprint, None, &policy);
-        assert!(!diag.has_ambiguities(), "multi-node region must not produce boundary ambiguity");
+        assert!(
+            !diag.has_ambiguities(),
+            "multi-node region must not produce boundary ambiguity"
+        );
     }
 
     #[test]
     fn complement_void_hypothesis_is_content_addressed() {
         let policy = PolicyProfile::default_report_only();
-        let (micrograph, fingerprint, _) =
-            lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
-        let kind = HostVoidKind::MissingTestFiber { for_module: "src/lib.rs".into() };
+        let (micrograph, fingerprint, _) = lift_region(
+            void_id(),
+            node_ids(2),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
+        let kind = HostVoidKind::MissingTestFiber {
+            for_module: "src/lib.rs".into(),
+        };
         let diag = diagnose_micrograph(&micrograph, &fingerprint, Some(&kind), &policy);
         assert_eq!(diag.void_hypotheses.len(), 1);
         let h1 = &diag.void_hypotheses[0];
@@ -996,15 +1071,22 @@ mod tests {
     #[test]
     fn micro_topology_index_add_is_idempotent() {
         let policy = PolicyProfile::default_report_only();
-        let (micrograph, fingerprint, _) =
-            lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
-        let diag =
-            diagnose_micrograph(&micrograph, &fingerprint, None, &policy);
+        let (micrograph, fingerprint, _) = lift_region(
+            void_id(),
+            node_ids(2),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
+        let diag = diagnose_micrograph(&micrograph, &fingerprint, None, &policy);
 
         let idx0 = MicroTopologyIndex::empty(policy.id);
         let idx1 = idx0.add(&micrograph, &fingerprint, &diag);
         let idx2 = idx1.add(&micrograph, &fingerprint, &diag);
-        assert_eq!(idx1.index_id, idx2.index_id, "re-adding same entries must be idempotent");
+        assert_eq!(
+            idx1.index_id, idx2.index_id,
+            "re-adding same entries must be idempotent"
+        );
         assert_eq!(idx1.entry_count(), 1);
     }
 
@@ -1016,11 +1098,21 @@ mod tests {
         // invariant; the code must never assert semantic equivalence from
         // fingerprint equality.
         let policy = PolicyProfile::default_report_only();
-        let (m1, f1, _) =
-            lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
+        let (m1, f1, _) = lift_region(
+            void_id(),
+            node_ids(2),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         let different_void = Digest::of_bytes(b"other-void");
-        let (m2, f2, _) =
-            lift_region(different_void, node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
+        let (m2, f2, _) = lift_region(
+            different_void,
+            node_ids(2),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         // Both have 2 nodes and 0 edges, but different region_ids → different structural_hash
         assert_ne!(m1.micrograph_id, m2.micrograph_id);
         assert_ne!(f1.fingerprint_id, f2.fingerprint_id);
@@ -1044,42 +1136,81 @@ mod tests {
         let a2 = loss.energy_assessment(&GateResult::Pass);
         assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
         assert_eq!(a1.subject_id, loss.loss_id);
-        assert_eq!(a1.evidence_bundle_id, loss.region_id, "evidence must be region_id");
-        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a1.evidence_bundle_id, loss.region_id,
+            "evidence must be region_id"
+        );
+        assert_ne!(
+            a1.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 
     #[test]
     fn semantic_loss_record_reject_gate_zeroes_energy() {
         let region_id = Digest::of_bytes(b"r");
         let loss = SemanticLossRecord::new(region_id, vec![Digest::of_bytes(b"n")], 0, 1, pid());
-        let a = loss.energy_assessment(&GateResult::Reject { reason: "test".into() });
+        let a = loss.energy_assessment(&GateResult::Reject {
+            reason: "test".into(),
+        });
         assert!(a.kernel.is_zeroed(), "Reject gate must zero loss energy");
     }
 
     #[test]
     fn micrograph_lift_report_energy_assessment_content_addressed() {
         let policy = PolicyProfile::default_report_only();
-        let (_, _, report) = lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
+        let (_, _, report) = lift_region(
+            void_id(),
+            node_ids(2),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         let a1 = report.energy_assessment(&GateResult::Pass);
         let a2 = report.energy_assessment(&GateResult::Pass);
         assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
         assert_eq!(a1.subject_id, report.report_id);
-        assert_eq!(a1.evidence_bundle_id, report.micrograph_id, "evidence must be micrograph_id");
-        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a1.evidence_bundle_id, report.micrograph_id,
+            "evidence must be micrograph_id"
+        );
+        assert_ne!(
+            a1.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 
     #[test]
     fn micrograph_lift_report_reject_gate_zeroes_energy() {
         let policy = PolicyProfile::default_report_only();
-        let (_, _, report) = lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
-        let a = report.energy_assessment(&GateResult::Reject { reason: "test".into() });
-        assert!(a.kernel.is_zeroed(), "Reject gate must zero lift report energy");
+        let (_, _, report) = lift_region(
+            void_id(),
+            node_ids(2),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
+        let a = report.energy_assessment(&GateResult::Reject {
+            reason: "test".into(),
+        });
+        assert!(
+            a.kernel.is_zeroed(),
+            "Reject gate must zero lift report energy"
+        );
     }
 
     #[test]
     fn topology_ambiguity_energy_assessment_content_addressed() {
         let policy = PolicyProfile::default_report_only();
-        let (micrograph, _, _) = lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &policy);
+        let (micrograph, _, _) = lift_region(
+            void_id(),
+            node_ids(2),
+            ev_id(),
+            TaintLabel::Synthetic,
+            &policy,
+        );
         let profile = TopologyAmbiguityProfile::new(
             micrograph.micrograph_id,
             AmbiguityKind::Structural,
@@ -1091,8 +1222,15 @@ mod tests {
         let a2 = profile.energy_assessment(&GateResult::Pass);
         assert_eq!(a1.id, a2.id, "energy_assessment must be deterministic");
         assert_eq!(a1.subject_id, profile.profile_id);
-        assert_eq!(a1.evidence_bundle_id, profile.micrograph_id, "evidence must be micrograph_id");
-        assert_ne!(a1.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a1.evidence_bundle_id, profile.micrograph_id,
+            "evidence must be micrograph_id"
+        );
+        assert_ne!(
+            a1.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 
     #[test]
@@ -1105,8 +1243,13 @@ mod tests {
             Q16::ONE,
             policy.id,
         );
-        let a = profile.energy_assessment(&GateResult::Reject { reason: "test".into() });
-        assert!(a.kernel.is_zeroed(), "Reject gate must zero ambiguity energy");
+        let a = profile.energy_assessment(&GateResult::Reject {
+            reason: "test".into(),
+        });
+        assert!(
+            a.kernel.is_zeroed(),
+            "Reject gate must zero ambiguity energy"
+        );
     }
 
     #[test]
@@ -1115,15 +1258,24 @@ mod tests {
         let ev1 = Digest::of_bytes(b"e1");
         let hypothesis = ComplementVoidHypothesis::new(
             Digest::of_bytes(b"m"),
-            &HostVoidKind::Custom { description: "gap".into() },
+            &HostVoidKind::Custom {
+                description: "gap".into(),
+            },
             Q16::HALF,
             vec![ev1],
             policy.id,
         );
         let a = hypothesis.energy_assessment(&GateResult::Pass);
         assert_eq!(a.subject_id, hypothesis.hypothesis_id);
-        assert_eq!(a.evidence_bundle_id, ev1, "first non-ZERO evidence_id must be used");
-        assert_ne!(a.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a.evidence_bundle_id, ev1,
+            "first non-ZERO evidence_id must be used"
+        );
+        assert_ne!(
+            a.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 
     #[test]
@@ -1132,13 +1284,22 @@ mod tests {
         let micrograph_id = Digest::of_bytes(b"m");
         let hypothesis = ComplementVoidHypothesis::new(
             micrograph_id,
-            &HostVoidKind::Custom { description: "gap".into() },
+            &HostVoidKind::Custom {
+                description: "gap".into(),
+            },
             Q16::HALF,
             vec![],
             policy.id,
         );
         let a = hypothesis.energy_assessment(&GateResult::Pass);
-        assert_eq!(a.evidence_bundle_id, micrograph_id, "fallback to micrograph_id when no evidence");
-        assert_ne!(a.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+        assert_eq!(
+            a.evidence_bundle_id, micrograph_id,
+            "fallback to micrograph_id when no evidence"
+        );
+        assert_ne!(
+            a.evidence_bundle_id,
+            Digest::ZERO,
+            "CROSS-006: non-ZERO evidence ref"
+        );
     }
 }

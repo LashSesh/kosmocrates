@@ -22,34 +22,32 @@ pub mod persistence;
 
 pub use aggregator::{AggregatedGateResult, GateTraceAggregator, LayerGateSummary};
 pub use materialization::{
-    MaterializationOutcome, MaterializationPlan, OperatorApprovalToken,
-    ParseBackExpectation, WorkbenchMaterializationTask, simulate_foundry_check,
+    simulate_foundry_check, MaterializationOutcome, MaterializationPlan, OperatorApprovalToken,
+    ParseBackExpectation, WorkbenchMaterializationTask,
 };
 pub use persistence::persist_cartography_update;
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, PromotionFeedback, Q16, rank_by_energy};
-use kosmo_core::TaintLabel;
-use std::collections::BTreeMap;
 use kosmo_core::ReplayStatus;
-use kosmo_store::CrystalRecordStore;
+use kosmo_core::TaintLabel;
+use kosmo_core::{rank_by_energy, Digest, GateResult, PolicyProfile, PromotionFeedback, Q16};
 use kosmo_hyphae::{
-    CompositeSupportCube, ComplementVoidHypothesis, CorpusCartography,
-    CorpusCartographyUpdate, CorpusEntity, CorpusEntityKind, CrossLanguageFingerprint, CubeSwarm, CubeDimensionProfile,
-    DeficiencyVector, HostTargetCollapsePlan, HostTargetDelta, LpcmPassiveReport,
-    MetatronMicrograph, MetatronRegionFingerprint, MicrographLiftReport, MicroTopologyDiagnostic,
-    MicroTopologyIndex, MorphogenicCorpusUpdate, MotifCandidate, NormFitnessTrace,
-    NormGeneCandidate, Fragment, FragmentField, FragmentKind, SourceCube, SeamGraph,
-    Resonite, StructuralCrystalCandidate, StructuralCrystalRecord, SupportMassVector,
-    SurgeryWorkbenchTask, TopologicalSurgeryOption, TopologyAmbiguityProfile,
-    diagnose_micrograph, lift_region, passive_run, passive_run_augmented, HyphaeRunResult,
-};
-use kosmo_systemcube::{
-    BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube,
+    diagnose_micrograph, lift_region, passive_run, passive_run_augmented, ComplementVoidHypothesis,
+    CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CorpusEntity,
+    CorpusEntityKind, CrossLanguageFingerprint, CubeDimensionProfile, CubeSwarm, DeficiencyVector,
+    Fragment, FragmentField, FragmentKind, HostTargetCollapsePlan, HostTargetDelta,
+    HyphaeRunResult, LpcmPassiveReport, MetatronMicrograph, MetatronRegionFingerprint,
+    MicroTopologyDiagnostic, MicroTopologyIndex, MicrographLiftReport, MorphogenicCorpusUpdate,
+    MotifCandidate, NormFitnessTrace, NormGeneCandidate, Resonite, SeamGraph, SourceCube,
+    StructuralCrystalCandidate, StructuralCrystalRecord, SupportMassVector, SurgeryWorkbenchTask,
+    TopologicalSurgeryOption, TopologyAmbiguityProfile,
 };
 use kosmo_pse_bridge::{PseBridgeCandidate, PseBridgeCandidateKind};
-use kosmo_workbench::WorkspaceIndex;
+use kosmo_store::CrystalRecordStore;
+use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, KcubeExportReport, SystemCube};
 pub use kosmo_workbench::WorkspaceError;
+use kosmo_workbench::WorkspaceIndex;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 // ─── IntegrationRunOptions ────────────────────────────────────────────────────
 
@@ -396,13 +394,17 @@ impl IntegrationRunReport {
 
     /// Total contradiction energy from the SystemCube export, if enabled.
     pub fn systemcube_contradiction_energy(&self) -> Option<Q16> {
-        self.systemcube_export.as_ref().map(|e| e.contradiction_energy.total_energy)
+        self.systemcube_export
+            .as_ref()
+            .map(|e| e.contradiction_energy.total_energy)
     }
 
     /// Compatibility score from the SystemCube export, if enabled.
     /// `Q16::ONE` = all accepted units are fully compatible; lower = gaps present.
     pub fn systemcube_compatibility_score(&self) -> Option<Q16> {
-        self.systemcube_export.as_ref().map(|e| e.compatibility.compatibility_score)
+        self.systemcube_export
+            .as_ref()
+            .map(|e| e.compatibility.compatibility_score)
     }
 
     /// Operator-readable summary of the pipeline run.
@@ -480,9 +482,15 @@ impl IntegrationRunReport {
             && self.metatron_index.policy_id == pid
             && self.lpcm_reports.iter().all(|r| r.policy_id == pid)
             && self.surgery_options.iter().all(|o| o.policy_id == pid)
-            && self.surgery_workbench_tasks.iter().all(|t| t.policy_id == pid)
+            && self
+                .surgery_workbench_tasks
+                .iter()
+                .all(|t| t.policy_id == pid)
             && self.ambiguity_profiles.iter().all(|a| a.policy_id == pid)
-            && self.complement_void_hypotheses.iter().all(|h| h.policy_id == pid)
+            && self
+                .complement_void_hypotheses
+                .iter()
+                .all(|h| h.policy_id == pid)
             && self.crystal_candidates.iter().all(|c| c.policy_id == pid)
             && self.certified_crystals.iter().all(|r| r.policy_id == pid)
             && self.resonite_map.iter().all(|r| r.policy_id == pid)
@@ -498,7 +506,11 @@ impl IntegrationRunReport {
 }
 
 fn hex_prefix(d: &Digest) -> String {
-    d.as_bytes().iter().take(4).map(|b| format!("{:02x}", b)).collect()
+    d.as_bytes()
+        .iter()
+        .take(4)
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 // ─── Pipeline Entry Point ──────────────────────────────────────────────────────
@@ -574,16 +586,22 @@ pub fn run_dry_pipeline(
     let hyphae = if options.prior_motifs.is_empty() {
         passive_run(index, policy)
     } else {
-        let extra: Vec<_> = options.prior_motifs.iter()
+        let extra: Vec<_> = options
+            .prior_motifs
+            .iter()
             .filter(|m| m.support_score.at_least(options.prior_motif_min_support))
-            .map(|m| kosmo_hyphae::frontier::SourceIntent::new(
-                kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern {
-                    pattern_name: m.name.clone(),
-                },
-                None,
-                m.taint.clone(),
-                kosmo_core::AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
-            ))
+            .map(|m| {
+                kosmo_hyphae::frontier::SourceIntent::new(
+                    kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern {
+                        pattern_name: m.name.clone(),
+                    },
+                    None,
+                    m.taint.clone(),
+                    kosmo_core::AuthorityLabel::Agent {
+                        name: "hyphae-v0.3".into(),
+                    },
+                )
+            })
             .collect();
         passive_run_augmented(index, policy, extra)
     };
@@ -595,7 +613,10 @@ pub fn run_dry_pipeline(
         }
     } else if hyphae.evidence_only_count > 0 {
         GateResult::Warn {
-            message: format!("{} yields downgraded to evidence-only", hyphae.evidence_only_count),
+            message: format!(
+                "{} yields downgraded to evidence-only",
+                hyphae.evidence_only_count
+            ),
         }
     } else {
         GateResult::Pass
@@ -617,15 +638,20 @@ pub fn run_dry_pipeline(
     // across pipeline runs. Prior crystals are added as CrystalRecord entities
     // before the current run's data is appended.
     let base_corpus = if options.enable_crystal_candidates && !prior_crystals.is_empty() {
-        let crystal_entities: Vec<CorpusEntity> = prior_crystals.iter()
-            .map(|r| CorpusEntity::new(
-                CorpusEntityKind::CrystalRecord,
-                r.record_id,
-                TaintLabel::Clean,
-                policy.id,
-            ))
+        let crystal_entities: Vec<CorpusEntity> = prior_crystals
+            .iter()
+            .map(|r| {
+                CorpusEntity::new(
+                    CorpusEntityKind::CrystalRecord,
+                    r.record_id,
+                    TaintLabel::Clean,
+                    policy.id,
+                )
+            })
             .collect();
-        CorpusCartography::empty(policy.id).append(crystal_entities, vec![]).0
+        CorpusCartography::empty(policy.id)
+            .append(crystal_entities, vec![])
+            .0
     } else {
         CorpusCartography::empty(policy.id)
     };
@@ -639,12 +665,21 @@ pub fn run_dry_pipeline(
     // ── 3. Optional Metatron v0.4.1 diagnostics ───────────────────────────────
     let mut metatron_diagnostics: Vec<MicroTopologyDiagnostic> = Vec::new();
     let mut raw_lift_reports: Vec<MicrographLiftReport> = Vec::new();
-    let mut metatron_triples: Vec<(MetatronMicrograph, MetatronRegionFingerprint, MicroTopologyDiagnostic)> = Vec::new();
+    let mut metatron_triples: Vec<(
+        MetatronMicrograph,
+        MetatronRegionFingerprint,
+        MicroTopologyDiagnostic,
+    )> = Vec::new();
     if options.enable_metatron {
         for void in &hyphae.host_cube.void_map.voids {
             let ev_id = void.void_id;
-            let (micrograph, fingerprint, lift_report) =
-                lift_region(void.void_id, vec![void.void_id], ev_id, TaintLabel::Synthetic, policy);
+            let (micrograph, fingerprint, lift_report) = lift_region(
+                void.void_id,
+                vec![void.void_id],
+                ev_id,
+                TaintLabel::Synthetic,
+                policy,
+            );
             let diag = diagnose_micrograph(&micrograph, &fingerprint, Some(&void.kind), policy);
             agg.record(
                 format!("metatron:{:.8}", hex_prefix(&void.void_id)),
@@ -658,18 +693,27 @@ pub fn run_dry_pipeline(
     }
     // ── 3c. Energy-rank lift reports by loss_ratio (most lossy first) ─────────
     let lift_reports: Vec<MicrographLiftReport> = {
-        let assessments: Vec<_> = raw_lift_reports.iter()
+        let assessments: Vec<_> = raw_lift_reports
+            .iter()
             .map(|r| r.energy_assessment(&GateResult::Pass))
             .collect();
         let ranked = rank_by_energy(&assessments);
-        ranked.iter()
-            .filter_map(|a| raw_lift_reports.iter().find(|r| r.report_id == a.subject_id).cloned())
+        ranked
+            .iter()
+            .filter_map(|a| {
+                raw_lift_reports
+                    .iter()
+                    .find(|r| r.report_id == a.subject_id)
+                    .cloned()
+            })
             .collect()
     };
     // ── 3d. MicroTopologyIndex — content-addressed index of all metatron output ─
     let metatron_index: MicroTopologyIndex = metatron_triples
         .iter()
-        .fold(MicroTopologyIndex::empty(policy.id), |idx, (m, f, d)| idx.add(m, f, d));
+        .fold(MicroTopologyIndex::empty(policy.id), |idx, (m, f, d)| {
+            idx.add(m, f, d)
+        });
 
     // ── 3b. Optional surgery — energy-ranked options from Metatron diagnostics ─
     // Only runs when both Metatron and surgery are enabled; requires diagnostics.
@@ -679,12 +723,14 @@ pub fn run_dry_pipeline(
                 .iter()
                 .flat_map(|diag| TopologicalSurgeryOption::from_diagnostic(diag, policy))
                 .collect();
-            let assessments: Vec<_> = raw.iter()
+            let assessments: Vec<_> = raw
+                .iter()
                 .map(|o| o.energy_assessment(&GateResult::Pass))
                 .collect();
             let ranked = rank_by_energy(&assessments);
             // Reorder raw options to match energy ranking.
-            ranked.iter()
+            ranked
+                .iter()
                 .filter_map(|a| raw.iter().find(|o| o.option_id == a.subject_id).cloned())
                 .collect()
         } else {
@@ -703,11 +749,13 @@ pub fn run_dry_pipeline(
             .iter()
             .flat_map(|d| d.ambiguities.iter().cloned())
             .collect();
-        let assessments: Vec<_> = raw.iter()
+        let assessments: Vec<_> = raw
+            .iter()
             .map(|a| a.energy_assessment(&GateResult::Pass))
             .collect();
         let ranked = rank_by_energy(&assessments);
-        ranked.iter()
+        ranked
+            .iter()
             .filter_map(|a| raw.iter().find(|p| p.profile_id == a.subject_id).cloned())
             .collect()
     };
@@ -716,12 +764,18 @@ pub fn run_dry_pipeline(
             .iter()
             .flat_map(|d| d.void_hypotheses.iter().cloned())
             .collect();
-        let assessments: Vec<_> = raw.iter()
+        let assessments: Vec<_> = raw
+            .iter()
             .map(|h| h.energy_assessment(&GateResult::Pass))
             .collect();
         let ranked = rank_by_energy(&assessments);
-        ranked.iter()
-            .filter_map(|a| raw.iter().find(|h| h.hypothesis_id == a.subject_id).cloned())
+        ranked
+            .iter()
+            .filter_map(|a| {
+                raw.iter()
+                    .find(|h| h.hypothesis_id == a.subject_id)
+                    .cloned()
+            })
             .collect()
     };
 
@@ -825,17 +879,18 @@ pub fn run_dry_pipeline(
                         // crystal matching work across languages: a Go crystal can
                         // resonate with a structurally-similar Python void.
                         let void_fp = hyphae.host_cube.fingerprint_by_void_id.get(&void_id);
-                        let best = prior_crystals.iter()
+                        let best = prior_crystals
+                            .iter()
                             .map(|prior| {
                                 if let Some(vfp) = void_fp {
                                     if let Some(sim) = prior.fingerprint_resonance(vfp) {
                                         return sim;
                                     }
                                 }
-                                let rho_diff = (rho.raw() - prior.rho_coherence.raw())
-                                    .unsigned_abs() as i64;
-                                let omega_diff = (omega.raw() - prior.omega_phase.raw())
-                                    .unsigned_abs() as i64;
+                                let rho_diff =
+                                    (rho.raw() - prior.rho_coherence.raw()).unsigned_abs() as i64;
+                                let omega_diff =
+                                    (omega.raw() - prior.omega_phase.raw()).unsigned_abs() as i64;
                                 let rho_sim = (Q16::ONE.raw() - rho_diff).max(0);
                                 let omega_sim = (Q16::ONE.raw() - omega_diff).max(0);
                                 Q16::from_raw((rho_sim + omega_sim) / 2)
@@ -852,7 +907,8 @@ pub fn run_dry_pipeline(
                     // file resonates; a structural outlier does not. Only set when a
                     // distinct peer exists and resonance is positive (no false-zero).
                     if let Some(fp) = hyphae.host_cube.fingerprint_by_void_id.get(&void_id) {
-                        if let Some(res) = best_cross_language_resonance(fp, &distinct_fingerprints) {
+                        if let Some(res) = best_cross_language_resonance(fp, &distinct_fingerprints)
+                        {
                             d.insert("cross_language_resonance".to_string(), res);
                         }
                     }
@@ -878,7 +934,13 @@ pub fn run_dry_pipeline(
     let swarm = CubeSwarm::new(policy.clone(), source_cubes.clone());
     let (_workers, swarm_composite) = swarm.run();
 
-    let host_void_ids: Vec<Digest> = hyphae.host_cube.void_map.voids.iter().map(|v| v.void_id).collect();
+    let host_void_ids: Vec<Digest> = hyphae
+        .host_cube
+        .void_map
+        .voids
+        .iter()
+        .map(|v| v.void_id)
+        .collect();
     let void_fill_delta = HostTargetDelta::from_source_cubes(
         hyphae.host_cube.cube_id,
         &host_void_ids,
@@ -912,7 +974,12 @@ pub fn run_dry_pipeline(
         } else {
             let mut counts: BTreeMap<String, u64> = BTreeMap::new();
             for v in &hyphae.host_cube.void_map.voids {
-                let kind_key = format!("{:?}", v.kind).split('{').next().unwrap_or("Unknown").trim().to_string();
+                let kind_key = format!("{:?}", v.kind)
+                    .split('{')
+                    .next()
+                    .unwrap_or("Unknown")
+                    .trim()
+                    .to_string();
                 *counts.entry(kind_key).or_insert(0) += 1;
             }
             let raw: Vec<MotifCandidate> = counts
@@ -929,11 +996,13 @@ pub fn run_dry_pipeline(
                     )
                 })
                 .collect();
-            let assessments: Vec<_> = raw.iter()
+            let assessments: Vec<_> = raw
+                .iter()
                 .map(|c| c.energy_assessment(&GateResult::Pass))
                 .collect();
             let ranked = rank_by_energy(&assessments);
-            ranked.iter()
+            ranked
+                .iter()
                 .filter_map(|a| raw.iter().find(|c| c.motif_id == a.subject_id).cloned())
                 .collect()
         }
@@ -947,36 +1016,40 @@ pub fn run_dry_pipeline(
     // rho_coherence and omega_phase from the HDAG. These structural signals propagate
     // into the certified StructuralCrystalRecord, making the CAD library structurally
     // rich across runs.
-    let crystal_candidates: Vec<StructuralCrystalCandidate> =
-        if options.enable_crystal_candidates {
-            hyphae.frontier.intents.iter()
-                .zip(hyphae.decisions.iter())
-                .filter(|(_, d)| d.outcome.is_accepted())
-                .map(|(intent, decision)| {
-                    let (rho, omega) = intent.target_void_id
-                        .and_then(|vid| hyphae.host_cube.hdag_by_void_id.get(&vid))
-                        .map(|hdag| (hdag.rho_coherence(), hdag.omega_phase()))
-                        .unwrap_or((Q16::ONE, Q16::ONE));
-                    let candidate = StructuralCrystalCandidate::from_decision_with_signals(
-                        decision,
-                        intent.target_void_id,
-                        rho,
-                        omega,
-                    );
-                    // Attach the source file's cross-language fingerprint so the
-                    // certified crystal can resonate with same-shaped voids in any
-                    // language on a later run.
-                    match intent.target_void_id
-                        .and_then(|vid| hyphae.host_cube.fingerprint_by_void_id.get(&vid))
-                    {
-                        Some(fp) => candidate.with_fingerprint(fp.clone()),
-                        None => candidate,
-                    }
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+    let crystal_candidates: Vec<StructuralCrystalCandidate> = if options.enable_crystal_candidates {
+        hyphae
+            .frontier
+            .intents
+            .iter()
+            .zip(hyphae.decisions.iter())
+            .filter(|(_, d)| d.outcome.is_accepted())
+            .map(|(intent, decision)| {
+                let (rho, omega) = intent
+                    .target_void_id
+                    .and_then(|vid| hyphae.host_cube.hdag_by_void_id.get(&vid))
+                    .map(|hdag| (hdag.rho_coherence(), hdag.omega_phase()))
+                    .unwrap_or((Q16::ONE, Q16::ONE));
+                let candidate = StructuralCrystalCandidate::from_decision_with_signals(
+                    decision,
+                    intent.target_void_id,
+                    rho,
+                    omega,
+                );
+                // Attach the source file's cross-language fingerprint so the
+                // certified crystal can resonate with same-shaped voids in any
+                // language on a later run.
+                match intent
+                    .target_void_id
+                    .and_then(|vid| hyphae.host_cube.fingerprint_by_void_id.get(&vid))
+                {
+                    Some(fp) => candidate.with_fingerprint(fp.clone()),
+                    None => candidate,
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // ── 5d-cert. Certify crystal candidates → StructuralCrystalRecord ──────────
     // Run ConstraintProgram::from_candidate on each Pending candidate. Passive runs
@@ -998,48 +1071,46 @@ pub fn run_dry_pipeline(
     // prior-run crystal passed via options.prior_crystals. Each Resonite quantifies
     // structural proximity (rho/omega distance), enabling the CAD library to detect
     // pattern convergence across runs and rank historical matches by resonance energy.
-    let resonite_map: Vec<Resonite> =
-        if options.enable_crystal_candidates
-            && !certified_crystals.is_empty()
-            && !prior_crystals.is_empty()
-        {
-            let mut resonites = Vec::new();
-            for current in &certified_crystals {
-                for prior in prior_crystals {
-                    resonites.push(Resonite::from_records(current, prior, policy.id));
-                }
+    let resonite_map: Vec<Resonite> = if options.enable_crystal_candidates
+        && !certified_crystals.is_empty()
+        && !prior_crystals.is_empty()
+    {
+        let mut resonites = Vec::new();
+        for current in &certified_crystals {
+            for prior in prior_crystals {
+                resonites.push(Resonite::from_records(current, prior, policy.id));
             }
-            resonites
-        } else {
-            Vec::new()
-        };
+        }
+        resonites
+    } else {
+        Vec::new()
+    };
 
     // ── 5f. Crystal auto-persist (Step 5f) ────────────────────────────────────
     // If crystal_store_path is set and policy allows host writes, append every
     // newly-certified crystal to the store. Dedup is handled inside the store
     // (re-appending an existing record_id is a no-op). The count of successfully
     // written records is reported as the observational `persisted_crystal_count`.
-    let persisted_crystal_count: u32 =
-        if let Some(ref store_path) = options.crystal_store_path {
-            if options.enable_crystal_candidates && !certified_crystals.is_empty() {
-                match CrystalRecordStore::open(store_path) {
-                    Ok(mut store) => {
-                        let mut written = 0u32;
-                        for record in &certified_crystals {
-                            if store.append(record.clone(), policy).is_ok() {
-                                written += 1;
-                            }
+    let persisted_crystal_count: u32 = if let Some(ref store_path) = options.crystal_store_path {
+        if options.enable_crystal_candidates && !certified_crystals.is_empty() {
+            match CrystalRecordStore::open(store_path) {
+                Ok(mut store) => {
+                    let mut written = 0u32;
+                    for record in &certified_crystals {
+                        if store.append(record.clone(), policy).is_ok() {
+                            written += 1;
                         }
-                        written
                     }
-                    Err(_) => 0,
+                    written
                 }
-            } else {
-                0
+                Err(_) => 0,
             }
         } else {
             0
-        };
+        }
+    } else {
+        0
+    };
 
     // ── 5b. Optional norm candidates — from accepted decisions ────────────────
     // One NormGeneCandidate per accepted decision: name encodes the intent kind
@@ -1057,23 +1128,42 @@ pub fn run_dry_pipeline(
                 let (name, description) = match &intent.kind {
                     kosmo_hyphae::frontier::SourceIntentKind::FillVoid { void_id } => {
                         let hex = &void_id.to_hex()[..16];
-                        (format!("norm:void:{}", hex),
-                         format!("Norm gene from accepted decision for void {}", hex))
+                        (
+                            format!("norm:void:{}", hex),
+                            format!("Norm gene from accepted decision for void {}", hex),
+                        )
                     }
-                    kosmo_hyphae::frontier::SourceIntentKind::ReduceDeficiency { deficiency_kind } => {
+                    kosmo_hyphae::frontier::SourceIntentKind::ReduceDeficiency {
+                        deficiency_kind,
+                    } => {
                         let kind = format!("{:?}", deficiency_kind);
-                        (format!("norm:deficiency:{}", kind),
-                         format!("Norm gene from accepted decision reducing {:?} deficiency", deficiency_kind))
+                        (
+                            format!("norm:deficiency:{}", kind),
+                            format!(
+                                "Norm gene from accepted decision reducing {:?} deficiency",
+                                deficiency_kind
+                            ),
+                        )
                     }
                     kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern { pattern_name } => {
                         let short = &pattern_name[..pattern_name.len().min(24)];
-                        (format!("norm:pattern:{}", short),
-                         format!("Norm gene from accepted decision suggesting pattern '{}'", pattern_name))
+                        (
+                            format!("norm:pattern:{}", short),
+                            format!(
+                                "Norm gene from accepted decision suggesting pattern '{}'",
+                                pattern_name
+                            ),
+                        )
                     }
                     kosmo_hyphae::frontier::SourceIntentKind::Custom { description: desc } => {
                         let hex = &decision.yield_id.to_hex()[..16];
-                        (format!("norm:custom:{}", hex),
-                         format!("Norm gene from accepted custom decision: {}", &desc[..desc.len().min(48)]))
+                        (
+                            format!("norm:custom:{}", hex),
+                            format!(
+                                "Norm gene from accepted custom decision: {}",
+                                &desc[..desc.len().min(48)]
+                            ),
+                        )
                     }
                 };
                 NormGeneCandidate::new(
@@ -1085,11 +1175,13 @@ pub fn run_dry_pipeline(
                 )
             })
             .collect();
-        let assessments: Vec<_> = raw.iter()
+        let assessments: Vec<_> = raw
+            .iter()
             .map(|c| c.energy_assessment(&GateResult::Pass))
             .collect();
         let ranked = rank_by_energy(&assessments);
-        ranked.iter()
+        ranked
+            .iter()
             .filter_map(|a| raw.iter().find(|c| c.candidate_id == a.subject_id).cloned())
             .collect()
     } else {
@@ -1102,14 +1194,19 @@ pub fn run_dry_pipeline(
     let norm_fitness_traces: Vec<NormFitnessTrace> = norm_candidates
         .iter()
         .filter_map(|candidate| {
-            let trace = options.prior_feedback
+            let trace = options
+                .prior_feedback
                 .iter()
                 .filter(|fb| fb.norm_candidate_id == candidate.candidate_id)
                 .fold(
                     NormFitnessTrace::empty(candidate.candidate_id, policy.id),
                     |t, fb| t.observe_from_feedback(fb),
                 );
-            if trace.observations.is_empty() { None } else { Some(trace) }
+            if trace.observations.is_empty() {
+                None
+            } else {
+                Some(trace)
+            }
         })
         .collect();
 
@@ -1132,11 +1229,19 @@ pub fn run_dry_pipeline(
                 )
             })
             .collect();
-        let assessments: Vec<_> = raw_units.iter().map(|u| u.energy_assessment(&GateResult::Pass)).collect();
+        let assessments: Vec<_> = raw_units
+            .iter()
+            .map(|u| u.energy_assessment(&GateResult::Pass))
+            .collect();
         let ranked_ids = rank_by_energy(&assessments);
         let units: Vec<BlueprintUnit> = ranked_ids
             .iter()
-            .filter_map(|a| raw_units.iter().find(|u| u.unit_id == a.subject_id).cloned())
+            .filter_map(|a| {
+                raw_units
+                    .iter()
+                    .find(|u| u.unit_id == a.subject_id)
+                    .cloned()
+            })
             .collect();
         let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
         let export = cube.export_dry_run(options.systemcube_capacity, policy);
@@ -1192,7 +1297,10 @@ pub fn run_dry_pipeline(
             raw.push(PseBridgeCandidate::new(
                 PseBridgeCandidateKind::TopologyObservation,
                 h.hypothesis_id,
-                format!("void_hyp:{}", &h.hypothesized_void_kind[..h.hypothesized_void_kind.len().min(24)]),
+                format!(
+                    "void_hyp:{}",
+                    &h.hypothesized_void_kind[..h.hypothesized_void_kind.len().min(24)]
+                ),
                 h.confidence_score,
                 hyphae.run_id,
                 h.hypothesis_id,
@@ -1267,7 +1375,10 @@ pub enum ActionItemKind {
     /// A crystal candidate with `EvidenceOnly` status that needs operator review.
     ReviewCrystal { candidate_id: Digest },
     /// A norm gene that has accumulated enough fitness to warrant application.
-    ApplyNorm { norm_candidate_id: Digest, name: String },
+    ApplyNorm {
+        norm_candidate_id: Digest,
+        name: String,
+    },
     /// A wished-for structural facet that is not yet present: intent-directed
     /// work toward an attached [`kosmo_core::Wish`] (the counterpart to
     /// `FillVoid`, on the intent axis). Carried by the agent from the wish
@@ -1309,8 +1420,18 @@ impl ActionItem {
         description: String,
         policy_id: Digest,
     ) -> Self {
-        let action_id = Digest::of(&ActionContent { kind_tag, target_id, policy_id });
-        Self { action_id, priority_score, kind, description, policy_id }
+        let action_id = Digest::of(&ActionContent {
+            kind_tag,
+            target_id,
+            policy_id,
+        });
+        Self {
+            action_id,
+            priority_score,
+            kind,
+            description,
+            policy_id,
+        }
     }
 }
 
@@ -1363,8 +1484,13 @@ impl IntegrationRunReport {
                 "repair_topology",
                 opt.option_id,
                 rank_score(pos, n),
-                ActionItemKind::RepairTopology { surgery_option_id: opt.option_id },
-                format!("Apply topology surgery option {:.16}", opt.option_id.to_hex()),
+                ActionItemKind::RepairTopology {
+                    surgery_option_id: opt.option_id,
+                },
+                format!(
+                    "Apply topology surgery option {:.16}",
+                    opt.option_id.to_hex()
+                ),
                 pid,
             ));
         }
@@ -1376,19 +1502,28 @@ impl IntegrationRunReport {
                 "promote_to_pse",
                 cand.id,
                 rank_score(pos, n),
-                ActionItemKind::PromoteToPse { candidate_id: cand.id },
-                format!("Promote PSE candidate {:.16} ({:?})",
-                    cand.id.to_hex(), cand.kind),
+                ActionItemKind::PromoteToPse {
+                    candidate_id: cand.id,
+                },
+                format!(
+                    "Promote PSE candidate {:.16} ({:?})",
+                    cand.id.to_hex(),
+                    cand.kind
+                ),
                 pid,
             ));
         }
 
         // ── ReviewCrystal: EvidenceOnly crystal candidates need operator review ─
-        let evidence_only: Vec<_> = self.crystal_candidates.iter()
-            .filter(|c| matches!(
-                c.certification_status,
-                kosmo_hyphae::crystal::CertificationStatus::EvidenceOnly
-            ))
+        let evidence_only: Vec<_> = self
+            .crystal_candidates
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.certification_status,
+                    kosmo_hyphae::crystal::CertificationStatus::EvidenceOnly
+                )
+            })
             .collect();
         let n = evidence_only.len();
         for (pos, cand) in evidence_only.iter().enumerate() {
@@ -1396,9 +1531,13 @@ impl IntegrationRunReport {
                 "review_crystal",
                 cand.candidate_id,
                 rank_score(pos, n),
-                ActionItemKind::ReviewCrystal { candidate_id: cand.candidate_id },
-                format!("Review EvidenceOnly crystal candidate {:.16}",
-                    cand.candidate_id.to_hex()),
+                ActionItemKind::ReviewCrystal {
+                    candidate_id: cand.candidate_id,
+                },
+                format!(
+                    "Review EvidenceOnly crystal candidate {:.16}",
+                    cand.candidate_id.to_hex()
+                ),
                 pid,
             ));
         }
@@ -1414,7 +1553,11 @@ impl IntegrationRunReport {
                     norm_candidate_id: nc.candidate_id,
                     name: nc.name.clone(),
                 },
-                format!("Apply norm '{}' (fitness={})", nc.name, nc.fitness_score.raw()),
+                format!(
+                    "Apply norm '{}' (fitness={})",
+                    nc.name,
+                    nc.fitness_score.raw()
+                ),
                 pid,
             ));
         }
@@ -1459,7 +1602,11 @@ pub struct WorkspacePipelineSession {
 impl WorkspacePipelineSession {
     /// Create a new session.
     pub fn new(options: IntegrationRunOptions, policy: PolicyProfile) -> Self {
-        Self { options, policy, run_count: 0 }
+        Self {
+            options,
+            policy,
+            run_count: 0,
+        }
     }
 
     /// Run the pipeline on a workspace directory path.
@@ -1520,9 +1667,27 @@ mod tests {
     fn fixture_index() -> WorkspaceIndex {
         use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
         let entries = vec![
-            WorkspaceEntry { path: "src/lib.rs".into(), digest: Digest::of_bytes(b"lib"), size_bytes: 100, kind: WorkspaceEntryKind::SourceFile, content: None },
-            WorkspaceEntry { path: "src/main.rs".into(), digest: Digest::of_bytes(b"main"), size_bytes: 200, kind: WorkspaceEntryKind::SourceFile, content: None },
-            WorkspaceEntry { path: "src/lib_test.rs".into(), digest: Digest::of_bytes(b"lib_test"), size_bytes: 50, kind: WorkspaceEntryKind::TestFile, content: None },
+            WorkspaceEntry {
+                path: "src/lib.rs".into(),
+                digest: Digest::of_bytes(b"lib"),
+                size_bytes: 100,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+            WorkspaceEntry {
+                path: "src/main.rs".into(),
+                digest: Digest::of_bytes(b"main"),
+                size_bytes: 200,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
+            },
+            WorkspaceEntry {
+                path: "src/lib_test.rs".into(),
+                digest: Digest::of_bytes(b"lib_test"),
+                size_bytes: 50,
+                kind: WorkspaceEntryKind::TestFile,
+                content: None,
+            },
         ];
         WorkspaceIndex::from_entries("test-root".into(), entries, policy().id)
     }
@@ -1531,14 +1696,29 @@ mod tests {
 
     #[test]
     fn pipeline_empty_workspace_passes_all_gates() {
-        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.final_result.is_pass(), "empty workspace must pass all gates");
+        let r = run_dry_pipeline(
+            &empty_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.final_result.is_pass(),
+            "empty workspace must pass all gates"
+        );
     }
 
     #[test]
     fn pipeline_empty_workspace_report_is_content_addressed() {
-        let r1 = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
-        let r2 = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r1 = run_dry_pipeline(
+            &empty_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        let r2 = run_dry_pipeline(
+            &empty_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert_eq!(r1.report_id, r2.report_id);
         assert_ne!(r1.report_id, Digest::ZERO);
     }
@@ -1547,24 +1727,46 @@ mod tests {
 
     #[test]
     fn pipeline_deficiency_vector_always_present() {
-        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert_ne!(r.deficiency_vector.vector_id, Digest::ZERO, "vector_id must be non-ZERO");
+        let r = run_dry_pipeline(
+            &empty_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert_ne!(
+            r.deficiency_vector.vector_id,
+            Digest::ZERO,
+            "vector_id must be non-ZERO"
+        );
         assert_eq!(r.deficiency_vector.policy_id, policy().id);
     }
 
     #[test]
     fn pipeline_deficiency_vector_empty_for_empty_workspace() {
-        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.deficiency_vector.entries.is_empty(), "no deficiencies for empty workspace");
+        let r = run_dry_pipeline(
+            &empty_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.deficiency_vector.entries.is_empty(),
+            "no deficiencies for empty workspace"
+        );
     }
 
     #[test]
     fn pipeline_deficiency_vector_is_deterministic() {
-        let r1 = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        let r2 = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r1 = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        let r2 = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert_eq!(
-            r1.deficiency_vector.vector_id,
-            r2.deficiency_vector.vector_id,
+            r1.deficiency_vector.vector_id, r2.deficiency_vector.vector_id,
             "deficiency_vector must be deterministic"
         );
     }
@@ -1573,7 +1775,11 @@ mod tests {
 
     #[test]
     fn pipeline_policy_consistency_empty() {
-        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &empty_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert!(
             r.verify_policy_consistency(),
             "every sub-report must carry the same policy_id"
@@ -1597,8 +1803,15 @@ mod tests {
 
     #[test]
     fn pipeline_no_metatron_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.metatron_diagnostics.is_empty(), "Metatron must be off when disabled");
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.metatron_diagnostics.is_empty(),
+            "Metatron must be off when disabled"
+        );
     }
 
     #[test]
@@ -1624,7 +1837,10 @@ mod tests {
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for diag in &r.metatron_diagnostics {
-            assert_eq!(diag.policy_id, p.id, "Metatron diagnostic must carry pipeline policy_id");
+            assert_eq!(
+                diag.policy_id, p.id,
+                "Metatron diagnostic must carry pipeline policy_id"
+            );
         }
     }
 
@@ -1632,7 +1848,11 @@ mod tests {
 
     #[test]
     fn pipeline_no_lpcm_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert!(r.lpcm_reports.is_empty(), "LPCM must be off when disabled");
     }
 
@@ -1659,7 +1879,10 @@ mod tests {
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for lr in &r.lpcm_reports {
-            assert_eq!(lr.policy_id, p.id, "LPCM report must carry pipeline policy_id");
+            assert_eq!(
+                lr.policy_id, p.id,
+                "LPCM report must carry pipeline policy_id"
+            );
         }
     }
 
@@ -1667,8 +1890,15 @@ mod tests {
 
     #[test]
     fn pipeline_no_systemcube_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.systemcube_export.is_none(), "SystemCube must be off when disabled");
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.systemcube_export.is_none(),
+            "SystemCube must be off when disabled"
+        );
     }
 
     #[test]
@@ -1700,7 +1930,10 @@ mod tests {
         let opts = IntegrationRunOptions::all_layers(4);
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         let score = r.systemcube_compatibility_score();
-        assert!(score.is_some(), "compatibility score must be Some when systemcube enabled");
+        assert!(
+            score.is_some(),
+            "compatibility score must be Some when systemcube enabled"
+        );
         // All pipeline units carry TaintLabel::Synthetic → AcceptedWithTaint → gaps → score < ONE
         assert!(
             score.unwrap() < Q16::ONE,
@@ -1714,7 +1947,10 @@ mod tests {
         let opts = IntegrationRunOptions::all_layers(4);
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         let energy = r.systemcube_contradiction_energy();
-        assert!(energy.is_some(), "contradiction energy must be Some when systemcube enabled");
+        assert!(
+            energy.is_some(),
+            "contradiction energy must be Some when systemcube enabled"
+        );
     }
 
     #[test]
@@ -1730,7 +1966,10 @@ mod tests {
         // summary must now include compat and contradiction_energy
         let s = r.summary();
         assert!(s.contains("compat="), "summary must include compat score");
-        assert!(s.contains("contradiction_energy="), "summary must include contradiction energy");
+        assert!(
+            s.contains("contradiction_energy="),
+            "summary must include contradiction energy"
+        );
     }
 
     #[test]
@@ -1764,8 +2003,20 @@ mod tests {
     fn fail_closed_aggregator_reject_propagates() {
         let mut agg = GateTraceAggregator::new(Digest::of_bytes(b"p"));
         agg.record("hyphae", Digest::of_bytes(b"h"), GateResult::Pass);
-        agg.record("lpcm", Digest::of_bytes(b"l"), GateResult::Reject { reason: "bad".into() });
-        agg.record("meta", Digest::of_bytes(b"m"), GateResult::Warn { message: "low".into() });
+        agg.record(
+            "lpcm",
+            Digest::of_bytes(b"l"),
+            GateResult::Reject {
+                reason: "bad".into(),
+            },
+        );
+        agg.record(
+            "meta",
+            Digest::of_bytes(b"m"),
+            GateResult::Warn {
+                message: "low".into(),
+            },
+        );
         let result = agg.aggregate();
         assert!(
             result.final_result.is_rejected(),
@@ -1794,7 +2045,10 @@ mod tests {
     #[test]
     fn cross_002_host_mutation_impossible_by_default() {
         let p = policy();
-        assert!(!p.allow_host_write, "allow_host_write must be false in default policy");
+        assert!(
+            !p.allow_host_write,
+            "allow_host_write must be false in default policy"
+        );
         assert!(
             !p.allow_systemcube_materialization,
             "systemcube materialization must be false in default policy"
@@ -1833,8 +2087,15 @@ mod tests {
 
     #[test]
     fn pipeline_metatron_index_empty_when_metatron_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.metatron_index.micrograph_ids.is_empty(), "index must be empty when Metatron disabled");
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.metatron_index.micrograph_ids.is_empty(),
+            "index must be empty when Metatron disabled"
+        );
         assert!(r.metatron_index.diagnostic_ids.is_empty());
     }
 
@@ -1846,9 +2107,21 @@ mod tests {
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         let void_count = r.hyphae_result.host_cube.void_count();
-        assert_eq!(r.metatron_index.micrograph_ids.len(), void_count, "one micrograph per void");
-        assert_eq!(r.metatron_index.diagnostic_ids.len(), void_count, "one diagnostic per void");
-        assert_ne!(r.metatron_index.index_id, Digest::ZERO, "index_id must be non-ZERO");
+        assert_eq!(
+            r.metatron_index.micrograph_ids.len(),
+            void_count,
+            "one micrograph per void"
+        );
+        assert_eq!(
+            r.metatron_index.diagnostic_ids.len(),
+            void_count,
+            "one diagnostic per void"
+        );
+        assert_ne!(
+            r.metatron_index.index_id,
+            Digest::ZERO,
+            "index_id must be non-ZERO"
+        );
     }
 
     #[test]
@@ -1859,7 +2132,10 @@ mod tests {
         };
         let r1 = run_dry_pipeline(&fixture_index(), &opts, &policy());
         let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
-        assert_eq!(r1.metatron_index.index_id, r2.metatron_index.index_id, "metatron_index must be deterministic");
+        assert_eq!(
+            r1.metatron_index.index_id, r2.metatron_index.index_id,
+            "metatron_index must be deterministic"
+        );
     }
 
     #[test]
@@ -1870,16 +2146,29 @@ mod tests {
         };
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
-        assert_eq!(r.metatron_index.policy_id, p.id, "metatron_index must carry pipeline policy_id");
-        assert!(r.verify_policy_consistency(), "verify_policy_consistency must cover metatron_index");
+        assert_eq!(
+            r.metatron_index.policy_id, p.id,
+            "metatron_index must carry pipeline policy_id"
+        );
+        assert!(
+            r.verify_policy_consistency(),
+            "verify_policy_consistency must cover metatron_index"
+        );
     }
 
     // ── Lift reports from Metatron ────────────────────────────────────────────
 
     #[test]
     fn pipeline_no_lift_reports_when_metatron_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.lift_reports.is_empty(), "lift_reports must be empty when Metatron is disabled");
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.lift_reports.is_empty(),
+            "lift_reports must be empty when Metatron is disabled"
+        );
     }
 
     #[test]
@@ -1895,7 +2184,11 @@ mod tests {
             "one lift report per host void"
         );
         for rep in &r.lift_reports {
-            assert_ne!(rep.report_id, Digest::ZERO, "lift_report.report_id must be non-ZERO");
+            assert_ne!(
+                rep.report_id,
+                Digest::ZERO,
+                "lift_report.report_id must be non-ZERO"
+            );
         }
     }
 
@@ -1916,8 +2209,15 @@ mod tests {
 
     #[test]
     fn pipeline_no_motif_candidates_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.motif_candidates.is_empty(), "motif_candidates must be empty when disabled");
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.motif_candidates.is_empty(),
+            "motif_candidates must be empty when disabled"
+        );
     }
 
     #[test]
@@ -1933,10 +2233,25 @@ mod tests {
                 "motif_candidates must be non-empty when voids exist"
             );
             for c in &r.motif_candidates {
-                assert!(c.name.starts_with("motif:"), "candidate name must carry motif: prefix");
-                assert_ne!(c.motif_id, Digest::ZERO, "INVARIANT-007: motif_id must be non-ZERO");
-                assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
-                assert_ne!(c.support_score, Q16::ZERO, "support_score must be > 0 for observed void kinds");
+                assert!(
+                    c.name.starts_with("motif:"),
+                    "candidate name must carry motif: prefix"
+                );
+                assert_ne!(
+                    c.motif_id,
+                    Digest::ZERO,
+                    "INVARIANT-007: motif_id must be non-ZERO"
+                );
+                assert_ne!(
+                    c.evidence_bundle_id,
+                    Digest::ZERO,
+                    "CROSS-006: non-ZERO evidence ref"
+                );
+                assert_ne!(
+                    c.support_score,
+                    Q16::ZERO,
+                    "support_score must be > 0 for observed void kinds"
+                );
             }
         }
     }
@@ -1950,7 +2265,10 @@ mod tests {
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for c in &r.motif_candidates {
-            assert_eq!(c.policy_id, p.id, "motif candidate must carry pipeline policy_id");
+            assert_eq!(
+                c.policy_id, p.id,
+                "motif candidate must carry pipeline policy_id"
+            );
         }
     }
 
@@ -1963,7 +2281,10 @@ mod tests {
         let p = policy();
         let r1 = run_dry_pipeline(&fixture_index(), &opts, &p);
         let r2 = run_dry_pipeline(&fixture_index(), &opts, &p);
-        assert_eq!(r1.report_id, r2.report_id, "motif candidates must be deterministic (INVARIANT-007)");
+        assert_eq!(
+            r1.report_id, r2.report_id,
+            "motif candidates must be deterministic (INVARIANT-007)"
+        );
     }
 
     #[test]
@@ -1988,8 +2309,17 @@ mod tests {
         };
         let r2 = run_dry_pipeline(&fixture_index(), &opts2, &p);
 
-        let suggest_count = r2.hyphae_result.frontier.intents.iter()
-            .filter(|i| matches!(&i.kind, kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern { .. }))
+        let suggest_count = r2
+            .hyphae_result
+            .frontier
+            .intents
+            .iter()
+            .filter(|i| {
+                matches!(
+                    &i.kind,
+                    kosmo_hyphae::frontier::SourceIntentKind::SuggestPattern { .. }
+                )
+            })
             .count();
         assert!(
             suggest_count > 0,
@@ -1997,8 +2327,7 @@ mod tests {
         );
         // run_id differs because frontier_id changes (INVARIANT-007).
         assert_ne!(
-            r1.hyphae_result.run_id,
-            r2.hyphae_result.run_id,
+            r1.hyphae_result.run_id, r2.hyphae_result.run_id,
             "augmented run must have different run_id due to extra intents"
         );
     }
@@ -2007,8 +2336,15 @@ mod tests {
 
     #[test]
     fn pipeline_no_norm_candidates_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.norm_candidates.is_empty(), "norm_candidates must be empty when disabled");
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.norm_candidates.is_empty(),
+            "norm_candidates must be empty when disabled"
+        );
     }
 
     #[test]
@@ -2018,17 +2354,37 @@ mod tests {
             ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
-        let accepted_count = r.hyphae_result.decisions.iter().filter(|d| d.outcome.is_accepted()).count();
+        let accepted_count = r
+            .hyphae_result
+            .decisions
+            .iter()
+            .filter(|d| d.outcome.is_accepted())
+            .count();
         assert_eq!(
             r.norm_candidates.len(),
             accepted_count,
             "one norm candidate per accepted decision"
         );
         for c in &r.norm_candidates {
-            assert_eq!(c.fitness_score, Q16::ONE, "initial fitness must be Q16::ONE");
-            assert!(c.name.starts_with("norm:void:"), "candidate name must encode target void");
-            assert_ne!(c.candidate_id, Digest::ZERO, "candidate_id must be non-ZERO");
-            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: non-ZERO evidence ref");
+            assert_eq!(
+                c.fitness_score,
+                Q16::ONE,
+                "initial fitness must be Q16::ONE"
+            );
+            assert!(
+                c.name.starts_with("norm:void:"),
+                "candidate name must encode target void"
+            );
+            assert_ne!(
+                c.candidate_id,
+                Digest::ZERO,
+                "candidate_id must be non-ZERO"
+            );
+            assert_ne!(
+                c.evidence_bundle_id,
+                Digest::ZERO,
+                "CROSS-006: non-ZERO evidence ref"
+            );
         }
     }
 
@@ -2041,7 +2397,10 @@ mod tests {
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for c in &r.norm_candidates {
-            assert_eq!(c.policy_id, p.id, "norm candidate must carry pipeline policy_id");
+            assert_eq!(
+                c.policy_id, p.id,
+                "norm candidate must carry pipeline policy_id"
+            );
         }
     }
 
@@ -2049,7 +2408,11 @@ mod tests {
 
     #[test]
     fn pipeline_no_ambiguity_profiles_when_metatron_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert!(
             r.ambiguity_profiles.is_empty(),
             "ambiguity_profiles must be empty when Metatron is disabled"
@@ -2090,21 +2453,38 @@ mod tests {
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for a in &r.ambiguity_profiles {
-            assert_eq!(a.policy_id, p.id, "ambiguity profile must carry pipeline policy_id");
+            assert_eq!(
+                a.policy_id, p.id,
+                "ambiguity profile must carry pipeline policy_id"
+            );
             assert_ne!(a.profile_id, Digest::ZERO, "profile_id must be non-ZERO");
         }
         for h in &r.complement_void_hypotheses {
-            assert_eq!(h.policy_id, p.id, "void hypothesis must carry pipeline policy_id");
-            assert_ne!(h.hypothesis_id, Digest::ZERO, "hypothesis_id must be non-ZERO");
+            assert_eq!(
+                h.policy_id, p.id,
+                "void hypothesis must carry pipeline policy_id"
+            );
+            assert_ne!(
+                h.hypothesis_id,
+                Digest::ZERO,
+                "hypothesis_id must be non-ZERO"
+            );
         }
-        assert!(r.verify_policy_consistency(), "verify_policy_consistency must cover ambiguities + hypotheses");
+        assert!(
+            r.verify_policy_consistency(),
+            "verify_policy_consistency must cover ambiguities + hypotheses"
+        );
     }
 
     // ── Surgery workbench tasks (Step 3e) ────────────────────────────────────
 
     #[test]
     fn pipeline_no_surgery_workbench_tasks_when_surgery_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert!(
             r.surgery_workbench_tasks.is_empty(),
             "surgery_workbench_tasks must be empty when surgery is disabled"
@@ -2130,7 +2510,11 @@ mod tests {
 
     #[test]
     fn pipeline_no_pse_candidates_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert!(
             r.pse_candidates.is_empty(),
             "pse_candidates must be empty when disabled"
@@ -2164,8 +2548,16 @@ mod tests {
         // All must be non-ZERO and carry pipeline policy_id.
         for c in &r.pse_candidates {
             assert_ne!(c.id, Digest::ZERO, "PSE candidate id must be non-ZERO");
-            assert_eq!(c.policy_id, policy().id, "PSE candidate must carry pipeline policy_id");
-            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-ZERO");
+            assert_eq!(
+                c.policy_id,
+                policy().id,
+                "PSE candidate must carry pipeline policy_id"
+            );
+            assert_ne!(
+                c.evidence_bundle_id,
+                Digest::ZERO,
+                "CROSS-006: evidence must be non-ZERO"
+            );
         }
     }
 
@@ -2186,7 +2578,9 @@ mod tests {
             expected,
             "pse_candidates must include motif candidates as StructuralObservations"
         );
-        let motif_pse: Vec<_> = r.pse_candidates.iter()
+        let motif_pse: Vec<_> = r
+            .pse_candidates
+            .iter()
             .filter(|c| c.label.starts_with("motif:motif:"))
             .collect();
         if !r.motif_candidates.is_empty() {
@@ -2210,14 +2604,21 @@ mod tests {
         let ids1: Vec<_> = r1.pse_candidates.iter().map(|c| c.id).collect();
         let ids2: Vec<_> = r2.pse_candidates.iter().map(|c| c.id).collect();
         assert_eq!(ids1, ids2, "pse_candidates must be deterministic");
-        assert_eq!(r1.report_id, r2.report_id, "pse_candidate_count must participate in report_id");
+        assert_eq!(
+            r1.report_id, r2.report_id,
+            "pse_candidate_count must participate in report_id"
+        );
     }
 
     // ── Crystal candidates from accepted decisions (Step 5d) ─────────────────
 
     #[test]
     fn pipeline_no_crystal_candidates_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         assert!(
             r.crystal_candidates.is_empty(),
             "crystal_candidates must be empty when disabled"
@@ -2231,7 +2632,10 @@ mod tests {
             ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
-        let accepted_count = r.hyphae_result.decisions.iter()
+        let accepted_count = r
+            .hyphae_result
+            .decisions
+            .iter()
             .filter(|d| d.outcome.is_accepted())
             .count();
         assert_eq!(
@@ -2240,9 +2644,21 @@ mod tests {
             "one crystal candidate per accepted decision"
         );
         for c in &r.crystal_candidates {
-            assert_ne!(c.candidate_id, Digest::ZERO, "candidate_id must be non-ZERO");
-            assert_eq!(c.support_score, Q16::ZERO, "support_score starts at zero (Pending)");
-            assert_ne!(c.evidence_bundle_id, Digest::ZERO, "CROSS-006: evidence must be non-ZERO");
+            assert_ne!(
+                c.candidate_id,
+                Digest::ZERO,
+                "candidate_id must be non-ZERO"
+            );
+            assert_eq!(
+                c.support_score,
+                Q16::ZERO,
+                "support_score starts at zero (Pending)"
+            );
+            assert_ne!(
+                c.evidence_bundle_id,
+                Digest::ZERO,
+                "CROSS-006: evidence must be non-ZERO"
+            );
         }
     }
 
@@ -2255,7 +2671,10 @@ mod tests {
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for c in &r.crystal_candidates {
-            assert_eq!(c.policy_id, p.id, "crystal candidate must carry pipeline policy_id");
+            assert_eq!(
+                c.policy_id, p.id,
+                "crystal candidate must carry pipeline policy_id"
+            );
         }
         assert!(
             r.verify_policy_consistency(),
@@ -2275,19 +2694,33 @@ mod tests {
         // Every Pending candidate from accepted decisions must be certified.
         assert_eq!(
             r.certified_crystals.len(),
-            r.crystal_candidates.iter().filter(|c| c.is_certifiable()).count(),
+            r.crystal_candidates
+                .iter()
+                .filter(|c| c.is_certifiable())
+                .count(),
             "every certifiable candidate must produce a StructuralCrystalRecord"
         );
         for rec in &r.certified_crystals {
             assert_ne!(rec.record_id, Digest::ZERO, "record_id must be non-ZERO");
-            assert_eq!(rec.policy_id, policy().id, "record must carry pipeline policy_id");
+            assert_eq!(
+                rec.policy_id,
+                policy().id,
+                "record must carry pipeline policy_id"
+            );
         }
     }
 
     #[test]
     fn pipeline_no_certified_crystals_when_disabled() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        assert!(r.certified_crystals.is_empty(), "certified_crystals must be empty when disabled");
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        assert!(
+            r.certified_crystals.is_empty(),
+            "certified_crystals must be empty when disabled"
+        );
     }
 
     #[test]
@@ -2300,7 +2733,10 @@ mod tests {
         let r2 = run_dry_pipeline(&fixture_index(), &opts, &policy());
         let ids1: Vec<_> = r1.certified_crystals.iter().map(|r| r.record_id).collect();
         let ids2: Vec<_> = r2.certified_crystals.iter().map(|r| r.record_id).collect();
-        assert_eq!(ids1, ids2, "certified_crystals must be deterministic (INVARIANT-007)");
+        assert_eq!(
+            ids1, ids2,
+            "certified_crystals must be deterministic (INVARIANT-007)"
+        );
     }
 
     #[test]
@@ -2325,8 +2761,10 @@ mod tests {
         // The second run's cartography_update must reflect the seeded entities:
         // Prior crystals are added before update_from_run, so the "before" corpus
         // already has crystal entities — the after cartography_id will differ from r1.
-        assert_ne!(r1.report_id, r2.report_id,
-            "prior_crystals must change report_id (content-addressing reflects seeded state)");
+        assert_ne!(
+            r1.report_id, r2.report_id,
+            "prior_crystals must change report_id (content-addressing reflects seeded state)"
+        );
     }
 
     // ── Crystal record structural fingerprint ────────────────────────────────
@@ -2349,9 +2787,14 @@ mod tests {
         // If candidates exist (from accepted decisions), they must carry HDAG signals.
         for c in &r.crystal_candidates {
             if let Some(void_id) = c.source_void_id {
-                if r.hyphae_result.host_cube.hdag_by_void_id.contains_key(&void_id) {
+                if r.hyphae_result
+                    .host_cube
+                    .hdag_by_void_id
+                    .contains_key(&void_id)
+                {
                     assert_ne!(
-                        c.rho_coherence, Q16::ONE,
+                        c.rho_coherence,
+                        Q16::ONE,
                         "HDAG-enriched candidate should not default to ONE"
                     );
                 }
@@ -2393,8 +2836,16 @@ mod tests {
         );
         // A distinct peer exists → resonance equals the similarity to that peer.
         let res = best_cross_language_resonance(&py, &[py.clone(), rs.clone()]);
-        assert_eq!(res, Some(py.similarity(&rs)), "resonance is similarity to the distinct peer");
-        assert_eq!(res, Some(Q16::ONE), "identical structural mix → resonance 1.0");
+        assert_eq!(
+            res,
+            Some(py.similarity(&rs)),
+            "resonance is similarity to the distinct peer"
+        );
+        assert_eq!(
+            res,
+            Some(Q16::ONE),
+            "identical structural mix → resonance 1.0"
+        );
         // Only itself in the set → no distinct peer → None.
         assert!(best_cross_language_resonance(&py, std::slice::from_ref(&py)).is_none());
         // Empty peer set → None.
@@ -2411,7 +2862,8 @@ mod tests {
         // (source_cubes is empty in report_only + Unverified taint, so the invariant
         // is vacuously satisfied there; the helper test above covers the computation.)
         let py = "import os\n\ndef alpha(x):\n    return x\n\ndef beta(y):\n    return y\n";
-        let rs = "use std::io;\n\npub fn alpha(x: u32) -> u32 { x }\npub fn beta(y: u32) -> u32 { y }\n";
+        let rs =
+            "use std::io;\n\npub fn alpha(x: u32) -> u32 { x }\npub fn beta(y: u32) -> u32 { y }\n";
         let mk = |path: &str, src: &str| WorkspaceEntry {
             path: path.into(),
             digest: Digest::of_bytes(src.as_bytes()),
@@ -2426,7 +2878,11 @@ mod tests {
         );
         let r = run_dry_pipeline(&index, &IntegrationRunOptions::report_only(), &policy());
         let fps = &r.hyphae_result.host_cube.fingerprint_by_void_id;
-        assert!(fps.len() >= 2, "both polyglot files must have fingerprints stored, got {}", fps.len());
+        assert!(
+            fps.len() >= 2,
+            "both polyglot files must have fingerprints stored, got {}",
+            fps.len()
+        );
         for cube in &r.source_cubes {
             if let Some(void_id) = cube.target_void_id {
                 if fps.contains_key(&void_id) {
@@ -2445,9 +2901,14 @@ mod tests {
         let opts = IntegrationRunOptions::report_only();
         let r = run_dry_pipeline(&content_fixture_index(), &opts, &policy());
         let boosted = r.source_cubes.iter().any(|c| {
-            c.dimension_profile.dimensions.contains_key("crystal_resonance")
+            c.dimension_profile
+                .dimensions
+                .contains_key("crystal_resonance")
         });
-        assert!(!boosted, "crystal_resonance must not appear without prior_crystals");
+        assert!(
+            !boosted,
+            "crystal_resonance must not appear without prior_crystals"
+        );
     }
 
     #[test]
@@ -2467,9 +2928,14 @@ mod tests {
         // fixture_index has content: None → no HDAG → no crystal_resonance dim.
         let r2 = run_dry_pipeline(&fixture_index(), &opts2, &policy());
         let boosted = r2.source_cubes.iter().any(|c| {
-            c.dimension_profile.dimensions.contains_key("crystal_resonance")
+            c.dimension_profile
+                .dimensions
+                .contains_key("crystal_resonance")
         });
-        assert!(!boosted, "crystal_resonance must not appear when entries lack source content");
+        assert!(
+            !boosted,
+            "crystal_resonance must not appear when entries lack source content"
+        );
     }
 
     #[test]
@@ -2479,8 +2945,10 @@ mod tests {
             ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
-        assert!(r.resonite_map.is_empty(),
-            "resonite_map must be empty when no prior_crystals are provided");
+        assert!(
+            r.resonite_map.is_empty(),
+            "resonite_map must be empty when no prior_crystals are provided"
+        );
     }
 
     #[test]
@@ -2553,8 +3021,10 @@ mod tests {
             // This is expected; just verify report_ids are non-zero.
             assert_ne!(r2.report_id, Digest::ZERO);
         } else {
-            assert_ne!(r1.report_id, r2.report_id,
-                "different resonite_count must produce different report_id");
+            assert_ne!(
+                r1.report_id, r2.report_id,
+                "different resonite_count must produce different report_id"
+            );
         }
     }
 
@@ -2604,7 +3074,9 @@ mod tests {
             ..IntegrationRunOptions::report_only()
         };
         let r2 = run_dry_pipeline(&fixture_index(), &opts_fb, &p);
-        let trace = r2.norm_fitness_traces.iter()
+        let trace = r2
+            .norm_fitness_traces
+            .iter()
             .find(|t| t.candidate_id == candidate.candidate_id)
             .expect("trace must exist for the candidate that received feedback");
         assert_eq!(trace.observations.len(), 1);
@@ -2645,15 +3117,13 @@ mod tests {
     fn content_fixture_index() -> WorkspaceIndex {
         use kosmo_workbench::{WorkspaceEntry, WorkspaceEntryKind};
         let source = "pub fn alpha() {}\npub fn beta() {}\npub fn gamma() {}\n";
-        let entries = vec![
-            WorkspaceEntry {
-                path: "src/lib.rs".into(),
-                digest: Digest::of_bytes(source.as_bytes()),
-                size_bytes: source.len() as u64,
-                kind: WorkspaceEntryKind::SourceFile,
-                content: Some(source.to_string()),
-            },
-        ];
+        let entries = vec![WorkspaceEntry {
+            path: "src/lib.rs".into(),
+            digest: Digest::of_bytes(source.as_bytes()),
+            size_bytes: source.len() as u64,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: Some(source.to_string()),
+        }];
         WorkspaceIndex::from_entries("test-root".into(), entries, policy().id)
     }
 
@@ -2682,13 +3152,21 @@ mod tests {
         let r = run_dry_pipeline(&content_fixture_index(), &opts, &policy());
         for cube in &r.source_cubes {
             if let Some(void_id) = cube.target_void_id {
-                if r.hyphae_result.host_cube.hdag_by_void_id.contains_key(&void_id) {
+                if r.hyphae_result
+                    .host_cube
+                    .hdag_by_void_id
+                    .contains_key(&void_id)
+                {
                     assert!(
-                        cube.dimension_profile.dimensions.contains_key("rho_coherence"),
+                        cube.dimension_profile
+                            .dimensions
+                            .contains_key("rho_coherence"),
                         "SourceCube for HDAG void must carry rho_coherence"
                     );
                     assert!(
-                        cube.dimension_profile.dimensions.contains_key("omega_phase"),
+                        cube.dimension_profile
+                            .dimensions
+                            .contains_key("omega_phase"),
                         "SourceCube for HDAG void must carry omega_phase"
                     );
                 }
@@ -2701,10 +3179,14 @@ mod tests {
         let opts = IntegrationRunOptions::report_only();
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
         // Without source content (fixture_index has content: None), no HDAG dimensions.
-        let enriched = r.source_cubes.iter().any(|c| {
-            c.dimension_profile.dimensions.contains_key("rho_coherence")
-        });
-        assert!(!enriched, "no HDAG dimensions expected when WorkspaceEntry.content is None");
+        let enriched = r
+            .source_cubes
+            .iter()
+            .any(|c| c.dimension_profile.dimensions.contains_key("rho_coherence"));
+        assert!(
+            !enriched,
+            "no HDAG dimensions expected when WorkspaceEntry.content is None"
+        );
     }
 
     #[test]
@@ -2717,9 +3199,16 @@ mod tests {
         let p = policy();
         let r = run_dry_pipeline(&fixture_index(), &opts, &p);
         for t in &r.surgery_workbench_tasks {
-            assert_eq!(t.policy_id, p.id, "surgery workbench task must carry pipeline policy_id");
+            assert_eq!(
+                t.policy_id, p.id,
+                "surgery workbench task must carry pipeline policy_id"
+            );
             assert_ne!(t.task_id, Digest::ZERO, "task_id must be non-ZERO");
-            assert_ne!(t.surgery_option_id, Digest::ZERO, "surgery_option_id must trace back to source option");
+            assert_ne!(
+                t.surgery_option_id,
+                Digest::ZERO,
+                "surgery_option_id must trace back to source option"
+            );
         }
     }
 
@@ -2744,8 +3233,15 @@ mod tests {
             crystal_store_path: Some(path.clone()),
             ..IntegrationRunOptions::report_only()
         };
-        run_dry_pipeline(&fixture_index(), &opts, &PolicyProfile::default_report_only());
-        assert!(!path.exists(), "ReportOnly must not create crystal store file");
+        run_dry_pipeline(
+            &fixture_index(),
+            &opts,
+            &PolicyProfile::default_report_only(),
+        );
+        assert!(
+            !path.exists(),
+            "ReportOnly must not create crystal store file"
+        );
         assert_eq!(opts.crystal_store_path.as_deref(), Some(path.as_path()));
         let _ = std::fs::remove_file(&path);
     }
@@ -2766,8 +3262,11 @@ mod tests {
         let r1 = run_dry_pipeline(&fixture_index(), &opts1, &op_policy);
         // In ReportOnly mode fixture all decisions are EvidenceOnly, so crystals = 0.
         // `persisted_crystal_count` reflects what was actually written.
-        assert_eq!(r1.persisted_crystal_count, r1.certified_crystals.len() as u32,
-            "persisted count must equal certified count on first run");
+        assert_eq!(
+            r1.persisted_crystal_count,
+            r1.certified_crystals.len() as u32,
+            "persisted count must equal certified count on first run"
+        );
 
         // Second run: auto-loads any stored crystals into prior_crystals.
         let opts2 = IntegrationRunOptions {
@@ -2783,8 +3282,10 @@ mod tests {
             // No crystals produced (ReportOnly + standard fixture) — still valid.
             assert_eq!(r2.persisted_crystal_count, 0);
         } else {
-            assert_eq!(r2.persisted_crystal_count, 0,
-                "second run must not re-write already-persisted crystals (dedup)");
+            assert_eq!(
+                r2.persisted_crystal_count, 0,
+                "second run must not re-write already-persisted crystals (dedup)"
+            );
         }
         let _ = std::fs::remove_file(&path);
     }
@@ -2797,8 +3298,10 @@ mod tests {
             ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
-        assert_eq!(r.persisted_crystal_count, 0,
-            "no crystal_store_path → persisted_crystal_count must be 0");
+        assert_eq!(
+            r.persisted_crystal_count, 0,
+            "no crystal_store_path → persisted_crystal_count must be 0"
+        );
     }
 
     #[test]
@@ -2818,10 +3321,12 @@ mod tests {
             crystal_store_path: Some(path.clone()),
             ..IntegrationRunOptions::report_only()
         };
-        let r_no  = run_dry_pipeline(&fixture_index(), &opts_no_store, &op_policy);
+        let r_no = run_dry_pipeline(&fixture_index(), &opts_no_store, &op_policy);
         let r_yes = run_dry_pipeline(&fixture_index(), &opts_with_store, &op_policy);
-        assert_eq!(r_no.report_id, r_yes.report_id,
-            "crystal persistence must not affect report_id (observational field)");
+        assert_eq!(
+            r_no.report_id, r_yes.report_id,
+            "crystal persistence must not affect report_id (observational field)"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -2829,8 +3334,7 @@ mod tests {
     fn pipeline_with_crystal_store_path_builder() {
         // Smoke-test the with_crystal_store_path builder; no assertions on content.
         let path = temp_crystal_store_path("builder");
-        let opts = IntegrationRunOptions::report_only()
-            .with_crystal_store_path(path.clone());
+        let opts = IntegrationRunOptions::report_only().with_crystal_store_path(path.clone());
         assert_eq!(opts.crystal_store_path.as_deref(), Some(path.as_path()));
         let _ = std::fs::remove_file(&path);
     }
@@ -2866,7 +3370,10 @@ mod tests {
         let result = run_workspace_pipeline(ws.to_str().unwrap(), &opts, &policy());
         let report = result.expect("scan + pipeline must succeed on existing path");
         assert_ne!(report.report_id, Digest::ZERO, "report_id must be non-ZERO");
-        assert!(report.verify_policy_consistency(), "policy must be consistent");
+        assert!(
+            report.verify_policy_consistency(),
+            "policy must be consistent"
+        );
         let _ = std::fs::remove_dir_all(&ws);
     }
 
@@ -2877,7 +3384,10 @@ mod tests {
             &IntegrationRunOptions::report_only(),
             &policy(),
         );
-        assert!(result.is_err(), "nonexistent path must yield WorkspaceError");
+        assert!(
+            result.is_err(),
+            "nonexistent path must yield WorkspaceError"
+        );
     }
 
     #[test]
@@ -2885,10 +3395,14 @@ mod tests {
         // When source content is available, HDAG extraction produces non-empty hdag_by_void_id.
         // We verify this by checking that the HostCube in the HYPHAE result is non-trivial.
         let ws = temp_workspace("hdag");
-        write_rs(&ws, "lib.rs", "pub fn alpha() {}\npub fn beta() {}\npub fn gamma() {}\n");
+        write_rs(
+            &ws,
+            "lib.rs",
+            "pub fn alpha() {}\npub fn beta() {}\npub fn gamma() {}\n",
+        );
         let opts = IntegrationRunOptions::report_only();
-        let report = run_workspace_pipeline(ws.to_str().unwrap(), &opts, &policy())
-            .expect("must succeed");
+        let report =
+            run_workspace_pipeline(ws.to_str().unwrap(), &opts, &policy()).expect("must succeed");
         // At minimum the workspace has source files → void_map is non-trivial.
         assert_ne!(report.deficiency_vector.vector_id, Digest::ZERO);
         let _ = std::fs::remove_dir_all(&ws);
@@ -2898,14 +3412,16 @@ mod tests {
     fn workspace_pipeline_session_run_count_increments() {
         let ws = temp_workspace("session");
         write_rs(&ws, "lib.rs", "pub fn foo() {}\n");
-        let mut session = WorkspacePipelineSession::new(
-            IntegrationRunOptions::report_only(),
-            policy(),
-        );
+        let mut session =
+            WorkspacePipelineSession::new(IntegrationRunOptions::report_only(), policy());
         assert_eq!(session.run_count(), 0);
-        session.run(ws.to_str().unwrap()).expect("first run must succeed");
+        session
+            .run(ws.to_str().unwrap())
+            .expect("first run must succeed");
         assert_eq!(session.run_count(), 1);
-        session.run(ws.to_str().unwrap()).expect("second run must succeed");
+        session
+            .run(ws.to_str().unwrap())
+            .expect("second run must succeed");
         assert_eq!(session.run_count(), 2);
         let _ = std::fs::remove_dir_all(&ws);
     }
@@ -2931,8 +3447,10 @@ mod tests {
 
         // Second run must not re-persist already-stored crystals (dedup).
         if !r1.certified_crystals.is_empty() {
-            assert_eq!(r2.persisted_crystal_count, 0,
-                "second run must not duplicate crystals from first run");
+            assert_eq!(
+                r2.persisted_crystal_count, 0,
+                "second run must not duplicate crystals from first run"
+            );
         }
         // Both runs must be non-trivially identified.
         assert_ne!(r1.report_id, Digest::ZERO);
@@ -2945,26 +3463,46 @@ mod tests {
 
     #[test]
     fn action_items_empty_report_has_no_items() {
-        let r = run_dry_pipeline(&empty_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &empty_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         let items = r.action_items();
         // Empty workspace → no voids, no surgery, no PSE, no crystals, no norms.
-        assert!(items.is_empty(), "empty workspace must produce no action items");
+        assert!(
+            items.is_empty(),
+            "empty workspace must produce no action items"
+        );
     }
 
     #[test]
     fn action_items_returns_fill_void_for_each_void_in_report() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         let voids = r.void_priority_ranking.len();
-        let fill_voids: Vec<_> = r.action_items().into_iter()
+        let fill_voids: Vec<_> = r
+            .action_items()
+            .into_iter()
             .filter(|a| matches!(a.kind, ActionItemKind::FillVoid { .. }))
             .collect();
-        assert_eq!(fill_voids.len(), voids,
-            "must have one FillVoid item per void in void_priority_ranking");
+        assert_eq!(
+            fill_voids.len(),
+            voids,
+            "must have one FillVoid item per void in void_priority_ranking"
+        );
     }
 
     #[test]
     fn action_items_are_sorted_descending_by_priority() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         let items = r.action_items();
         for window in items.windows(2) {
             assert!(
@@ -2976,26 +3514,44 @@ mod tests {
 
     #[test]
     fn action_items_are_content_addressed() {
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
         let items = r.action_items();
         for item in &items {
             assert_ne!(item.action_id, Digest::ZERO, "action_id must be non-ZERO");
-            assert_eq!(item.policy_id, policy().id, "action_id must carry pipeline policy_id");
+            assert_eq!(
+                item.policy_id,
+                policy().id,
+                "action_id must carry pipeline policy_id"
+            );
         }
     }
 
     #[test]
     fn action_items_top_void_has_highest_priority() {
         // The void at position 0 in void_priority_ranking should score Q16::ONE.
-        let r = run_dry_pipeline(&fixture_index(), &IntegrationRunOptions::report_only(), &policy());
-        if r.void_priority_ranking.is_empty() { return; }
+        let r = run_dry_pipeline(
+            &fixture_index(),
+            &IntegrationRunOptions::report_only(),
+            &policy(),
+        );
+        if r.void_priority_ranking.is_empty() {
+            return;
+        }
         let top_void = r.void_priority_ranking[0];
         let items = r.action_items();
-        let top_item = items.iter()
-            .find(|a| matches!(a.kind, ActionItemKind::FillVoid { void_id } if void_id == top_void));
+        let top_item = items.iter().find(
+            |a| matches!(a.kind, ActionItemKind::FillVoid { void_id } if void_id == top_void),
+        );
         if let Some(item) = top_item {
-            assert_eq!(item.priority_score, Q16::ONE,
-                "top-ranked void must have Q16::ONE priority_score");
+            assert_eq!(
+                item.priority_score,
+                Q16::ONE,
+                "top-ranked void must have Q16::ONE priority_score"
+            );
         }
     }
 
@@ -3007,11 +3563,16 @@ mod tests {
             ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
-        let repairs: Vec<_> = r.action_items().into_iter()
+        let repairs: Vec<_> = r
+            .action_items()
+            .into_iter()
             .filter(|a| matches!(a.kind, ActionItemKind::RepairTopology { .. }))
             .collect();
-        assert_eq!(repairs.len(), r.surgery_options.len(),
-            "must have one RepairTopology per surgery option");
+        assert_eq!(
+            repairs.len(),
+            r.surgery_options.len(),
+            "must have one RepairTopology per surgery option"
+        );
     }
 
     #[test]
@@ -3021,11 +3582,16 @@ mod tests {
             ..IntegrationRunOptions::report_only()
         };
         let r = run_dry_pipeline(&fixture_index(), &opts, &policy());
-        let norms: Vec<_> = r.action_items().into_iter()
+        let norms: Vec<_> = r
+            .action_items()
+            .into_iter()
             .filter(|a| matches!(a.kind, ActionItemKind::ApplyNorm { .. }))
             .collect();
-        assert_eq!(norms.len(), r.norm_candidates.len(),
-            "must have one ApplyNorm per norm candidate");
+        assert_eq!(
+            norms.len(),
+            r.norm_candidates.len(),
+            "must have one ApplyNorm per norm candidate"
+        );
     }
 
     #[test]
@@ -3034,6 +3600,9 @@ mod tests {
         let pol = PolicyProfile::default_report_only();
         let session = WorkspacePipelineSession::new(opts.clone(), pol.clone());
         assert_eq!(session.policy().id, pol.id);
-        assert_eq!(session.options().enable_crystal_candidates, opts.enable_crystal_candidates);
+        assert_eq!(
+            session.options().enable_crystal_candidates,
+            opts.enable_crystal_candidates
+        );
     }
 }

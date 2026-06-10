@@ -56,7 +56,10 @@ pub struct GateTraceAggregator {
 
 impl GateTraceAggregator {
     pub fn new(policy_id: Digest) -> Self {
-        Self { policy_id, layers: Vec::new() }
+        Self {
+            policy_id,
+            layers: Vec::new(),
+        }
     }
 
     /// Record the gate result for a named pipeline layer.
@@ -79,7 +82,11 @@ impl GateTraceAggregator {
     pub fn aggregate(mut self) -> AggregatedGateResult {
         self.layers.sort_by_key(|l| l.gate_trace_id);
 
-        let reject_count = self.layers.iter().filter(|l| l.result.is_rejected()).count() as u32;
+        let reject_count = self
+            .layers
+            .iter()
+            .filter(|l| l.result.is_rejected())
+            .count() as u32;
         let warn_count = self.layers.iter().filter(|l| l.result.is_warn()).count() as u32;
 
         let final_result = self
@@ -134,7 +141,13 @@ mod tests {
     fn aggregate_one_reject_gives_reject() {
         let mut agg = GateTraceAggregator::new(pid());
         agg.record("hyphae", tid(b"h"), GateResult::Pass);
-        agg.record("lpcm", tid(b"l"), GateResult::Reject { reason: "bad".into() });
+        agg.record(
+            "lpcm",
+            tid(b"l"),
+            GateResult::Reject {
+                reason: "bad".into(),
+            },
+        );
         let r = agg.aggregate();
         assert!(r.final_result.is_rejected());
         assert_eq!(r.reject_count, 1);
@@ -143,7 +156,13 @@ mod tests {
     #[test]
     fn aggregate_warn_without_reject_gives_warn() {
         let mut agg = GateTraceAggregator::new(pid());
-        agg.record("hyphae", tid(b"h"), GateResult::Warn { message: "low".into() });
+        agg.record(
+            "hyphae",
+            tid(b"h"),
+            GateResult::Warn {
+                message: "low".into(),
+            },
+        );
         agg.record("systemcube", tid(b"s"), GateResult::Pass);
         let r = agg.aggregate();
         assert!(r.final_result.is_warn());

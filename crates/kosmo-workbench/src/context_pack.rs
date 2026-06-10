@@ -213,7 +213,9 @@ mod tests {
             Digest::of_bytes(b"synth"),
             ContextEntryKind::DiagnosticReport,
             TaintLabel::Synthetic,
-            AuthorityLabel::Agent { name: "hyphae".into() },
+            AuthorityLabel::Agent {
+                name: "hyphae".into(),
+            },
             "synthetic output",
         );
         let policy = PolicyProfile::default_report_only();
@@ -233,7 +235,8 @@ mod tests {
             AuthorityLabel::Foundry,
             "result",
         );
-        pack.add_entry(entry, &PolicyProfile::default_report_only()).unwrap();
+        pack.add_entry(entry, &PolicyProfile::default_report_only())
+            .unwrap();
         assert_ne!(pack.pack_id, id_before);
         assert!(pack.verify_id());
     }

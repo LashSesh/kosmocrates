@@ -47,7 +47,9 @@
 //! [`docs/SUBSTRATE.md`]: ../../../SUBSTRATE.md
 //! [`docs/WISH_TO_SYSTEM.md`]: ../../../docs/WISH_TO_SYSTEM.md
 
-use kosmo_core::{Digest, EvidenceRef, FeedbackOutcome, ImplementationMode, PolicyProfile, PromotionFeedback, Q16};
+use kosmo_core::{
+    Digest, EvidenceRef, FeedbackOutcome, ImplementationMode, PolicyProfile, PromotionFeedback, Q16,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -493,21 +495,30 @@ pub fn build_promotion_feedback(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{EvidenceBundle, EvidenceKind, ImplementationMode, PolicyProfile, ReplayStatus};
+    use kosmo_core::{
+        EvidenceBundle, EvidenceKind, ImplementationMode, PolicyProfile, ReplayStatus,
+    };
 
     fn d(seed: &[u8]) -> Digest {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn bundle_id() -> Digest { d(b"bundle") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
 
     fn report_only_profile() -> PolicyProfile {
         PolicyProfile::default()
     }
 
     fn elevated_profile() -> PolicyProfile {
-        PolicyProfile { mode: ImplementationMode::DryRun, ..PolicyProfile::default() }
+        PolicyProfile {
+            mode: ImplementationMode::DryRun,
+            ..PolicyProfile::default()
+        }
     }
 
     fn basic_candidate() -> PseBridgeCandidate {
@@ -560,11 +571,21 @@ mod tests {
     fn candidate_different_kinds_differ() {
         let c1 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         let c2 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::TopologyObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         assert_ne!(c1.id, c2.id);
     }
@@ -580,11 +601,21 @@ mod tests {
     fn candidate_different_confidence_differs() {
         let c1 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         let c2 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ZERO, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ZERO,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         assert_ne!(c1.id, c2.id);
     }
@@ -656,7 +687,11 @@ mod tests {
     fn request_with_refs_changes_id() {
         let r = PromotionRequest::new(d(b"cand"), d(b"bp"), bundle_id(), 1);
         let id_before = r.id;
-        let r2 = r.with_refs(vec![EvidenceRef::new(d(b"x"), EvidenceKind::RunRecord, "run")]);
+        let r2 = r.with_refs(vec![EvidenceRef::new(
+            d(b"x"),
+            EvidenceKind::RunRecord,
+            "run",
+        )]);
         assert_ne!(id_before, r2.id);
         assert!(r2.verify_id());
     }
@@ -686,7 +721,9 @@ mod tests {
 
     #[test]
     fn outcome_rejected_is_failure() {
-        let o = PromotionOutcome::Rejected { reason: "low confidence".into() };
+        let o = PromotionOutcome::Rejected {
+            reason: "low confidence".into(),
+        };
         assert!(o.is_failure_class());
         assert!(!o.is_accepted());
     }
@@ -717,8 +754,10 @@ mod tests {
 
     #[test]
     fn record_new_deterministic() {
-        let r1 = PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
-        let r2 = PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
+        let r1 =
+            PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
+        let r2 =
+            PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
         assert_eq!(r1.id, r2.id);
     }
 
@@ -726,7 +765,9 @@ mod tests {
     fn record_verify_id() {
         let r = PromotionRequestRecord::new(
             d(b"req"),
-            PromotionOutcome::Rejected { reason: "threshold".into() },
+            PromotionOutcome::Rejected {
+                reason: "threshold".into(),
+            },
             bundle_id(),
             100,
         );
@@ -769,7 +810,12 @@ mod tests {
     fn validate_disallowed_kind_skips() {
         let c = PseBridgeCandidate::new(
             PseBridgeCandidateKind::KcubeArtifact,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         let p = allow_policy(); // only allows Structural + Topology
         let result = validate_candidate(&c, &p, &elevated_profile());
@@ -780,7 +826,10 @@ mod tests {
     fn validate_zero_evidence_rejected() {
         let c = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
             Digest::ZERO, // no evidence
             policy_id(),
         );

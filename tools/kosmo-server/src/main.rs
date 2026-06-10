@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
-use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions, run_workspace_pipeline};
+use kosmo_pipeline::{run_workspace_pipeline, ActionItemKind, IntegrationRunOptions};
 
 // ─── Request / Response types ────────────────────────────────────────────────
 
@@ -36,20 +36,33 @@ struct AnalyseRequest {
 
 #[derive(Deserialize, Default)]
 struct AnalyseFlags {
-    #[serde(default)] all: bool,
-    #[serde(default)] metatron: bool,
-    #[serde(default)] lpcm: bool,
-    #[serde(default)] systemcube: bool,
-    #[serde(default)] surgery: bool,
-    #[serde(default)] crystals: bool,
-    #[serde(default)] norms: bool,
-    #[serde(default)] motifs: bool,
-    #[serde(default)] pse: bool,
-    #[serde(default)] operator: bool,
-    #[serde(default = "default_capacity")] capacity: u32,
+    #[serde(default)]
+    all: bool,
+    #[serde(default)]
+    metatron: bool,
+    #[serde(default)]
+    lpcm: bool,
+    #[serde(default)]
+    systemcube: bool,
+    #[serde(default)]
+    surgery: bool,
+    #[serde(default)]
+    crystals: bool,
+    #[serde(default)]
+    norms: bool,
+    #[serde(default)]
+    motifs: bool,
+    #[serde(default)]
+    pse: bool,
+    #[serde(default)]
+    operator: bool,
+    #[serde(default = "default_capacity")]
+    capacity: u32,
 }
 
-fn default_capacity() -> u32 { 100 }
+fn default_capacity() -> u32 {
+    100
+}
 
 #[derive(Serialize)]
 struct ActionItemRow {
@@ -95,47 +108,51 @@ fn q16_str(q: Q16) -> String {
     format!("{}.{:04}", i, f)
 }
 
-fn hex16(d: &Digest) -> String { d.to_hex()[..16].to_string() }
+fn hex16(d: &Digest) -> String {
+    d.to_hex()[..16].to_string()
+}
 
 fn gate_label(r: &GateResult) -> &'static str {
     match r {
-        GateResult::Pass              => "Pass",
-        GateResult::Warn { .. }       => "Warn",
-        GateResult::Reject { .. }     => "Reject",
-        GateResult::Downgrade { .. }  => "Downgrade",
+        GateResult::Pass => "Pass",
+        GateResult::Warn { .. } => "Warn",
+        GateResult::Reject { .. } => "Reject",
+        GateResult::Downgrade { .. } => "Downgrade",
     }
 }
 
 fn kind_label(k: &ActionItemKind) -> &'static str {
     match k {
-        ActionItemKind::FillVoid { .. }         => "FillVoid",
-        ActionItemKind::RepairTopology { .. }   => "RepairTopology",
-        ActionItemKind::PromoteToPse { .. }     => "PromoteToPse",
-        ActionItemKind::ReviewCrystal { .. }    => "ReviewCrystal",
-        ActionItemKind::ApplyNorm { .. }        => "ApplyNorm",
+        ActionItemKind::FillVoid { .. } => "FillVoid",
+        ActionItemKind::RepairTopology { .. } => "RepairTopology",
+        ActionItemKind::PromoteToPse { .. } => "PromoteToPse",
+        ActionItemKind::ReviewCrystal { .. } => "ReviewCrystal",
+        ActionItemKind::ApplyNorm { .. } => "ApplyNorm",
         ActionItemKind::RealizeWishFacet { .. } => "RealizeWishFacet",
     }
 }
 
 fn kind_group(k: &ActionItemKind) -> &'static str {
     match k {
-        ActionItemKind::FillVoid { .. }         => "void",
-        ActionItemKind::RepairTopology { .. }   => "topology",
-        ActionItemKind::PromoteToPse { .. }     => "pse",
-        ActionItemKind::ReviewCrystal { .. }    => "crystal",
-        ActionItemKind::ApplyNorm { .. }        => "norm",
+        ActionItemKind::FillVoid { .. } => "void",
+        ActionItemKind::RepairTopology { .. } => "topology",
+        ActionItemKind::PromoteToPse { .. } => "pse",
+        ActionItemKind::ReviewCrystal { .. } => "crystal",
+        ActionItemKind::ApplyNorm { .. } => "norm",
         ActionItemKind::RealizeWishFacet { .. } => "wish",
     }
 }
 
 fn target_id(k: &ActionItemKind) -> String {
     match k {
-        ActionItemKind::FillVoid { void_id }                  => hex16(void_id),
-        ActionItemKind::RepairTopology { surgery_option_id }  => hex16(surgery_option_id),
-        ActionItemKind::PromoteToPse { candidate_id }         => hex16(candidate_id),
-        ActionItemKind::ReviewCrystal { candidate_id }        => hex16(candidate_id),
-        ActionItemKind::ApplyNorm { norm_candidate_id, .. }   => hex16(norm_candidate_id),
-        ActionItemKind::RealizeWishFacet { facet }            => facet.key.clone(),
+        ActionItemKind::FillVoid { void_id } => hex16(void_id),
+        ActionItemKind::RepairTopology { surgery_option_id } => hex16(surgery_option_id),
+        ActionItemKind::PromoteToPse { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ReviewCrystal { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ApplyNorm {
+            norm_candidate_id, ..
+        } => hex16(norm_candidate_id),
+        ActionItemKind::RealizeWishFacet { facet } => facet.key.clone(),
     }
 }
 
@@ -200,12 +217,11 @@ async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse
     let options = build_options(&req.flags);
     let path_str = req.path.clone();
 
-    let report = tokio::task::spawn_blocking(move || {
-        run_workspace_pipeline(&path_str, &options, &policy)
-    })
-    .await
-    .map_err(|e| ApiError(e.to_string()))?
-    .map_err(|e| ApiError(e.to_string()))?;
+    let report =
+        tokio::task::spawn_blocking(move || run_workspace_pipeline(&path_str, &options, &policy))
+            .await
+            .map_err(|e| ApiError(e.to_string()))?
+            .map_err(|e| ApiError(e.to_string()))?;
 
     let items = report.action_items();
     let action_items = items
@@ -222,8 +238,8 @@ async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse
         })
         .collect();
 
-    let source_count = report.hyphae_result.host_cube.void_map.voids.len()
-        + report.source_cubes.len();
+    let source_count =
+        report.hyphae_result.host_cube.void_map.voids.len() + report.source_cubes.len();
 
     let void_ranking = report
         .void_priority_ranking
@@ -272,7 +288,11 @@ struct ServerArgs {
 
 fn parse_server_args() -> Result<ServerArgs, String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    let mut args = ServerArgs { port: 7777, host: "127.0.0.1".into(), open: false };
+    let mut args = ServerArgs {
+        port: 7777,
+        host: "127.0.0.1".into(),
+        open: false,
+    };
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
@@ -299,12 +319,18 @@ fn parse_server_args() -> Result<ServerArgs, String> {
             }
             "--port" => {
                 i += 1;
-                if i >= raw.len() { return Err("--port requires a number".into()); }
-                args.port = raw[i].parse().map_err(|_| format!("invalid port: {}", raw[i]))?;
+                if i >= raw.len() {
+                    return Err("--port requires a number".into());
+                }
+                args.port = raw[i]
+                    .parse()
+                    .map_err(|_| format!("invalid port: {}", raw[i]))?;
             }
             "--host" => {
                 i += 1;
-                if i >= raw.len() { return Err("--host requires an address".into()); }
+                if i >= raw.len() {
+                    return Err("--host requires an address".into());
+                }
                 args.host = raw[i].clone();
             }
             "--open" => args.open = true,
@@ -351,7 +377,9 @@ async fn main() {
 
     if args.open {
         let url = format!("http://{addr}");
-        let _ = std::process::Command::new("xdg-open").arg(&url).spawn()
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
             .or_else(|_| std::process::Command::new("open").arg(&url).spawn());
     }
 

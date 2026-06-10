@@ -314,16 +314,26 @@ pub struct LlmError {
 
 impl LlmError {
     pub fn permanent(msg: impl Into<String>) -> Self {
-        Self { message: msg.into(), recoverable: false }
+        Self {
+            message: msg.into(),
+            recoverable: false,
+        }
     }
     pub fn transient(msg: impl Into<String>) -> Self {
-        Self { message: msg.into(), recoverable: true }
+        Self {
+            message: msg.into(),
+            recoverable: true,
+        }
     }
 }
 
 impl std::fmt::Display for LlmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "llm error (recoverable={}): {}", self.recoverable, self.message)
+        write!(
+            f,
+            "llm error (recoverable={}): {}",
+            self.recoverable, self.message
+        )
     }
 }
 impl std::error::Error for LlmError {}
@@ -402,7 +412,9 @@ mod tests {
     #[test]
     fn endpoint_per_provider() {
         assert!(LlmConfig::claude("k").endpoint().ends_with("/v1/messages"));
-        assert!(LlmConfig::cerebras("k").endpoint().ends_with("/chat/completions"));
+        assert!(LlmConfig::cerebras("k")
+            .endpoint()
+            .ends_with("/chat/completions"));
     }
 
     #[test]
@@ -448,13 +460,19 @@ mod tests {
 
     #[test]
     fn extract_json_plain() {
-        assert_eq!(extract_json_object(r#"{"a":1}"#).as_deref(), Some(r#"{"a":1}"#));
+        assert_eq!(
+            extract_json_object(r#"{"a":1}"#).as_deref(),
+            Some(r#"{"a":1}"#)
+        );
     }
 
     #[test]
     fn extract_json_from_fenced_prose() {
         let raw = "Here you go:\n```json\n{\"a\": 1, \"b\": 2}\n```\nThanks!";
-        assert_eq!(extract_json_object(raw).as_deref(), Some(r#"{"a": 1, "b": 2}"#));
+        assert_eq!(
+            extract_json_object(raw).as_deref(),
+            Some(r#"{"a": 1, "b": 2}"#)
+        );
     }
 
     #[test]

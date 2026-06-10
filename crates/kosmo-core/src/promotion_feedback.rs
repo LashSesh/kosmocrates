@@ -242,7 +242,9 @@ mod tests {
     fn feedback_fitness_signal_correct_for_accepted() {
         let energy = energy_half();
         let f = PromotionFeedback::new(
-            d(b"r"), d(b"c"), d(b"n"),
+            d(b"r"),
+            d(b"c"),
+            d(b"n"),
             FeedbackOutcome::Accepted,
             energy,
             policy_id(),
@@ -254,7 +256,9 @@ mod tests {
     #[test]
     fn feedback_fitness_signal_zero_for_rejected() {
         let f = PromotionFeedback::new(
-            d(b"r"), d(b"c"), d(b"n"),
+            d(b"r"),
+            d(b"c"),
+            d(b"n"),
             FeedbackOutcome::Rejected,
             Q16::ONE,
             policy_id(),
@@ -272,8 +276,9 @@ mod tests {
     #[test]
     fn feedback_norm_association_zero_when_none() {
         let f = PromotionFeedback::new(
-            d(b"r"), d(b"c"),
-            Digest::ZERO,  // no norm association
+            d(b"r"),
+            d(b"c"),
+            Digest::ZERO, // no norm association
             FeedbackOutcome::Deferred,
             Q16::ONE,
             policy_id(),
@@ -292,14 +297,18 @@ mod tests {
     #[test]
     fn feedback_different_energy_differs() {
         let f1 = PromotionFeedback::new(
-            d(b"r"), d(b"c"), d(b"n"),
+            d(b"r"),
+            d(b"c"),
+            d(b"n"),
             FeedbackOutcome::Accepted,
             Q16::ratio(1, 4).unwrap(),
             policy_id(),
             bundle_id(),
         );
         let f2 = PromotionFeedback::new(
-            d(b"r"), d(b"c"), d(b"n"),
+            d(b"r"),
+            d(b"c"),
+            d(b"n"),
             FeedbackOutcome::Accepted,
             Q16::ratio(3, 4).unwrap(),
             policy_id(),

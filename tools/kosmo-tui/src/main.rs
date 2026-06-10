@@ -110,24 +110,35 @@ fn parse_args() -> Result<Args, String> {
                 process::exit(0);
             }
             "--all" | "--all-layers" => args.all_layers = true,
-            "--metatron"   => args.metatron = true,
-            "--lpcm"       => args.lpcm = true,
-            "--systemcube" => { args.systemcube = true; args.metatron = true; }
-            "--surgery"    => { args.surgery = true; args.metatron = true; }
-            "--crystals"   => args.crystals = true,
-            "--norms"      => args.norms = true,
-            "--motifs"     => args.motifs = true,
-            "--pse"        => args.pse = true,
-            "--operator"   => args.operator = true,
+            "--metatron" => args.metatron = true,
+            "--lpcm" => args.lpcm = true,
+            "--systemcube" => {
+                args.systemcube = true;
+                args.metatron = true;
+            }
+            "--surgery" => {
+                args.surgery = true;
+                args.metatron = true;
+            }
+            "--crystals" => args.crystals = true,
+            "--norms" => args.norms = true,
+            "--motifs" => args.motifs = true,
+            "--pse" => args.pse = true,
+            "--operator" => args.operator = true,
             "--store" => {
                 i += 1;
-                if i >= raw.len() { return Err("--store requires a path".into()); }
+                if i >= raw.len() {
+                    return Err("--store requires a path".into());
+                }
                 args.store = Some(expand_tilde(&raw[i]));
             }
             "--capacity" => {
                 i += 1;
-                if i >= raw.len() { return Err("--capacity requires a number".into()); }
-                args.capacity = raw[i].parse()
+                if i >= raw.len() {
+                    return Err("--capacity requires a number".into());
+                }
+                args.capacity = raw[i]
+                    .parse()
                     .map_err(|_| format!("--capacity must be a number, got '{}'", raw[i]))?;
             }
             flag if flag.starts_with('-') => {
@@ -180,7 +191,10 @@ fn build_options(args: &Args) -> IntegrationRunOptions {
 #[allow(clippy::large_enum_variant)]
 enum AppPhase {
     Analysing,
-    Ready { report: IntegrationRunReport, items: Vec<ActionItem> },
+    Ready {
+        report: IntegrationRunReport,
+        items: Vec<ActionItem>,
+    },
     Error(String),
 }
 
@@ -253,7 +267,9 @@ impl App {
 
     fn page_down(&mut self, list_height: usize) {
         let n = self.item_count();
-        if n == 0 { return; }
+        if n == 0 {
+            return;
+        }
         self.selected = (self.selected + list_height).min(n - 1);
         if self.selected >= self.offset + list_height {
             self.offset = self.selected.saturating_sub(list_height - 1);
@@ -274,7 +290,9 @@ impl App {
 
     fn go_bottom(&mut self) {
         let n = self.item_count();
-        if n > 0 { self.selected = n - 1; }
+        if n > 0 {
+            self.selected = n - 1;
+        }
     }
 }
 
@@ -292,52 +310,54 @@ fn hex16(d: &kosmo_core::Digest) -> String {
 
 fn gate_color(r: &GateResult) -> Color {
     match r {
-        GateResult::Pass              => Color::Green,
-        GateResult::Warn { .. }       => Color::Yellow,
-        GateResult::Reject { .. }     => Color::Red,
-        GateResult::Downgrade { .. }  => Color::Yellow,
+        GateResult::Pass => Color::Green,
+        GateResult::Warn { .. } => Color::Yellow,
+        GateResult::Reject { .. } => Color::Red,
+        GateResult::Downgrade { .. } => Color::Yellow,
     }
 }
 
 fn gate_label(r: &GateResult) -> &'static str {
     match r {
-        GateResult::Pass              => "✓ Pass",
-        GateResult::Warn { .. }       => "⚠ Warn",
-        GateResult::Reject { .. }     => "✗ Reject",
-        GateResult::Downgrade { .. }  => "↓ Downgrade",
+        GateResult::Pass => "✓ Pass",
+        GateResult::Warn { .. } => "⚠ Warn",
+        GateResult::Reject { .. } => "✗ Reject",
+        GateResult::Downgrade { .. } => "↓ Downgrade",
     }
 }
 
 fn kind_label(kind: &ActionItemKind) -> &'static str {
     match kind {
-        ActionItemKind::FillVoid { .. }         => "FillVoid  ",
-        ActionItemKind::RepairTopology { .. }   => "Repair    ",
-        ActionItemKind::PromoteToPse { .. }     => "PromotePSE",
-        ActionItemKind::ReviewCrystal { .. }    => "Review    ",
-        ActionItemKind::ApplyNorm { .. }        => "ApplyNorm ",
+        ActionItemKind::FillVoid { .. } => "FillVoid  ",
+        ActionItemKind::RepairTopology { .. } => "Repair    ",
+        ActionItemKind::PromoteToPse { .. } => "PromotePSE",
+        ActionItemKind::ReviewCrystal { .. } => "Review    ",
+        ActionItemKind::ApplyNorm { .. } => "ApplyNorm ",
         ActionItemKind::RealizeWishFacet { .. } => "WishFacet ",
     }
 }
 
 fn kind_color(kind: &ActionItemKind) -> Color {
     match kind {
-        ActionItemKind::FillVoid { .. }         => Color::Cyan,
-        ActionItemKind::RepairTopology { .. }   => Color::Yellow,
-        ActionItemKind::PromoteToPse { .. }     => Color::Green,
-        ActionItemKind::ReviewCrystal { .. }    => Color::Yellow,
-        ActionItemKind::ApplyNorm { .. }        => Color::Green,
+        ActionItemKind::FillVoid { .. } => Color::Cyan,
+        ActionItemKind::RepairTopology { .. } => Color::Yellow,
+        ActionItemKind::PromoteToPse { .. } => Color::Green,
+        ActionItemKind::ReviewCrystal { .. } => Color::Yellow,
+        ActionItemKind::ApplyNorm { .. } => Color::Green,
         ActionItemKind::RealizeWishFacet { .. } => Color::Green,
     }
 }
 
 fn target_id(kind: &ActionItemKind) -> String {
     match kind {
-        ActionItemKind::FillVoid { void_id }                     => hex16(void_id),
-        ActionItemKind::RepairTopology { surgery_option_id }     => hex16(surgery_option_id),
-        ActionItemKind::PromoteToPse { candidate_id }            => hex16(candidate_id),
-        ActionItemKind::ReviewCrystal { candidate_id }           => hex16(candidate_id),
-        ActionItemKind::ApplyNorm { norm_candidate_id, .. }      => hex16(norm_candidate_id),
-        ActionItemKind::RealizeWishFacet { facet }               => facet.key.clone(),
+        ActionItemKind::FillVoid { void_id } => hex16(void_id),
+        ActionItemKind::RepairTopology { surgery_option_id } => hex16(surgery_option_id),
+        ActionItemKind::PromoteToPse { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ReviewCrystal { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ApplyNorm {
+            norm_candidate_id, ..
+        } => hex16(norm_candidate_id),
+        ActionItemKind::RealizeWishFacet { facet } => facet.key.clone(),
     }
 }
 
@@ -356,18 +376,27 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 
     let policy_label = match &app.phase {
         AppPhase::Ready { report, .. }
-            if report.policy_id == PolicyProfile::operator_approved().id => "OperatorApproved",
+            if report.policy_id == PolicyProfile::operator_approved().id =>
+        {
+            "OperatorApproved"
+        }
         _ => "ReportOnly",
     };
 
     let line = Line::from(vec![
-        Span::styled(" Kosmocrates", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Kosmocrates",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
         Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
         Span::styled(app.path.as_str(), Style::default().fg(Color::Cyan)),
         Span::styled("  │  policy: ", Style::default().fg(Color::DarkGray)),
         Span::raw(policy_label),
         Span::styled("  │  gate: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(gate_text, Style::default().fg(gate_col).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            gate_text,
+            Style::default().fg(gate_col).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(run_suffix, Style::default().fg(Color::DarkGray)),
     ]);
 
@@ -382,8 +411,8 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 fn render_action_list(f: &mut Frame, area: Rect, app: &App, list_height: usize) {
     let title = match &app.phase {
         AppPhase::Ready { items, .. } => format!(" Action Queue ({}) ", items.len()),
-        AppPhase::Analysing            => " Action Queue ".to_string(),
-        AppPhase::Error(_)             => " Action Queue ".to_string(),
+        AppPhase::Analysing => " Action Queue ".to_string(),
+        AppPhase::Error(_) => " Action Queue ".to_string(),
     };
     let block = Block::default()
         .title(title)
@@ -441,8 +470,7 @@ fn render_action_list(f: &mut Frame, area: Rect, app: &App, list_height: usize) 
                 let y = inner.y + inner.height - 1;
                 let ind_area = Rect::new(x, y, indicator.len() as u16, 1);
                 f.render_widget(
-                    Paragraph::new(indicator)
-                        .style(Style::default().fg(Color::DarkGray)),
+                    Paragraph::new(indicator).style(Style::default().fg(Color::DarkGray)),
                     ind_area,
                 );
             }
@@ -451,8 +479,7 @@ fn render_action_list(f: &mut Frame, area: Rect, app: &App, list_height: usize) 
         }
         AppPhase::Analysing => {
             f.render_widget(
-                Paragraph::new("  Analysing…")
-                    .style(Style::default().fg(Color::DarkGray)),
+                Paragraph::new("  Analysing…").style(Style::default().fg(Color::DarkGray)),
                 inner,
             );
         }
@@ -477,8 +504,7 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App) {
 
     let Some(item) = app.selected_item() else {
         f.render_widget(
-            Paragraph::new("(select an item)")
-                .style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new("(select an item)").style(Style::default().fg(Color::DarkGray)),
             inner,
         );
         return;
@@ -553,8 +579,8 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(block, area);
 
     if let AppPhase::Ready { report, .. } = &app.phase {
-        let source_count = report.hyphae_result.host_cube.void_map.voids.len()
-            + report.source_cubes.len();
+        let source_count =
+            report.hyphae_result.host_cube.void_map.voids.len() + report.source_cubes.len();
         let def_sev = report.deficiency_vector.total_severity;
 
         let mut spans = vec![
@@ -569,7 +595,10 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
         ];
 
         if report.persisted_crystal_count > 0 {
-            spans.push(Span::styled("  │  crystals stored: ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                "  │  crystals stored: ",
+                Style::default().fg(Color::DarkGray),
+            ));
             spans.push(Span::styled(
                 format!("{}", report.persisted_crystal_count),
                 Style::default().fg(Color::Green),
@@ -577,7 +606,10 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
         }
 
         if !report.certified_crystals.is_empty() {
-            spans.push(Span::styled("  │  certified: ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                "  │  certified: ",
+                Style::default().fg(Color::DarkGray),
+            ));
             spans.push(Span::styled(
                 format!("{}", report.certified_crystals.len()),
                 Style::default().fg(Color::Green),
@@ -590,15 +622,40 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
 
 fn render_status_bar(f: &mut Frame, area: Rect) {
     let line = Line::from(vec![
-        Span::styled(" q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " q",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":quit  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "r",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":rerun  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("↑↓/jk", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "↑↓/jk",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":navigate  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("PgUp/PgDn", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "PgUp/PgDn",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":page  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("g/G", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "g/G",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":top/bottom", Style::default().fg(Color::DarkGray)),
     ]);
     f.render_widget(Paragraph::new(line), area);
@@ -615,11 +672,8 @@ fn ui(f: &mut Frame, app: &App, list_height: usize) {
 
     render_header(f, vertical[0], app);
 
-    let horizontal = Layout::horizontal([
-        Constraint::Percentage(58),
-        Constraint::Percentage(42),
-    ])
-    .split(vertical[1]);
+    let horizontal = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(vertical[1]);
 
     render_action_list(f, horizontal[0], app, list_height);
     render_detail(f, horizontal[1], app);
@@ -664,12 +718,12 @@ fn run_tui(mut app: App) -> io::Result<()> {
                         })?;
                         app.run_pipeline();
                     }
-                    KeyCode::Down  | KeyCode::Char('j') => app.scroll_down(list_height),
-                    KeyCode::Up    | KeyCode::Char('k') => app.scroll_up(),
+                    KeyCode::Down | KeyCode::Char('j') => app.scroll_down(list_height),
+                    KeyCode::Up | KeyCode::Char('k') => app.scroll_up(),
                     KeyCode::Char('g') => app.go_top(),
                     KeyCode::Char('G') => app.go_bottom(),
-                    KeyCode::PageDown  => app.page_down(list_height),
-                    KeyCode::PageUp    => app.page_up(list_height),
+                    KeyCode::PageDown => app.page_down(list_height),
+                    KeyCode::PageUp => app.page_up(list_height),
                     _ => {}
                 }
             }

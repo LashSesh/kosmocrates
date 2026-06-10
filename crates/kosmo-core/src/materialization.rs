@@ -293,8 +293,7 @@ impl MaterializationExecutionPlan {
     fn compute_id(&self) -> Digest {
         let task_application_ids: Vec<&Digest> =
             self.task_applications.iter().map(|t| &t.id).collect();
-        let evidence_digests: Vec<&Digest> =
-            self.evidence_refs.iter().map(|e| &e.digest).collect();
+        let evidence_digests: Vec<&Digest> = self.evidence_refs.iter().map(|e| &e.digest).collect();
         Digest::of(&MatPlanContent {
             policy_id: &self.policy_id,
             worktree_spec_id: &self.worktree_spec.id,
@@ -318,7 +317,11 @@ pub enum MaterializationOutcome {
     /// All task applications completed; Foundry and ParseBack were triggered.
     Completed,
     /// Some tasks applied, some skipped or failed.
-    PartiallyApplied { applied: u64, skipped: u64, failed: u64 },
+    PartiallyApplied {
+        applied: u64,
+        skipped: u64,
+        failed: u64,
+    },
     /// All or a blocking set of tasks failed.
     Failed,
     /// Policy denied execution before any task ran.
@@ -476,9 +479,15 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn bundle_id() -> Digest { d(b"bundle") }
-    fn plan_id() -> Digest { d(b"mat-plan") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
+    fn plan_id() -> Digest {
+        d(b"mat-plan")
+    }
 
     fn basic_worktree_spec() -> IsolatedWorktreeSpec {
         IsolatedWorktreeSpec::new(
@@ -527,18 +536,27 @@ mod tests {
     #[test]
     fn worktree_spec_allow_host_write_always_false() {
         let s = basic_worktree_spec();
-        assert!(!s.allow_host_write, "MATBOUND-002: host write must always be false");
+        assert!(
+            !s.allow_host_write,
+            "MATBOUND-002: host write must always be false"
+        );
     }
 
     #[test]
     fn worktree_spec_different_methods_differ() {
         let git = IsolatedWorktreeSpec::new(
             WorktreeCreationMethod::GitWorktree,
-            d(b"root"), d(b"wt"), WorktreeCleanupPolicy::AlwaysDelete, policy_id(),
+            d(b"root"),
+            d(b"wt"),
+            WorktreeCleanupPolicy::AlwaysDelete,
+            policy_id(),
         );
         let tmp = IsolatedWorktreeSpec::new(
             WorktreeCreationMethod::TempCopy,
-            d(b"root"), d(b"wt"), WorktreeCleanupPolicy::AlwaysDelete, policy_id(),
+            d(b"root"),
+            d(b"wt"),
+            WorktreeCleanupPolicy::AlwaysDelete,
+            policy_id(),
         );
         assert_ne!(git.id, tmp.id);
     }
@@ -547,11 +565,17 @@ mod tests {
     fn worktree_spec_different_cleanup_policies_differ() {
         let del = IsolatedWorktreeSpec::new(
             WorktreeCreationMethod::GitWorktree,
-            d(b"root"), d(b"wt"), WorktreeCleanupPolicy::AlwaysDelete, policy_id(),
+            d(b"root"),
+            d(b"wt"),
+            WorktreeCleanupPolicy::AlwaysDelete,
+            policy_id(),
         );
         let keep = IsolatedWorktreeSpec::new(
             WorktreeCreationMethod::GitWorktree,
-            d(b"root"), d(b"wt"), WorktreeCleanupPolicy::AlwaysPreserve, policy_id(),
+            d(b"root"),
+            d(b"wt"),
+            WorktreeCleanupPolicy::AlwaysPreserve,
+            policy_id(),
         );
         assert_ne!(del.id, keep.id);
     }
@@ -580,10 +604,18 @@ mod tests {
     #[test]
     fn task_app_different_kinds_differ() {
         let patch = WorkbenchTaskApplication::new(
-            d(b"task"), WorkbenchTaskKind::PatchFile, d(b"path"), 1, policy_id(),
+            d(b"task"),
+            WorkbenchTaskKind::PatchFile,
+            d(b"path"),
+            1,
+            policy_id(),
         );
         let create = WorkbenchTaskApplication::new(
-            d(b"task"), WorkbenchTaskKind::CreateFile, d(b"path"), 1, policy_id(),
+            d(b"task"),
+            WorkbenchTaskKind::CreateFile,
+            d(b"path"),
+            1,
+            policy_id(),
         );
         assert_ne!(patch.id, create.id);
     }
@@ -598,13 +630,21 @@ mod tests {
 
     #[test]
     fn outcome_failed_is_failure_class() {
-        assert!(TaskApplicationOutcome::Failed { reason: "oops".into() }.is_failure_class());
-        assert!(TaskApplicationOutcome::DeniedByPolicy { reason: "scope".into() }.is_failure_class());
+        assert!(TaskApplicationOutcome::Failed {
+            reason: "oops".into()
+        }
+        .is_failure_class());
+        assert!(TaskApplicationOutcome::DeniedByPolicy {
+            reason: "scope".into()
+        }
+        .is_failure_class());
     }
 
     #[test]
     fn outcome_skipped_is_neither() {
-        let o = TaskApplicationOutcome::Skipped { reason: "pre-condition".into() };
+        let o = TaskApplicationOutcome::Skipped {
+            reason: "pre-condition".into(),
+        };
         assert!(!o.is_applied());
         assert!(!o.is_failure_class());
     }
@@ -613,8 +653,10 @@ mod tests {
 
     #[test]
     fn task_result_id_deterministic() {
-        let r1 = TaskApplicationResult::new(d(b"app"), TaskApplicationOutcome::Applied, bundle_id());
-        let r2 = TaskApplicationResult::new(d(b"app"), TaskApplicationOutcome::Applied, bundle_id());
+        let r1 =
+            TaskApplicationResult::new(d(b"app"), TaskApplicationOutcome::Applied, bundle_id());
+        let r2 =
+            TaskApplicationResult::new(d(b"app"), TaskApplicationOutcome::Applied, bundle_id());
         assert_eq!(r1.id, r2.id);
     }
 
@@ -622,7 +664,9 @@ mod tests {
     fn task_result_verify_id() {
         let r = TaskApplicationResult::new(
             d(b"app"),
-            TaskApplicationOutcome::Failed { reason: "conflict".into() },
+            TaskApplicationOutcome::Failed {
+                reason: "conflict".into(),
+            },
             bundle_id(),
         );
         assert!(r.verify_id());
@@ -630,7 +674,8 @@ mod tests {
 
     #[test]
     fn task_result_different_outcomes_differ() {
-        let r1 = TaskApplicationResult::new(d(b"app"), TaskApplicationOutcome::Applied, bundle_id());
+        let r1 =
+            TaskApplicationResult::new(d(b"app"), TaskApplicationOutcome::Applied, bundle_id());
         let r2 = TaskApplicationResult::new(
             d(b"app"),
             TaskApplicationOutcome::Failed { reason: "x".into() },
@@ -670,7 +715,8 @@ mod tests {
     fn mat_plan_different_foundry_plan_differs() {
         let p1 = basic_mat_plan();
         let p2 = MaterializationExecutionPlan::new(
-            policy_id(), basic_worktree_spec(),
+            policy_id(),
+            basic_worktree_spec(),
             vec![make_task_app(1), make_task_app(2)],
             d(b"other-foundry-plan"),
             d(b"parseback-plan"),
@@ -734,12 +780,24 @@ mod tests {
     #[test]
     fn mat_report_new_deterministic() {
         let r1 = MaterializationExecutionReport::new(
-            plan_id(), MaterializationOutcome::Completed, vec![],
-            Some(d(b"wt-path")), None, vec![], bundle_id(), 5_000,
+            plan_id(),
+            MaterializationOutcome::Completed,
+            vec![],
+            Some(d(b"wt-path")),
+            None,
+            vec![],
+            bundle_id(),
+            5_000,
         );
         let r2 = MaterializationExecutionReport::new(
-            plan_id(), MaterializationOutcome::Completed, vec![],
-            Some(d(b"wt-path")), None, vec![], bundle_id(), 5_000,
+            plan_id(),
+            MaterializationOutcome::Completed,
+            vec![],
+            Some(d(b"wt-path")),
+            None,
+            vec![],
+            bundle_id(),
+            5_000,
         );
         assert_eq!(r1.id, r2.id);
     }
@@ -750,13 +808,21 @@ mod tests {
             TaskApplicationResult::new(d(b"a1"), TaskApplicationOutcome::Applied, bundle_id()),
             TaskApplicationResult::new(
                 d(b"a2"),
-                TaskApplicationOutcome::Skipped { reason: "already present".into() },
+                TaskApplicationOutcome::Skipped {
+                    reason: "already present".into(),
+                },
                 bundle_id(),
             ),
         ];
         let r = MaterializationExecutionReport::new(
-            plan_id(), MaterializationOutcome::Completed, results,
-            Some(d(b"wt")), None, vec![], bundle_id(), 3_000,
+            plan_id(),
+            MaterializationOutcome::Completed,
+            results,
+            Some(d(b"wt")),
+            None,
+            vec![],
+            bundle_id(),
+            3_000,
         );
         assert!(r.verify_id());
     }
@@ -764,8 +830,14 @@ mod tests {
     #[test]
     fn mat_report_with_validation_closure_changes_id() {
         let r = MaterializationExecutionReport::new(
-            plan_id(), MaterializationOutcome::Completed, vec![],
-            Some(d(b"wt")), None, vec![], bundle_id(), 1_000,
+            plan_id(),
+            MaterializationOutcome::Completed,
+            vec![],
+            Some(d(b"wt")),
+            None,
+            vec![],
+            bundle_id(),
+            1_000,
         );
         let id_before = r.id;
         let r2 = r.with_validation_closure(d(b"vcr"));
@@ -781,13 +853,25 @@ mod tests {
             TaskApplicationResult::new(d(b"a2"), TaskApplicationOutcome::Applied, bundle_id()),
             TaskApplicationResult::new(
                 d(b"a3"),
-                TaskApplicationOutcome::Failed { reason: "conflict".into() },
+                TaskApplicationOutcome::Failed {
+                    reason: "conflict".into(),
+                },
                 bundle_id(),
             ),
         ];
         let r = MaterializationExecutionReport::new(
-            plan_id(), MaterializationOutcome::PartiallyApplied { applied: 2, skipped: 0, failed: 1 },
-            results, None, None, vec![], bundle_id(), 2_000,
+            plan_id(),
+            MaterializationOutcome::PartiallyApplied {
+                applied: 2,
+                skipped: 0,
+                failed: 1,
+            },
+            results,
+            None,
+            None,
+            vec![],
+            bundle_id(),
+            2_000,
         );
         assert_eq!(r.applied_count(), 2);
         assert_eq!(r.failed_count(), 1);
@@ -822,14 +906,22 @@ mod tests {
     fn r5_evidence_bundle_integration() {
         let ev_bundle = EvidenceBundle::seal(
             vec![EvidenceRef::new(
-                d(b"task-ev"), EvidenceKind::RunRecord, "task application evidence",
+                d(b"task-ev"),
+                EvidenceKind::RunRecord,
+                "task application evidence",
             )],
             policy_id(),
             ReplayStatus::Replayable,
         );
         let r = MaterializationExecutionReport::new(
-            plan_id(), MaterializationOutcome::Completed, vec![],
-            Some(d(b"wt")), Some(d(b"vcr")), vec![], ev_bundle.bundle_id, 4_500,
+            plan_id(),
+            MaterializationOutcome::Completed,
+            vec![],
+            Some(d(b"wt")),
+            Some(d(b"vcr")),
+            vec![],
+            ev_bundle.bundle_id,
+            4_500,
         );
         assert!(r.verify_id());
         assert_ne!(r.evidence_bundle_id, Digest::ZERO);
