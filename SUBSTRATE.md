@@ -158,12 +158,22 @@ kosmo-promote . --all-kinds --offer
 
 # Machine-readable verdicts (Accepted | Deferred | Rejected | Skipped…)
 kosmo-promote . --offer --json | jq '.offers[] | {label, outcome}'
+
+# Accumulate engine memory across sessions (the flag authorizes the write):
+kosmo-promote . --offer --state ~/.kosmo/pse-archive.json
 ```
 
 Runs the full pipeline, filters its `pse_candidates` (default:
 `CertifiedCrystal` only; `--all-kinds` adds Structural/Topology
 observations), and offers them through `pse-adapter-kosmo` — the
 sanctioned crossing into the PSE crystallization engine.
+
+With `--state`, the engine's crystal archive persists across sessions and
+warm-starts `PatternMemory` on the next run (the `pse-core` cross-session
+mechanism) — repeated promotions of recurring substrate output build the
+resonance that can eventually flip `Deferred` into `Accepted`. Fail-closed:
+report-only mode never writes, and a corrupt archive is a hard error, never
+silently cold-started over.
 
 ---
 
