@@ -178,6 +178,11 @@ kosmo-promote . --all-kinds --offer --batch --calibration substrate \
 # IL-HDAG node, path invariance — lifting certificates from Q3 to Q5:
 kosmo-promote . --all-kinds --offer --batch --calibration substrate \
     --ledger ~/.kosmo/il
+
+# Recall: the anchored memory is queryable — Pfauenthron++ (D = ψ·ρ·ω)
+# over the ledger's crystals, with the top hit's causal lineage:
+kosmo-promote --recall "missing test coverage for a module" \
+    --ledger ~/.kosmo/il --top 5
 ```
 
 Runs the full pipeline, filters its `pse_candidates` (default:
@@ -241,6 +246,15 @@ the ledger does not grow) and a host write, so the flag is the operator's
 authorization and nothing is written outside `--offer` mode. `kosmo-promote`
 reports class and block per accepted crystal (`QTIC Q5 — …`, `IL: block …`;
 `qtic_class`/`block_hash` in `--json`).
+
+And the anchored memory is **queryable**: `--recall <query>` embeds the query
+(`text_to_vector8`), ranks every ledger crystal by the Pfauenthron++ tripolar
+score `D = ψ·ρ·ω` (semantic × structural × temporal —
+`build_context_entries`), and returns the top hits with QTIC class,
+stability, provenance (the promotion scope travels as the crystal's
+`question`), and the **causal lineage** of the best hit. Recall is read-only
+by contract: it never creates a ledger; a missing path is a hard error,
+never a silent empty store.
 
 ---
 

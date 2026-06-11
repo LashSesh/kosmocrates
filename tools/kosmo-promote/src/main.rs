@@ -30,6 +30,10 @@
 //!     --ledger <path>      Anchor accepted crystals in the Infinity Ledger
 //!                          (block + IL-HDAG node + path invariance) —
 //!                          lifts QTIC from Q3 to Q5.
+//!     --recall <query>     Query the anchored memory instead of promoting:
+//!                          Pfauenthron++ (D = ψ·ρ·ω) over the ledger, with
+//!                          the top hit's causal lineage. Read-only.
+//!     --top <k>            Number of recall results (default 5).
 //!     --json               Machine-readable output.
 //! ```
 //!
@@ -40,7 +44,8 @@
 //! The full loop: with `--batch --calibration substrate` a workspace's
 //! certified structure crystallizes; `--state` warm-starts `PatternMemory`
 //! next session; `--feedback` folds verdicts into the pipeline's norm
-//! fitness; `--ledger` lifts the crystals to full QTIC (Q5).
+//! fitness; `--ledger` lifts the crystals to full QTIC (Q5); `--recall`
+//! makes the anchored memory queryable.
 
 use std::path::PathBuf;
 use std::process;
@@ -68,6 +73,8 @@ struct Args {
     calibration: Calibration,
     batch: bool,
     ticks: u32,
+    recall: Option<String>,
+    top: usize,
 }
 
 /// Engine threshold calibration mode — an explicit operator choice because it
@@ -157,6 +164,11 @@ OPTIONS:\n\
                     Lifts QTIC certificates beyond Q3 toward Q4 (auditable)\n\
                     and Q5 (path-invariant). Host write — the flag is the\n\
                     operator's authorization; only acts in --offer mode.\n\
+    --recall <q>    Query the anchored memory instead of promoting:\n\
+                    Pfauenthron++ retrieval (D = ψ·ρ·ω) over the ledger's\n\
+                    crystals, plus the causal lineage of the top hit.\n\
+                    Requires --ledger; read-only (the ledger must exist).\n\
+    --top <k>       Number of recall results (default 5).\n\
     --calibration <mode>\n\
                     Engine threshold calibration — an explicit operator\n\
                     choice because it changes what may become memory:\n\
@@ -184,6 +196,8 @@ fn parse_args() -> Result<Args, String> {
         calibration: Calibration::Default,
         batch: false,
         ticks: 1,
+        recall: None,
+        top: 5,
     };
     let mut i = 0;
     while i < raw.len() {
@@ -235,6 +249,24 @@ fn parse_args() -> Result<Args, String> {
                 }
                 args.ledger = Some(PathBuf::from(&raw[i]));
             }
+            "--recall" => {
+                i += 1;
+                if i >= raw.len() {
+                    return Err("--recall requires a query string".into());
+                }
+                args.recall = Some(raw[i].clone());
+            }
+            "--top" => {
+                i += 1;
+                args.top = raw
+                    .get(i)
+                    .ok_or("--top requires a number")?
+                    .parse()
+                    .map_err(|_| "--top must be a positive number".to_string())?;
+                if args.top == 0 {
+                    return Err("--top must be at least 1".into());
+                }
+            }
             "--calibration" => {
                 i += 1;
                 args.calibration = match raw.get(i).map(String::as_str) {
@@ -258,6 +290,89 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
     Ok(args)
+}
+
+/// Query the anchored memory: Pfauenthron++ retrieval (`D = ψ·ρ·ω`,
+/// `ILStore::build_context_entries`) over the ledger's crystals, plus the
+/// causal lineage of the top hit. Read-only — recall never creates a ledger,
+/// so a missing path is a hard error, not a silent empty store.
+fn run_recall(query: &str, args: &Args) -> ! {
+    let Some(path) = &args.ledger else {
+        eprintln!("error: --recall requires --ledger <path>");
+        process::exit(2);
+    };
+    if !path.exists() {
+        eprintln!("error: no ledger at {} — nothing to recall", path.display());
+        process::exit(1);
+    }
+    let il = match pse_adapter_il::ILStore::open(path, "kosmo-promote") {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot open ledger {}: {e}", path.display());
+            process::exit(1);
+        }
+    };
+    let query_vec = pse_adapter_il::text_to_vector8(query);
+    let mut entries = il.build_context_entries(&query_vec);
+    entries.truncate(args.top);
+
+    if args.json {
+        let rows: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "crystal_id": e.crystal_id,
+                    "tripolar_score": e.tripolar_score,
+                    "qtic_class": e.qtic_class,
+                    "stability": e.stability,
+                    "commit_index": e.commit_index,
+                    "scale_tag": e.scale_tag,
+                    "question": e.question,
+                })
+            })
+            .collect();
+        let doc = serde_json::json!({
+            "query": query,
+            "ledger": path.display().to_string(),
+            "anchored_crystals": il.len(),
+            "results": rows,
+        });
+        println!("{}", serde_json::to_string_pretty(&doc).expect("json"));
+    } else {
+        println!("kosmo-promote --recall  {:?}", query);
+        println!(
+            "  ledger {} | {} anchored crystal(s) | top {}",
+            path.display(),
+            il.len(),
+            args.top
+        );
+        if entries.is_empty() {
+            println!("  (no crystal resonates with this query — D = ψ·ρ·ω ≤ 0 for all)");
+        }
+        for (rank, e) in entries.iter().enumerate() {
+            println!(
+                "    {:>2}. D={:.4} | Q{} | stability {:.2} | t={} | {} | {}",
+                rank + 1,
+                e.tripolar_score,
+                e.qtic_class
+                    .map(|q| q.to_string())
+                    .unwrap_or_else(|| "-".into()),
+                e.stability,
+                e.commit_index,
+                e.crystal_id,
+                e.question
+            );
+        }
+        // The lineage of the best hit — retrieval returns not just a fact
+        // but where it came from.
+        if let Some(top) = entries.first() {
+            println!("  lineage of top hit:");
+            for line in il.causal_explanation(&top.crystal_id).lines() {
+                println!("    {line}");
+            }
+        }
+    }
+    process::exit(0)
 }
 
 /// The thresholds the Kairos gate actually applied on the last step: the
@@ -325,6 +440,11 @@ fn main() {
             process::exit(2);
         }
     };
+
+    // Recall mode: query the anchored memory instead of promoting.
+    if let Some(query) = args.recall.clone() {
+        run_recall(&query, &args);
+    }
 
     // 0. Memory→action: prior engine verdicts feed THIS run's pipeline.
     //    (PromotionFeedback → prior_feedback → norm fitness, pipeline Step 5c.)
