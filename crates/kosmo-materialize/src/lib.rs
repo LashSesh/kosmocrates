@@ -54,7 +54,10 @@ pub struct MaterializeOptions {
 
 impl Default for MaterializeOptions {
     fn default() -> Self {
-        Self { run_tests: true, git_commit: false }
+        Self {
+            run_tests: true,
+            git_commit: false,
+        }
     }
 }
 
@@ -99,7 +102,9 @@ impl ValidationReport {
         Self {
             compile_passed: Some(false),
             tests_passed: if run_tests { Some(false) } else { None },
-            gate_result: GateResult::Reject { reason: reason.clone() },
+            gate_result: GateResult::Reject {
+                reason: reason.clone(),
+            },
             evidence_bundle_id: Digest::of_bytes(b"kosmo-materialize-validation-fail"),
             diagnostics: vec![reason],
         }
@@ -143,9 +148,17 @@ impl PatchValidator for CargoFoundryValidator {
     fn validate(&self, root: &Path, run_tests: bool) -> ValidationReport {
         let root_digest = Digest::of(&root.to_string_lossy().to_string());
         let sandbox = FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, root_digest);
-        let mut checks = vec![FoundryCheckSpec::new(FoundryCheckKind::Build, "workspace", true)];
+        let mut checks = vec![FoundryCheckSpec::new(
+            FoundryCheckKind::Build,
+            "workspace",
+            true,
+        )];
         if run_tests {
-            checks.push(FoundryCheckSpec::new(FoundryCheckKind::Test, "workspace", true));
+            checks.push(FoundryCheckSpec::new(
+                FoundryCheckKind::Test,
+                "workspace",
+                true,
+            ));
         }
         let plan = FoundryExecutionPlan::new(
             self.policy_id,
@@ -190,7 +203,10 @@ impl PatchValidator for CargoFoundryValidator {
                 message: "validation skipped by policy".into(),
             },
             other => GateResult::Reject {
-                reason: format!("foundry outcome {other:?}: {}", report.diagnostics.join("; ")),
+                reason: format!(
+                    "foundry outcome {other:?}: {}",
+                    report.diagnostics.join("; ")
+                ),
             },
         };
 
@@ -333,7 +349,9 @@ impl MaterializeReport {
             false,
             None,
             None,
-            GateResult::Warn { message: reason.clone() },
+            GateResult::Warn {
+                message: reason.clone(),
+            },
             0,
             Some(reason),
             evidence,
@@ -374,7 +392,9 @@ enum Strategy {
 
 fn strategy_for(policy: &PolicyProfile) -> Strategy {
     match policy.mode {
-        ImplementationMode::ReportOnly => Strategy::Skip("report-only: patch not materialized".into()),
+        ImplementationMode::ReportOnly => {
+            Strategy::Skip("report-only: patch not materialized".into())
+        }
         ImplementationMode::DryRun => Strategy::Sandbox,
         // OperatorApproved and AutonomousBounded may write the host — but only
         // when allow_host_write is set (fail-closed otherwise).
@@ -396,7 +416,9 @@ pub struct Materializer {
 
 impl Materializer {
     pub fn new(workspace_root: impl Into<PathBuf>) -> Self {
-        Self { workspace_root: workspace_root.into() }
+        Self {
+            workspace_root: workspace_root.into(),
+        }
     }
 
     pub fn workspace_root(&self) -> &Path {
@@ -420,7 +442,9 @@ impl Materializer {
         let files = patch.file_changes.len() as u32;
 
         match strategy_for(policy) {
-            Strategy::Skip(reason) => Ok(MaterializeReport::skipped(patch.patch_id, reason, evidence)),
+            Strategy::Skip(reason) => {
+                Ok(MaterializeReport::skipped(patch.patch_id, reason, evidence))
+            }
 
             Strategy::Sandbox => {
                 let sandbox = make_sandbox(&patch.patch_id)?;
@@ -515,7 +539,10 @@ fn apply_changes(root: &Path, changes: &[FileChange]) -> io::Result<Vec<Backup>>
                 fs::write(&target, ch.content.as_bytes())?;
             }
         }
-        backups.push(Backup { path: target, prior });
+        backups.push(Backup {
+            path: target,
+            prior,
+        });
     }
     Ok(backups)
 }
@@ -576,26 +603,24 @@ fn git_commit_patch(root: &Path, patch: &Patch) -> io::Result<String> {
         .args(["-C", &root_str, "add", "-A"])
         .output()?;
     if !add.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("git add: {}", String::from_utf8_lossy(&add.stderr).trim()),
-        ));
+        return Err(io::Error::other(format!(
+            "git add: {}",
+            String::from_utf8_lossy(&add.stderr).trim()
+        )));
     }
 
     let hex = patch.patch_id.to_hex();
     let short = &hex[..hex.len().min(12)];
     let n = patch.file_changes.len();
-    let msg = format!(
-        "kosmo-agent: apply patch {short} ({n} file(s))\n\npatch-id: {hex}"
-    );
+    let msg = format!("kosmo-agent: apply patch {short} ({n} file(s))\n\npatch-id: {hex}");
     let commit = std::process::Command::new("git")
         .args(["-C", &root_str, "commit", "-m", &msg])
         .output()?;
     if !commit.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("git commit: {}", String::from_utf8_lossy(&commit.stderr).trim()),
-        ));
+        return Err(io::Error::other(format!(
+            "git commit: {}",
+            String::from_utf8_lossy(&commit.stderr).trim()
+        )));
     }
 
     let rev = std::process::Command::new("git")
@@ -671,7 +696,12 @@ mod tests {
         let patch = patch_create("src/new.rs", "pub fn n() {}");
         let m = Materializer::new(&ws.root);
         let rep = m
-            .materialize(&patch, &PolicyProfile::default_report_only(), &AlwaysPass, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::default_report_only(),
+                &AlwaysPass,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(rep.outcome, MaterializeOutcome::SkippedByPolicy);
         assert!(!rep.applied_to_host);
@@ -686,7 +716,12 @@ mod tests {
         let patch = patch_create("src/added.rs", "pub fn a() {}");
         let m = Materializer::new(&ws.root);
         let rep = m
-            .materialize(&patch, &PolicyProfile::dry_run(), &AlwaysPass, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::dry_run(),
+                &AlwaysPass,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(rep.outcome, MaterializeOutcome::SandboxValidated);
         assert!(!rep.applied_to_host);
@@ -702,7 +737,12 @@ mod tests {
         let patch = patch_create("src/added.rs", "broken");
         let m = Materializer::new(&ws.root);
         let rep = m
-            .materialize(&patch, &PolicyProfile::dry_run(), &AlwaysFail, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::dry_run(),
+                &AlwaysFail,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(rep.outcome, MaterializeOutcome::SandboxRejected);
         assert!(!rep.applied_to_host);
@@ -715,7 +755,12 @@ mod tests {
         let patch = patch_create("src/added.rs", "pub fn a() {}");
         let m = Materializer::new(&ws.root);
         let rep = m
-            .materialize(&patch, &PolicyProfile::operator_approved(), &AlwaysPass, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::operator_approved(),
+                &AlwaysPass,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(rep.outcome, MaterializeOutcome::AppliedToHost);
         assert!(rep.applied_to_host);
@@ -726,10 +771,19 @@ mod tests {
     fn operator_approved_rolls_back_modified_file_on_failure() {
         let ws = TempWorkspace::new("rollback-mod");
         ws.write("src/lib.rs", "ORIGINAL");
-        let patch = Patch::new(d(b"r"), vec![FileChange::modify("src/lib.rs", "MUTATED")], "test");
+        let patch = Patch::new(
+            d(b"r"),
+            vec![FileChange::modify("src/lib.rs", "MUTATED")],
+            "test",
+        );
         let m = Materializer::new(&ws.root);
         let rep = m
-            .materialize(&patch, &PolicyProfile::operator_approved(), &AlwaysFail, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::operator_approved(),
+                &AlwaysFail,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(rep.outcome, MaterializeOutcome::RolledBack);
         assert!(!rep.applied_to_host);
@@ -744,7 +798,12 @@ mod tests {
         let patch = patch_create("src/brandnew.rs", "pub fn x() {}");
         let m = Materializer::new(&ws.root);
         let rep = m
-            .materialize(&patch, &PolicyProfile::operator_approved(), &AlwaysFail, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::operator_approved(),
+                &AlwaysFail,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(rep.outcome, MaterializeOutcome::RolledBack);
         // The file we created must be gone again after rollback.
@@ -758,7 +817,12 @@ mod tests {
         let patch = Patch::new(d(b"r"), vec![FileChange::delete("src/keep.rs")], "test");
         let m = Materializer::new(&ws.root);
         let rep = m
-            .materialize(&patch, &PolicyProfile::operator_approved(), &AlwaysFail, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::operator_approved(),
+                &AlwaysFail,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(rep.outcome, MaterializeOutcome::RolledBack);
         assert_eq!(ws.read("src/keep.rs").as_deref(), Some("KEEP ME"));
@@ -784,10 +848,20 @@ mod tests {
         let patch = patch_create("src/a.rs", "pub fn a() {}");
         let m = Materializer::new(&ws.root);
         let r1 = m
-            .materialize(&patch, &PolicyProfile::operator_approved(), &AlwaysPass, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::operator_approved(),
+                &AlwaysPass,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         let r2 = m
-            .materialize(&patch, &PolicyProfile::operator_approved(), &AlwaysPass, &MaterializeOptions::default())
+            .materialize(
+                &patch,
+                &PolicyProfile::operator_approved(),
+                &AlwaysPass,
+                &MaterializeOptions::default(),
+            )
             .unwrap();
         assert_eq!(r1.report_id, r2.report_id);
     }

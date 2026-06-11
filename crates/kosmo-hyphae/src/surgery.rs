@@ -5,11 +5,11 @@
 //! `SurgeryBackedCollapseStep` extends `CollapseStep` with surgery provenance.
 //! `SurgeryWorkbenchTask` expresses a surgery option as a workbench task.
 
-use crate::collapse::{CollapseStep};
+use crate::collapse::CollapseStep;
 use crate::metatron::MicroTopologyDiagnostic;
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, PolicyProfile, Q16, TripolarEnergy,
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult,
+    LicenseStatus, PolicyProfile, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 
@@ -136,7 +136,9 @@ impl TopologicalSurgeryOption {
                 SurgeryPrecondition::PolicyApproved,
             ];
             let effects = vec![
-                SurgeryEffect::ReducesAmbiguity { profile_id: ambiguity.profile_id },
+                SurgeryEffect::ReducesAmbiguity {
+                    profile_id: ambiguity.profile_id,
+                },
                 SurgeryEffect::ImprovesFingerprintQuality,
             ];
             let risks = vec![SurgeryRisk::TopologyRegression, SurgeryRisk::SemanticDrift];
@@ -165,7 +167,10 @@ impl TopologicalSurgeryOption {
                 },
                 SurgeryEffect::RecordsEvidence,
             ];
-            let risks = vec![SurgeryRisk::EvidenceGap, SurgeryRisk::InsufficientPreconditions];
+            let risks = vec![
+                SurgeryRisk::EvidenceGap,
+                SurgeryRisk::InsufficientPreconditions,
+            ];
             options.push(Self::new(
                 diagnostic.diagnostic_id,
                 hypothesis.hypothesis_id,
@@ -235,10 +240,7 @@ pub struct SurgeryBackedCollapseStep {
 }
 
 impl SurgeryBackedCollapseStep {
-    pub fn new(
-        collapse_step: CollapseStep,
-        surgery_option: &TopologicalSurgeryOption,
-    ) -> Self {
+    pub fn new(collapse_step: CollapseStep, surgery_option: &TopologicalSurgeryOption) -> Self {
         let surgery_step_id = Digest::of(&SurgeryStepContent {
             collapse_step_id: collapse_step.step_id,
             surgery_option_id: surgery_option.option_id,
@@ -311,8 +313,7 @@ impl SurgeryWorkbenchTask {
     pub fn summary(&self) -> String {
         format!(
             "SurgeryWorkbenchTask — kind: {} | status: {:?}",
-            self.surgery_kind_label,
-            self.status,
+            self.surgery_kind_label, self.status,
         )
     }
 }
@@ -338,7 +339,9 @@ mod tests {
         PolicyProfile::default_report_only()
     }
     fn node_ids(n: usize) -> Vec<Digest> {
-        (0..n).map(|i| Digest::of_bytes(format!("node{}", i).as_bytes())).collect()
+        (0..n)
+            .map(|i| Digest::of_bytes(format!("node{}", i).as_bytes()))
+            .collect()
     }
 
     fn make_diagnostic_single_node() -> (
@@ -357,7 +360,9 @@ mod tests {
         crate::metatron::MicroTopologyDiagnostic,
     ) {
         let p = policy();
-        let kind = HostVoidKind::MissingTestFiber { for_module: "lib.rs".into() };
+        let kind = HostVoidKind::MissingTestFiber {
+            for_module: "lib.rs".into(),
+        };
         let (micrograph, fingerprint, _) =
             lift_region(void_id(), node_ids(2), ev_id(), TaintLabel::Synthetic, &p);
         let diag = diagnose_micrograph(&micrograph, &fingerprint, Some(&kind), &p);
@@ -370,7 +375,10 @@ mod tests {
         let p = policy();
         let options = TopologicalSurgeryOption::from_diagnostic(&diag, &p);
         assert_eq!(options.len(), 1);
-        assert_eq!(options[0].surgery_kind, TopologicalSurgeryKind::ReanchorBoundary);
+        assert_eq!(
+            options[0].surgery_kind,
+            TopologicalSurgeryKind::ReanchorBoundary
+        );
     }
 
     #[test]
@@ -405,8 +413,7 @@ mod tests {
         let options = TopologicalSurgeryOption::from_diagnostic(&diag, &policy());
         let has_approved = options[0]
             .preconditions
-            .iter()
-            .any(|c| *c == SurgeryPrecondition::PolicyApproved);
+            .contains(&SurgeryPrecondition::PolicyApproved);
         assert!(has_approved, "surgery option must require PolicyApproved");
     }
 
@@ -418,7 +425,10 @@ mod tests {
             matches!(c, SurgeryPrecondition::DiagnosticPresent { diagnostic_id }
                 if *diagnostic_id == diag.diagnostic_id)
         });
-        assert!(has_diag_present, "surgery option must require DiagnosticPresent");
+        assert!(
+            has_diag_present,
+            "surgery option must require DiagnosticPresent"
+        );
     }
 
     #[test]
@@ -428,7 +438,10 @@ mod tests {
             lift_region(void_id(), node_ids(3), ev_id(), TaintLabel::Synthetic, &p);
         let diag = diagnose_micrograph(&micrograph, &fingerprint, None, &p);
         let options = TopologicalSurgeryOption::from_diagnostic(&diag, &p);
-        assert!(options.is_empty(), "clean multi-node diagnostic must produce no surgery options");
+        assert!(
+            options.is_empty(),
+            "clean multi-node diagnostic must produce no surgery options"
+        );
     }
 
     #[test]
@@ -437,7 +450,9 @@ mod tests {
         let options = TopologicalSurgeryOption::from_diagnostic(&diag, &policy());
         let step = CollapseStep::new(
             0,
-            CollapseAction::RecordNegativeEvidence { record_id: Digest::ZERO },
+            CollapseAction::RecordNegativeEvidence {
+                record_id: Digest::ZERO,
+            },
             vec![diag.diagnostic_id],
             pid(),
         );
@@ -453,7 +468,9 @@ mod tests {
         let options = TopologicalSurgeryOption::from_diagnostic(&diag, &policy());
         let step = CollapseStep::new(
             0,
-            CollapseAction::RecordNegativeEvidence { record_id: Digest::ZERO },
+            CollapseAction::RecordNegativeEvidence {
+                record_id: Digest::ZERO,
+            },
             vec![],
             pid(),
         );
@@ -510,8 +527,13 @@ mod tests {
     fn surgery_option_reject_gate_zeroes_energy() {
         let (_, diag) = make_diagnostic_single_node();
         let options = TopologicalSurgeryOption::from_diagnostic(&diag, &policy());
-        let a = options[0].energy_assessment(&GateResult::Reject { reason: "test".into() });
-        assert!(a.kernel.is_zeroed(), "Reject gate must zero surgery option energy");
+        let a = options[0].energy_assessment(&GateResult::Reject {
+            reason: "test".into(),
+        });
+        assert!(
+            a.kernel.is_zeroed(),
+            "Reject gate must zero surgery option energy"
+        );
     }
 
     #[test]
@@ -525,13 +547,17 @@ mod tests {
         if options.len() < 2 {
             return; // skip if fixture doesn't produce ≥2 options
         }
-        let assessments: Vec<EnergyAssessment> = options.iter()
+        let assessments: Vec<EnergyAssessment> = options
+            .iter()
             .map(|o| o.energy_assessment(&GateResult::Pass))
             .collect();
         let ranked = rank_by_energy(&assessments);
         // Highest confidence must be first
         let best_score = ranked[0].kernel.tripolar.d();
         let second_score = ranked[1].kernel.tripolar.d();
-        assert!(best_score >= second_score, "rank_by_energy must order by D descending");
+        assert!(
+            best_score >= second_score,
+            "rank_by_energy must order by D descending"
+        );
     }
 }

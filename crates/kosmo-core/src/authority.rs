@@ -26,14 +26,17 @@ impl AuthorityLabel {
 /// Taint must propagate: any artifact derived from a tainted source inherits
 /// at least the same taint level. Tainted artifacts cannot be promoted to
 /// trusted memory without Foundry validation and operator review.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub enum TaintLabel {
     Clean,
     External,
     Synthetic,
+    #[default]
     Unverified,
     PolicyRestricted,
-    Quarantined { reason: String },
+    Quarantined {
+        reason: String,
+    },
 }
 
 impl TaintLabel {
@@ -51,18 +54,17 @@ impl TaintLabel {
     }
 }
 
-impl Default for TaintLabel {
-    fn default() -> Self {
-        TaintLabel::Unverified
-    }
-}
-
 /// License status of an artifact or source.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub enum LicenseStatus {
+    #[default]
     Unknown,
-    Permissive { spdx: String },
-    Copyleft { spdx: String },
+    Permissive {
+        spdx: String,
+    },
+    Copyleft {
+        spdx: String,
+    },
     Proprietary,
     NotApplicable,
     Unresolved,
@@ -78,12 +80,6 @@ impl LicenseStatus {
             self,
             LicenseStatus::Permissive { .. } | LicenseStatus::NotApplicable
         )
-    }
-}
-
-impl Default for LicenseStatus {
-    fn default() -> Self {
-        LicenseStatus::Unknown
     }
 }
 

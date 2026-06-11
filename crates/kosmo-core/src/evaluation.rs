@@ -279,17 +279,8 @@ struct RunReportContent<'a> {
 }
 
 impl EvaluationRunReport {
-    pub fn skipped_by_report_only(
-        scenario_id: Digest,
-        evidence_bundle_id: Digest,
-    ) -> Self {
-        let metrics = EvaluationMetrics::new(
-            scenario_id,
-            Q16::ZERO,
-            Q16::ZERO,
-            Q16::ZERO,
-            false,
-        );
+    pub fn skipped_by_report_only(scenario_id: Digest, evidence_bundle_id: Digest) -> Self {
+        let metrics = EvaluationMetrics::new(scenario_id, Q16::ZERO, Q16::ZERO, Q16::ZERO, false);
         let mut r = Self {
             id: Digest::ZERO,
             scenario_id,
@@ -359,7 +350,10 @@ impl EvaluationSuiteOutcome {
     }
 
     pub fn is_failure_class(&self) -> bool {
-        matches!(self, Self::SomeFailed | Self::AllFailed | Self::Inconclusive)
+        matches!(
+            self,
+            Self::SomeFailed | Self::AllFailed | Self::Inconclusive
+        )
     }
 }
 
@@ -505,9 +499,7 @@ impl StubEvaluationHarness {
 
     pub fn always_fail() -> Self {
         Self {
-            metrics_fn: |s| {
-                EvaluationMetrics::new(s.id, Q16::ZERO, Q16::ONE, Q16::ZERO, false)
-            },
+            metrics_fn: |s| EvaluationMetrics::new(s.id, Q16::ZERO, Q16::ONE, Q16::ZERO, false),
         }
     }
 }
@@ -552,10 +544,22 @@ impl EvaluationHarness for StubEvaluationHarness {
             if scenario.criteria.require_deterministic && !metrics.determinism_verified {
                 violations.push("determinism not verified".into());
             }
-            (EvaluationOutcome::Failed { criteria_violations: violations.clone() }, violations)
+            (
+                EvaluationOutcome::Failed {
+                    criteria_violations: violations.clone(),
+                },
+                violations,
+            )
         };
 
-        EvaluationRunReport::new(scenario.id, outcome, metrics, diagnostics, evidence_bundle_id, 0)
+        EvaluationRunReport::new(
+            scenario.id,
+            outcome,
+            metrics,
+            diagnostics,
+            evidence_bundle_id,
+            0,
+        )
     }
 }
 
@@ -569,8 +573,12 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn bundle_id() -> Digest { d(b"bundle") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
 
     fn basic_scenario() -> EvaluationScenario {
         EvaluationScenario::new(
@@ -642,7 +650,9 @@ mod tests {
         let s = basic_scenario();
         let id_before = s.id;
         let s2 = s.with_evidence(vec![EvidenceRef::new(
-            d(b"ev"), EvidenceKind::RunRecord, "run",
+            d(b"ev"),
+            EvidenceKind::RunRecord,
+            "run",
         )]);
         assert_ne!(id_before, s2.id);
         assert!(s2.verify_id());
@@ -651,12 +661,20 @@ mod tests {
     #[test]
     fn scenario_different_dimensions_differ() {
         let s1 = EvaluationScenario::new(
-            "x", EvaluationDimension::FoundryExecution,
-            d(b"in"), d(b"out"), EvaluationCriteria::strict(), policy_id(),
+            "x",
+            EvaluationDimension::FoundryExecution,
+            d(b"in"),
+            d(b"out"),
+            EvaluationCriteria::strict(),
+            policy_id(),
         );
         let s2 = EvaluationScenario::new(
-            "x", EvaluationDimension::ParseBackAccuracy,
-            d(b"in"), d(b"out"), EvaluationCriteria::strict(), policy_id(),
+            "x",
+            EvaluationDimension::ParseBackAccuracy,
+            d(b"in"),
+            d(b"out"),
+            EvaluationCriteria::strict(),
+            policy_id(),
         );
         assert_ne!(s1.id, s2.id);
     }
@@ -708,8 +726,11 @@ mod tests {
     #[test]
     fn metrics_determinism_flag_affects_satisfies() {
         let m = EvaluationMetrics::new(
-            d(b"s"), Q16::ratio(95, 100).unwrap(), Q16::ratio(5, 100).unwrap(),
-            Q16::ratio(90, 100).unwrap(), false, // determinism not verified
+            d(b"s"),
+            Q16::ratio(95, 100).unwrap(),
+            Q16::ratio(5, 100).unwrap(),
+            Q16::ratio(90, 100).unwrap(),
+            false, // determinism not verified
         );
         let c = EvaluationCriteria::strict(); // require_deterministic = true
         assert!(!m.satisfies(&c));
@@ -733,7 +754,10 @@ mod tests {
 
     #[test]
     fn outcome_failed_and_inconclusive_are_failure_class() {
-        assert!(EvaluationOutcome::Failed { criteria_violations: vec![] }.is_failure_class());
+        assert!(EvaluationOutcome::Failed {
+            criteria_violations: vec![]
+        }
+        .is_failure_class());
         assert!(EvaluationOutcome::Inconclusive.is_failure_class());
     }
 
@@ -759,11 +783,15 @@ mod tests {
         let s = basic_scenario();
         let m = passing_metrics(s.id);
         let r1 = EvaluationRunReport::new(
-            s.id, EvaluationOutcome::Passed, m.clone(), vec![], bundle_id(), 100,
+            s.id,
+            EvaluationOutcome::Passed,
+            m.clone(),
+            vec![],
+            bundle_id(),
+            100,
         );
-        let r2 = EvaluationRunReport::new(
-            s.id, EvaluationOutcome::Passed, m, vec![], bundle_id(), 100,
-        );
+        let r2 =
+            EvaluationRunReport::new(s.id, EvaluationOutcome::Passed, m, vec![], bundle_id(), 100);
         assert_eq!(r1.id, r2.id);
     }
 
@@ -772,7 +800,9 @@ mod tests {
         let s = basic_scenario();
         let r = EvaluationRunReport::new(
             s.id,
-            EvaluationOutcome::Failed { criteria_violations: vec!["confidence".into()] },
+            EvaluationOutcome::Failed {
+                criteria_violations: vec!["confidence".into()],
+            },
             failing_metrics(s.id),
             vec!["low confidence".into()],
             bundle_id(),
@@ -801,10 +831,20 @@ mod tests {
         let s = basic_scenario();
         let reports = vec![
             EvaluationRunReport::new(
-                s.id, EvaluationOutcome::Passed, passing_metrics(s.id), vec![], bundle_id(), 10,
+                s.id,
+                EvaluationOutcome::Passed,
+                passing_metrics(s.id),
+                vec![],
+                bundle_id(),
+                10,
             ),
             EvaluationRunReport::new(
-                s.id, EvaluationOutcome::Passed, passing_metrics(s.id), vec![], bundle_id(), 10,
+                s.id,
+                EvaluationOutcome::Passed,
+                passing_metrics(s.id),
+                vec![],
+                bundle_id(),
+                10,
             ),
         ];
         let suite = EvaluationSuiteReport::from_run_reports(&reports, bundle_id(), 20);
@@ -819,11 +859,18 @@ mod tests {
         let s = basic_scenario();
         let reports = vec![
             EvaluationRunReport::new(
-                s.id, EvaluationOutcome::Passed, passing_metrics(s.id), vec![], bundle_id(), 0,
+                s.id,
+                EvaluationOutcome::Passed,
+                passing_metrics(s.id),
+                vec![],
+                bundle_id(),
+                0,
             ),
             EvaluationRunReport::new(
                 s.id,
-                EvaluationOutcome::Failed { criteria_violations: vec!["x".into()] },
+                EvaluationOutcome::Failed {
+                    criteria_violations: vec!["x".into()],
+                },
                 failing_metrics(s.id),
                 vec![],
                 bundle_id(),
@@ -842,13 +889,23 @@ mod tests {
         let reports = vec![
             EvaluationRunReport::new(
                 s.id,
-                EvaluationOutcome::Failed { criteria_violations: vec![] },
-                failing_metrics(s.id), vec![], bundle_id(), 0,
+                EvaluationOutcome::Failed {
+                    criteria_violations: vec![],
+                },
+                failing_metrics(s.id),
+                vec![],
+                bundle_id(),
+                0,
             ),
             EvaluationRunReport::new(
                 s.id,
-                EvaluationOutcome::Failed { criteria_violations: vec![] },
-                failing_metrics(s.id), vec![], bundle_id(), 0,
+                EvaluationOutcome::Failed {
+                    criteria_violations: vec![],
+                },
+                failing_metrics(s.id),
+                vec![],
+                bundle_id(),
+                0,
             ),
         ];
         let suite = EvaluationSuiteReport::from_run_reports(&reports, bundle_id(), 0);
@@ -862,15 +919,27 @@ mod tests {
         let s = basic_scenario();
         let reports = vec![
             EvaluationRunReport::new(
-                s.id, EvaluationOutcome::Passed, passing_metrics(s.id), vec![], bundle_id(), 0,
+                s.id,
+                EvaluationOutcome::Passed,
+                passing_metrics(s.id),
+                vec![],
+                bundle_id(),
+                0,
             ),
             EvaluationRunReport::new(
-                s.id, EvaluationOutcome::PassedWithWarnings, passing_metrics(s.id),
-                vec!["near threshold".into()], bundle_id(), 0,
+                s.id,
+                EvaluationOutcome::PassedWithWarnings,
+                passing_metrics(s.id),
+                vec!["near threshold".into()],
+                bundle_id(),
+                0,
             ),
         ];
         let suite = EvaluationSuiteReport::from_run_reports(&reports, bundle_id(), 0);
-        assert_eq!(suite.suite_outcome, EvaluationSuiteOutcome::SomePassedWithWarnings);
+        assert_eq!(
+            suite.suite_outcome,
+            EvaluationSuiteOutcome::SomePassedWithWarnings
+        );
         assert!(!suite.suite_outcome.is_failure_class());
         assert!(suite.verify_id());
     }
@@ -879,7 +948,12 @@ mod tests {
     fn suite_report_deterministic() {
         let s = basic_scenario();
         let reports = vec![EvaluationRunReport::new(
-            s.id, EvaluationOutcome::Passed, passing_metrics(s.id), vec![], bundle_id(), 5,
+            s.id,
+            EvaluationOutcome::Passed,
+            passing_metrics(s.id),
+            vec![],
+            bundle_id(),
+            5,
         )];
         let s1 = EvaluationSuiteReport::from_run_reports(&reports, bundle_id(), 100);
         let s2 = EvaluationSuiteReport::from_run_reports(&reports, bundle_id(), 100);
@@ -902,7 +976,10 @@ mod tests {
     fn harness_always_pass_produces_passed() {
         let h = StubEvaluationHarness::always_pass();
         let s = basic_scenario();
-        let profile = PolicyProfile { mode: ImplementationMode::DryRun, ..PolicyProfile::default() };
+        let profile = PolicyProfile {
+            mode: ImplementationMode::DryRun,
+            ..PolicyProfile::default()
+        };
         let r = h.run_scenario(&s, &profile, bundle_id());
         assert_eq!(r.outcome, EvaluationOutcome::Passed);
         assert!(r.verify_id());
@@ -912,7 +989,10 @@ mod tests {
     fn harness_always_fail_produces_failed() {
         let h = StubEvaluationHarness::always_fail();
         let s = basic_scenario();
-        let profile = PolicyProfile { mode: ImplementationMode::DryRun, ..PolicyProfile::default() };
+        let profile = PolicyProfile {
+            mode: ImplementationMode::DryRun,
+            ..PolicyProfile::default()
+        };
         let r = h.run_scenario(&s, &profile, bundle_id());
         assert!(r.outcome.is_failure_class());
         assert!(r.verify_id());
@@ -922,17 +1002,25 @@ mod tests {
     fn harness_run_deterministic() {
         let h = StubEvaluationHarness::always_pass();
         let s = basic_scenario();
-        let profile = PolicyProfile { mode: ImplementationMode::DryRun, ..PolicyProfile::default() };
+        let profile = PolicyProfile {
+            mode: ImplementationMode::DryRun,
+            ..PolicyProfile::default()
+        };
         let r1 = h.run_scenario(&s, &profile, bundle_id());
         let r2 = h.run_scenario(&s, &profile, bundle_id());
-        assert_eq!(r1.id, r2.id, "INVARIANT-007: identical inputs → identical report IDs");
+        assert_eq!(
+            r1.id, r2.id,
+            "INVARIANT-007: identical inputs → identical report IDs"
+        );
     }
 
     #[test]
     fn r9_evidence_bundle_integration() {
         let ev_bundle = EvidenceBundle::seal(
             vec![EvidenceRef::new(
-                d(b"eval-ev"), EvidenceKind::RunRecord, "evaluation run evidence",
+                d(b"eval-ev"),
+                EvidenceKind::RunRecord,
+                "evaluation run evidence",
             )],
             policy_id(),
             ReplayStatus::Replayable,

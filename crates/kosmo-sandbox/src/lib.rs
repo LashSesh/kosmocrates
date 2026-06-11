@@ -10,7 +10,7 @@
 //!
 //! **Enforced (Unix):**
 //! - **Timeout → group kill.** The child runs in its own process group
-//!   ([`CommandExt::process_group`]); on timeout the whole group is
+//!   (`CommandExt::process_group`); on timeout the whole group is
 //!   `SIGKILL`ed, so a hung grandchild (e.g. the binary `cargo run` spawned)
 //!   cannot outlive the budget. A timeout is a **verdict**, never a hang.
 //! - **Bounded capture.** stdout/stderr are drained on their own threads into
@@ -272,10 +272,7 @@ impl Sandbox {
 /// Drain a child stream into a capped buffer on its own thread. Keeps reading
 /// (discarding) past the cap so the child never blocks on a full pipe; reports
 /// whether anything was dropped.
-fn spawn_reader<R: Read + Send + 'static>(
-    r: Option<R>,
-    cap: usize,
-) -> JoinHandle<(Vec<u8>, bool)> {
+fn spawn_reader<R: Read + Send + 'static>(r: Option<R>, cap: usize) -> JoinHandle<(Vec<u8>, bool)> {
     thread::spawn(move || {
         let mut buf = Vec::new();
         let mut truncated = false;
@@ -469,7 +466,9 @@ fn http_probe(port: u16, probe: &HttpProbe, cap: usize) -> Option<(u16, String)>
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().ok()?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(500)).ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
-    stream.set_write_timeout(Some(Duration::from_secs(3))).ok()?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(3)))
+        .ok()?;
     let req = format!(
         "{} {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
         probe.method, probe.path

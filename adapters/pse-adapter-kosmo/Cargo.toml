@@ -1,0 +1,30 @@
+[package]
+name = "pse-adapter-kosmo"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "PSE-side consumer for the kosmo substrate bridge — turns CertifiedCrystal candidates into PSE observations; PSE decides crystallization"
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
+pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
+pse-graph = { path = "../../crates/pse-graph", version = "0.1.0" }
+# QTIC conformance classification (Q0–Q5) for promoted crystals.
+# Default features only — the heavy IL pipeline stays off.
+pse-adapter-il = { path = "../pse-adapter-il", version = "0.1.0" }
+kosmo-core = { path = "../../crates/kosmo-core" }
+kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = "1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

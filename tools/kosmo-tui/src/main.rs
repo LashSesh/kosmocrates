@@ -2,10 +2,18 @@
 //!
 //! Three-pane layout: scrollable action queue │ detail view │ workspace stats.
 //!
+//! ```text
 //! USAGE:
 //!     kosmo-tui [OPTIONS] [PATH]
 //!
-//! Keybindings: q/Esc=quit  r=rerun  ↑↓/jk=navigate  PgUp/PgDn=page  g=top  G=bottom
+//! Keybindings: q/Esc=quit  r=rerun  p=promote  ↑↓/jk=navigate  PgUp/PgDn=page  g=top  G=bottom
+//! ```
+//!
+//! `p` offers the workspace's gated candidates to the PSE engine — ensemble
+//! batch under the substrate calibration, **in-memory only** (no ledger, no
+//! archive: the host-writing surfaces stay on `kosmo-promote`/HTTP where paths
+//! are explicit). The promotion line shows verdicts, engine state, and the
+//! QTIC class (capped at Q3 without an Infinity-Ledger anchor).
 
 use std::io;
 use std::path::PathBuf;
@@ -98,6 +106,9 @@ fn parse_args() -> Result<Args, String> {
                     "KEYBINDINGS:\n",
                     "    q / Esc          Quit\n",
                     "    r                Re-run analysis\n",
+                    "    p                Promote: offer the gated candidates to the\n",
+                    "                     PSE engine (ensemble batch, substrate\n",
+                    "                     calibration, in-memory — no host writes)\n",
                     "    ↑↓ / j k         Navigate action queue\n",
                     "    PgUp / PgDn      Page up / down\n",
                     "    g                Jump to top\n",
@@ -110,24 +121,35 @@ fn parse_args() -> Result<Args, String> {
                 process::exit(0);
             }
             "--all" | "--all-layers" => args.all_layers = true,
-            "--metatron"   => args.metatron = true,
-            "--lpcm"       => args.lpcm = true,
-            "--systemcube" => { args.systemcube = true; args.metatron = true; }
-            "--surgery"    => { args.surgery = true; args.metatron = true; }
-            "--crystals"   => args.crystals = true,
-            "--norms"      => args.norms = true,
-            "--motifs"     => args.motifs = true,
-            "--pse"        => args.pse = true,
-            "--operator"   => args.operator = true,
+            "--metatron" => args.metatron = true,
+            "--lpcm" => args.lpcm = true,
+            "--systemcube" => {
+                args.systemcube = true;
+                args.metatron = true;
+            }
+            "--surgery" => {
+                args.surgery = true;
+                args.metatron = true;
+            }
+            "--crystals" => args.crystals = true,
+            "--norms" => args.norms = true,
+            "--motifs" => args.motifs = true,
+            "--pse" => args.pse = true,
+            "--operator" => args.operator = true,
             "--store" => {
                 i += 1;
-                if i >= raw.len() { return Err("--store requires a path".into()); }
+                if i >= raw.len() {
+                    return Err("--store requires a path".into());
+                }
                 args.store = Some(expand_tilde(&raw[i]));
             }
             "--capacity" => {
                 i += 1;
-                if i >= raw.len() { return Err("--capacity requires a number".into()); }
-                args.capacity = raw[i].parse()
+                if i >= raw.len() {
+                    return Err("--capacity requires a number".into());
+                }
+                args.capacity = raw[i]
+                    .parse()
                     .map_err(|_| format!("--capacity must be a number, got '{}'", raw[i]))?;
             }
             flag if flag.starts_with('-') => {
@@ -173,11 +195,110 @@ fn build_options(args: &Args) -> IntegrationRunOptions {
     opts
 }
 
+// ─── Promotion (substrate→core, in-memory) ───────────────────────────────────
+
+/// Outcome summary of one in-memory promotion run.
+#[derive(Debug)]
+struct PromotionSummary {
+    offered: usize,
+    accepted: usize,
+    deferred: usize,
+    rejected: usize,
+    engine_state: String,
+    kairos: Option<bool>,
+    /// QTIC class of the first accepted crystal (Q3 ceiling without IL anchor).
+    qtic_top: Option<u8>,
+}
+
+/// Offer the workspace's gated candidates to the PSE engine — ensemble batch
+/// under the substrate calibration, in-memory only (no host writes; the
+/// persisting surfaces stay on `kosmo-promote`/HTTP where paths are explicit).
+fn run_promotion(path: &str) -> Result<PromotionSummary, String> {
+    use kosmo_core::ImplementationMode;
+    use kosmo_pipeline::run_workspace_pipeline;
+    use kosmo_pse_bridge::{
+        PromotionOutcome, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
+    };
+    use pse_adapter_kosmo::{offer_batch, KosmoBridgeAdapter};
+
+    let pipeline_policy = PolicyProfile::default_report_only();
+    let options = IntegrationRunOptions::all_layers(8);
+    let report = run_workspace_pipeline(path, &options, &pipeline_policy)
+        .map_err(|e| format!("pipeline failed: {e}"))?;
+
+    let kinds = vec![
+        PseBridgeCandidateKind::CertifiedCrystal,
+        PseBridgeCandidateKind::StructuralObservation,
+        PseBridgeCandidateKind::TopologyObservation,
+    ];
+    let candidates: Vec<_> = report
+        .pse_candidates
+        .iter()
+        .filter(|c| kinds.contains(&c.kind))
+        .cloned()
+        .collect();
+
+    let profile = PolicyProfile {
+        mode: ImplementationMode::DryRun,
+        ..PolicyProfile::default()
+    };
+    let bridge_policy =
+        PseBridgePolicy::allow(pipeline_policy.id, kinds, PseBridgeRateLimit::strict());
+    let adapter = KosmoBridgeAdapter::new(path)
+        .with_allowed_kinds(bridge_policy.allowed_candidate_kinds.clone());
+
+    // The substrate calibration (see kosmo-promote::Calibration): kairos as
+    // the discriminant, the 8-fold conjunctive gate fully armed.
+    let mut config = pse_types::Config::preset_planning();
+    config.consensus.consensus_threshold = 0.0;
+    config.consensus.mirror_consistency_eta = 0.0;
+    let mut state = pse_core::GlobalState::new(&config);
+
+    let offers = offer_batch(
+        &mut state,
+        &config,
+        &profile,
+        &bridge_policy,
+        &candidates,
+        &adapter,
+    );
+
+    let mut summary = PromotionSummary {
+        offered: candidates.len(),
+        accepted: 0,
+        deferred: 0,
+        rejected: 0,
+        engine_state: format!("{:?}", state.engine_state),
+        kairos: state.last_gate.as_ref().map(|g| g.kairos),
+        qtic_top: None,
+    };
+    for offer in &offers {
+        match &offer.outcome {
+            PromotionOutcome::Accepted => {
+                summary.accepted += 1;
+                if summary.qtic_top.is_none() {
+                    summary.qtic_top = offer.qtic.as_ref().map(|q| q.class_u8());
+                }
+            }
+            PromotionOutcome::Deferred => summary.deferred += 1,
+            PromotionOutcome::Rejected { .. } => summary.rejected += 1,
+            PromotionOutcome::SkippedByPolicy | PromotionOutcome::SkippedByReportOnly => {}
+        }
+    }
+    Ok(summary)
+}
+
 // ─── App state ───────────────────────────────────────────────────────────────
 
+// Held as a single live value in the TUI's `App`; never stored in bulk, so the
+// size gap between `Ready` and the other variants costs nothing in practice.
+#[allow(clippy::large_enum_variant)]
 enum AppPhase {
     Analysing,
-    Ready { report: IntegrationRunReport, items: Vec<ActionItem> },
+    Ready {
+        report: IntegrationRunReport,
+        items: Vec<ActionItem>,
+    },
     Error(String),
 }
 
@@ -187,6 +308,8 @@ struct App {
     phase: AppPhase,
     selected: usize,
     offset: usize,
+    /// Result of the last `p` promotion run (in-memory offer), if any.
+    promotion: Option<Result<PromotionSummary, String>>,
 }
 
 impl App {
@@ -197,7 +320,12 @@ impl App {
             phase: AppPhase::Analysing,
             selected: 0,
             offset: 0,
+            promotion: None,
         }
+    }
+
+    fn run_promotion(&mut self) {
+        self.promotion = Some(run_promotion(&self.path));
     }
 
     fn run_pipeline(&mut self) {
@@ -250,7 +378,9 @@ impl App {
 
     fn page_down(&mut self, list_height: usize) {
         let n = self.item_count();
-        if n == 0 { return; }
+        if n == 0 {
+            return;
+        }
         self.selected = (self.selected + list_height).min(n - 1);
         if self.selected >= self.offset + list_height {
             self.offset = self.selected.saturating_sub(list_height - 1);
@@ -271,7 +401,9 @@ impl App {
 
     fn go_bottom(&mut self) {
         let n = self.item_count();
-        if n > 0 { self.selected = n - 1; }
+        if n > 0 {
+            self.selected = n - 1;
+        }
     }
 }
 
@@ -279,7 +411,7 @@ impl App {
 
 fn q16_fmt(raw: i64) -> String {
     let i = raw / 65536;
-    let f = ((raw.unsigned_abs() % 65536) * 10000 / 65536) as u64;
+    let f = (raw.unsigned_abs() % 65536) * 10000 / 65536;
     format!("{}.{:04}", i, f)
 }
 
@@ -289,52 +421,54 @@ fn hex16(d: &kosmo_core::Digest) -> String {
 
 fn gate_color(r: &GateResult) -> Color {
     match r {
-        GateResult::Pass              => Color::Green,
-        GateResult::Warn { .. }       => Color::Yellow,
-        GateResult::Reject { .. }     => Color::Red,
-        GateResult::Downgrade { .. }  => Color::Yellow,
+        GateResult::Pass => Color::Green,
+        GateResult::Warn { .. } => Color::Yellow,
+        GateResult::Reject { .. } => Color::Red,
+        GateResult::Downgrade { .. } => Color::Yellow,
     }
 }
 
 fn gate_label(r: &GateResult) -> &'static str {
     match r {
-        GateResult::Pass              => "✓ Pass",
-        GateResult::Warn { .. }       => "⚠ Warn",
-        GateResult::Reject { .. }     => "✗ Reject",
-        GateResult::Downgrade { .. }  => "↓ Downgrade",
+        GateResult::Pass => "✓ Pass",
+        GateResult::Warn { .. } => "⚠ Warn",
+        GateResult::Reject { .. } => "✗ Reject",
+        GateResult::Downgrade { .. } => "↓ Downgrade",
     }
 }
 
 fn kind_label(kind: &ActionItemKind) -> &'static str {
     match kind {
-        ActionItemKind::FillVoid { .. }         => "FillVoid  ",
-        ActionItemKind::RepairTopology { .. }   => "Repair    ",
-        ActionItemKind::PromoteToPse { .. }     => "PromotePSE",
-        ActionItemKind::ReviewCrystal { .. }    => "Review    ",
-        ActionItemKind::ApplyNorm { .. }        => "ApplyNorm ",
+        ActionItemKind::FillVoid { .. } => "FillVoid  ",
+        ActionItemKind::RepairTopology { .. } => "Repair    ",
+        ActionItemKind::PromoteToPse { .. } => "PromotePSE",
+        ActionItemKind::ReviewCrystal { .. } => "Review    ",
+        ActionItemKind::ApplyNorm { .. } => "ApplyNorm ",
         ActionItemKind::RealizeWishFacet { .. } => "WishFacet ",
     }
 }
 
 fn kind_color(kind: &ActionItemKind) -> Color {
     match kind {
-        ActionItemKind::FillVoid { .. }         => Color::Cyan,
-        ActionItemKind::RepairTopology { .. }   => Color::Yellow,
-        ActionItemKind::PromoteToPse { .. }     => Color::Green,
-        ActionItemKind::ReviewCrystal { .. }    => Color::Yellow,
-        ActionItemKind::ApplyNorm { .. }        => Color::Green,
+        ActionItemKind::FillVoid { .. } => Color::Cyan,
+        ActionItemKind::RepairTopology { .. } => Color::Yellow,
+        ActionItemKind::PromoteToPse { .. } => Color::Green,
+        ActionItemKind::ReviewCrystal { .. } => Color::Yellow,
+        ActionItemKind::ApplyNorm { .. } => Color::Green,
         ActionItemKind::RealizeWishFacet { .. } => Color::Green,
     }
 }
 
 fn target_id(kind: &ActionItemKind) -> String {
     match kind {
-        ActionItemKind::FillVoid { void_id }                     => hex16(void_id),
-        ActionItemKind::RepairTopology { surgery_option_id }     => hex16(surgery_option_id),
-        ActionItemKind::PromoteToPse { candidate_id }            => hex16(candidate_id),
-        ActionItemKind::ReviewCrystal { candidate_id }           => hex16(candidate_id),
-        ActionItemKind::ApplyNorm { norm_candidate_id, .. }      => hex16(norm_candidate_id),
-        ActionItemKind::RealizeWishFacet { facet }               => facet.key.clone(),
+        ActionItemKind::FillVoid { void_id } => hex16(void_id),
+        ActionItemKind::RepairTopology { surgery_option_id } => hex16(surgery_option_id),
+        ActionItemKind::PromoteToPse { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ReviewCrystal { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ApplyNorm {
+            norm_candidate_id, ..
+        } => hex16(norm_candidate_id),
+        ActionItemKind::RealizeWishFacet { facet } => facet.key.clone(),
     }
 }
 
@@ -353,18 +487,27 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 
     let policy_label = match &app.phase {
         AppPhase::Ready { report, .. }
-            if report.policy_id == PolicyProfile::operator_approved().id => "OperatorApproved",
+            if report.policy_id == PolicyProfile::operator_approved().id =>
+        {
+            "OperatorApproved"
+        }
         _ => "ReportOnly",
     };
 
     let line = Line::from(vec![
-        Span::styled(" Kosmocrates", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Kosmocrates",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
         Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
         Span::styled(app.path.as_str(), Style::default().fg(Color::Cyan)),
         Span::styled("  │  policy: ", Style::default().fg(Color::DarkGray)),
         Span::raw(policy_label),
         Span::styled("  │  gate: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(gate_text, Style::default().fg(gate_col).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            gate_text,
+            Style::default().fg(gate_col).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(run_suffix, Style::default().fg(Color::DarkGray)),
     ]);
 
@@ -379,8 +522,8 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 fn render_action_list(f: &mut Frame, area: Rect, app: &App, list_height: usize) {
     let title = match &app.phase {
         AppPhase::Ready { items, .. } => format!(" Action Queue ({}) ", items.len()),
-        AppPhase::Analysing            => " Action Queue ".to_string(),
-        AppPhase::Error(_)             => " Action Queue ".to_string(),
+        AppPhase::Analysing => " Action Queue ".to_string(),
+        AppPhase::Error(_) => " Action Queue ".to_string(),
     };
     let block = Block::default()
         .title(title)
@@ -438,8 +581,7 @@ fn render_action_list(f: &mut Frame, area: Rect, app: &App, list_height: usize) 
                 let y = inner.y + inner.height - 1;
                 let ind_area = Rect::new(x, y, indicator.len() as u16, 1);
                 f.render_widget(
-                    Paragraph::new(indicator)
-                        .style(Style::default().fg(Color::DarkGray)),
+                    Paragraph::new(indicator).style(Style::default().fg(Color::DarkGray)),
                     ind_area,
                 );
             }
@@ -448,8 +590,7 @@ fn render_action_list(f: &mut Frame, area: Rect, app: &App, list_height: usize) 
         }
         AppPhase::Analysing => {
             f.render_widget(
-                Paragraph::new("  Analysing…")
-                    .style(Style::default().fg(Color::DarkGray)),
+                Paragraph::new("  Analysing…").style(Style::default().fg(Color::DarkGray)),
                 inner,
             );
         }
@@ -474,8 +615,7 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App) {
 
     let Some(item) = app.selected_item() else {
         f.render_widget(
-            Paragraph::new("(select an item)")
-                .style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new("(select an item)").style(Style::default().fg(Color::DarkGray)),
             inner,
         );
         return;
@@ -550,8 +690,8 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(block, area);
 
     if let AppPhase::Ready { report, .. } = &app.phase {
-        let source_count = report.hyphae_result.host_cube.void_map.voids.len()
-            + report.source_cubes.len();
+        let source_count =
+            report.hyphae_result.host_cube.void_map.voids.len() + report.source_cubes.len();
         let def_sev = report.deficiency_vector.total_severity;
 
         let mut spans = vec![
@@ -566,7 +706,10 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
         ];
 
         if report.persisted_crystal_count > 0 {
-            spans.push(Span::styled("  │  crystals stored: ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                "  │  crystals stored: ",
+                Style::default().fg(Color::DarkGray),
+            ));
             spans.push(Span::styled(
                 format!("{}", report.persisted_crystal_count),
                 Style::default().fg(Color::Green),
@@ -574,49 +717,150 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
         }
 
         if !report.certified_crystals.is_empty() {
-            spans.push(Span::styled("  │  certified: ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(
+                "  │  certified: ",
+                Style::default().fg(Color::DarkGray),
+            ));
             spans.push(Span::styled(
                 format!("{}", report.certified_crystals.len()),
                 Style::default().fg(Color::Green),
             ));
         }
 
-        f.render_widget(Paragraph::new(Line::from(spans)), inner);
+        let mut lines = vec![Line::from(spans)];
+        if let Some(promotion) = &app.promotion {
+            lines.push(promotion_line(promotion));
+        }
+        f.render_widget(Paragraph::new(lines), inner);
+    }
+}
+
+/// One-line summary of the last `p` promotion run.
+fn promotion_line(promotion: &Result<PromotionSummary, String>) -> Line<'static> {
+    match promotion {
+        Ok(s) => {
+            let accepted_style = if s.accepted > 0 {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            let mut spans = vec![
+                Span::styled("promotion: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("{} offered", s.offered)),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{} accepted", s.accepted), accepted_style),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("{} deferred", s.deferred)),
+            ];
+            if s.rejected > 0 {
+                spans.push(Span::styled("  │  ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    format!("{} rejected", s.rejected),
+                    Style::default().fg(Color::Red),
+                ));
+            }
+            if let Some(kairos) = s.kairos {
+                spans.push(Span::styled(
+                    "  │  kairos: ",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                spans.push(Span::styled(
+                    if kairos { "✓" } else { "✗" },
+                    if kairos {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::Yellow)
+                    },
+                ));
+            }
+            if let Some(q) = s.qtic_top {
+                spans.push(Span::styled(
+                    "  │  QTIC: ",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                spans.push(Span::styled(
+                    format!("Q{q}"),
+                    Style::default().fg(Color::Cyan),
+                ));
+            }
+            spans.push(Span::styled(
+                format!("  │  engine: {}", s.engine_state),
+                Style::default().fg(Color::DarkGray),
+            ));
+            Line::from(spans)
+        }
+        Err(e) => Line::from(vec![
+            Span::styled("promotion: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(e.clone(), Style::default().fg(Color::Red)),
+        ]),
     }
 }
 
 fn render_status_bar(f: &mut Frame, area: Rect) {
     let line = Line::from(vec![
-        Span::styled(" q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " q",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":quit  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "r",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":rerun  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("↑↓/jk", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "p",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":promote  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "↑↓/jk",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":navigate  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("PgUp/PgDn", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "PgUp/PgDn",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":page  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("g/G", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "g/G",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(":top/bottom", Style::default().fg(Color::DarkGray)),
     ]);
     f.render_widget(Paragraph::new(line), area);
 }
 
 fn ui(f: &mut Frame, app: &App, list_height: usize) {
+    // The workspace pane grows by one line when a promotion summary exists.
+    let stats_height = if app.promotion.is_some() { 4 } else { 3 };
     let vertical = Layout::vertical([
-        Constraint::Length(3), // header
-        Constraint::Min(5),    // action list + detail
-        Constraint::Length(3), // workspace stats
-        Constraint::Length(1), // key hints
+        Constraint::Length(3),            // header
+        Constraint::Min(5),               // action list + detail
+        Constraint::Length(stats_height), // workspace stats (+ promotion line)
+        Constraint::Length(1),            // key hints
     ])
     .split(f.area());
 
     render_header(f, vertical[0], app);
 
-    let horizontal = Layout::horizontal([
-        Constraint::Percentage(58),
-        Constraint::Percentage(42),
-    ])
-    .split(vertical[1]);
+    let horizontal = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(vertical[1]);
 
     render_action_list(f, horizontal[0], app, list_height);
     render_detail(f, horizontal[1], app);
@@ -661,12 +905,19 @@ fn run_tui(mut app: App) -> io::Result<()> {
                         })?;
                         app.run_pipeline();
                     }
-                    KeyCode::Down  | KeyCode::Char('j') => app.scroll_down(list_height),
-                    KeyCode::Up    | KeyCode::Char('k') => app.scroll_up(),
+                    KeyCode::Char('p') => {
+                        terminal.draw(|f| {
+                            let h = f.area().height.saturating_sub(10) as usize;
+                            ui(f, &app, h);
+                        })?;
+                        app.run_promotion();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => app.scroll_down(list_height),
+                    KeyCode::Up | KeyCode::Char('k') => app.scroll_up(),
                     KeyCode::Char('g') => app.go_top(),
                     KeyCode::Char('G') => app.go_bottom(),
-                    KeyCode::PageDown  => app.page_down(list_height),
-                    KeyCode::PageUp    => app.page_up(list_height),
+                    KeyCode::PageDown => app.page_down(list_height),
+                    KeyCode::PageUp => app.page_up(list_height),
                     _ => {}
                 }
             }
@@ -712,5 +963,71 @@ fn main() {
     if let Err(e) = run_tui(app) {
         eprintln!("terminal error: {e}");
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The TUI's promotion core against a real polyglot workspace: in-memory
+    /// offer under the substrate calibration must crystallize, and without an
+    /// Infinity-Ledger anchor the QTIC class honestly caps at Q3.
+    #[test]
+    fn tui_promotion_core_crystallizes_in_memory() {
+        let root = std::env::temp_dir()
+            .join("kosmo-tui-tests")
+            .join("promotion");
+        std::fs::remove_dir_all(&root).ok();
+        let ws = root.join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        let files: [(&str, &str); 4] = [
+            (
+                "fib.py",
+                "import os\n\ndef a(x):\n    return x\n\ndef b(y):\n    return y\n",
+            ),
+            (
+                "fib.rs",
+                "use std::io;\npub fn a(x: u32) -> u32 { x }\npub fn b(y: u32) -> u32 { y }\n",
+            ),
+            (
+                "fib.go",
+                "package main\nimport \"fmt\"\nfunc a(n int) int { return n }\nfunc b(n int) int { return n }\n",
+            ),
+            (
+                "fib.js",
+                "function a(x) {\n  return x;\n}\nfunction b(y) {\n  return y;\n}\n",
+            ),
+        ];
+        for (name, content) in files {
+            std::fs::write(ws.join(name), content).unwrap();
+        }
+
+        let summary = run_promotion(&ws.to_string_lossy()).expect("promotion must run");
+        assert!(summary.offered > 0, "candidates must be offered");
+        assert!(
+            summary.accepted > 0,
+            "the ensemble must crystallize (accepted {}, deferred {}, engine {})",
+            summary.accepted,
+            summary.deferred,
+            summary.engine_state
+        );
+        assert_eq!(summary.kairos, Some(true), "the conjunctive gate fired");
+        assert_eq!(
+            summary.qtic_top,
+            Some(3),
+            "in-memory promotion caps at Q3 (no IL anchor from the TUI)"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn tui_promotion_core_reports_pipeline_errors() {
+        let err = run_promotion("/definitely/not/a/workspace").unwrap_err();
+        assert!(
+            err.contains("pipeline failed"),
+            "must name the failure: {err}"
+        );
     }
 }

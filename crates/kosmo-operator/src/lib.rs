@@ -25,9 +25,9 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 use kosmo_core::{
-    CartographyEntryKind, CartographyStoreCommit, CorpusCartographyStore, CorpusScope,
-    Digest, FoundryExecutionPlan, ImplementationMode, ParseBackScanScope, ParseBackSeverity,
-    PolicyProfile, ValidationClosureReport,
+    CartographyEntryKind, CartographyStoreCommit, CorpusCartographyStore, CorpusScope, Digest,
+    FoundryExecutionPlan, ImplementationMode, ParseBackScanScope, ParseBackSeverity, PolicyProfile,
+    ValidationClosureReport,
 };
 use kosmo_foundry::FoundryExecutor;
 use kosmo_parseback::{ParseBackExecutor, TopologySnapshot};
@@ -130,7 +130,15 @@ impl OperationReport {
             elapsed_ms,
             persisted,
         });
-        Self { report_id, plan_id, foundry_report, parseback_report, closure_report, elapsed_ms, persisted }
+        Self {
+            report_id,
+            plan_id,
+            foundry_report,
+            parseback_report,
+            closure_report,
+            elapsed_ms,
+            persisted,
+        }
     }
 
     pub fn verify_id(&self) -> bool {
@@ -160,7 +168,10 @@ pub struct OperatorExecutor {
 
 impl OperatorExecutor {
     pub fn new(workspace_root: impl Into<PathBuf>) -> Self {
-        Self { workspace_root: workspace_root.into(), store_path: None }
+        Self {
+            workspace_root: workspace_root.into(),
+            store_path: None,
+        }
     }
 
     /// Attach a JSONL cartography store for `OperatorApproved` persistence.
@@ -195,21 +206,20 @@ impl OperatorExecutor {
         let parseback_executor = ParseBackExecutor::new(self.workspace_root.clone());
         let pre_snapshot = match parseback_executor.snapshot(&plan.parseback_scope) {
             Ok(s) => s,
-            Err(e) => return self.inconclusive_report(
-                plan,
-                evidence_bundle_id,
-                t0,
-                &format!("pre-snapshot failed: {e}"),
-            ),
+            Err(e) => {
+                return self.inconclusive_report(
+                    plan,
+                    evidence_bundle_id,
+                    t0,
+                    &format!("pre-snapshot failed: {e}"),
+                )
+            }
         };
 
         // Step 2: Foundry checks (read-only; cargo check/test/clippy).
         let foundry_executor = FoundryExecutor::new(self.workspace_root.clone());
-        let foundry_report = foundry_executor.execute(
-            &plan.foundry_plan,
-            policy,
-            evidence_bundle_id,
-        );
+        let foundry_report =
+            foundry_executor.execute(&plan.foundry_plan, policy, evidence_bundle_id);
 
         // Step 3: Post-materialization ParseBack — diff against pre-snapshot.
         let parseback_plan = kosmo_core::ParseBackPlan::new(
@@ -218,16 +228,11 @@ impl OperatorExecutor {
             plan.parseback_scope.clone(),
             pre_snapshot.snapshot_id,
         );
-        let parseback_report = parseback_executor.execute(
-            &parseback_plan,
-            &pre_snapshot,
-            policy,
-            evidence_bundle_id,
-        );
+        let parseback_report =
+            parseback_executor.execute(&parseback_plan, &pre_snapshot, policy, evidence_bundle_id);
 
         // Step 4: Compute ValidationClosure from real outcomes.
-        let has_warnings = parseback_report.worst_severity()
-            == Some(&ParseBackSeverity::Warning);
+        let has_warnings = parseback_report.worst_severity() == Some(&ParseBackSeverity::Warning);
         let elapsed = t0.elapsed().as_millis() as u64;
         let closure_report = ValidationClosureReport::new(
             plan.plan_id,
@@ -268,8 +273,7 @@ impl OperatorExecutor {
         t0: Instant,
     ) -> OperationReport {
         use kosmo_core::{
-            FoundryExecutionOutcome, FoundryExecutionReport,
-            ParseBackOutcome, ParseBackReport,
+            FoundryExecutionOutcome, FoundryExecutionReport, ParseBackOutcome, ParseBackReport,
         };
 
         let foundry_report = FoundryExecutionReport::skipped_by_report_only(
@@ -297,7 +301,14 @@ impl OperatorExecutor {
             vec![],
             evidence_bundle_id,
         );
-        OperationReport::build(plan.plan_id, foundry_report, parseback_report, closure_report, elapsed, false)
+        OperationReport::build(
+            plan.plan_id,
+            foundry_report,
+            parseback_report,
+            closure_report,
+            elapsed,
+            false,
+        )
     }
 
     fn inconclusive_report(
@@ -308,8 +319,7 @@ impl OperatorExecutor {
         diagnostic: &str,
     ) -> OperationReport {
         use kosmo_core::{
-            FoundryExecutionOutcome, FoundryExecutionReport,
-            ParseBackOutcome, ParseBackReport,
+            FoundryExecutionOutcome, FoundryExecutionReport, ParseBackOutcome, ParseBackReport,
         };
 
         let foundry_report = FoundryExecutionReport::skipped_by_report_only(
@@ -342,7 +352,14 @@ impl OperatorExecutor {
             vec![diagnostic.into()],
             evidence_bundle_id,
         );
-        OperationReport::build(plan.plan_id, foundry_report, parseback_report, closure_report, elapsed, false)
+        OperationReport::build(
+            plan.plan_id,
+            foundry_report,
+            parseback_report,
+            closure_report,
+            elapsed,
+            false,
+        )
     }
 
     fn persist_closure(
@@ -387,9 +404,7 @@ pub fn standard_plan(
     policy_id: Digest,
     per_check_timeout_ms: u64,
 ) -> OperationPlan {
-    let workspace_digest = Digest::of_bytes(
-        workspace_root.to_string_lossy().as_bytes(),
-    );
+    let workspace_digest = Digest::of_bytes(workspace_root.to_string_lossy().as_bytes());
     let foundry_plan = kosmo_foundry::standard_cargo_plan(
         policy_id,
         workspace_digest,
@@ -407,14 +422,21 @@ mod tests {
     use super::*;
     use kosmo_core::{EvidenceBundle, EvidenceKind, EvidenceRef, ReplayStatus};
 
-    fn pid() -> Digest { Digest::of_bytes(b"policy") }
+    fn pid() -> Digest {
+        Digest::of_bytes(b"policy")
+    }
 
     fn bundle_id() -> Digest {
         EvidenceBundle::seal(
-            vec![EvidenceRef::new(Digest::of_bytes(b"ev"), EvidenceKind::HostScan, "test")],
+            vec![EvidenceRef::new(
+                Digest::of_bytes(b"ev"),
+                EvidenceKind::HostScan,
+                "test",
+            )],
             pid(),
             ReplayStatus::Replayable,
-        ).bundle_id
+        )
+        .bundle_id
     }
 
     fn empty_foundry_plan() -> FoundryExecutionPlan {
@@ -467,7 +489,10 @@ mod tests {
         let report = executor.execute(&plan, &policy, bundle_id());
 
         assert!(
-            report.closure_report.final_validation_status.is_inconclusive(),
+            report
+                .closure_report
+                .final_validation_status
+                .is_inconclusive(),
             "ReportOnly must produce Inconclusive, got {:?}",
             report.closure_report.final_validation_status
         );
@@ -486,7 +511,10 @@ mod tests {
 
         let r1 = executor.execute(&plan, &policy, bid);
         let r2 = executor.execute(&plan, &policy, bid);
-        assert_eq!(r1.report_id, r2.report_id, "INVARIANT-007: identical inputs must produce identical ids");
+        assert_eq!(
+            r1.report_id, r2.report_id,
+            "INVARIANT-007: identical inputs must produce identical ids"
+        );
         assert_ne!(r1.report_id, Digest::ZERO);
     }
 
@@ -500,8 +528,8 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
-        let executor = OperatorExecutor::new(PathBuf::from("/nonexistent"))
-            .with_store(store_path.clone());
+        let executor =
+            OperatorExecutor::new(PathBuf::from("/nonexistent")).with_store(store_path.clone());
         let plan = make_plan(ParseBackScanScope::FullWorkspace);
         let policy = PolicyProfile::default_report_only();
 
@@ -513,14 +541,12 @@ mod tests {
     }
 
     fn minimal_check_plan() -> FoundryExecutionPlan {
-        use kosmo_core::{FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
-            FoundryEnvironmentPolicy, FoundrySandboxSpec,
-            FoundrySandboxKind, FoundryTimeoutPolicy};
-        let check_spec = FoundryCheckSpec::new(
-            FoundryCheckKind::Build,
-            "kosmo-parseback",
-            true,
-        ).with_args(vec!["-p".into(), "kosmo-parseback".into()]);
+        use kosmo_core::{
+            FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy, FoundryEnvironmentPolicy,
+            FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy,
+        };
+        let check_spec = FoundryCheckSpec::new(FoundryCheckKind::Build, "kosmo-parseback", true)
+            .with_args(vec!["-p".into(), "kosmo-parseback".into()]);
         FoundryExecutionPlan::new(
             pid(),
             Digest::of_bytes(b"widx"),
@@ -536,19 +562,19 @@ mod tests {
     #[test]
     fn dry_run_full_cycle_on_workspace() {
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..").join("..");
+            .join("..")
+            .join("..");
         let foundry_plan = minimal_check_plan();
-        let plan = OperationPlan::new(
-            foundry_plan,
-            ParseBackScanScope::AffectedCratesOnly,
-            pid(),
-        );
+        let plan = OperationPlan::new(foundry_plan, ParseBackScanScope::AffectedCratesOnly, pid());
         let executor = OperatorExecutor::new(workspace_root);
         let report = executor.execute(&plan, &PolicyProfile::dry_run(), bundle_id());
 
         assert!(
             report.closure_report.final_validation_status.is_passed()
-            || report.closure_report.final_validation_status.is_inconclusive(),
+                || report
+                    .closure_report
+                    .final_validation_status
+                    .is_inconclusive(),
             "DryRun on clean workspace: expected Passed or Inconclusive, got {:?}",
             report.closure_report.final_validation_status
         );
@@ -559,7 +585,8 @@ mod tests {
     #[test]
     fn operator_approved_persists_closure() {
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..").join("..");
+            .join("..")
+            .join("..");
         let store_path = std::env::temp_dir().join(format!(
             "kosmo-op-persist-{}.jsonl",
             std::time::SystemTime::now()
@@ -568,21 +595,13 @@ mod tests {
                 .unwrap_or(0)
         ));
         let foundry_plan = minimal_check_plan();
-        let plan = OperationPlan::new(
-            foundry_plan,
-            ParseBackScanScope::AffectedCratesOnly,
-            pid(),
-        );
-        let executor = OperatorExecutor::new(workspace_root)
-            .with_store(store_path.clone());
+        let plan = OperationPlan::new(foundry_plan, ParseBackScanScope::AffectedCratesOnly, pid());
+        let executor = OperatorExecutor::new(workspace_root).with_store(store_path.clone());
         let report = executor.execute(&plan, &PolicyProfile::operator_approved(), bundle_id());
         let file_exists = store_path.exists();
         let _ = std::fs::remove_file(&store_path);
 
-        assert!(
-            report.verify_id(),
-            "report id must verify"
-        );
+        assert!(report.verify_id(), "report id must verify");
         // Persistence requires OperatorApproved + successful closure.
         // If foundry succeeded, the closure should be persisted.
         if report.closure_report.final_validation_status.is_passed() {

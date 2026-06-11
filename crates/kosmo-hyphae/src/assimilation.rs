@@ -11,7 +11,11 @@ pub enum AssimilationOutcome {
     /// A gate rejected the yield.
     RejectedByGate { gate: String, reason: String },
     /// Yield was downgraded (e.g. from Workbench to EvidenceOnly).
-    Downgraded { from_kind: String, to_kind: String, reason: String },
+    Downgraded {
+        from_kind: String,
+        to_kind: String,
+        reason: String,
+    },
     /// Yield is kept as evidence only — not plannable yet.
     EvidenceOnly { reason: String },
     /// Decision deferred pending more evidence or operator review.
@@ -113,24 +117,27 @@ impl AssimilationDecision {
     }
 
     pub fn to_ledger_event(&self, sequence: u64) -> LedgerEvent {
-        LedgerEvent::new(LedgerEventKind::AssimilationDecision, sequence)
-            .with_gate_result(match &self.outcome {
+        LedgerEvent::new(LedgerEventKind::AssimilationDecision, sequence).with_gate_result(
+            match &self.outcome {
                 AssimilationOutcome::Accepted { .. } => GateResult::Pass,
-                AssimilationOutcome::RejectedByGate { reason, .. } => {
-                    GateResult::Reject { reason: reason.clone() }
-                }
-                AssimilationOutcome::EvidenceOnly { reason } => {
-                    GateResult::Warn { message: reason.clone() }
-                }
-                AssimilationOutcome::Downgraded { from_kind, to_kind, reason } => {
-                    GateResult::Downgrade {
-                        from: from_kind.clone(),
-                        to: to_kind.clone(),
-                        reason: reason.clone(),
-                    }
-                }
+                AssimilationOutcome::RejectedByGate { reason, .. } => GateResult::Reject {
+                    reason: reason.clone(),
+                },
+                AssimilationOutcome::EvidenceOnly { reason } => GateResult::Warn {
+                    message: reason.clone(),
+                },
+                AssimilationOutcome::Downgraded {
+                    from_kind,
+                    to_kind,
+                    reason,
+                } => GateResult::Downgrade {
+                    from: from_kind.clone(),
+                    to: to_kind.clone(),
+                    reason: reason.clone(),
+                },
                 AssimilationOutcome::Deferred { .. } => GateResult::Pass,
-            })
+            },
+        )
     }
 }
 
@@ -164,13 +171,15 @@ impl AssimilationLedger {
     ///
     /// Sequence numbers are assigned 0..decisions.len()-1. The ledger_id
     /// is computed over all resulting event IDs.
-    pub fn from_decisions(decisions: &[AssimilationDecision], run_id: Digest, policy_id: Digest) -> Self {
+    pub fn from_decisions(
+        decisions: &[AssimilationDecision],
+        run_id: Digest,
+        policy_id: Digest,
+    ) -> Self {
         let events: Vec<LedgerEvent> = decisions
             .iter()
             .enumerate()
-            .map(|(seq, d)| {
-                d.to_ledger_event(seq as u64).with_run_id(run_id)
-            })
+            .map(|(seq, d)| d.to_ledger_event(seq as u64).with_run_id(run_id))
             .collect();
         let event_ids: Vec<Digest> = events.iter().map(|e| e.event_id).collect();
         let ledger_id = Digest::of(&LedgerContent {
@@ -179,7 +188,12 @@ impl AssimilationLedger {
             event_ids,
             policy_id,
         });
-        Self { ledger_id, run_id, events, policy_id }
+        Self {
+            ledger_id,
+            run_id,
+            events,
+            policy_id,
+        }
     }
 
     /// Total number of decisions recorded.
@@ -189,12 +203,18 @@ impl AssimilationLedger {
 
     /// Number of events with a `Pass` gate result.
     pub fn accepted_count(&self) -> usize {
-        self.events.iter().filter(|e| e.gate_result.as_ref().map_or(false, |r| r.is_pass())).count()
+        self.events
+            .iter()
+            .filter(|e| e.gate_result.as_ref().is_some_and(|r| r.is_pass()))
+            .count()
     }
 
     /// Number of events with a `Reject` gate result.
     pub fn rejected_count(&self) -> usize {
-        self.events.iter().filter(|e| e.gate_result.as_ref().map_or(false, |r| r.is_rejected())).count()
+        self.events
+            .iter()
+            .filter(|e| e.gate_result.as_ref().is_some_and(|r| r.is_rejected()))
+            .count()
     }
 }
 
@@ -242,13 +262,17 @@ mod tests {
     use crate::gates::GateCascade;
     use crate::structural_yield::{StructuralYield, StructuralYieldKind};
     use kosmo_core::{
-        AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef,
-        PolicyProfile, ReplayStatus, TaintLabel,
+        AuthorityLabel, Digest, EvidenceBundle, EvidenceKind, EvidenceRef, PolicyProfile,
+        ReplayStatus, TaintLabel,
     };
 
     fn make_evidence(policy_id: Digest) -> EvidenceBundle {
         EvidenceBundle::seal(
-            vec![EvidenceRef::new(Digest::of_bytes(b"ev"), EvidenceKind::HostScan, "scan")],
+            vec![EvidenceRef::new(
+                Digest::of_bytes(b"ev"),
+                EvidenceKind::HostScan,
+                "scan",
+            )],
             policy_id,
             ReplayStatus::Replayable,
         )
@@ -284,7 +308,9 @@ mod tests {
             StructuralYieldKind::DeficiencyFill,
             Some(void_id),
             None,
-            TaintLabel::Quarantined { reason: "malicious".into() },
+            TaintLabel::Quarantined {
+                reason: "malicious".into(),
+            },
             AuthorityLabel::Unknown,
             ev.bundle_id,
             policy.id,
@@ -305,7 +331,9 @@ mod tests {
             StructuralYieldKind::DeficiencyFill,
             Some(void_id),
             None,
-            TaintLabel::Quarantined { reason: "known-bad".into() },
+            TaintLabel::Quarantined {
+                reason: "known-bad".into(),
+            },
             AuthorityLabel::Unknown,
             ev.bundle_id,
             policy.id,
@@ -326,9 +354,12 @@ mod tests {
         let ev = make_evidence(policy.id);
         let yield_ = StructuralYield::new(
             StructuralYieldKind::DeficiencyFill,
-            Some(void_id), None,
-            TaintLabel::Clean, AuthorityLabel::Foundry,
-            ev.bundle_id, policy.id,
+            Some(void_id),
+            None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            ev.bundle_id,
+            policy.id,
         );
         let cascade = GateCascade::standard_gates(policy.clone());
         let trace = cascade.apply(&yield_, &ev);
@@ -345,41 +376,75 @@ mod tests {
         // Clean yield → decision.taint == Clean
         let clean_yield = StructuralYield::new(
             StructuralYieldKind::DeficiencyFill,
-            Some(Digest::of_bytes(b"v")), None,
-            TaintLabel::Clean, AuthorityLabel::Foundry,
-            ev.bundle_id, policy.id,
+            Some(Digest::of_bytes(b"v")),
+            None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            ev.bundle_id,
+            policy.id,
         );
         let cascade = GateCascade::standard_gates(policy.clone());
         let trace = cascade.apply(&clean_yield, &ev);
         let d = AssimilationDecision::from_trace(&clean_yield, &trace, &ev, policy.id);
-        assert_eq!(d.taint, TaintLabel::Clean, "decision must carry yield taint");
+        assert_eq!(
+            d.taint,
+            TaintLabel::Clean,
+            "decision must carry yield taint"
+        );
 
         // Synthetic yield → decision.taint == Synthetic
         let synthetic_yield = StructuralYield::new(
             StructuralYieldKind::DeficiencyFill,
-            Some(Digest::of_bytes(b"v2")), None,
-            TaintLabel::Synthetic, AuthorityLabel::Agent { name: "hyphae".into() },
-            ev.bundle_id, policy.id,
+            Some(Digest::of_bytes(b"v2")),
+            None,
+            TaintLabel::Synthetic,
+            AuthorityLabel::Agent {
+                name: "hyphae".into(),
+            },
+            ev.bundle_id,
+            policy.id,
         );
         let trace2 = cascade.apply(&synthetic_yield, &ev);
         let d2 = AssimilationDecision::from_trace(&synthetic_yield, &trace2, &ev, policy.id);
-        assert_eq!(d2.taint, TaintLabel::Synthetic, "synthetic yield must propagate Synthetic taint");
+        assert_eq!(
+            d2.taint,
+            TaintLabel::Synthetic,
+            "synthetic yield must propagate Synthetic taint"
+        );
 
         // Different taints → different decision_ids (taint is in content hash)
-        assert_ne!(d.decision_id, d2.decision_id, "taint must participate in content-address");
+        assert_ne!(
+            d.decision_id, d2.decision_id,
+            "taint must participate in content-address"
+        );
     }
 
-    fn make_decision(policy: &PolicyProfile, ev: &EvidenceBundle, seed: &[u8], clean: bool) -> AssimilationDecision {
+    fn make_decision(
+        policy: &PolicyProfile,
+        ev: &EvidenceBundle,
+        seed: &[u8],
+        clean: bool,
+    ) -> AssimilationDecision {
         let taint = if clean {
             TaintLabel::Clean
         } else {
-            TaintLabel::Quarantined { reason: "bad".into() }
+            TaintLabel::Quarantined {
+                reason: "bad".into(),
+            }
         };
-        let authority = if clean { AuthorityLabel::Foundry } else { AuthorityLabel::Unknown };
+        let authority = if clean {
+            AuthorityLabel::Foundry
+        } else {
+            AuthorityLabel::Unknown
+        };
         let yield_ = StructuralYield::new(
             StructuralYieldKind::DeficiencyFill,
-            Some(Digest::of_bytes(seed)), None,
-            taint, authority, ev.bundle_id, policy.id,
+            Some(Digest::of_bytes(seed)),
+            None,
+            taint,
+            authority,
+            ev.bundle_id,
+            policy.id,
         );
         let cascade = GateCascade::standard_gates(policy.clone());
         let trace = cascade.apply(&yield_, ev);
@@ -420,8 +485,10 @@ mod tests {
         let d_reject = make_decision(&policy, &ev, b"y", false);
         let ledger_accept = AssimilationLedger::from_decisions(&[d_accept], run_id, policy.id);
         let ledger_reject = AssimilationLedger::from_decisions(&[d_reject], run_id, policy.id);
-        assert_ne!(ledger_accept.ledger_id, ledger_reject.ledger_id,
-            "different decisions must produce different ledger_ids");
+        assert_ne!(
+            ledger_accept.ledger_id, ledger_reject.ledger_id,
+            "different decisions must produce different ledger_ids"
+        );
     }
 
     #[test]
@@ -430,8 +497,11 @@ mod tests {
         let ev = make_evidence(policy.id);
         let run_id = Digest::of_bytes(b"run");
         let d = make_decision(&policy, &ev, b"z", true);
-        let l1 = AssimilationLedger::from_decisions(&[d.clone()], run_id, policy.id);
+        let l1 = AssimilationLedger::from_decisions(std::slice::from_ref(&d), run_id, policy.id);
         let l2 = AssimilationLedger::from_decisions(&[d], run_id, policy.id);
-        assert_eq!(l1.ledger_id, l2.ledger_id, "same decisions → same ledger_id (INVARIANT-007)");
+        assert_eq!(
+            l1.ledger_id, l2.ledger_id,
+            "same decisions → same ledger_id (INVARIANT-007)"
+        );
     }
 }

@@ -1,0 +1,10 @@
+# Workspace clippy configuration.
+#
+# The substrate is built from content-addressed records: each durable type has a
+# `new(...)` constructor taking one argument per content field, because the id is
+# `SHA-256(JCS(content_fields))` and the fields are passed in explicitly. Eight to
+# twelve such fields is normal and idiomatic here; collapsing them into a builder
+# would obscure the very content-addressing the design depends on. Raise the
+# `too_many_arguments` threshold accordingly. Genuinely excessive arities (well
+# beyond a record's field set) still fire and are handled with a local `#[allow]`.
+too-many-arguments-threshold = 12

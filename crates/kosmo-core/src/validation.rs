@@ -180,10 +180,18 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn mat_plan_id() -> Digest { d(b"mat-plan") }
-    fn foundry_report_id() -> Digest { d(b"foundry-report") }
-    fn parseback_report_id() -> Digest { d(b"parseback-report") }
-    fn bundle_id() -> Digest { d(b"bundle") }
+    fn mat_plan_id() -> Digest {
+        d(b"mat-plan")
+    }
+    fn foundry_report_id() -> Digest {
+        d(b"foundry-report")
+    }
+    fn parseback_report_id() -> Digest {
+        d(b"parseback-report")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
 
     fn make_report(
         fo: FoundryExecutionOutcome,
@@ -371,27 +379,50 @@ mod tests {
 
     #[test]
     fn report_id_deterministic() {
-        let r1 = make_report(FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed, false);
-        let r2 = make_report(FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed, false);
+        let r1 = make_report(
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            false,
+        );
+        let r2 = make_report(
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            false,
+        );
         assert_eq!(r1.id, r2.id);
     }
 
     #[test]
     fn report_verify_id() {
-        let r = make_report(FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed, false);
+        let r = make_report(
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            false,
+        );
         assert!(r.verify_id());
     }
 
     #[test]
     fn report_status_derived_automatically() {
-        let r = make_report(FoundryExecutionOutcome::Failed, ParseBackOutcome::Failed, false);
-        assert_eq!(r.final_validation_status, ValidationClosureStatus::FailedBoth);
+        let r = make_report(
+            FoundryExecutionOutcome::Failed,
+            ParseBackOutcome::Failed,
+            false,
+        );
+        assert_eq!(
+            r.final_validation_status,
+            ValidationClosureStatus::FailedBoth
+        );
         assert!(r.verify_id());
     }
 
     #[test]
     fn report_passed_with_warnings_status() {
-        let r = make_report(FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed, true);
+        let r = make_report(
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            true,
+        );
         assert_eq!(
             r.final_validation_status,
             ValidationClosureStatus::PassedWithWarnings
@@ -401,14 +432,26 @@ mod tests {
 
     #[test]
     fn report_different_outcomes_differ() {
-        let r1 = make_report(FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed, false);
-        let r2 = make_report(FoundryExecutionOutcome::Failed, ParseBackOutcome::Passed, false);
+        let r1 = make_report(
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            false,
+        );
+        let r2 = make_report(
+            FoundryExecutionOutcome::Failed,
+            ParseBackOutcome::Passed,
+            false,
+        );
         assert_ne!(r1.id, r2.id);
     }
 
     #[test]
     fn report_evidence_bundle_id_mandatory() {
-        let r = make_report(FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed, false);
+        let r = make_report(
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            false,
+        );
         assert_ne!(r.evidence_bundle_id, Digest::ZERO);
     }
 
@@ -423,7 +466,10 @@ mod tests {
             ParseBackOutcome::SkippedByReportOnly,
             false,
         );
-        assert_eq!(r.final_validation_status, ValidationClosureStatus::Inconclusive);
+        assert_eq!(
+            r.final_validation_status,
+            ValidationClosureStatus::Inconclusive
+        );
         assert!(r.verify_id());
     }
 
@@ -434,7 +480,10 @@ mod tests {
             ParseBackOutcome::TopologyUnchanged,
             false,
         );
-        assert_eq!(r.final_validation_status, ValidationClosureStatus::FailedFoundry);
+        assert_eq!(
+            r.final_validation_status,
+            ValidationClosureStatus::FailedFoundry
+        );
         assert!(r.final_validation_status.is_failure_class());
         assert!(r.verify_id());
     }
@@ -446,7 +495,10 @@ mod tests {
             ParseBackOutcome::Failed,
             false,
         );
-        assert_eq!(r.final_validation_status, ValidationClosureStatus::FailedParseBack);
+        assert_eq!(
+            r.final_validation_status,
+            ValidationClosureStatus::FailedParseBack
+        );
         assert!(r.verify_id());
     }
 
@@ -459,26 +511,40 @@ mod tests {
             FoundryExecutionOutcome::Passed,
             ParseBackOutcome::Passed,
             true,
-            vec!["warning: slow compile time".into(), "warning: large delta count".into()],
+            vec![
+                "warning: slow compile time".into(),
+                "warning: large delta count".into(),
+            ],
             bundle_id(),
         );
         assert!(r.verify_id());
-        assert_eq!(r.final_validation_status, ValidationClosureStatus::PassedWithWarnings);
+        assert_eq!(
+            r.final_validation_status,
+            ValidationClosureStatus::PassedWithWarnings
+        );
     }
 
     #[test]
     fn report_different_materialization_plan_differs() {
         let r1 = ValidationClosureReport::new(
             d(b"plan-a"),
-            foundry_report_id(), parseback_report_id(),
-            FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed,
-            false, vec![], bundle_id(),
+            foundry_report_id(),
+            parseback_report_id(),
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            false,
+            vec![],
+            bundle_id(),
         );
         let r2 = ValidationClosureReport::new(
             d(b"plan-b"),
-            foundry_report_id(), parseback_report_id(),
-            FoundryExecutionOutcome::Passed, ParseBackOutcome::Passed,
-            false, vec![], bundle_id(),
+            foundry_report_id(),
+            parseback_report_id(),
+            FoundryExecutionOutcome::Passed,
+            ParseBackOutcome::Passed,
+            false,
+            vec![],
+            bundle_id(),
         );
         assert_ne!(r1.id, r2.id);
     }
@@ -487,7 +553,11 @@ mod tests {
     fn r3_evidence_bundle_integration() {
         let ev_bundle = EvidenceBundle::seal(
             vec![
-                EvidenceRef::new(d(b"foundry-ev"), EvidenceKind::FoundryCheck, "foundry check"),
+                EvidenceRef::new(
+                    d(b"foundry-ev"),
+                    EvidenceKind::FoundryCheck,
+                    "foundry check",
+                ),
                 EvidenceRef::new(d(b"scan-ev"), EvidenceKind::HostScan, "parseback scan"),
             ],
             d(b"policy"),

@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use kosmo_core::{Digest, Q16, WishFacet, WishFacetKind};
+use kosmo_core::{Digest, WishFacet, WishFacetKind, Q16};
 use kosmo_pipeline::{ActionItem, ActionItemKind};
 
 // ─── Source context ───────────────────────────────────────────────────────────
@@ -61,14 +61,18 @@ pub struct SynthesisRequest {
 impl SynthesisRequest {
     pub fn new(action_item: ActionItem, workspace_path: impl Into<PathBuf>) -> Self {
         let workspace_path = workspace_path.into();
-        let workspace_path_hash =
-            Digest::of(&workspace_path.to_string_lossy().to_string());
+        let workspace_path_hash = Digest::of(&workspace_path.to_string_lossy().to_string());
         let request_id = Digest::of(&RequestContent {
             action_id: action_item.action_id,
             workspace_path_hash,
             policy_id: action_item.policy_id,
         });
-        Self { request_id, action_item, workspace_path, source_snippets: vec![] }
+        Self {
+            request_id,
+            action_item,
+            workspace_path,
+            source_snippets: vec![],
+        }
     }
 
     pub fn with_snippets(mut self, snippets: Vec<SourceSnippet>) -> Self {
@@ -81,7 +85,11 @@ impl SynthesisRequest {
 
 /// Whether a [`FileChange`] creates, modifies, or removes a file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileChangeKind { Create, Modify, Delete }
+pub enum FileChangeKind {
+    Create,
+    Modify,
+    Delete,
+}
 
 /// A single proposed change to one file in the workspace.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -94,22 +102,41 @@ pub struct FileChange {
 
 impl FileChange {
     pub fn create(path: impl Into<PathBuf>, content: impl Into<String>) -> Self {
-        Self { path: path.into(), kind: FileChangeKind::Create, content: content.into() }
+        Self {
+            path: path.into(),
+            kind: FileChangeKind::Create,
+            content: content.into(),
+        }
     }
     pub fn modify(path: impl Into<PathBuf>, content: impl Into<String>) -> Self {
-        Self { path: path.into(), kind: FileChangeKind::Modify, content: content.into() }
+        Self {
+            path: path.into(),
+            kind: FileChangeKind::Modify,
+            content: content.into(),
+        }
     }
     pub fn delete(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into(), kind: FileChangeKind::Delete, content: String::new() }
+        Self {
+            path: path.into(),
+            kind: FileChangeKind::Delete,
+            content: String::new(),
+        }
     }
     /// Line count of the proposed content.
     pub fn line_count(&self) -> u32 {
-        if self.content.is_empty() { 0 } else { self.content.lines().count() as u32 }
+        if self.content.is_empty() {
+            0
+        } else {
+            self.content.lines().count() as u32
+        }
     }
 }
 
 #[derive(Serialize)]
-struct PatchContent { request_id: Digest, changes_hash: Digest }
+struct PatchContent {
+    request_id: Digest,
+    changes_hash: Digest,
+}
 
 /// A content-addressed batch of [`FileChange`]s produced by a synthesizer.
 ///
@@ -144,15 +171,25 @@ impl Patch {
             }
             Digest::of(&s)
         };
-        let patch_id = Digest::of(&PatchContent { request_id, changes_hash });
-        Self { patch_id, request_id, file_changes, model_hint: model_hint.into() }
+        let patch_id = Digest::of(&PatchContent {
+            request_id,
+            changes_hash,
+        });
+        Self {
+            patch_id,
+            request_id,
+            file_changes,
+            model_hint: model_hint.into(),
+        }
     }
 
     pub fn empty(request_id: Digest) -> Self {
         Self::new(request_id, vec![], "empty")
     }
 
-    pub fn is_empty(&self) -> bool { self.file_changes.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.file_changes.is_empty()
+    }
 
     /// Total proposed line additions across all file changes.
     pub fn total_lines(&self) -> u32 {
@@ -163,7 +200,10 @@ impl Patch {
 // ─── SynthesisResult ──────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
-struct ResultContent { patch_id: Digest, confidence_raw: i64 }
+struct ResultContent {
+    patch_id: Digest,
+    confidence_raw: i64,
+}
 
 /// The full output of one [`ActionSynthesizer::synthesize`] call.
 ///
@@ -175,7 +215,7 @@ pub struct SynthesisResult {
     /// Why this patch was chosen. Used for audit trails and human review.
     pub rationale: String,
     /// Synthesizer's self-assessed confidence that this patch is correct.
-    /// Downstream callers (e.g. [`AgentSession`]) may skip low-confidence results.
+    /// Downstream callers (e.g. `kosmo-agent`'s `AgentSession`) may skip low-confidence results.
     pub confidence: Q16,
     /// Optional hint: which test to run first to validate the patch.
     pub test_hint: Option<String>,
@@ -213,16 +253,26 @@ pub struct SynthesisError {
 
 impl SynthesisError {
     pub fn permanent(msg: impl Into<String>) -> Self {
-        Self { message: msg.into(), recoverable: false }
+        Self {
+            message: msg.into(),
+            recoverable: false,
+        }
     }
     pub fn transient(msg: impl Into<String>) -> Self {
-        Self { message: msg.into(), recoverable: true }
+        Self {
+            message: msg.into(),
+            recoverable: true,
+        }
     }
 }
 
 impl fmt::Display for SynthesisError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "synthesis error (recoverable={}): {}", self.recoverable, self.message)
+        write!(
+            f,
+            "synthesis error (recoverable={}): {}",
+            self.recoverable, self.message
+        )
     }
 }
 impl std::error::Error for SynthesisError {}
@@ -238,7 +288,9 @@ pub trait ActionSynthesizer: Send + Sync {
     fn synthesize(&self, request: &SynthesisRequest) -> Result<SynthesisResult, SynthesisError>;
     fn name(&self) -> &str;
     /// Soft token budget hint. Implementations may ignore this.
-    fn token_budget(&self) -> u32 { 4096 }
+    fn token_budget(&self) -> u32 {
+        4096
+    }
 }
 
 // ─── MockSynthesizer ──────────────────────────────────────────────────────────
@@ -294,12 +346,17 @@ impl ActionSynthesizer for MockSynthesizer {
         );
         Ok(SynthesisResult::new(
             patch,
-            format!("mock synthesis for action {}", &request.action_item.action_id.to_hex()[..8]),
+            format!(
+                "mock synthesis for action {}",
+                &request.action_item.action_id.to_hex()[..8]
+            ),
             self.confidence,
         ))
     }
 
-    fn name(&self) -> &str { &self.label }
+    fn name(&self) -> &str {
+        &self.label
+    }
 }
 
 // ─── FacetScaffolder ───────────────────────────────────────────────────────────
@@ -391,7 +448,10 @@ impl FacetScaffolder {
         let Some(crate_dir) = manifest.parent() else {
             return vec![];
         };
-        let rel = crate_dir.strip_prefix(ws).unwrap_or(crate_dir).to_path_buf();
+        let rel = crate_dir
+            .strip_prefix(ws)
+            .unwrap_or(crate_dir)
+            .to_path_buf();
         Self::scaffold_kind(crate_dir, kind, bare)
             .into_iter()
             .map(|fc| FileChange {
@@ -715,8 +775,14 @@ impl FacetScaffolder {
             return vec![];
         }
         let manifests = find_crate_manifests(ws);
-        let from_path = manifests.iter().find(|(n, _)| n == from).map(|(_, p)| p.clone());
-        let to_path = manifests.iter().find(|(n, _)| n == to).map(|(_, p)| p.clone());
+        let from_path = manifests
+            .iter()
+            .find(|(n, _)| n == from)
+            .map(|(_, p)| p.clone());
+        let to_path = manifests
+            .iter()
+            .find(|(n, _)| n == to)
+            .map(|(_, p)| p.clone());
         let (Some(from_path), Some(to_path)) = (from_path, to_path) else {
             return vec![]; // can't locate one or both crates — an honest no-op
         };
@@ -946,7 +1012,7 @@ fn find_crate_manifests(ws: &Path) -> Vec<(String, PathBuf)> {
                     continue;
                 }
                 stack.push(path);
-            } else if path.file_name().map_or(false, |f| f == "Cargo.toml") {
+            } else if path.file_name().is_some_and(|f| f == "Cargo.toml") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Some(name) = package_name(&content) {
                         out.push((name, path));
@@ -990,9 +1056,8 @@ fn relative_path(from: &Path, to: &Path) -> String {
     while i < from_comps.len() && i < to_comps.len() && from_comps[i] == to_comps[i] {
         i += 1;
     }
-    let mut parts: Vec<String> = std::iter::repeat("..".to_string())
-        .take(from_comps.len() - i)
-        .collect();
+    let mut parts: Vec<String> =
+        std::iter::repeat_n("..".to_string(), from_comps.len() - i).collect();
     for c in &to_comps[i..] {
         parts.push(c.as_os_str().to_string_lossy().into_owned());
     }
@@ -1008,7 +1073,7 @@ fn dep_already_present(toml: &str, dep: &str) -> bool {
     toml.lines().any(|l| {
         l.trim()
             .strip_prefix(dep)
-            .map_or(false, |rest| rest.trim_start().starts_with('='))
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
     })
 }
 
@@ -1038,9 +1103,15 @@ impl ActionSynthesizer for FacetScaffolder {
             _ => vec![],
         };
         let (rationale, confidence) = if changes.is_empty() {
-            ("no structural scaffold for this action".to_string(), Q16::HALF)
+            (
+                "no structural scaffold for this action".to_string(),
+                Q16::HALF,
+            )
         } else {
-            (format!("scaffold {} change(s) toward the wish", changes.len()), Q16::ONE)
+            (
+                format!("scaffold {} change(s) toward the wish", changes.len()),
+                Q16::ONE,
+            )
         };
         let patch = Patch::new(request.request_id, changes, "facet-scaffolder");
         Ok(SynthesisResult::new(patch, rationale, confidence))
@@ -1057,7 +1128,7 @@ impl ActionSynthesizer for FacetScaffolder {
 mod tests {
     use super::*;
     use kosmo_core::{PolicyProfile, Q16};
-    use kosmo_pipeline::{IntegrationRunOptions, run_workspace_pipeline};
+    use kosmo_pipeline::{run_workspace_pipeline, IntegrationRunOptions};
 
     fn make_request() -> SynthesisRequest {
         let policy = PolicyProfile::default_report_only();
@@ -1074,7 +1145,9 @@ mod tests {
             let item = kosmo_pipeline::ActionItem {
                 action_id: Digest::ZERO,
                 priority_score: Q16::ONE,
-                kind: kosmo_pipeline::ActionItemKind::FillVoid { void_id: Digest::ZERO },
+                kind: kosmo_pipeline::ActionItemKind::FillVoid {
+                    void_id: Digest::ZERO,
+                },
                 description: "test".into(),
                 policy_id: policy.id,
             };
@@ -1150,7 +1223,9 @@ mod tests {
         let item = kosmo_pipeline::ActionItem {
             action_id: Digest::ZERO,
             priority_score: Q16::ONE,
-            kind: kosmo_pipeline::ActionItemKind::FillVoid { void_id: Digest::ZERO },
+            kind: kosmo_pipeline::ActionItemKind::FillVoid {
+                void_id: Digest::ZERO,
+            },
             description: "test".into(),
             policy_id: policy.id,
         };
@@ -1210,7 +1285,10 @@ mod tests {
         let fc = &res.patch.file_changes[0];
         assert_eq!(fc.path.to_str().unwrap(), "src/lib.rs");
         assert!(fc.content.contains("pub fn newfn"));
-        assert!(fc.content.contains("pub fn existing"), "existing content preserved");
+        assert!(
+            fc.content.contains("pub fn existing"),
+            "existing content preserved"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1233,11 +1311,9 @@ mod tests {
             .file_changes
             .iter()
             .any(|c| c.path.to_str() == Some("src/widgets.rs")));
-        assert!(res
-            .patch
-            .file_changes
-            .iter()
-            .any(|c| c.path.to_str() == Some("src/lib.rs") && c.content.contains("pub mod widgets")));
+        assert!(res.patch.file_changes.iter().any(
+            |c| c.path.to_str() == Some("src/lib.rs") && c.content.contains("pub mod widgets")
+        ));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1247,7 +1323,9 @@ mod tests {
         let action = ActionItem {
             action_id: Digest::ZERO,
             priority_score: Q16::ONE,
-            kind: ActionItemKind::FillVoid { void_id: Digest::ZERO },
+            kind: ActionItemKind::FillVoid {
+                void_id: Digest::ZERO,
+            },
             description: "void".into(),
             policy_id: Digest::ZERO,
         };
@@ -1270,7 +1348,10 @@ mod tests {
     #[test]
     fn scaffold_contract_emits_typed_stub() {
         let dir = temp_ws("// root\n");
-        let req = wish_request(&dir, WishFacet::contract("handle", &["Request"], "Response"));
+        let req = wish_request(
+            &dir,
+            WishFacet::contract("handle", &["Request"], "Response"),
+        );
         let res = FacetScaffolder.synthesize(&req).unwrap();
         let c = &res.patch.file_changes[0].content;
         assert!(
@@ -1288,7 +1369,10 @@ mod tests {
         let res = FacetScaffolder.synthesize(&req).unwrap();
         let c = &res.patch.file_changes[0].content;
         assert!(c.contains("pub fn tick()"), "got:\n{c}");
-        assert!(!c.contains("-> ()"), "unit return should omit the arrow: {c}");
+        assert!(
+            !c.contains("-> ()"),
+            "unit return should omit the arrow: {c}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1311,7 +1395,10 @@ mod tests {
     #[test]
     fn scaffold_contract_is_idempotent() {
         let dir = temp_ws("pub fn handle(_a0: Request) -> Response { todo!() }\n");
-        let req = wish_request(&dir, WishFacet::contract("handle", &["Request"], "Response"));
+        let req = wish_request(
+            &dir,
+            WishFacet::contract("handle", &["Request"], "Response"),
+        );
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "existing fn name → no change");
         std::fs::remove_dir_all(&dir).ok();
@@ -1408,9 +1495,8 @@ mod tests {
 
     #[test]
     fn scaffold_composition_idempotent_when_both_present() {
-        let dir = temp_ws(
-            "pub fn parse() -> String { todo!() }\npub fn eval(_a0: String) { todo!() }\n",
-        );
+        let dir =
+            temp_ws("pub fn parse() -> String { todo!() }\npub fn eval(_a0: String) { todo!() }\n");
         let req = wish_request(&dir, WishFacet::composition("parse", "String", "eval"));
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "both fns present → no change");
@@ -1424,7 +1510,11 @@ mod tests {
         let res = FacetScaffolder.synthesize(&req).unwrap();
         let fc = &res.patch.file_changes[0];
         assert_eq!(fc.path, std::path::Path::new("src/main.rs"));
-        assert!(fc.content.contains("// kosmo:run: add,2,3=>out~5"), "marker:\n{}", fc.content);
+        assert!(
+            fc.content.contains("// kosmo:run: add,2,3=>out~5"),
+            "marker:\n{}",
+            fc.content
+        );
         assert!(fc.content.contains("fn main"));
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1565,10 +1655,7 @@ mod tests {
     #[test]
     fn scaffold_contract_targets_named_crate() {
         let ws = temp_workspace();
-        let req = wish_request(
-            &ws,
-            WishFacet::contract_key("handle(String)->String@alpha"),
-        );
+        let req = wish_request(&ws, WishFacet::contract_key("handle(String)->String@alpha"));
         let res = FacetScaffolder.synthesize(&req).unwrap();
         let fc = &res.patch.file_changes[0];
         assert_eq!(fc.path, std::path::Path::new("crates/alpha/src/lib.rs"));

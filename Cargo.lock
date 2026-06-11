@@ -1660,6 +1660,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-promote"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+ "kosmo-hyphae",
+ "kosmo-pipeline",
+ "kosmo-pse-bridge",
+ "kosmo-store",
+ "pse-adapter-il",
+ "pse-adapter-kosmo",
+ "pse-core",
+ "pse-types",
+ "serde_json",
+]
+
+[[package]]
 name = "kosmo-pse-bridge"
 version = "0.1.0"
 dependencies = [
@@ -1698,6 +1714,11 @@ dependencies = [
  "axum",
  "kosmo-core",
  "kosmo-pipeline",
+ "kosmo-pse-bridge",
+ "pse-adapter-il",
+ "pse-adapter-kosmo",
+ "pse-core",
+ "pse-types",
  "serde",
  "serde_json",
  "tokio",
@@ -1763,6 +1784,10 @@ dependencies = [
  "crossterm",
  "kosmo-core",
  "kosmo-pipeline",
+ "kosmo-pse-bridge",
+ "pse-adapter-kosmo",
+ "pse-core",
+ "pse-types",
  "ratatui",
 ]
 
@@ -2683,6 +2708,21 @@ name = "pse-adapter-iot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "pse-core",
+ "pse-graph",
+ "pse-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pse-adapter-kosmo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kosmo-core",
+ "kosmo-pse-bridge",
+ "pse-adapter-il",
  "pse-core",
  "pse-graph",
  "pse-types",

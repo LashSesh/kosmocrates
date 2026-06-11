@@ -1,7 +1,7 @@
 use crate::deficiency::DeficiencyKind;
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, Q16, TaintLabel, TripolarEnergy,
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult,
+    LicenseStatus, TaintLabel, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -26,12 +26,18 @@ pub struct CubeDimensionProfile {
 impl CubeDimensionProfile {
     pub fn empty() -> Self {
         let profile_id = Self::compute_id(&BTreeMap::new());
-        Self { profile_id, dimensions: BTreeMap::new() }
+        Self {
+            profile_id,
+            dimensions: BTreeMap::new(),
+        }
     }
 
     pub fn from_raw_map(dimensions: BTreeMap<String, Q16>) -> Self {
         let profile_id = Self::compute_id(&dimensions);
-        Self { profile_id, dimensions }
+        Self {
+            profile_id,
+            dimensions,
+        }
     }
 
     pub fn with_dimension(mut self, kind: &DeficiencyKind, score: Q16) -> Self {
@@ -41,7 +47,10 @@ impl CubeDimensionProfile {
     }
 
     pub fn coverage_for(&self, kind: &DeficiencyKind) -> Q16 {
-        self.dimensions.get(&format!("{:?}", kind)).copied().unwrap_or(Q16::ZERO)
+        self.dimensions
+            .get(&format!("{:?}", kind))
+            .copied()
+            .unwrap_or(Q16::ZERO)
     }
 
     fn compute_id(dimensions: &BTreeMap<String, Q16>) -> Digest {
@@ -90,7 +99,14 @@ impl RepositoryCube {
             taint: format!("{:?}", taint),
             policy_id,
         });
-        Self { cube_id, source_path, dimension_profile, evidence_bundle_id, taint, policy_id }
+        Self {
+            cube_id,
+            source_path,
+            dimension_profile,
+            evidence_bundle_id,
+            taint,
+            policy_id,
+        }
     }
 }
 
@@ -206,7 +222,7 @@ impl SourceCube {
 mod tests {
     use super::*;
     use crate::deficiency::DeficiencyKind;
-    use kosmo_core::{Digest, Q16, TaintLabel};
+    use kosmo_core::{Digest, TaintLabel, Q16};
 
     #[test]
     fn dimension_profile_from_raw_map_is_content_addressed() {
@@ -236,13 +252,16 @@ mod tests {
         let p2 = CubeDimensionProfile::empty()
             .with_dimension(&DeficiencyKind::Documentation, Q16::ratio(1, 4).unwrap())
             .with_dimension(&DeficiencyKind::TestCoverage, Q16::HALF);
-        assert_eq!(p1.profile_id, p2.profile_id, "profile_id must be order-independent");
+        assert_eq!(
+            p1.profile_id, p2.profile_id,
+            "profile_id must be order-independent"
+        );
     }
 
     #[test]
     fn dimension_profile_coverage_lookup() {
-        let p = CubeDimensionProfile::empty()
-            .with_dimension(&DeficiencyKind::TestCoverage, Q16::HALF);
+        let p =
+            CubeDimensionProfile::empty().with_dimension(&DeficiencyKind::TestCoverage, Q16::HALF);
         assert_eq!(p.coverage_for(&DeficiencyKind::TestCoverage), Q16::HALF);
         assert_eq!(p.coverage_for(&DeficiencyKind::Documentation), Q16::ZERO);
     }
@@ -250,15 +269,25 @@ mod tests {
     #[test]
     fn source_cube_is_content_addressed() {
         let pid = Digest::of_bytes(b"p");
-        let profile = CubeDimensionProfile::empty()
-            .with_dimension(&DeficiencyKind::TestCoverage, Q16::HALF);
+        let profile =
+            CubeDimensionProfile::empty().with_dimension(&DeficiencyKind::TestCoverage, Q16::HALF);
         let s1 = SourceCube::new(
-            Some(Digest::of_bytes(b"void")), "src/foo.rs".into(),
-            profile.clone(), Q16::HALF, TaintLabel::Synthetic, Digest::ZERO, pid,
+            Some(Digest::of_bytes(b"void")),
+            "src/foo.rs".into(),
+            profile.clone(),
+            Q16::HALF,
+            TaintLabel::Synthetic,
+            Digest::ZERO,
+            pid,
         );
         let s2 = SourceCube::new(
-            Some(Digest::of_bytes(b"void")), "src/foo.rs".into(),
-            profile, Q16::HALF, TaintLabel::Synthetic, Digest::ZERO, pid,
+            Some(Digest::of_bytes(b"void")),
+            "src/foo.rs".into(),
+            profile,
+            Q16::HALF,
+            TaintLabel::Synthetic,
+            Digest::ZERO,
+            pid,
         );
         assert_eq!(s1.cube_id, s2.cube_id);
         assert_ne!(s1.cube_id, Digest::ZERO);
@@ -269,10 +298,18 @@ mod tests {
         let pid = Digest::of_bytes(b"p");
         let profile = CubeDimensionProfile::empty();
         let r1 = RepositoryCube::new(
-            "repo/".into(), profile.clone(), Digest::ZERO, TaintLabel::Clean, pid,
+            "repo/".into(),
+            profile.clone(),
+            Digest::ZERO,
+            TaintLabel::Clean,
+            pid,
         );
         let r2 = RepositoryCube::new(
-            "repo/".into(), profile, Digest::ZERO, TaintLabel::Clean, pid,
+            "repo/".into(),
+            profile,
+            Digest::ZERO,
+            TaintLabel::Clean,
+            pid,
         );
         assert_eq!(r1.cube_id, r2.cube_id);
         assert_ne!(r1.cube_id, Digest::ZERO);

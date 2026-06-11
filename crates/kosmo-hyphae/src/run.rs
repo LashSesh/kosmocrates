@@ -3,9 +3,7 @@ use crate::frontier::{SourceFrontierGraph, SourceIntent};
 use crate::gates::GateCascade;
 use crate::host::HostCube;
 use crate::structural_yield::{StructuralYield, StructuralYieldKind};
-use kosmo_core::{
-    Digest, EvidenceBundle, EvidenceKind, EvidenceRef, PolicyProfile, ReplayStatus,
-};
+use kosmo_core::{Digest, EvidenceBundle, EvidenceKind, EvidenceRef, PolicyProfile, ReplayStatus};
 use kosmo_workbench::workspace::WorkspaceIndex;
 use serde::{Deserialize, Serialize};
 
@@ -122,7 +120,8 @@ pub fn passive_run_augmented(
     // Build the ledger before sealing run_id so ledger_id participates in it.
     // Two runs with identical intents but different gate outcomes will have different run_ids.
     let ledger_placeholder_run_id = Digest::of_bytes(b"ledger-pre-seal");
-    let ledger = AssimilationLedger::from_decisions(&decisions, ledger_placeholder_run_id, policy.id);
+    let ledger =
+        AssimilationLedger::from_decisions(&decisions, ledger_placeholder_run_id, policy.id);
 
     let run_id = Digest::of(&RunContent {
         host_cube_id: host_cube.cube_id,
@@ -184,10 +183,9 @@ fn yield_for_intent(
             StructuralYieldKind::DeficiencyFill,
             Some(format!("{:?}", deficiency_kind)),
         ),
-        crate::frontier::SourceIntentKind::SuggestPattern { .. } => (
-            StructuralYieldKind::MotifProposal,
-            None,
-        ),
+        crate::frontier::SourceIntentKind::SuggestPattern { .. } => {
+            (StructuralYieldKind::MotifProposal, None)
+        }
         _ => (StructuralYieldKind::DeficiencyFill, None),
     };
     StructuralYield::new(
@@ -225,7 +223,8 @@ mod tests {
             path: path.into(),
             digest: Digest::of_bytes(path.as_bytes()),
             size_bytes: 100,
-            kind: WorkspaceEntryKind::SourceFile, content: None,
+            kind: WorkspaceEntryKind::SourceFile,
+            content: None,
         }
     }
 
@@ -244,17 +243,23 @@ mod tests {
     #[test]
     fn passive_run_source_files_produce_void_yields() {
         let policy = PolicyProfile::default_report_only();
-        let index = make_index(vec![
-            src("src/alpha.rs"),
-            src("src/beta.rs"),
-        ]);
+        let index = make_index(vec![src("src/alpha.rs"), src("src/beta.rs")]);
         let result = passive_run(&index, &policy);
         // Each source file without a test companion generates at least one void
-        assert!(result.host_cube.void_count() > 0, "source files must produce voids");
+        assert!(
+            result.host_cube.void_count() > 0,
+            "source files must produce voids"
+        );
         assert!(result.total_yields() > 0, "voids must produce yields");
         // All yields are Synthetic/Agent → TaintGate/AuthorityGate warn → EvidenceOnly
-        assert_eq!(result.rejected_count, 0, "synthetic yields must not be rejected in ReportOnly");
-        assert_eq!(result.accepted_count, 0, "synthetic yields must not be accepted in ReportOnly");
+        assert_eq!(
+            result.rejected_count, 0,
+            "synthetic yields must not be rejected in ReportOnly"
+        );
+        assert_eq!(
+            result.accepted_count, 0,
+            "synthetic yields must not be accepted in ReportOnly"
+        );
     }
 
     #[test]
@@ -287,15 +292,18 @@ mod tests {
         let result = passive_run(&index, &policy);
         assert!(result.host_cube.has_deficiencies());
         let dv = &result.host_cube.deficiency_vector;
-        assert!(!dv.entries.is_empty(), "deficiency vector must have entries for untested sources");
+        assert!(
+            !dv.entries.is_empty(),
+            "deficiency vector must have entries for untested sources"
+        );
     }
 
     #[test]
     fn yield_for_unverified_agent_intent_produces_evidence_only_decision() {
-        use kosmo_core::{AuthorityLabel, TaintLabel};
+        use crate::assimilation::AssimilationDecision;
         use crate::frontier::{SourceIntent, SourceIntentKind};
         use crate::gates::GateCascade;
-        use crate::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, TaintLabel};
 
         let policy = PolicyProfile::default_report_only();
         let void_id = Digest::of_bytes(b"void-unverified");
@@ -303,7 +311,9 @@ mod tests {
             SourceIntentKind::FillVoid { void_id },
             Some(void_id),
             TaintLabel::Unverified,
-            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+            AuthorityLabel::Agent {
+                name: "hyphae-v0.3".into(),
+            },
         );
         let evidence = synthetic_evidence_for_intent(&intent, policy.id);
         let yield_ = yield_for_intent(&intent, &evidence, policy.id);
@@ -312,7 +322,10 @@ mod tests {
         let decision = AssimilationDecision::from_trace(&yield_, &trace, &evidence, policy.id);
 
         assert!(
-            matches!(decision.outcome, crate::assimilation::AssimilationOutcome::EvidenceOnly { .. }),
+            matches!(
+                decision.outcome,
+                crate::assimilation::AssimilationOutcome::EvidenceOnly { .. }
+            ),
             "Unverified/Agent intent must produce EvidenceOnly in ReportOnly mode, got {:?}",
             decision.outcome,
         );
@@ -321,10 +334,10 @@ mod tests {
 
     #[test]
     fn yield_for_clean_foundry_intent_produces_accepted_decision() {
-        use kosmo_core::{AuthorityLabel, PolicyProfile, TaintLabel};
+        use crate::assimilation::AssimilationDecision;
         use crate::frontier::{SourceIntent, SourceIntentKind};
         use crate::gates::GateCascade;
-        use crate::assimilation::AssimilationDecision;
+        use kosmo_core::{AuthorityLabel, PolicyProfile, TaintLabel};
 
         let policy = PolicyProfile::operator_approved();
         let void_id = Digest::of_bytes(b"void-clean");
@@ -350,16 +363,20 @@ mod tests {
 
     #[test]
     fn yield_for_reduce_deficiency_intent_carries_deficiency_kind_ref() {
-        use kosmo_core::{AuthorityLabel, TaintLabel};
         use crate::deficiency::DeficiencyKind;
         use crate::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_core::{AuthorityLabel, TaintLabel};
 
         let policy = PolicyProfile::default_report_only();
         let intent = SourceIntent::new(
-            SourceIntentKind::ReduceDeficiency { deficiency_kind: DeficiencyKind::TestCoverage },
+            SourceIntentKind::ReduceDeficiency {
+                deficiency_kind: DeficiencyKind::TestCoverage,
+            },
             None,
             TaintLabel::Unverified,
-            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+            AuthorityLabel::Agent {
+                name: "hyphae-v0.3".into(),
+            },
         );
         let evidence = synthetic_evidence_for_intent(&intent, policy.id);
         let yield_ = yield_for_intent(&intent, &evidence, policy.id);
@@ -383,15 +400,29 @@ mod tests {
         let result = passive_run(&index, &policy);
 
         // Frontier must contain both FillVoid and ReduceDeficiency intents.
-        let fill_count = result.frontier.intents.iter()
+        let fill_count = result
+            .frontier
+            .intents
+            .iter()
             .filter(|i| matches!(&i.kind, crate::frontier::SourceIntentKind::FillVoid { .. }))
             .count();
-        let reduce_count = result.frontier.intents.iter()
-            .filter(|i| matches!(&i.kind, crate::frontier::SourceIntentKind::ReduceDeficiency { .. }))
+        let reduce_count = result
+            .frontier
+            .intents
+            .iter()
+            .filter(|i| {
+                matches!(
+                    &i.kind,
+                    crate::frontier::SourceIntentKind::ReduceDeficiency { .. }
+                )
+            })
             .count();
 
         assert!(fill_count > 0, "source files must produce FillVoid intents");
-        assert!(reduce_count > 0, "deficiency entries must produce ReduceDeficiency intents");
+        assert!(
+            reduce_count > 0,
+            "deficiency entries must produce ReduceDeficiency intents"
+        );
         assert_eq!(
             result.total_yields(),
             fill_count + reduce_count,
@@ -401,20 +432,22 @@ mod tests {
 
     #[test]
     fn passive_run_augmented_adds_suggest_pattern_intents() {
-        use kosmo_core::TaintLabel;
         use crate::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_core::TaintLabel;
 
         let policy = PolicyProfile::default_report_only();
         let index = make_index(vec![src("src/lib.rs")]);
 
-        let extra = vec![
-            SourceIntent::new(
-                SourceIntentKind::SuggestPattern { pattern_name: "motif:MissingTestFiber".into() },
-                None,
-                TaintLabel::Unverified,
-                kosmo_core::AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
-            ),
-        ];
+        let extra = vec![SourceIntent::new(
+            SourceIntentKind::SuggestPattern {
+                pattern_name: "motif:MissingTestFiber".into(),
+            },
+            None,
+            TaintLabel::Unverified,
+            kosmo_core::AuthorityLabel::Agent {
+                name: "hyphae-v0.3".into(),
+            },
+        )];
         let base = passive_run(&index, &policy);
         let augmented = passive_run_augmented(&index, &policy, extra);
 
@@ -423,25 +456,38 @@ mod tests {
             base.total_yields() + 1,
             "one extra SuggestPattern intent must produce one extra decision",
         );
-        let suggest_count = augmented.frontier.intents.iter()
+        let suggest_count = augmented
+            .frontier
+            .intents
+            .iter()
             .filter(|i| matches!(&i.kind, SourceIntentKind::SuggestPattern { .. }))
             .count();
-        assert_eq!(suggest_count, 1, "frontier must contain the injected SuggestPattern intent");
+        assert_eq!(
+            suggest_count, 1,
+            "frontier must contain the injected SuggestPattern intent"
+        );
         // run_id must differ since frontier_id differs (INVARIANT-007).
-        assert_ne!(base.run_id, augmented.run_id, "augmented run must have different run_id");
+        assert_ne!(
+            base.run_id, augmented.run_id,
+            "augmented run must have different run_id"
+        );
     }
 
     #[test]
     fn yield_for_suggest_pattern_intent_uses_motif_proposal_kind() {
-        use kosmo_core::{AuthorityLabel, TaintLabel};
         use crate::frontier::{SourceIntent, SourceIntentKind};
+        use kosmo_core::{AuthorityLabel, TaintLabel};
 
         let policy = PolicyProfile::default_report_only();
         let intent = SourceIntent::new(
-            SourceIntentKind::SuggestPattern { pattern_name: "motif:MissingTestFiber".into() },
+            SourceIntentKind::SuggestPattern {
+                pattern_name: "motif:MissingTestFiber".into(),
+            },
             None,
             TaintLabel::Unverified,
-            AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+            AuthorityLabel::Agent {
+                name: "hyphae-v0.3".into(),
+            },
         );
         let evidence = synthetic_evidence_for_intent(&intent, policy.id);
         let yield_ = yield_for_intent(&intent, &evidence, policy.id);
@@ -451,7 +497,13 @@ mod tests {
             StructuralYieldKind::MotifProposal,
             "SuggestPattern intent must produce MotifProposal yield",
         );
-        assert!(yield_.host_void_id.is_none(), "MotifProposal yield has no specific void");
-        assert!(yield_.deficiency_kind_ref.is_none(), "MotifProposal yield has no deficiency ref");
+        assert!(
+            yield_.host_void_id.is_none(),
+            "MotifProposal yield has no specific void"
+        );
+        assert!(
+            yield_.deficiency_kind_ref.is_none(),
+            "MotifProposal yield has no deficiency ref"
+        );
     }
 }

@@ -27,7 +27,7 @@ pub struct DeficiencyEntry {
 /// Serialize-only content struct for content-addressing.
 #[derive(Serialize)]
 struct VectorContent {
-    entries: Vec<(String, i64, u64)>,   // (kind as json string, severity raw, affected_count)
+    entries: Vec<(String, i64, u64)>, // (kind as json string, severity raw, affected_count)
     policy_id: Digest,
 }
 
@@ -45,8 +45,16 @@ pub struct DeficiencyVector {
 
 impl DeficiencyVector {
     pub fn empty(policy_id: Digest) -> Self {
-        let vector_id = Digest::of(&VectorContent { entries: vec![], policy_id });
-        Self { vector_id, entries: vec![], total_severity: Q16::ZERO, policy_id }
+        let vector_id = Digest::of(&VectorContent {
+            entries: vec![],
+            policy_id,
+        });
+        Self {
+            vector_id,
+            entries: vec![],
+            total_severity: Q16::ZERO,
+            policy_id,
+        }
     }
 
     pub fn from_entries(mut entries: Vec<DeficiencyEntry>, policy_id: Digest) -> Self {
@@ -70,7 +78,12 @@ impl DeficiencyVector {
             policy_id,
         });
 
-        Self { vector_id, entries, total_severity, policy_id }
+        Self {
+            vector_id,
+            entries,
+            total_severity,
+            policy_id,
+        }
     }
 
     /// Derive a `DeficiencyVector` from a `TopologicalVoidMap`.
@@ -81,10 +94,10 @@ impl DeficiencyVector {
             return Self::empty(policy_id);
         }
 
-        let test_voids = void_map
-            .count_by_kind(|k| matches!(k, HostVoidKind::MissingTestFiber { .. })) as u64;
-        let doc_voids = void_map
-            .count_by_kind(|k| matches!(k, HostVoidKind::MissingDocFiber { .. })) as u64;
+        let test_voids =
+            void_map.count_by_kind(|k| matches!(k, HostVoidKind::MissingTestFiber { .. })) as u64;
+        let doc_voids =
+            void_map.count_by_kind(|k| matches!(k, HostVoidKind::MissingDocFiber { .. })) as u64;
 
         let mut entries = Vec::new();
 
@@ -135,12 +148,16 @@ mod tests {
         let pid = Digest::of_bytes(b"p");
         let voids = vec![
             HostVoid::new(
-                HostVoidKind::MissingTestFiber { for_module: "src/a.rs".into() },
+                HostVoidKind::MissingTestFiber {
+                    for_module: "src/a.rs".into(),
+                },
                 Q16::HALF,
                 "src/a.rs".into(),
             ),
             HostVoid::new(
-                HostVoidKind::MissingTestFiber { for_module: "src/b.rs".into() },
+                HostVoidKind::MissingTestFiber {
+                    for_module: "src/b.rs".into(),
+                },
                 Q16::HALF,
                 "src/b.rs".into(),
             ),

@@ -30,8 +30,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use kosmo_core::{
-    AttractorStatus, Digest, FeedbackOutcome, GateResult, PolicyProfile, PromotionFeedback, Q16,
-    Wish, WishAssessment, WishConvergenceTrace, WishFacet,
+    AttractorStatus, Digest, FeedbackOutcome, GateResult, PolicyProfile, PromotionFeedback, Wish,
+    WishAssessment, WishConvergenceTrace, WishFacet, Q16,
 };
 use kosmo_intent::WishSession;
 use kosmo_materialize::{MaterializeOptions, MaterializeReport, Materializer, PatchValidator};
@@ -72,8 +72,14 @@ impl Default for AgentOptions {
 }
 
 impl AgentOptions {
-    pub fn with_max_steps(mut self, n: u32) -> Self { self.max_steps = n; self }
-    pub fn with_min_confidence(mut self, c: Q16) -> Self { self.min_confidence = c; self }
+    pub fn with_max_steps(mut self, n: u32) -> Self {
+        self.max_steps = n;
+        self
+    }
+    pub fn with_min_confidence(mut self, c: Q16) -> Self {
+        self.min_confidence = c;
+        self
+    }
     pub fn with_pipeline_options(mut self, o: IntegrationRunOptions) -> Self {
         self.pipeline_options = o;
         self
@@ -119,7 +125,10 @@ impl ValidationResult {
 // ─── MaterializationAttempt ───────────────────────────────────────────────────
 
 #[derive(Serialize)]
-struct AttemptContent { patch_id: Digest, applied: bool }
+struct AttemptContent {
+    patch_id: Digest,
+    applied: bool,
+}
 
 /// A content-addressed record of one materialization attempt.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -141,7 +150,10 @@ pub struct MaterializationAttempt {
 
 impl MaterializationAttempt {
     fn new_dry_run(patch_id: Digest, action_id: Digest, lines_added: u32) -> Self {
-        let attempt_id = Digest::of(&AttemptContent { patch_id, applied: false });
+        let attempt_id = Digest::of(&AttemptContent {
+            patch_id,
+            applied: false,
+        });
         Self {
             attempt_id,
             patch_id,
@@ -155,9 +167,16 @@ impl MaterializationAttempt {
     }
 
     /// Build from a real [`MaterializeReport`] produced by `kosmo-materialize`.
-    fn from_materialize_report(action_id: Digest, lines_added: u32, report: &MaterializeReport) -> Self {
+    fn from_materialize_report(
+        action_id: Digest,
+        lines_added: u32,
+        report: &MaterializeReport,
+    ) -> Self {
         let applied = report.applied_to_host;
-        let attempt_id = Digest::of(&AttemptContent { patch_id: report.patch_id, applied });
+        let attempt_id = Digest::of(&AttemptContent {
+            patch_id: report.patch_id,
+            applied,
+        });
         Self {
             attempt_id,
             patch_id: report.patch_id,
@@ -210,7 +229,13 @@ impl ExecutionFeedback {
             is_positive,
             confidence_raw: confidence.raw(),
         });
-        Self { feedback_id, action_id, synthesis_confidence: confidence, materialization, is_positive }
+        Self {
+            feedback_id,
+            action_id,
+            synthesis_confidence: confidence,
+            materialization,
+            is_positive,
+        }
     }
 
     fn skipped(action_id: Digest, confidence: Q16) -> Self {
@@ -265,7 +290,10 @@ impl WishRunOutcome {
 }
 
 #[derive(Serialize)]
-struct ReportContent { workspace_hash: Digest, step_ids: Vec<Digest> }
+struct ReportContent {
+    workspace_hash: Digest,
+    step_ids: Vec<Digest>,
+}
 
 /// Summary of one complete [`AgentSession::run`] invocation.
 ///
@@ -301,15 +329,22 @@ impl AgentRunReport {
     ) -> Self {
         let workspace_hash = Digest::of(&workspace_path.to_string());
         let step_ids: Vec<Digest> = steps.iter().map(|s| s.feedback.feedback_id).collect();
-        let run_id = Digest::of(&ReportContent { workspace_hash, step_ids });
+        let run_id = Digest::of(&ReportContent {
+            workspace_hash,
+            step_ids,
+        });
 
         let steps_synthesized = steps.len() as u32;
-        let steps_materialized = steps.iter().filter(|s| {
-            s.materialization.as_ref().map(|m| m.applied).unwrap_or(false)
-        }).count() as u32;
-        let total_lines_proposed = steps.iter()
-            .map(|s| s.synthesis.patch.total_lines())
-            .sum();
+        let steps_materialized = steps
+            .iter()
+            .filter(|s| {
+                s.materialization
+                    .as_ref()
+                    .map(|m| m.applied)
+                    .unwrap_or(false)
+            })
+            .count() as u32;
+        let total_lines_proposed = steps.iter().map(|s| s.synthesis.patch.total_lines()).sum();
 
         AgentRunReport {
             run_id,
@@ -346,8 +381,8 @@ pub enum AgentError {
 impl fmt::Display for AgentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AgentError::Pipeline(s)   => write!(f, "pipeline error: {s}"),
-            AgentError::Synthesis(s)  => write!(f, "synthesis error: {s}"),
+            AgentError::Pipeline(s) => write!(f, "pipeline error: {s}"),
+            AgentError::Synthesis(s) => write!(f, "synthesis error: {s}"),
         }
     }
 }
@@ -386,10 +421,8 @@ impl AgentSession {
         policy: PolicyProfile,
         synthesizer: Arc<dyn ActionSynthesizer>,
     ) -> Self {
-        let pipeline_session = WorkspacePipelineSession::new(
-            options.pipeline_options.clone(),
-            policy.clone(),
-        );
+        let pipeline_session =
+            WorkspacePipelineSession::new(options.pipeline_options.clone(), policy.clone());
         Self {
             pipeline_session,
             synthesizer,
@@ -486,7 +519,9 @@ impl AgentSession {
                 ActionItem {
                     action_id,
                     priority_score: Q16::ONE,
-                    kind: ActionItemKind::RealizeWishFacet { facet: facet.clone() },
+                    kind: ActionItemKind::RealizeWishFacet {
+                        facet: facet.clone(),
+                    },
                     description: format!("Realize wished {:?} `{}`", facet.kind, facet.key),
                     policy_id: self.policy.id,
                 }
@@ -494,11 +529,19 @@ impl AgentSession {
             .collect()
     }
 
-    pub fn feedback_history(&self) -> &[ExecutionFeedback] { &self.feedback_history }
+    pub fn feedback_history(&self) -> &[ExecutionFeedback] {
+        &self.feedback_history
+    }
     /// Number of `PromotionFeedback` records queued for injection into the next pipeline run.
-    pub fn pipeline_feedback_pending(&self) -> usize { self.pipeline_feedback.len() }
-    pub fn run_count(&self) -> u32 { self.pipeline_session.run_count() }
-    pub fn synthesizer_name(&self) -> &str { self.synthesizer.name() }
+    pub fn pipeline_feedback_pending(&self) -> usize {
+        self.pipeline_feedback.len()
+    }
+    pub fn run_count(&self) -> u32 {
+        self.pipeline_session.run_count()
+    }
+    pub fn synthesizer_name(&self) -> &str {
+        self.synthesizer.name()
+    }
 
     /// Execute one full agent iteration on `workspace`.
     ///
@@ -511,11 +554,14 @@ impl AgentSession {
         // pipeline session's prior_feedback pool so it can update norm-fitness
         // scoring before the next scan.
         if !self.pipeline_feedback.is_empty() {
-            self.pipeline_session.extend_prior_feedback(self.pipeline_feedback.drain(..));
+            self.pipeline_session
+                .extend_prior_feedback(self.pipeline_feedback.drain(..));
         }
 
         // ── 1. Plan ──────────────────────────────────────────────────────────
-        let report = self.pipeline_session.run(workspace)
+        let report = self
+            .pipeline_session
+            .run(workspace)
             .map_err(|e| AgentError::Pipeline(e.to_string()))?;
 
         let pipeline_gate = report.final_result.clone();
@@ -543,7 +589,9 @@ impl AgentSession {
         let mut skipped_low_confidence = 0u32;
 
         for (idx, action) in all_items.into_iter().enumerate() {
-            if steps.len() >= self.options.max_steps as usize { break; }
+            if steps.len() >= self.options.max_steps as usize {
+                break;
+            }
 
             let request = SynthesisRequest::new(action.clone(), workspace);
 
@@ -553,7 +601,9 @@ impl AgentSession {
                     // Permanent synthesis failure: record as negative feedback, continue.
                     let fb = ExecutionFeedback::skipped(action.action_id, Q16::ZERO);
                     self.feedback_history.push(fb);
-                    if !e.recoverable { continue; }
+                    if !e.recoverable {
+                        continue;
+                    }
                     return Err(AgentError::Synthesis(e.to_string()));
                 }
             };
@@ -612,7 +662,8 @@ impl AgentSession {
                 }
             };
 
-            let is_positive = attempt.as_ref()
+            let is_positive = attempt
+                .as_ref()
                 .map(|a| a.validation.is_acceptable())
                 .unwrap_or(false);
 
@@ -629,7 +680,9 @@ impl AgentSession {
             // NormFitnessTrace for the relevant candidate.
             let norm_candidate_id = match &action.kind {
                 ActionItemKind::PromoteToPse { candidate_id } => *candidate_id,
-                ActionItemKind::ApplyNorm { norm_candidate_id, .. } => *norm_candidate_id,
+                ActionItemKind::ApplyNorm {
+                    norm_candidate_id, ..
+                } => *norm_candidate_id,
                 _ => Digest::ZERO,
             };
             let pf_outcome = if is_positive {
@@ -638,13 +691,13 @@ impl AgentSession {
                 FeedbackOutcome::Rejected
             };
             let pf = PromotionFeedback::new(
-                feedback.feedback_id,   // record_id
-                action.action_id,       // candidate_id
+                feedback.feedback_id, // record_id
+                action.action_id,     // candidate_id
                 norm_candidate_id,
                 pf_outcome,
-                synthesis.confidence,   // energy_at_submission
+                synthesis.confidence, // energy_at_submission
                 self.policy.id,
-                feedback.feedback_id,   // evidence_bundle_id (≠ ZERO — CROSS-006)
+                feedback.feedback_id, // evidence_bundle_id (≠ ZERO — CROSS-006)
             );
             self.pipeline_feedback.push(pf);
 
@@ -676,7 +729,9 @@ mod tests {
     use super::*;
     use kosmo_synthesizer::{FileChange, MockSynthesizer, Patch, SynthesisError};
 
-    fn tmp() -> String { std::env::temp_dir().to_string_lossy().to_string() }
+    fn tmp() -> String {
+        std::env::temp_dir().to_string_lossy().to_string()
+    }
 
     fn session(opts: AgentOptions, confident: bool) -> AgentSession {
         let synth: Arc<dyn ActionSynthesizer> = if confident {
@@ -727,7 +782,10 @@ mod tests {
         assert_eq!(report.steps_materialized, report.steps_synthesized);
         for step in &report.steps {
             let attempt = step.materialization.as_ref().unwrap();
-            assert!(attempt.applied, "patch should be applied with a passing validator");
+            assert!(
+                attempt.applied,
+                "patch should be applied with a passing validator"
+            );
         }
 
         std::fs::remove_dir_all(&dir).ok();
@@ -806,11 +864,11 @@ mod tests {
         let opts = AgentOptions::default().with_max_steps(2);
         let synth = Arc::new(MockSynthesizer::confident());
         let mut s1 = AgentSession::new(
-            opts.clone(), PolicyProfile::default_report_only(), synth.clone(),
+            opts.clone(),
+            PolicyProfile::default_report_only(),
+            synth.clone(),
         );
-        let mut s2 = AgentSession::new(
-            opts, PolicyProfile::default_report_only(), synth,
-        );
+        let mut s2 = AgentSession::new(opts, PolicyProfile::default_report_only(), synth);
         let r1 = s1.run(ws).unwrap();
         let r2 = s2.run(ws).unwrap();
         assert_eq!(r1.run_id, r2.run_id);
@@ -844,13 +902,16 @@ mod tests {
     #[test]
     fn agent_total_lines_proposed_is_sum_of_patch_lines() {
         let opts = AgentOptions::default().with_max_steps(3);
-        let synth = Arc::new(
-            MockSynthesizer::confident()
-                .with_change(kosmo_synthesizer::FileChange::create("a.rs", "fn a(){}\nfn b(){}"))
-        );
+        let synth = Arc::new(MockSynthesizer::confident().with_change(
+            kosmo_synthesizer::FileChange::create("a.rs", "fn a(){}\nfn b(){}"),
+        ));
         let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth);
         let report = s.run(&tmp()).unwrap();
-        let expected: u32 = report.steps.iter().map(|s| s.synthesis.patch.total_lines()).sum();
+        let expected: u32 = report
+            .steps
+            .iter()
+            .map(|s| s.synthesis.patch.total_lines())
+            .sum();
         assert_eq!(report.total_lines_proposed, expected);
     }
 
@@ -952,7 +1013,10 @@ mod tests {
         let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth)
             .with_wish(crate_wish("anything"), Digest::of_bytes(b"ev"));
         let report = s.run(&tmp()).unwrap();
-        assert!(report.wish.is_none(), "a non-cargo workspace must fail soft");
+        assert!(
+            report.wish.is_none(),
+            "a non-cargo workspace must fail soft"
+        );
     }
 
     #[test]
@@ -1055,10 +1119,18 @@ mod tests {
                         vec![FileChange::modify("Cargo.toml", toml)],
                         "crate-scaffolder",
                     );
-                    return Ok(SynthesisResult::new(patch, "scaffold the wished crate", Q16::ONE));
+                    return Ok(SynthesisResult::new(
+                        patch,
+                        "scaffold the wished crate",
+                        Q16::ONE,
+                    ));
                 }
             }
-            Ok(SynthesisResult::new(Patch::empty(request.request_id), "no-op", Q16::ONE))
+            Ok(SynthesisResult::new(
+                Patch::empty(request.request_id),
+                "no-op",
+                Q16::ONE,
+            ))
         }
         fn name(&self) -> &str {
             "crate-scaffolder"
@@ -1136,10 +1208,13 @@ mod tests {
             pipeline_options: IntegrationRunOptions::report_only(),
             commit_to_git: false,
         };
-        let mut s =
-            AgentSession::new(opts, PolicyProfile::operator_approved(), Arc::new(CrateScaffolder))
-                .with_validator(Arc::new(AlwaysPass))
-                .with_wish(crate_wish("kosmo_after"), Digest::of_bytes(b"ev"));
+        let mut s = AgentSession::new(
+            opts,
+            PolicyProfile::operator_approved(),
+            Arc::new(CrateScaffolder),
+        )
+        .with_validator(Arc::new(AlwaysPass))
+        .with_wish(crate_wish("kosmo_after"), Digest::of_bytes(b"ev"));
 
         // Run 1: wish unmet → a facet-directed action scaffolds the crate.
         let r1 = s.run(dir.to_str().unwrap()).unwrap();
@@ -1155,7 +1230,11 @@ mod tests {
         // Run 2: the rewritten Cargo.toml now names the wished crate → realized.
         let r2 = s.run(dir.to_str().unwrap()).unwrap();
         let w2 = r2.wish.expect("second run observed the workspace");
-        assert_eq!(w2.assessment.distance, Q16::ZERO, "the loop built toward the wish");
+        assert_eq!(
+            w2.assessment.distance,
+            Q16::ZERO,
+            "the loop built toward the wish"
+        );
         assert!(w2.is_realized());
         assert!(!s.wish_diverging(), "the descent was contractive");
 
@@ -1260,7 +1339,10 @@ mod tests {
 
         let r2 = s.run(dir.to_str().unwrap()).unwrap();
         let w2 = r2.wish.expect("second run observed the workspace");
-        assert!(w2.is_realized(), "FacetScaffolder built the symbol → realized");
+        assert!(
+            w2.is_realized(),
+            "FacetScaffolder built the symbol → realized"
+        );
         assert_eq!(w2.assessment.distance, Q16::ZERO);
         assert!(!s.wish_diverging(), "the descent was contractive");
 

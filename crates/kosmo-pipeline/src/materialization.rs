@@ -280,7 +280,9 @@ impl MaterializationPlan {
                 collapse_plan,
                 Digest::ZERO,
                 policy,
-                MaterializationOutcome::Blocked { reason: reason.into() },
+                MaterializationOutcome::Blocked {
+                    reason: reason.into(),
+                },
                 vec![],
             )
         };
@@ -371,11 +373,18 @@ pub fn simulate_foundry_check(
         .map(|s| s.kind.clone())
         .unwrap_or(FoundryCheckKind::Custom("none".into()));
     if matches!(policy.mode, ImplementationMode::OperatorApproved) && policy.allow_host_write {
-        FoundryCheckResult::new(kind, FoundryOutcome::Passed, Digest::of_bytes(b"sim-pass"), vec![])
+        FoundryCheckResult::new(
+            kind,
+            FoundryOutcome::Passed,
+            Digest::of_bytes(b"sim-pass"),
+            vec![],
+        )
     } else {
         FoundryCheckResult::new(
             kind,
-            FoundryOutcome::Skipped { reason: "policy-blocks-execution".into() },
+            FoundryOutcome::Skipped {
+                reason: "policy-blocks-execution".into(),
+            },
             Digest::of_bytes(b"sim-skip"),
             vec![],
         )
@@ -386,7 +395,7 @@ pub fn simulate_foundry_check(
 mod tests {
     use super::*;
     use kosmo_core::{AuthorityLabel, PolicyProfile};
-    use kosmo_hyphae::{CollapseAction, CollapseStep, CollapsePlanStatus, HostTargetCollapsePlan};
+    use kosmo_hyphae::{CollapseAction, CollapsePlanStatus, CollapseStep, HostTargetCollapsePlan};
 
     fn report_only() -> PolicyProfile {
         PolicyProfile::default_report_only()
@@ -399,7 +408,9 @@ mod tests {
     fn make_plan(policy: &PolicyProfile) -> HostTargetCollapsePlan {
         let step = CollapseStep::new(
             0,
-            CollapseAction::RecordNegativeEvidence { record_id: Digest::of_bytes(b"neg") },
+            CollapseAction::RecordNegativeEvidence {
+                record_id: Digest::of_bytes(b"neg"),
+            },
             vec![],
             policy.id,
         );
@@ -476,12 +487,16 @@ mod tests {
         let p = op_approved();
         let step = CollapseStep::new(
             0,
-            CollapseAction::RecordNegativeEvidence { record_id: Digest::ZERO },
+            CollapseAction::RecordNegativeEvidence {
+                record_id: Digest::ZERO,
+            },
             vec![],
             p.id,
         );
-        let e1 = ParseBackExpectation::new(&step, Digest::of_bytes(b"b"), Digest::of_bytes(b"a"), &p);
-        let e2 = ParseBackExpectation::new(&step, Digest::of_bytes(b"b"), Digest::of_bytes(b"a"), &p);
+        let e1 =
+            ParseBackExpectation::new(&step, Digest::of_bytes(b"b"), Digest::of_bytes(b"a"), &p);
+        let e2 =
+            ParseBackExpectation::new(&step, Digest::of_bytes(b"b"), Digest::of_bytes(b"a"), &p);
         assert_eq!(e1.expectation_id, e2.expectation_id);
         assert_ne!(e1.expectation_id, Digest::ZERO);
     }
@@ -495,7 +510,11 @@ mod tests {
         let token = make_token(&plan, &p);
         let step = &plan.steps[0];
         let pb = ParseBackExpectation::new(step, step.step_id, Digest::of_bytes(b"after"), &p);
-        let checks = vec![FoundryCheckSpec::new(FoundryCheckKind::Build, "cargo", vec!["build".into()])];
+        let checks = vec![FoundryCheckSpec::new(
+            FoundryCheckKind::Build,
+            "cargo",
+            vec!["build".into()],
+        )];
         let t1 = WorkbenchMaterializationTask::new(step, &token, pb.clone(), checks.clone(), &p);
         let t2 = WorkbenchMaterializationTask::new(step, &token, pb, checks, &p);
         assert_eq!(t1.task_id, t2.task_id);
@@ -523,7 +542,10 @@ mod tests {
         };
         let token = make_token(&other, &p);
         let mp = MaterializationPlan::evaluate(&plan, Some(&token), &p);
-        assert!(mp.outcome.is_blocked(), "wrong plan token must yield Blocked");
+        assert!(
+            mp.outcome.is_blocked(),
+            "wrong plan token must yield Blocked"
+        );
     }
 
     #[test]
@@ -534,7 +556,10 @@ mod tests {
         let token = make_token(&plan, &oa);
         // Token is valid but policy is ReportOnly.
         let mp = MaterializationPlan::evaluate(&plan, Some(&token), &ro);
-        assert!(mp.outcome.is_blocked(), "ReportOnly policy must yield Blocked");
+        assert!(
+            mp.outcome.is_blocked(),
+            "ReportOnly policy must yield Blocked"
+        );
     }
 
     #[test]
@@ -547,7 +572,10 @@ mod tests {
             &p,
         );
         let mp = MaterializationPlan::evaluate(&plan, Some(&weak_token), &p);
-        assert!(mp.outcome.is_blocked(), "agent authority must yield Blocked");
+        assert!(
+            mp.outcome.is_blocked(),
+            "agent authority must yield Blocked"
+        );
     }
 
     // ── MaterializationPlan::evaluate — FoundryRequired case ─────────────────
@@ -621,7 +649,10 @@ mod tests {
     #[test]
     fn operator_approved_policy_allows_host_write() {
         let p = op_approved();
-        assert!(p.allow_host_write, "OperatorApproved policy must allow host writes");
+        assert!(
+            p.allow_host_write,
+            "OperatorApproved policy must allow host writes"
+        );
         assert!(matches!(p.mode, ImplementationMode::OperatorApproved));
     }
 
@@ -645,8 +676,14 @@ mod tests {
     #[test]
     fn operator_approved_policy_disallows_memory_promotion() {
         let p = op_approved();
-        assert!(!p.allow_memory_promotion, "memory promotion must stay false");
-        assert!(!p.allow_synthetic_sourcecube, "synthetic source cube must stay false");
+        assert!(
+            !p.allow_memory_promotion,
+            "memory promotion must stay false"
+        );
+        assert!(
+            !p.allow_synthetic_sourcecube,
+            "synthetic source cube must stay false"
+        );
         assert!(!p.allow_network, "network access must stay false");
     }
 
@@ -660,7 +697,10 @@ mod tests {
         let mp = MaterializationPlan::evaluate(&plan, Some(&token), &p);
         if let Some(task) = mp.tasks.first() {
             let result = simulate_foundry_check(task, &p);
-            assert!(result.outcome.is_passed(), "simulated Foundry check must pass in OperatorApproved mode");
+            assert!(
+                result.outcome.is_passed(),
+                "simulated Foundry check must pass in OperatorApproved mode"
+            );
         }
     }
 
@@ -673,7 +713,10 @@ mod tests {
         let mp = MaterializationPlan::evaluate(&plan, Some(&token), &p);
         if let Some(task) = mp.tasks.first() {
             let result = simulate_foundry_check(task, &ro);
-            assert!(!result.outcome.is_passed(), "Foundry check must be Skipped in ReportOnly mode");
+            assert!(
+                !result.outcome.is_passed(),
+                "Foundry check must be Skipped in ReportOnly mode"
+            );
         }
     }
 

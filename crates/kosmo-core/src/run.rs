@@ -10,9 +10,17 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GateResult {
     Pass,
-    Warn { message: String },
-    Reject { reason: String },
-    Downgrade { from: String, to: String, reason: String },
+    Warn {
+        message: String,
+    },
+    Reject {
+        reason: String,
+    },
+    Downgrade {
+        from: String,
+        to: String,
+        reason: String,
+    },
 }
 
 impl GateResult {
@@ -36,13 +44,25 @@ impl GateResult {
     pub fn merge(self, other: Self) -> Self {
         match (&self, &other) {
             (GateResult::Reject { .. }, _) | (_, GateResult::Reject { .. }) => {
-                if self.is_rejected() { self } else { other }
+                if self.is_rejected() {
+                    self
+                } else {
+                    other
+                }
             }
             (GateResult::Downgrade { .. }, _) | (_, GateResult::Downgrade { .. }) => {
-                if self.is_downgrade() { self } else { other }
+                if self.is_downgrade() {
+                    self
+                } else {
+                    other
+                }
             }
             (GateResult::Warn { .. }, _) | (_, GateResult::Warn { .. }) => {
-                if self.is_warn() { self } else { other }
+                if self.is_warn() {
+                    self
+                } else {
+                    other
+                }
             }
             _ => GateResult::Pass,
         }
@@ -157,11 +177,18 @@ pub enum FoundryCheckKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FoundryOutcome {
     Passed,
-    Failed { exit_code: i32, stderr: String },
-    Skipped { reason: String },
+    Failed {
+        exit_code: i32,
+        stderr: String,
+    },
+    Skipped {
+        reason: String,
+    },
     /// Foundry infrastructure is not available in the current environment.
     /// Must be recorded explicitly — failure to check is not the same as passing.
-    Unavailable { reason: String },
+    Unavailable {
+        reason: String,
+    },
 }
 
 impl FoundryOutcome {
@@ -306,21 +333,27 @@ mod tests {
 
     #[test]
     fn gate_result_reject_is_rejected() {
-        let r = GateResult::Reject { reason: "tainted".into() };
+        let r = GateResult::Reject {
+            reason: "tainted".into(),
+        };
         assert!(r.is_rejected());
         assert!(!r.is_pass());
     }
 
     #[test]
     fn gate_result_merge_reject_dominates() {
-        let reject = GateResult::Reject { reason: "bad".into() };
+        let reject = GateResult::Reject {
+            reason: "bad".into(),
+        };
         let merged = reject.merge(GateResult::Pass);
         assert!(merged.is_rejected());
     }
 
     #[test]
     fn gate_result_merge_warn_over_pass() {
-        let warn = GateResult::Warn { message: "low score".into() };
+        let warn = GateResult::Warn {
+            message: "low score".into(),
+        };
         let merged = GateResult::Pass.merge(warn);
         assert!(merged.is_warn());
     }
@@ -343,7 +376,9 @@ mod tests {
     fn foundry_check_unavailable_is_not_passed() {
         let r = FoundryCheckResult::new(
             FoundryCheckKind::Build,
-            FoundryOutcome::Unavailable { reason: "no cargo in env".into() },
+            FoundryOutcome::Unavailable {
+                reason: "no cargo in env".into(),
+            },
             Digest::ZERO,
             vec![],
         );
@@ -379,8 +414,7 @@ mod tests {
 
     #[test]
     fn run_descriptor_verify_id() {
-        let r = RunDescriptor::new(Digest::ZERO, "/workspace")
-            .with_label("phase", "1");
+        let r = RunDescriptor::new(Digest::ZERO, "/workspace").with_label("phase", "1");
         assert!(r.verify_id());
     }
 }

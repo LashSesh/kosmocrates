@@ -250,7 +250,11 @@ impl LlmSynthesizer {
             .build()
             .map_err(|e| SynthesisError::permanent(format!("http client build failed: {e}")))?;
         let label = config.label();
-        Ok(Self { config, label, client })
+        Ok(Self {
+            config,
+            label,
+            client,
+        })
     }
 
     /// Claude (Anthropic) with the default model.
@@ -318,7 +322,9 @@ impl LlmSynthesizer {
                     )
                 })?;
                 let key = generic_key.clone().unwrap_or_default();
-                let model = generic_model.clone().unwrap_or_else(|| "gpt-4o-mini".into());
+                let model = generic_model
+                    .clone()
+                    .unwrap_or_else(|| "gpt-4o-mini".into());
                 LlmConfig::openai_compatible(base, model, key)
             }
             "" => {
@@ -368,14 +374,17 @@ impl LlmSynthesizer {
         let mut attempt = 0usize;
 
         loop {
-            let req = self.config.apply_headers(self.client.post(&url).json(&body));
+            let req = self
+                .config
+                .apply_headers(self.client.post(&url).json(&body));
             let resp = req
                 .send()
                 .map_err(|e| SynthesisError::transient(format!("http send failed: {e}")))?;
             let status = resp.status();
 
             // 429 Too Many Requests / 529 Overloaded → retry.
-            let retryable = status.as_u16() == 429 || status.as_u16() == 529 || status.is_server_error();
+            let retryable =
+                status.as_u16() == 429 || status.as_u16() == 529 || status.is_server_error();
             if retryable {
                 if attempt < retry_delays.len() {
                     std::thread::sleep(Duration::from_secs(retry_delays[attempt]));
@@ -613,7 +622,11 @@ pub fn parse_synthesis_response(
         SynthesisError::permanent(format!("model response did not match patch schema: {e}"))
     })?;
 
-    let changes: Vec<FileChange> = env.files.into_iter().map(|f| f.into_file_change()).collect();
+    let changes: Vec<FileChange> = env
+        .files
+        .into_iter()
+        .map(|f| f.into_file_change())
+        .collect();
     let patch = Patch::new(request.request_id, changes, model_hint);
 
     let pct = env.confidence_pct.min(100) as u64;
@@ -646,7 +659,9 @@ mod tests {
         let item = ActionItem {
             action_id: Digest::of(&"action-1"),
             priority_score: Q16::ONE,
-            kind: ActionItemKind::FillVoid { void_id: Digest::of(&"void-1") },
+            kind: ActionItemKind::FillVoid {
+                void_id: Digest::of(&"void-1"),
+            },
             description: "missing module foo".into(),
             policy_id: policy.id,
         };
@@ -714,7 +729,8 @@ mod tests {
 
     #[test]
     fn extract_json_object_strips_fences_and_prose() {
-        let raw = "Here is the patch:\n```json\n{\"confidence_pct\": 80, \"files\": []}\n```\nDone.";
+        let raw =
+            "Here is the patch:\n```json\n{\"confidence_pct\": 80, \"files\": []}\n```\nDone.";
         let json = extract_json_object(raw).unwrap();
         assert!(json.starts_with('{'));
         assert!(json.ends_with('}'));

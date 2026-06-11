@@ -121,7 +121,14 @@ impl FoundryExecutor {
 
         let outcome = worst.into_outcome(results.is_empty());
         let elapsed_ms = started.elapsed().as_millis() as u64;
-        FoundryExecutionReport::new(plan.id, outcome, results, diagnostics, evidence_bundle_id, elapsed_ms)
+        FoundryExecutionReport::new(
+            plan.id,
+            outcome,
+            results,
+            diagnostics,
+            evidence_bundle_id,
+            elapsed_ms,
+        )
     }
 
     /// Run a single check spec, returning its result and a severity rank for
@@ -148,7 +155,10 @@ impl FoundryExecutor {
         };
 
         // Enforce the command allowlist BEFORE spawning anything.
-        if !plan.command_policy.is_command_allowed(&self.program, subcommand) {
+        if !plan
+            .command_policy
+            .is_command_allowed(&self.program, subcommand)
+        {
             let outcome = FoundryOutcome::Skipped {
                 reason: format!(
                     "command '{} {}' denied by FoundryCommandPolicy",
@@ -169,7 +179,11 @@ impl FoundryExecutor {
 
         // Assemble argv: subcommand + the check's default args + spec args.
         let mut argv: Vec<String> = vec![subcommand.to_string()];
-        argv.extend(default_args_for(&spec.check_kind).into_iter().map(String::from));
+        argv.extend(
+            default_args_for(&spec.check_kind)
+                .into_iter()
+                .map(String::from),
+        );
         argv.extend(spec.args.iter().cloned());
 
         let env = build_environment(&plan.environment_policy);
@@ -229,7 +243,12 @@ impl FoundryExecutor {
 
         if exit_code == 0 {
             (
-                FoundryCheckResult::new(spec.check_kind.clone(), FoundryOutcome::Passed, evidence, vec![]),
+                FoundryCheckResult::new(
+                    spec.check_kind.clone(),
+                    FoundryOutcome::Passed,
+                    evidence,
+                    vec![],
+                ),
                 OutcomeRank::Passed,
             )
         } else {
@@ -238,7 +257,12 @@ impl FoundryExecutor {
                 stderr: stderr_text.clone(),
             };
             (
-                FoundryCheckResult::new(spec.check_kind.clone(), outcome, evidence, vec![stderr_text]),
+                FoundryCheckResult::new(
+                    spec.check_kind.clone(),
+                    outcome,
+                    evidence,
+                    vec![stderr_text],
+                ),
                 OutcomeRank::Failed,
             )
         }
@@ -285,9 +309,9 @@ pub fn map_kind_to_subcommand(kind: &FoundryCheckKind) -> Option<&'static str> {
         FoundryCheckKind::Lint => Some("clippy"),
         // ParseBack is handled by the parse-back subsystem, not by cargo.
         // Security and arbitrary Custom kinds have no built-in mapping.
-        FoundryCheckKind::ParseBack
-        | FoundryCheckKind::Security
-        | FoundryCheckKind::Custom(_) => None,
+        FoundryCheckKind::ParseBack | FoundryCheckKind::Security | FoundryCheckKind::Custom(_) => {
+            None
+        }
     }
 }
 
@@ -319,9 +343,22 @@ fn build_environment(policy: &FoundryEnvironmentPolicy) -> BTreeMap<String, Stri
     } else {
         // Minimal set a Rust toolchain needs to locate itself and run.
         const ESSENTIAL: &[&str] = &[
-            "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP",
-            "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "SYSTEMROOT", "WINDIR",
-            "USERPROFILE", "PATHEXT",
+            "PATH",
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "LANG",
+            "LC_ALL",
+            "TMPDIR",
+            "TEMP",
+            "TMP",
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "RUSTUP_TOOLCHAIN",
+            "SYSTEMROOT",
+            "WINDIR",
+            "USERPROFILE",
+            "PATHEXT",
         ];
         for key in ESSENTIAL {
             if let Ok(val) = std::env::var(key) {
@@ -355,8 +392,18 @@ fn build_environment(policy: &FoundryEnvironmentPolicy) -> BTreeMap<String, Stri
 fn looks_like_secret(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     const NEEDLES: &[&str] = &[
-        "SECRET", "TOKEN", "PASSWORD", "PASSWD", "API_KEY", "APIKEY", "ACCESS_KEY",
-        "PRIVATE_KEY", "CREDENTIAL", "AUTH", "SESSION", "COOKIE",
+        "SECRET",
+        "TOKEN",
+        "PASSWORD",
+        "PASSWD",
+        "API_KEY",
+        "APIKEY",
+        "ACCESS_KEY",
+        "PRIVATE_KEY",
+        "CREDENTIAL",
+        "AUTH",
+        "SESSION",
+        "COOKIE",
     ];
     NEEDLES.iter().any(|n| upper.contains(n))
 }
@@ -491,7 +538,11 @@ fn drain_child(child: &mut std::process::Child) -> (Vec<u8>, Vec<u8>) {
 
 /// Lossy-decode at most `max` bytes of `bytes` as UTF-8, on a char boundary.
 fn truncate_utf8_lossy(bytes: &[u8], max: usize) -> String {
-    let slice = if bytes.len() > max { &bytes[..max] } else { bytes };
+    let slice = if bytes.len() > max {
+        &bytes[..max]
+    } else {
+        bytes
+    };
     String::from_utf8_lossy(slice).into_owned()
 }
 
@@ -515,9 +566,7 @@ pub fn standard_cargo_plan(
     root_digest: Digest,
     per_check_timeout_ms: u64,
 ) -> FoundryExecutionPlan {
-    use kosmo_core::{
-        FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy,
-    };
+    use kosmo_core::{FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy};
 
     let sandbox = FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, root_digest);
     let checks = vec![
@@ -547,7 +596,11 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn plan_with(program_subcommands_allowed: bool, checks: Vec<FoundryCheckSpec>, timeout_ms: u64) -> FoundryExecutionPlan {
+    fn plan_with(
+        program_subcommands_allowed: bool,
+        checks: Vec<FoundryCheckSpec>,
+        timeout_ms: u64,
+    ) -> FoundryExecutionPlan {
         let sandbox = FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, d(b"root"));
         let cmd_policy = if program_subcommands_allowed {
             // Allow the test program with arbitrary args.
@@ -601,7 +654,10 @@ mod tests {
         let report = exec.execute(&plan, &PolicyProfile::default_report_only(), d(b"bundle"));
         assert!(report.outcome.is_skipped_report_only());
         assert!(report.verify_id());
-        assert!(report.check_results.is_empty(), "no checks must run in ReportOnly");
+        assert!(
+            report.check_results.is_empty(),
+            "no checks must run in ReportOnly"
+        );
     }
 
     // ── Command allowlist denial ────────────────────────────────────────────
@@ -614,7 +670,10 @@ mod tests {
         let plan = plan_with(false, checks, 0); // default cargo policy
         let exec = FoundryExecutor::new(".").with_program("true");
         let report = exec.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));
-        assert_eq!(report.outcome, FoundryExecutionOutcome::CommandDeniedByPolicy);
+        assert_eq!(
+            report.outcome,
+            FoundryExecutionOutcome::CommandDeniedByPolicy
+        );
         assert!(report.verify_id());
     }
 
@@ -622,13 +681,28 @@ mod tests {
 
     #[test]
     fn kind_mapping_is_read_only() {
-        assert_eq!(map_kind_to_subcommand(&FoundryCheckKind::Build), Some("check"));
-        assert_eq!(map_kind_to_subcommand(&FoundryCheckKind::TypeCheck), Some("check"));
-        assert_eq!(map_kind_to_subcommand(&FoundryCheckKind::Test), Some("test"));
-        assert_eq!(map_kind_to_subcommand(&FoundryCheckKind::Lint), Some("clippy"));
+        assert_eq!(
+            map_kind_to_subcommand(&FoundryCheckKind::Build),
+            Some("check")
+        );
+        assert_eq!(
+            map_kind_to_subcommand(&FoundryCheckKind::TypeCheck),
+            Some("check")
+        );
+        assert_eq!(
+            map_kind_to_subcommand(&FoundryCheckKind::Test),
+            Some("test")
+        );
+        assert_eq!(
+            map_kind_to_subcommand(&FoundryCheckKind::Lint),
+            Some("clippy")
+        );
         assert_eq!(map_kind_to_subcommand(&FoundryCheckKind::ParseBack), None);
         assert_eq!(map_kind_to_subcommand(&FoundryCheckKind::Security), None);
-        assert_eq!(map_kind_to_subcommand(&FoundryCheckKind::Custom("x".into())), None);
+        assert_eq!(
+            map_kind_to_subcommand(&FoundryCheckKind::Custom("x".into())),
+            None
+        );
     }
 
     // ── Environment stripping ───────────────────────────────────────────────
@@ -676,7 +750,11 @@ mod tests {
         let plan = plan_with(true, checks, 0);
         let exec = FoundryExecutor::new(".").with_program("true");
         let report = exec.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));
-        assert_eq!(report.outcome, FoundryExecutionOutcome::Passed, "true exits 0");
+        assert_eq!(
+            report.outcome,
+            FoundryExecutionOutcome::Passed,
+            "true exits 0"
+        );
         assert!(report.verify_id());
         assert_eq!(report.check_results.len(), 1);
         assert!(report.check_results[0].outcome.is_passed());
@@ -689,7 +767,11 @@ mod tests {
         let plan = plan_with(true, checks, 0);
         let exec = FoundryExecutor::new(".").with_program("false");
         let report = exec.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));
-        assert_eq!(report.outcome, FoundryExecutionOutcome::Failed, "false exits 1");
+        assert_eq!(
+            report.outcome,
+            FoundryExecutionOutcome::Failed,
+            "false exits 1"
+        );
         assert!(report.verify_id());
     }
 
@@ -702,7 +784,10 @@ mod tests {
         // budget must be killed and reported as timed out.
         let env = build_environment(&FoundryEnvironmentPolicy::locked());
         let raw = run_raw("sleep", &["5".to_string()], Path::new("."), &env, true, 100);
-        assert!(raw.timed_out, "sleep 5 under a 100ms timeout must be killed");
+        assert!(
+            raw.timed_out,
+            "sleep 5 under a 100ms timeout must be killed"
+        );
         assert!(raw.exit_code.is_none());
     }
 
@@ -728,7 +813,10 @@ mod tests {
             true,
             0,
         );
-        assert!(raw.spawn_failed.is_some(), "missing program must report spawn failure");
+        assert!(
+            raw.spawn_failed.is_some(),
+            "missing program must report spawn failure"
+        );
     }
 
     // ── Worst-wins aggregation ──────────────────────────────────────────────
@@ -754,7 +842,11 @@ mod tests {
 
     #[test]
     fn unmapped_check_is_skipped_deterministically() {
-        let checks = vec![FoundryCheckSpec::new(FoundryCheckKind::Security, "ws", false)];
+        let checks = vec![FoundryCheckSpec::new(
+            FoundryCheckKind::Security,
+            "ws",
+            false,
+        )];
         let plan = plan_with(true, checks, 0);
         let exec = FoundryExecutor::new(".").with_program("true");
         let r1 = exec.execute(&plan, &PolicyProfile::dry_run(), d(b"bundle"));

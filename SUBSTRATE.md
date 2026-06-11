@@ -28,6 +28,12 @@ content-addressed reports. It does not patch files, execute generated
 code, or write to disk without an explicit operator-issued approval
 token and a Foundry validation gate.
 
+> **This file documents the CAD/metrology half** — topology analysis and
+> ranking, fail-closed, writing nothing on its own. The *generative* half — the
+> closed loop that turns a stated intent into a validated workspace change ("the
+> wish-to-system machine", CAD/CAM for software) — is documented in
+> [`docs/WISH_TO_SYSTEM.md`](docs/WISH_TO_SYSTEM.md).
+
 ---
 
 ## Crate map
@@ -104,7 +110,8 @@ kosmo-tui .
 # With all layers enabled
 kosmo-tui . --all
 
-# Keybindings: q=quit  r=rerun  ↑↓/jk=navigate  PgUp/PgDn=page  g/G=top/bottom
+# Keybindings: q=quit  r=rerun  p=promote (in-memory engine offer)
+#              ↑↓/jk=navigate  PgUp/PgDn=page  g/G=top/bottom
 ```
 
 ### 3. Browser UI — `kosmo-server`
@@ -138,6 +145,136 @@ Response fields: `gate`, `void_count`, `total_severity`, `action_items[]`,
 `void_ranking[]`, `certified_crystals`, `resonite_pairs`, plus optional-layer counts.
 
 `GET /api/health` returns `{ "status": "ok", "version": "..." }`.
+
+The unification is surfaced over HTTP too (mirroring `kosmo-promote`;
+`--state`/`--feedback`/`--store` remain CLI-only):
+
+```bash
+# Substrate→core promotion — fail-closed without "offer": engine untouched.
+curl -s -X POST http://localhost:7777/api/promote \
+  -H 'Content-Type: application/json' \
+  -d '{"path":".","offer":true,"batch":true,"all_kinds":true,
+       "calibration":"substrate","ledger":"~/.kosmo/il"}' \
+  | jq '{accepted, ledger_commits, engine_state}'
+
+# Recall — Pfauenthron++ (D = ψ·ρ·ω) over the ledger; read-only, the
+# ledger must exist. The browser UI has a matching Recall panel.
+curl -s -X POST http://localhost:7777/api/recall \
+  -H 'Content-Type: application/json' \
+  -d '{"ledger":"~/.kosmo/il","query":"missing test coverage","top":5}' \
+  | jq '.results[] | {tripolar_score, qtic_class, question}'
+```
+
+### 5. Promotion — `kosmo-promote` (substrate→core)
+
+```bash
+# Report-only (default, fail-closed): list what WOULD be offered to PSE;
+# the engine is never touched.
+kosmo-promote . --all-kinds
+
+# Actually feed the PSE engine (DryRun profile; in-memory, no host writes).
+# PSE's own gate cascade alone decides crystallization.
+kosmo-promote . --all-kinds --offer
+
+# Machine-readable verdicts (Accepted | Deferred | Rejected | Skipped…)
+kosmo-promote . --offer --json | jq '.offers[] | {label, outcome}'
+
+# Accumulate engine memory across sessions (the flag authorizes the write):
+kosmo-promote . --offer --state ~/.kosmo/pse-archive.json
+
+# Offer the CAD library (kosmo-substrate --store) to the engine, read-only:
+kosmo-promote . --offer --store ~/.kosmo/cadlib.jsonl
+
+# Close the memory→action loop: engine verdicts feed the next run's pipeline
+kosmo-promote . --offer --feedback ~/.kosmo/feedback.json
+
+# Resonance: co-observe the candidates as ONE ensemble under the substrate
+# calibration — this is the configuration in which substrate knowledge
+# actually crystallizes (real SemanticCrystals):
+kosmo-promote . --all-kinds --offer --batch --calibration substrate \
+    --state ~/.kosmo/pse-archive.json
+
+# Full QTIC: anchor accepted crystals in the Infinity Ledger — ledger block,
+# IL-HDAG node, path invariance — lifting certificates from Q3 to Q5:
+kosmo-promote . --all-kinds --offer --batch --calibration substrate \
+    --ledger ~/.kosmo/il
+
+# Recall: the anchored memory is queryable — Pfauenthron++ (D = ψ·ρ·ω)
+# over the ledger's crystals, with the top hit's causal lineage:
+kosmo-promote --recall "missing test coverage for a module" \
+    --ledger ~/.kosmo/il --top 5
+```
+
+Runs the full pipeline, filters its `pse_candidates` (default:
+`CertifiedCrystal` only; `--all-kinds` adds Structural/Topology
+observations), and offers them through `pse-adapter-kosmo` — the
+sanctioned crossing into the PSE crystallization engine.
+
+With `--state`, the engine's crystal archive persists across sessions and
+warm-starts `PatternMemory` on the next run (the `pse-core` cross-session
+mechanism) — repeated promotions of recurring substrate output build the
+resonance that can eventually flip `Deferred` into `Accepted`. Fail-closed:
+report-only mode never writes, and a corrupt archive is a hard error, never
+silently cold-started over.
+
+With `--store`, the durable CAD library is itself a promotion source:
+`StructuralCrystalRecord`s are **directly evidence-bound** (each carries its
+certifying candidate's `evidence_bundle_id` — CROSS-006 as a first-class
+field), so store-loaded crystals wrap into bridge candidates without
+resolving their candidates. The store is integrity-checked before any record
+is offered; a tampered record is a hard error.
+
+With `--feedback`, the loop closes in the other direction — **memory shapes
+action**: the engine's verdicts are persisted as `PromotionFeedback`
+(`Accepted` → full fitness, `Deferred` → ¼, `Rejected`/`Skipped` → zero;
+CROSS-010 analogue) and loaded into the *next* run's
+`IntegrationRunOptions::prior_feedback`, where pipeline Step 5c folds them
+into `NormFitnessTrace`s. Norm-derived candidates key their feedback to the
+originating `NormGeneCandidate`; the merge is idempotent by feedback id.
+Same authorization discipline as `--state`: report-only never writes,
+corruption is a hard error.
+
+**Resonance — how substrate knowledge actually crystallizes.** The engine
+forms graph edges *pairwise within a batch*, and each candidate is its own
+engine vertex (`KosmoBridgeAdapter::observation_source_id`), so single-step
+offers structurally cap the connectivity metric `j` at zero and the 8-fold
+conjunctive Kairos gate can never fire. `--batch` (`offer_batch`) co-observes
+the candidates as one ensemble — N vertices, pairwise edges, live `j` — with
+attribution staying per-candidate and honest: exactly the candidates whose
+vertex lies in `crystal.region` are `Accepted`. `--calibration substrate`
+(an explicit operator choice, like every threshold change) composes the
+planning preset with the `preset_anomaly_detection` rationale: the carrier-
+physics consensus stands down and the fully-armed Kairos gate is the
+discriminant. `--ticks n` re-observes the ensemble (crystallization is
+temporal). The gate diagnostics (`gate (last step): d … j … → kairos | engine`)
+show per-metric values against the effective thresholds, so "why deferred" is
+always visible. Under `--batch --calibration substrate` a polyglot workspace's
+certified structure commits real `SemanticCrystal`s; the conservative default
+calibration remains fail-closed and commits nothing.
+
+Every crystal the engine commits receives a **QTIC conformance certificate**
+(Q0–Q5, `pse-adapter-il::qtic`). Classes are earned, never granted: the
+engine's commitment *is* gate-passed condensation (Q3), and without anchors
+the certificate honestly **caps at Q3**, its `trace_ready`/`path_inv` fields
+showing exactly what is missing. With `--ledger <path>` every accepted
+crystal is **anchored in the Infinity Ledger** — a ledger block (the
+canonical trace anchor), an IL-HDAG node (the 5D resonance tensor), and a
+path-invariance check — and the certificate lifts to **Q5, full QTIC**: the
+same conformance class the cognition system awards its own best memory.
+Anchoring is idempotent (an identical crystal re-anchors to the same block;
+the ledger does not grow) and a host write, so the flag is the operator's
+authorization and nothing is written outside `--offer` mode. `kosmo-promote`
+reports class and block per accepted crystal (`QTIC Q5 — …`, `IL: block …`;
+`qtic_class`/`block_hash` in `--json`).
+
+And the anchored memory is **queryable**: `--recall <query>` embeds the query
+(`text_to_vector8`), ranks every ledger crystal by the Pfauenthron++ tripolar
+score `D = ψ·ρ·ω` (semantic × structural × temporal —
+`build_context_entries`), and returns the top hits with QTIC class,
+stability, provenance (the promotion scope travels as the crystal's
+`question`), and the **causal lineage** of the best hit. Recall is read-only
+by contract: it never creates a ledger; a missing path is a hard error,
+never a silent empty store.
 
 ---
 
@@ -394,7 +531,63 @@ is hardcoded `false` on the output report (CROSS-013).
 | `CompositeSupportCube` | Integer-averaged Q16 aggregate support |
 | `HostTargetDelta` | Planning-only, `from_host_and_composite` |
 
-**Test count:** 127 passing, 0 failing.
+### Cross-language extraction (`xlang`) — polyglot hypercube materialization
+
+Everything from `SourceCube` upward is language-agnostic: the cube pipeline
+consumes a `CodeHDAG` and the ρ/ω poles derived from it, never the source text.
+The only Rust-specific link was the extractor at the head of the chain. The
+`xlang` module removes it, so a Python, JavaScript, Go, C, Java, or C++ file
+lifts into the **same** content-addressed `CodeHDAG` a Rust file would — and
+flows into the identical hypercube with no downstream change.
+
+| Type / fn | Role |
+|---|---|
+| `SourceLanguage` | `Rust`, `Python`, `JavaScript`, `Go`, `C`, `Java`, `Cpp`; `from_path` detects by extension, fail-closed (`None` for unknown) |
+| `CodeHDAG::extract_from_source` | Language-dispatched lexical extraction; Rust delegates verbatim to `extract_from_rust_source` (byte-identical ids) |
+| `CodeHDAG::extract_auto` | Detect language from path and extract, or `None` — the host-scan integration entry point |
+| `CrossLanguageFingerprint` | Content-addressed `Q16` structural-ratio vector (function/type/import/test density); `similarity` is integer-only (CROSS-007) |
+
+The taxonomy is mined from the PSE-Codex corpus (10 algorithms × 4 languages)
+and its `normalize` Rosetta table — *what counts as* a function, a type, an
+import, a test, per language. PSE-Codex's tree-sitter + `f64` spectral/Kuramoto
+machinery is deliberately **not** ported: it is float-heavy and dependency-bound,
+which the substrate forbids (CROSS-007, no external deps). What carries over is
+the taxonomy, re-expressed as a deterministic, dependency-free lexical extractor.
+
+Rust, Python, JavaScript, and Go are **keyword-anchored** (`fn`/`def`/`function`/
+`func`) and validated against the PSE-Codex corpus. C, Java, and C++ extend
+coverage to the rest of the `normalize` taxonomy; their function definitions
+carry no leading keyword, so they use a deliberately **conservative** heuristic
+(`detect_clike_function`) that **under-counts rather than emit a false positive** —
+a control statement, call, or initialiser is never misread as a definition. Type
+and import detection for the C family is exact (`#include`/`import`/`using`,
+`struct`/`class`/`interface`/`enum`).
+
+Wiring: `kosmo-workbench`'s scanner now classifies `.py`/`.js`/`.go` (and the
+common variants) as source/test files per each language's convention, and
+`HostCube` dispatches extraction by detected language. `HostCube` also stores a
+`CrossLanguageFingerprint` per void (`fingerprint_by_void_id`, content-addressed
+into `cube_id`), and `run_dry_pipeline` adds a `cross_language_resonance`
+`SourceCube` dimension — the maximum fingerprint similarity to any *other* file
+in the workspace, across languages. So a Python file structurally echoing a Go
+file resonates and ranks higher; a structural outlier does not. (Energy ranks,
+never gates — CROSS-010.)
+
+The fingerprint also travels into the durable CAD library: a certified
+`StructuralCrystalCandidate`/`StructuralCrystalRecord` carries the originating
+file's `CrossLanguageFingerprint` (`with_fingerprint`, content-addressed into the
+record id). `StructuralCrystalRecord::fingerprint_resonance` then lets the
+pipeline's `crystal_resonance` dimension match a void against certified crystals
+**across languages and across runs** — a Go crystal can resonate with a
+structurally-similar Python void — using the richer four-axis fingerprint when
+both sides carry one, and falling back to the two-axis ρ/ω proximity otherwise.
+
+Running `kosmo-substrate` over a polyglot workspace therefore produces voids,
+HDAG-scaled severities, fingerprints, and energy-ranked `SourceCube`s for all
+supported languages, materializing into the same `.kcube` archive.
+
+**Test count:** 127 passing, 0 failing (HYPHAE core) + 22 cross-language
+(`xlang`) + host/scanner integration tests.
 
 ---
 
@@ -532,6 +725,7 @@ planning artifacts only — they have no live execution path:
 | Cross-session corpus persistence | ✅ `kosmo-store`: JSONL append-only store, `verify_integrity()` |
 | ParseBack topology scan (crate-level) | ✅ `kosmo-parseback`: `cargo metadata`, `CrateFingerprint`, INVARIANT-007 |
 | Intra-file code topology (module/import/fn/type/test graph) | ✅ `kosmo-hyphae::code_hdag::extract_from_rust_source` — lexical, dependency-free, content-addressed; ρ/ω feed the energy kernel |
+| Cross-language code topology (Rust, Python, JavaScript, Go, C, Java, C++) | ✅ `kosmo-hyphae::xlang` — `extract_from_source`/`extract_auto`, dependency-free lexical, `Q16` `CrossLanguageFingerprint`; keyword-anchored for the first four, conservative heuristic for the C family; polyglot workspaces materialize into the same hypercube |
 | Unified tripolar energy selection (`D = ψ·ρ·ω`) | ✅ `kosmo-core::energy` — Q16, content-addressed, ranks-never-gates |
 | R1→R2→R3 operator pipeline | ✅ `kosmo-operator`: `OperatorExecutor::execute()`, closure synthesis |
 | Empirical validation (52-scenario benchmark) | ✅ `tools/kosmo-eval`: EXIT 0, all 52 scenarios pass |
@@ -552,8 +746,30 @@ policy-governed topology assimilation substrate that decides what is
 worth sending to PSE in the first place.
 
 The integration path — wrapping `StructuralCrystalRecord` in a PSE
-observation adapter — is deferred until empirical validation confirms
-that the substrate's output quality warrants it.
+observation adapter — is **implemented end to end**, now that the
+empirical validation it was gated on has passed (147/147 eval scenarios):
+
+- **Offer side** (`kosmo-pipeline::crystal_to_pse_candidate`): every crystal
+  certified in a run is wrapped as a `PseBridgeCandidate` of kind
+  `CertifiedCrystal` (confidence `(ρ+ω)/2` in `Q16`, cross-language
+  fingerprint as metadata, evidence-bound via the certifying candidate's
+  bundle) and included in `pse_candidates` when `enable_pse_candidates`
+  is set.
+- **Consumption side** (`adapters/pse-adapter-kosmo`): the PSE-side
+  `KosmoBridgeAdapter` canonicalizes candidates into PSE `Observation`s
+  (fail-closed: unparseable, tampered, evidence-free, or disallowed-kind
+  payloads are rejected) and `offer_candidate` feeds them through
+  `pse_core::macro_step` under full policy gating — `ReportOnly` profiles
+  and denying bridge policies never touch the engine. The `Q16→f64`
+  conversion happens exactly at this seam: confidence becomes the
+  observation's semantic `phase_hint`, so structurally similar crystals
+  can resonate.
+
+The dependency direction holds: no `kosmo-*` crate imports `pse-*`; the
+adapter lives on the PSE side and consumes the bridge. PSE runs its own
+gate cascade and alone decides crystallization — a committed
+`SemanticCrystal` maps to `PromotionOutcome::Accepted`, clean ingestion
+without crystallization to `Deferred`, for the substrate's feedback loop.
 
 ---
 
@@ -566,6 +782,7 @@ that the substrate's output quality warrants it.
 | `crates/kosmo-core/src/digest.rs` | `Digest`, `canonical_bytes` |
 | `crates/kosmo-core/src/energy.rs` | `TripolarEnergy`, `EnergyFactors`, `EnergyKernel`, `EnergyAssessment`, `rank_by_energy` |
 | `crates/kosmo-hyphae/src/code_hdag.rs` | `CodeHDAG::extract_from_rust_source`, `rho_coherence`, `omega_phase`, `energy_kernel` |
+| `crates/kosmo-hyphae/src/xlang.rs` | `SourceLanguage`, `CodeHDAG::extract_from_source`/`extract_auto`, `CrossLanguageFingerprint` (cross-language extraction) |
 | `crates/kosmo-hyphae/src/run.rs` | `passive_run()`, `HyphaeRunResult` |
 | `crates/kosmo-hyphae/src/gates.rs` | `GateCascade` (5 gates, no short-circuit) |
 | `crates/kosmo-hyphae/src/lpcm.rs` | LPCM v0.4.2 full pipeline |

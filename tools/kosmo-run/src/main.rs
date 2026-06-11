@@ -33,8 +33,8 @@ use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
-    assess_wish, Digest, GateResult, PolicyProfile, Q16, Wish, WishAssessment, WishClosureStatus,
-    WishFacet, WishFacetKind,
+    assess_wish, Digest, GateResult, PolicyProfile, Wish, WishAssessment, WishClosureStatus,
+    WishFacet, WishFacetKind, Q16,
 };
 use kosmo_intent::{
     compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
@@ -164,7 +164,10 @@ fn parse_args() -> Result<Option<Args>, String> {
                 return Ok(None);
             }
             "--provider" => {
-                args.provider = argv.next().ok_or("--provider needs a value")?.to_lowercase();
+                args.provider = argv
+                    .next()
+                    .ok_or("--provider needs a value")?
+                    .to_lowercase();
                 args.provider_set = true;
             }
             "--model" => {
@@ -234,14 +237,18 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
                 "provider=claude requires ANTHROPIC_API_KEY (or KOSMO_LLM_API_KEY)".to_string()
             })?;
             let cfg = apply_model(LlmConfig::claude(key));
-            Ok(Arc::new(LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?))
+            Ok(Arc::new(
+                LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?,
+            ))
         }
         "cerebras" => {
             let key = env_key(&["CEREBRAS_API_KEY", "KOSMO_LLM_API_KEY"]).ok_or_else(|| {
                 "provider=cerebras requires CEREBRAS_API_KEY (or KOSMO_LLM_API_KEY)".to_string()
             })?;
             let cfg = apply_model(LlmConfig::cerebras(key));
-            Ok(Arc::new(LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?))
+            Ok(Arc::new(
+                LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?,
+            ))
         }
         "env" | "auto" | "" => {
             let synth = LlmSynthesizer::from_env().map_err(|e| e.to_string())?;
@@ -387,7 +394,12 @@ fn render_text(report: &AgentRunReport, synth_name: &str, color: bool) {
         println!("    status  {}{}{}", c(DIM), mat, c(RESET));
         if let Some(ref attempt) = step.materialization {
             if let Some(ref sha) = attempt.commit_sha {
-                println!("    commit  {}{}{}", c(CYAN), &sha[..sha.len().min(12)], c(RESET));
+                println!(
+                    "    commit  {}{}{}",
+                    c(CYAN),
+                    &sha[..sha.len().min(12)],
+                    c(RESET)
+                );
             }
         }
     }
@@ -498,7 +510,7 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         } else {
             print!("{}", descent_report(&session, args.color));
         }
-        let realized = session.latest().map_or(false, |a| {
+        let realized = session.latest().is_some_and(|a| {
             matches!(
                 a.status,
                 WishClosureStatus::Realized | WishClosureStatus::Vacuous
@@ -564,11 +576,20 @@ fn wish_report(wish: &Wish, a: &WishAssessment, color: bool) -> String {
         WishClosureStatus::Vacuous => ("VACUOUS (no predicates)", c(DIM)),
     };
     let mut out = String::new();
-    out.push_str(&format!("{}{}Kosmocrates wish{}\n", c(BOLD), c(CYAN), c(RESET)));
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
     out.push_str(&format!("  \u{201c}{}\u{201d}\n", wish.label));
     out.push_str(&format!(
         "  status {}{}{}   met {}/{}\n",
-        col, label, c(RESET), a.met_count, a.total_count
+        col,
+        label,
+        c(RESET),
+        a.met_count,
+        a.total_count
     ));
     if a.unmet_facets.is_empty() {
         out.push_str(&format!(
@@ -579,7 +600,13 @@ fn wish_report(wish: &Wish, a: &WishAssessment, color: bool) -> String {
     } else {
         out.push_str("  missing:\n");
         for f in &a.unmet_facets {
-            out.push_str(&format!("    {}\u{2717}{} {:?} {}\n", c(RED), c(RESET), f.kind, f.key));
+            out.push_str(&format!(
+                "    {}\u{2717}{} {:?} {}\n",
+                c(RED),
+                c(RESET),
+                f.kind,
+                f.key
+            ));
         }
     }
     out
@@ -754,17 +781,26 @@ fn descent_report(session: &WishSession, color: bool) -> String {
         };
         out.push_str(&format!(
             "  iter {}: met {}/{}  {}{}{}\n",
-            i, a.met_count, a.total_count, col, label, c(RESET)
+            i,
+            a.met_count,
+            a.total_count,
+            col,
+            label,
+            c(RESET)
         ));
     }
-    let realized = session.latest().map_or(false, |a| {
+    let realized = session.latest().is_some_and(|a| {
         matches!(
             a.status,
             WishClosureStatus::Realized | WishClosureStatus::Vacuous
         )
     });
     if realized {
-        out.push_str(&format!("  {}\u{2713} wish realized.{}\n", c(GREEN), c(RESET)));
+        out.push_str(&format!(
+            "  {}\u{2713} wish realized.{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
     } else if let Some(a) = session.latest() {
         if !a.unmet_facets.is_empty() {
             out.push_str("  still missing:\n");
@@ -814,8 +850,8 @@ fn run() -> Result<ExitCode, String> {
     } else {
         IntegrationRunOptions::report_only()
     };
-    let min_confidence = Q16::ratio(args.min_confidence_pct.min(100) as u64, 100)
-        .unwrap_or(Q16::HALF);
+    let min_confidence =
+        Q16::ratio(args.min_confidence_pct.min(100) as u64, 100).unwrap_or(Q16::HALF);
 
     let options = AgentOptions {
         max_steps: args.max_steps,
@@ -936,7 +972,15 @@ mod tests {
         let evidence = Digest::of_bytes(prose.as_bytes());
         let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -969,7 +1013,8 @@ mod tests {
         // No fallback → the scaffolder builds nothing, so nothing is written.
         assert_eq!(apply_synthesis(&root, &dep, None).unwrap(), 0);
         // With a synthesizer that proposes a change → the fallback is consulted.
-        let mock = MockSynthesizer::confident().with_change(FileChange::create("FALLBACK.txt", "x\n"));
+        let mock =
+            MockSynthesizer::confident().with_change(FileChange::create("FALLBACK.txt", "x\n"));
         let n = apply_synthesis(&root, &dep, Some(&mock)).unwrap();
         assert_eq!(n, 1);
         assert!(root.join("FALLBACK.txt").exists());
@@ -1003,7 +1048,15 @@ mod tests {
         let evidence = Digest::of_bytes(prose.as_bytes());
         let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -1050,7 +1103,15 @@ mod tests {
             "prose should compile to a Contract facet"
         );
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -1089,7 +1150,15 @@ mod tests {
         let wish = compile_wish(prose, Digest::ZERO, evidence);
         assert_eq!(wish.predicate_count(), 4, "crud should fan out to 4 facets");
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -1127,7 +1196,15 @@ mod tests {
         let evidence = Digest::of_bytes(prose.as_bytes());
         let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -1203,7 +1280,8 @@ mod tests {
         let empty = "fn main() {}\n";
         let prose = "a run add,2,3=>out~5";
 
-        for (idx, (main_rs, want_realized)) in [(correct, true), (empty, false)].iter().enumerate() {
+        for (idx, (main_rs, want_realized)) in [(correct, true), (empty, false)].iter().enumerate()
+        {
             let nanos = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -1220,7 +1298,15 @@ mod tests {
             let evidence = Digest::of_bytes(prose.as_bytes());
             let wish = compile_wish(prose, Digest::ZERO, evidence);
             // validated=false, but the Run facet forces runtime observation.
-            match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 4, None, None) {
+            match descend_to_wish(
+                root.to_str().unwrap(),
+                &wish,
+                evidence,
+                false,
+                4,
+                None,
+                None,
+            ) {
                 Ok(session) => {
                     let last = session.latest().expect("an observation");
                     let realized = matches!(last.status, WishClosureStatus::Realized);
@@ -1278,7 +1364,15 @@ fn main() {
 
             let evidence = Digest::of_bytes(prose.as_bytes());
             let wish = compile_wish(prose, Digest::ZERO, evidence);
-            match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 4, None, None) {
+            match descend_to_wish(
+                root.to_str().unwrap(),
+                &wish,
+                evidence,
+                false,
+                4,
+                None,
+                None,
+            ) {
                 Ok(session) => {
                     let last = session.latest().expect("an observation");
                     let realized = matches!(last.status, WishClosureStatus::Realized);
@@ -1288,7 +1382,10 @@ fn main() {
                         last.status, last.met_count, last.total_count
                     );
                     let m = fs::read_to_string(root.join("src/main.rs")).unwrap();
-                    assert!(m.contains("// kosmo:service: GET:/health=>200"), "marker:\n{m}");
+                    assert!(
+                        m.contains("// kosmo:service: GET:/health=>200"),
+                        "marker:\n{m}"
+                    );
                 }
                 Err(e) => eprintln!("service observe unavailable, skipping: {e}"),
             }
@@ -1324,7 +1421,15 @@ fn main() {
         let evidence = Digest::of_bytes(prose.as_bytes());
         let wish = compile_wish(prose, Digest::ZERO, evidence);
 
-        match descend_to_wish(root.to_str().unwrap(), &wish, evidence, false, 8, None, None) {
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
             Ok(session) => {
                 let last = session.latest().expect("at least one observation");
                 assert!(
@@ -1338,8 +1443,14 @@ fn main() {
                 let beta = fs::read_to_string(root.join("crates/beta/src/lib.rs")).unwrap();
                 assert!(beta.contains("pub fn helper"), "beta should have helper");
                 let alpha = fs::read_to_string(root.join("crates/alpha/src/lib.rs")).unwrap();
-                assert!(!alpha.contains("pub fn helper"), "alpha must NOT have helper");
-                assert!(!root.join("src/lib.rs").exists(), "root must not be touched");
+                assert!(
+                    !alpha.contains("pub fn helper"),
+                    "alpha must NOT have helper"
+                );
+                assert!(
+                    !root.join("src/lib.rs").exists(),
+                    "root must not be touched"
+                );
             }
             Err(e) => eprintln!("observe (cargo metadata) unavailable, skipping: {e}"),
         }
@@ -1349,7 +1460,10 @@ fn main() {
     #[test]
     fn behavior_wish_forces_validation() {
         let w = compile_wish("a behavior add(2,3)=>5", Digest::ZERO, Digest::ZERO);
-        assert!(wish_needs_validation(&w), "behaviour wish must force validation");
+        assert!(
+            wish_needs_validation(&w),
+            "behaviour wish must force validation"
+        );
         let w2 = compile_wish("a crate foo", Digest::ZERO, Digest::ZERO);
         assert!(!wish_needs_validation(&w2), "a non-behaviour wish must not");
     }
@@ -1448,8 +1562,8 @@ fn main() {
         save_session(&session_path, &session).expect("save must succeed");
 
         // Load it back.
-        let loaded = load_prior_session(&session_path, &wish)
-            .expect("should load because wish id matches");
+        let loaded =
+            load_prior_session(&session_path, &wish).expect("should load because wish id matches");
         assert_eq!(loaded.iterations(), 2);
         assert!(matches!(
             loaded.latest().unwrap().status,

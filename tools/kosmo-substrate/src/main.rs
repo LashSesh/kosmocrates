@@ -70,23 +70,35 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 0usize;
     while i < raw.len() {
         match raw[i].as_str() {
-            "-h" | "--help" => { print_help(); process::exit(0); }
+            "-h" | "--help" => {
+                print_help();
+                process::exit(0);
+            }
             "-V" | "--version" => {
                 println!("kosmo-substrate {}", env!("CARGO_PKG_VERSION"));
                 process::exit(0);
             }
             "--all" | "--all-layers" => args.all_layers = true,
-            "--metatron"    => args.metatron = true,
-            "--lpcm"        => args.lpcm = true,
-            "--systemcube"  => { args.systemcube = true; args.metatron = true; }
-            "--surgery"     => { args.surgery = true;    args.metatron = true; }
-            "--crystals"    => args.crystals = true,
-            "--norms"       => args.norms = true,
-            "--motifs"      => args.motifs = true,
-            "--pse"         => args.pse = true,
-            "--operator"    => args.operator = true,
+            "--metatron" => args.metatron = true,
+            "--lpcm" => args.lpcm = true,
+            "--systemcube" => {
+                args.systemcube = true;
+                args.metatron = true;
+            }
+            "--surgery" => {
+                args.surgery = true;
+                args.metatron = true;
+            }
+            "--crystals" => args.crystals = true,
+            "--norms" => args.norms = true,
+            "--motifs" => args.motifs = true,
+            "--pse" => args.pse = true,
+            "--operator" => args.operator = true,
             "--fail-on-reject" => args.fail_on_reject = true,
-            "--fail-on-warn"   => { args.fail_on_warn = true; args.fail_on_reject = true; }
+            "--fail-on-warn" => {
+                args.fail_on_warn = true;
+                args.fail_on_reject = true;
+            }
             "--store" => {
                 i += 1;
                 if i >= raw.len() {
@@ -100,11 +112,15 @@ fn parse_args() -> Result<Args, String> {
                     return Err("--output requires a format argument (text|json|summary)".into());
                 }
                 args.output = match raw[i].as_str() {
-                    "text"     => OutputFormat::Text,
-                    "json"     => OutputFormat::Json,
+                    "text" => OutputFormat::Text,
+                    "json" => OutputFormat::Json,
                     "markdown" => OutputFormat::Markdown,
-                    "summary"  => OutputFormat::Summary,
-                    other => return Err(format!("unknown output format '{other}'; use text, json, markdown, or summary")),
+                    "summary" => OutputFormat::Summary,
+                    other => {
+                        return Err(format!(
+                            "unknown output format '{other}'; use text, json, markdown, or summary"
+                        ))
+                    }
                 };
             }
             "--capacity" => {
@@ -112,8 +128,9 @@ fn parse_args() -> Result<Args, String> {
                 if i >= raw.len() {
                     return Err("--capacity requires a number argument".into());
                 }
-                args.capacity = raw[i].parse()
-                    .map_err(|_| format!("--capacity must be a positive integer, got '{}'", raw[i]))?;
+                args.capacity = raw[i].parse().map_err(|_| {
+                    format!("--capacity must be a positive integer, got '{}'", raw[i])
+                })?;
             }
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown flag '{flag}'; run --help for usage"));
@@ -135,7 +152,9 @@ fn expand_tilde(path: &str) -> PathBuf {
 }
 
 fn print_help() {
-    println!("{}", concat!(
+    println!(
+        "{}",
+        concat!(
         "Kosmocrates Substrate — workspace topology analysis + ranked action queue\n",
         "\n",
         "USAGE:\n",
@@ -170,33 +189,57 @@ fn print_help() {
         "    kosmo-substrate ./my-project --all --operator --store ~/.kosmo/cadlib.jsonl\n",
         "    kosmo-substrate ./my-project --crystals --output json > report.json\n",
         "    kosmo-substrate ./my-project --output summary --fail-on-reject\n",
-    ));
+    )
+    );
 }
 
 // ─── ANSI colours ────────────────────────────────────────────────────────────
 
 fn use_color() -> bool {
-    std::env::var("NO_COLOR").is_err()
-        && std::env::var("TERM").map(|t| t != "dumb").unwrap_or(true)
+    std::env::var("NO_COLOR").is_err() && std::env::var("TERM").map(|t| t != "dumb").unwrap_or(true)
 }
 
 fn c(code: &str, text: &str) -> String {
-    if use_color() { format!("\x1b[{}m{}\x1b[0m", code, text) } else { text.to_string() }
+    if use_color() {
+        format!("\x1b[{}m{}\x1b[0m", code, text)
+    } else {
+        text.to_string()
+    }
 }
-fn green(s: &str)  -> String { c("32", s) }
-fn yellow(s: &str) -> String { c("33", s) }
-fn red(s: &str)    -> String { c("31", s) }
-fn cyan(s: &str)   -> String { c("36", s) }
-fn bold(s: &str)   -> String { c("1",  s) }
-fn dim(s: &str)    -> String { c("2",  s) }
+fn green(s: &str) -> String {
+    c("32", s)
+}
+fn yellow(s: &str) -> String {
+    c("33", s)
+}
+fn red(s: &str) -> String {
+    c("31", s)
+}
+fn cyan(s: &str) -> String {
+    c("36", s)
+}
+fn bold(s: &str) -> String {
+    c("1", s)
+}
+fn dim(s: &str) -> String {
+    c("2", s)
+}
 
 /// Visual length of a string — strips ANSI escape sequences before measuring.
 fn vlen(s: &str) -> usize {
     let mut len = 0;
     let mut in_escape = false;
     for ch in s.chars() {
-        if ch == '\x1b' { in_escape = true; continue; }
-        if in_escape { if ch == 'm' { in_escape = false; } continue; }
+        if ch == '\x1b' {
+            in_escape = true;
+            continue;
+        }
+        if in_escape {
+            if ch == 'm' {
+                in_escape = false;
+            }
+            continue;
+        }
         len += 1;
     }
     len
@@ -211,37 +254,37 @@ fn hex8(d: &kosmo_core::Digest) -> String {
 fn q16_fmt(raw: i64) -> String {
     // Display as decimal fraction with 4 places: raw / 65536.0
     let i = raw / 65536;
-    let f = ((raw.unsigned_abs() % 65536) * 10000 / 65536) as u64;
+    let f = (raw.unsigned_abs() % 65536) * 10000 / 65536;
     format!("{}.{:04}", i, f)
 }
 
 fn gate_str(r: &kosmo_core::GateResult) -> String {
     match r {
-        kosmo_core::GateResult::Pass         => green("✓ Pass"),
-        kosmo_core::GateResult::Warn { .. }  => yellow("⚠ Warn"),
-        kosmo_core::GateResult::Reject { .. }=> red("✗ Reject"),
-        kosmo_core::GateResult::Downgrade{..}=> yellow("↓ Downgrade"),
+        kosmo_core::GateResult::Pass => green("✓ Pass"),
+        kosmo_core::GateResult::Warn { .. } => yellow("⚠ Warn"),
+        kosmo_core::GateResult::Reject { .. } => red("✗ Reject"),
+        kosmo_core::GateResult::Downgrade { .. } => yellow("↓ Downgrade"),
     }
 }
 
 fn kind_label(kind: &ActionItemKind) -> &'static str {
     match kind {
-        ActionItemKind::FillVoid { .. }         => "FillVoid      ",
-        ActionItemKind::RepairTopology { .. }   => "RepairTopology",
-        ActionItemKind::PromoteToPse { .. }     => "PromoteToPse  ",
-        ActionItemKind::ReviewCrystal { .. }    => "ReviewCrystal ",
-        ActionItemKind::ApplyNorm { .. }        => "ApplyNorm     ",
+        ActionItemKind::FillVoid { .. } => "FillVoid      ",
+        ActionItemKind::RepairTopology { .. } => "RepairTopology",
+        ActionItemKind::PromoteToPse { .. } => "PromoteToPse  ",
+        ActionItemKind::ReviewCrystal { .. } => "ReviewCrystal ",
+        ActionItemKind::ApplyNorm { .. } => "ApplyNorm     ",
         ActionItemKind::RealizeWishFacet { .. } => "RealizeWish   ",
     }
 }
 
 fn kind_color(kind: &ActionItemKind, s: &str) -> String {
     match kind {
-        ActionItemKind::FillVoid { .. }         => cyan(s),
-        ActionItemKind::RepairTopology { .. }   => yellow(s),
-        ActionItemKind::PromoteToPse { .. }     => green(s),
-        ActionItemKind::ReviewCrystal { .. }    => yellow(s),
-        ActionItemKind::ApplyNorm { .. }        => green(s),
+        ActionItemKind::FillVoid { .. } => cyan(s),
+        ActionItemKind::RepairTopology { .. } => yellow(s),
+        ActionItemKind::PromoteToPse { .. } => green(s),
+        ActionItemKind::ReviewCrystal { .. } => yellow(s),
+        ActionItemKind::ApplyNorm { .. } => green(s),
         ActionItemKind::RealizeWishFacet { .. } => green(s),
     }
 }
@@ -262,7 +305,14 @@ fn print_report_text(path: &str, report: &IntegrationRunReport, run_count: u32) 
         "ReportOnly"
     };
     let inner = WIDTH; // inner content width (between │ borders)
-    println!("{}", bold(&format!("╭─ Kosmocrates ─{:─<width$}╮", "", width = inner - 14)));
+    println!(
+        "{}",
+        bold(&format!(
+            "╭─ Kosmocrates ─{:─<width$}╮",
+            "",
+            width = inner - 14
+        ))
+    );
 
     let box_row = |label: &str, value: String| {
         let prefix = format!("  {}  ", bold(label));
@@ -274,7 +324,10 @@ fn print_report_text(path: &str, report: &IntegrationRunReport, run_count: u32) 
     box_row("workspace", cyan(path).to_string());
     box_row("policy   ", policy_label.to_string());
     box_row("gate     ", gate_str(&report.final_result));
-    box_row("report id", dim(&report.report_id.to_hex()[..24]).to_string());
+    box_row(
+        "report id",
+        dim(&report.report_id.to_hex()[..24]).to_string(),
+    );
     if run_count > 0 {
         box_row("session  ", format!("run #{run_count}"));
     }
@@ -284,14 +337,25 @@ fn print_report_text(path: &str, report: &IntegrationRunReport, run_count: u32) 
     // ── Workspace stats ───────────────────────────────────────────────────────
     let void_count = report.void_priority_ranking.len();
     let def_sev = report.deficiency_vector.total_severity;
-    let source_count = report.hyphae_result.host_cube.void_map.voids.len()
-        + report.source_cubes.len();
+    let source_count =
+        report.hyphae_result.host_cube.void_map.voids.len() + report.source_cubes.len();
     println!("{}", bold("Workspace"));
     println!("  {:<24} {}", dim("source files"), source_count);
-    println!("  {:<24} {}  {}",
-        dim("voids detected"), void_count,
-        if void_count > 0 { format!("(total severity {})", q16_fmt(def_sev.raw())) } else { String::new() });
-    println!("  {:<24} {} entries", dim("deficiency"), report.deficiency_vector.entries.len());
+    println!(
+        "  {:<24} {}  {}",
+        dim("voids detected"),
+        void_count,
+        if void_count > 0 {
+            format!("(total severity {})", q16_fmt(def_sev.raw()))
+        } else {
+            String::new()
+        }
+    );
+    println!(
+        "  {:<24} {} entries",
+        dim("deficiency"),
+        report.deficiency_vector.entries.len()
+    );
     println!();
 
     // ── Action queue ─────────────────────────────────────────────────────────
@@ -314,21 +378,36 @@ fn print_report_text(path: &str, report: &IntegrationRunReport, run_count: u32) 
             println!("  {:>3}  {}  {}  {}", i + 1, dim(&score_s), label, desc);
         }
         if items.len() > 20 {
-            println!("  {} {} more items (use --output json for full list)",
-                dim("…"), items.len() - 20);
+            println!(
+                "  {} {} more items (use --output json for full list)",
+                dim("…"),
+                items.len() - 20
+            );
         }
     }
     println!();
 
     // ── Crystal CAD library ───────────────────────────────────────────────────
-    if !report.crystal_candidates.is_empty() || report.persisted_crystal_count > 0
+    if !report.crystal_candidates.is_empty()
+        || report.persisted_crystal_count > 0
         || !report.resonite_map.is_empty()
     {
         println!("{}", bold("Crystal CAD Library"));
-        println!("  {:<28} {}", dim("certified this run"),
-            green(&report.certified_crystals.len().to_string()));
-        println!("  {:<28} {}", dim("resonite pairs"), report.resonite_map.len());
-        println!("  {:<28} {}", dim("persisted to store"), report.persisted_crystal_count);
+        println!(
+            "  {:<28} {}",
+            dim("certified this run"),
+            green(&report.certified_crystals.len().to_string())
+        );
+        println!(
+            "  {:<28} {}",
+            dim("resonite pairs"),
+            report.resonite_map.len()
+        );
+        println!(
+            "  {:<28} {}",
+            dim("persisted to store"),
+            report.persisted_crystal_count
+        );
         println!();
     }
 
@@ -344,36 +423,58 @@ fn print_report_text(path: &str, report: &IntegrationRunReport, run_count: u32) 
     if has_opt {
         println!("{}", bold("Optional Layers"));
         if !report.metatron_diagnostics.is_empty() {
-            println!("  {:<28} {} diagnostics  {} lifts  {} ambiguities",
+            println!(
+                "  {:<28} {} diagnostics  {} lifts  {} ambiguities",
                 dim("metatron"),
                 report.metatron_diagnostics.len(),
                 report.lift_reports.len(),
-                report.ambiguity_profiles.len());
+                report.ambiguity_profiles.len()
+            );
         }
         if !report.lpcm_reports.is_empty() {
-            println!("  {:<28} {} reports", dim("lpcm"), report.lpcm_reports.len());
+            println!(
+                "  {:<28} {} reports",
+                dim("lpcm"),
+                report.lpcm_reports.len()
+            );
         }
         if !report.surgery_options.is_empty() {
-            println!("  {:<28} {} options", dim("surgery"), report.surgery_options.len());
+            println!(
+                "  {:<28} {} options",
+                dim("surgery"),
+                report.surgery_options.len()
+            );
         }
         if let Some(ref sc) = report.systemcube_export {
-            println!("  {:<28} mode={:?}  compat={}  contradiction_energy={}",
+            println!(
+                "  {:<28} mode={:?}  compat={}  contradiction_energy={}",
                 dim("systemcube"),
                 sc.mode,
                 q16_fmt(sc.compatibility.compatibility_score.raw()),
-                q16_fmt(sc.contradiction_energy.total_energy.raw()));
+                q16_fmt(sc.contradiction_energy.total_energy.raw())
+            );
         }
         if !report.pse_candidates.is_empty() {
-            println!("  {:<28} {} candidates", dim("pse bridge"), report.pse_candidates.len());
+            println!(
+                "  {:<28} {} candidates",
+                dim("pse bridge"),
+                report.pse_candidates.len()
+            );
         }
         if !report.norm_candidates.is_empty() {
-            println!("  {:<28} {} genes  {} fitness traces",
+            println!(
+                "  {:<28} {} genes  {} fitness traces",
                 dim("norm candidates"),
                 report.norm_candidates.len(),
-                report.norm_fitness_traces.len());
+                report.norm_fitness_traces.len()
+            );
         }
         if !report.motif_candidates.is_empty() {
-            println!("  {:<28} {} patterns", dim("motif candidates"), report.motif_candidates.len());
+            println!(
+                "  {:<28} {} patterns",
+                dim("motif candidates"),
+                report.motif_candidates.len()
+            );
         }
         println!();
     }
@@ -385,7 +486,11 @@ fn print_report_text(path: &str, report: &IntegrationRunReport, run_count: u32) 
             println!("  {:>3}  {}", i + 1, dim(&hex8(vid)));
         }
         if report.void_priority_ranking.len() > 10 {
-            println!("  {}  … {} more", dim(""), report.void_priority_ranking.len() - 10);
+            println!(
+                "  {}  … {} more",
+                dim(""),
+                report.void_priority_ranking.len() - 10
+            );
         }
         println!();
     }
@@ -395,10 +500,10 @@ fn print_report_text(path: &str, report: &IntegrationRunReport, run_count: u32) 
 
 fn print_report_summary(path: &str, report: &IntegrationRunReport) {
     let gate = match &report.final_result {
-        kosmo_core::GateResult::Pass           => "PASS",
-        kosmo_core::GateResult::Warn { .. }    => "WARN",
-        kosmo_core::GateResult::Reject { .. }  => "REJECT",
-        kosmo_core::GateResult::Downgrade{..}  => "DOWNGRADE",
+        kosmo_core::GateResult::Pass => "PASS",
+        kosmo_core::GateResult::Warn { .. } => "WARN",
+        kosmo_core::GateResult::Reject { .. } => "REJECT",
+        kosmo_core::GateResult::Downgrade { .. } => "DOWNGRADE",
     };
     println!(
         "{gate} | workspace={path} | voids={} | actions={} | crystals={} | report={}",
@@ -413,21 +518,21 @@ fn print_report_summary(path: &str, report: &IntegrationRunReport) {
 
 fn kind_md(kind: &ActionItemKind) -> &'static str {
     match kind {
-        ActionItemKind::FillVoid { .. }         => "FillVoid",
-        ActionItemKind::RepairTopology { .. }   => "RepairTopology",
-        ActionItemKind::PromoteToPse { .. }     => "PromoteToPse",
-        ActionItemKind::ReviewCrystal { .. }    => "ReviewCrystal",
-        ActionItemKind::ApplyNorm { .. }        => "ApplyNorm",
+        ActionItemKind::FillVoid { .. } => "FillVoid",
+        ActionItemKind::RepairTopology { .. } => "RepairTopology",
+        ActionItemKind::PromoteToPse { .. } => "PromoteToPse",
+        ActionItemKind::ReviewCrystal { .. } => "ReviewCrystal",
+        ActionItemKind::ApplyNorm { .. } => "ApplyNorm",
         ActionItemKind::RealizeWishFacet { .. } => "RealizeWishFacet",
     }
 }
 
 fn gate_md(r: &kosmo_core::GateResult) -> &'static str {
     match r {
-        kosmo_core::GateResult::Pass           => "✅ Pass",
-        kosmo_core::GateResult::Warn { .. }    => "⚠️ Warn",
-        kosmo_core::GateResult::Reject { .. }  => "❌ Reject",
-        kosmo_core::GateResult::Downgrade{..}  => "⬇️ Downgrade",
+        kosmo_core::GateResult::Pass => "✅ Pass",
+        kosmo_core::GateResult::Warn { .. } => "⚠️ Warn",
+        kosmo_core::GateResult::Reject { .. } => "❌ Reject",
+        kosmo_core::GateResult::Downgrade { .. } => "⬇️ Downgrade",
     }
 }
 
@@ -454,15 +559,18 @@ fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u
     // ── Workspace ─────────────────────────────────────────────────────────────
     let void_count = report.void_priority_ranking.len();
     let def_sev = report.deficiency_vector.total_severity;
-    let source_count = report.hyphae_result.host_cube.void_map.voids.len()
-        + report.source_cubes.len();
+    let source_count =
+        report.hyphae_result.host_cube.void_map.voids.len() + report.source_cubes.len();
     println!("## Workspace\n");
     println!("| Metric | Value |");
     println!("|--------|-------|");
     println!("| Source files | {source_count} |");
     println!("| Voids detected | {void_count} |");
     println!("| Total severity | {} |", q16_fmt(def_sev.raw()));
-    println!("| Deficiency entries | {} |", report.deficiency_vector.entries.len());
+    println!(
+        "| Deficiency entries | {} |",
+        report.deficiency_vector.entries.len()
+    );
     println!();
 
     // ── Action queue ─────────────────────────────────────────────────────────
@@ -475,7 +583,8 @@ fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u
         println!("|---|------:|------|-------------|");
         for (i, item) in items.iter().enumerate().take(50) {
             let desc = item.description.replace('|', "\\|");
-            println!("| {} | {} | {} | {} |",
+            println!(
+                "| {} | {} | {} | {} |",
                 i + 1,
                 q16_fmt(item.priority_score.raw()),
                 kind_md(&item.kind),
@@ -484,21 +593,31 @@ fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u
         }
         if items.len() > 50 {
             println!();
-            println!("_… {} more items. Use `--output json` for the full list._", items.len() - 50);
+            println!(
+                "_… {} more items. Use `--output json` for the full list._",
+                items.len() - 50
+            );
         }
         println!();
     }
 
     // ── Crystal CAD library ───────────────────────────────────────────────────
-    if !report.crystal_candidates.is_empty() || report.persisted_crystal_count > 0
+    if !report.crystal_candidates.is_empty()
+        || report.persisted_crystal_count > 0
         || !report.resonite_map.is_empty()
     {
         println!("## Crystal CAD Library\n");
         println!("| Metric | Value |");
         println!("|--------|-------|");
-        println!("| Certified this run | {} |", report.certified_crystals.len());
+        println!(
+            "| Certified this run | {} |",
+            report.certified_crystals.len()
+        );
         println!("| Resonite pairs | {} |", report.resonite_map.len());
-        println!("| Persisted to store | {} |", report.persisted_crystal_count);
+        println!(
+            "| Persisted to store | {} |",
+            report.persisted_crystal_count
+        );
         println!();
     }
 
@@ -516,10 +635,12 @@ fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u
         println!("| Layer | Details |");
         println!("|-------|---------|");
         if !report.metatron_diagnostics.is_empty() {
-            println!("| Metatron | {} diagnostics, {} lifts, {} ambiguities |",
+            println!(
+                "| Metatron | {} diagnostics, {} lifts, {} ambiguities |",
                 report.metatron_diagnostics.len(),
                 report.lift_reports.len(),
-                report.ambiguity_profiles.len());
+                report.ambiguity_profiles.len()
+            );
         }
         if !report.lpcm_reports.is_empty() {
             println!("| LPCM | {} reports |", report.lpcm_reports.len());
@@ -528,21 +649,31 @@ fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u
             println!("| Surgery | {} options |", report.surgery_options.len());
         }
         if let Some(ref sc) = report.systemcube_export {
-            println!("| SystemCube | mode={:?}, compat={}, contradiction_energy={} |",
+            println!(
+                "| SystemCube | mode={:?}, compat={}, contradiction_energy={} |",
                 sc.mode,
                 q16_fmt(sc.compatibility.compatibility_score.raw()),
-                q16_fmt(sc.contradiction_energy.total_energy.raw()));
+                q16_fmt(sc.contradiction_energy.total_energy.raw())
+            );
         }
         if !report.pse_candidates.is_empty() {
-            println!("| PSE Bridge | {} candidates |", report.pse_candidates.len());
+            println!(
+                "| PSE Bridge | {} candidates |",
+                report.pse_candidates.len()
+            );
         }
         if !report.norm_candidates.is_empty() {
-            println!("| Norm Candidates | {} genes, {} fitness traces |",
+            println!(
+                "| Norm Candidates | {} genes, {} fitness traces |",
                 report.norm_candidates.len(),
-                report.norm_fitness_traces.len());
+                report.norm_fitness_traces.len()
+            );
         }
         if !report.motif_candidates.is_empty() {
-            println!("| Motif Candidates | {} patterns |", report.motif_candidates.len());
+            println!(
+                "| Motif Candidates | {} patterns |",
+                report.motif_candidates.len()
+            );
         }
         println!();
     }
@@ -555,7 +686,10 @@ fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u
         }
         if report.void_priority_ranking.len() > 20 {
             println!();
-            println!("_… {} more voids._", report.void_priority_ranking.len() - 20);
+            println!(
+                "_… {} more voids._",
+                report.void_priority_ranking.len() - 20
+            );
         }
         println!();
     }
@@ -563,8 +697,10 @@ fn print_report_markdown(path: &str, report: &IntegrationRunReport, run_count: u
     // ── Footer ────────────────────────────────────────────────────────────────
     println!("---");
     println!();
-    println!("_Generated by [kosmo-substrate](https://github.com/LashSesh/kosmocrates) v{}_",
-        env!("CARGO_PKG_VERSION"));
+    println!(
+        "_Generated by [kosmo-substrate](https://github.com/LashSesh/kosmocrates) v{}_",
+        env!("CARGO_PKG_VERSION")
+    );
 }
 
 // ─── Build options ────────────────────────────────────────────────────────────
@@ -580,20 +716,20 @@ fn build_options(args: &Args) -> IntegrationRunOptions {
     }
 
     let mut opts = IntegrationRunOptions {
-        enable_metatron:         args.metatron,
-        enable_lpcm:             args.lpcm,
-        enable_systemcube:       args.systemcube,
-        systemcube_capacity:     args.capacity,
-        lpcm_seam_threshold:     kosmo_core::Q16::ZERO,
-        enable_surgery:          args.surgery,
+        enable_metatron: args.metatron,
+        enable_lpcm: args.lpcm,
+        enable_systemcube: args.systemcube,
+        systemcube_capacity: args.capacity,
+        lpcm_seam_threshold: kosmo_core::Q16::ZERO,
+        enable_surgery: args.surgery,
         enable_motif_candidates: args.motifs,
-        enable_norm_candidates:  args.norms,
+        enable_norm_candidates: args.norms,
         enable_crystal_candidates: args.crystals,
-        enable_pse_candidates:   args.pse,
-        prior_feedback:  vec![],
-        prior_motifs:    vec![],
+        enable_pse_candidates: args.pse,
+        prior_feedback: vec![],
+        prior_motifs: vec![],
         prior_motif_min_support: kosmo_core::Q16::HALF,
-        prior_crystals:  vec![],
+        prior_crystals: vec![],
         crystal_store_path: None,
     };
 
@@ -653,15 +789,13 @@ fn main() {
         OutputFormat::Text => {
             print_report_text(&args.path, &report, session.run_count());
         }
-        OutputFormat::Json => {
-            match serde_json::to_string_pretty(&report) {
-                Ok(j) => println!("{j}"),
-                Err(e) => {
-                    eprintln!("{} serialization failed: {e}", red("error:"));
-                    process::exit(2);
-                }
+        OutputFormat::Json => match serde_json::to_string_pretty(&report) {
+            Ok(j) => println!("{j}"),
+            Err(e) => {
+                eprintln!("{} serialization failed: {e}", red("error:"));
+                process::exit(2);
             }
-        }
+        },
         OutputFormat::Markdown => {
             print_report_markdown(&args.path, &report, session.run_count());
         }
@@ -673,7 +807,7 @@ fn main() {
     // Exit code.
     let should_fail = match &report.final_result {
         kosmo_core::GateResult::Reject { .. } => args.fail_on_reject,
-        kosmo_core::GateResult::Warn { .. }   => args.fail_on_warn,
+        kosmo_core::GateResult::Warn { .. } => args.fail_on_warn,
         _ => false,
     };
     if should_fail {

@@ -135,7 +135,11 @@ fn capstone_runtime_unit_and_process_boundary() {
         "[package]\nname = \"calc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
     )
     .unwrap();
-    fs::write(root.join("src/lib.rs"), "pub fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
+    fs::write(
+        root.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
     // The CLI wraps the library fn — so the Run probe exercises the same add.
     fs::write(
         root.join("src/main.rs"),

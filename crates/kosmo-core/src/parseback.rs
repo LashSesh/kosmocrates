@@ -327,10 +327,18 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn mat_plan_id() -> Digest { d(b"mat-plan") }
-    fn topo_id() -> Digest { d(b"topo-baseline") }
-    fn bundle_id() -> Digest { d(b"bundle") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn mat_plan_id() -> Digest {
+        d(b"mat-plan")
+    }
+    fn topo_id() -> Digest {
+        d(b"topo-baseline")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
 
     fn basic_plan() -> ParseBackPlan {
         ParseBackPlan::new(
@@ -374,10 +382,16 @@ mod tests {
     #[test]
     fn delta_different_kinds_differ() {
         let a = ParseBackTopologyDelta::new(
-            TopologyChangeKind::NodeAdded, None, "x", ParseBackSeverity::Info,
+            TopologyChangeKind::NodeAdded,
+            None,
+            "x",
+            ParseBackSeverity::Info,
         );
         let b = ParseBackTopologyDelta::new(
-            TopologyChangeKind::NodeRemoved, None, "x", ParseBackSeverity::Info,
+            TopologyChangeKind::NodeRemoved,
+            None,
+            "x",
+            ParseBackSeverity::Info,
         );
         assert_ne!(a.id, b.id);
     }
@@ -393,7 +407,10 @@ mod tests {
         assert!(critical.is_critical());
 
         let info = ParseBackTopologyDelta::new(
-            TopologyChangeKind::NodeAdded, None, "minor", ParseBackSeverity::Info,
+            TopologyChangeKind::NodeAdded,
+            None,
+            "minor",
+            ParseBackSeverity::Info,
         );
         assert!(!info.is_critical());
     }
@@ -401,10 +418,16 @@ mod tests {
     #[test]
     fn delta_with_node_id_differs_from_without() {
         let without = ParseBackTopologyDelta::new(
-            TopologyChangeKind::NodeModified, None, "mod", ParseBackSeverity::Info,
+            TopologyChangeKind::NodeModified,
+            None,
+            "mod",
+            ParseBackSeverity::Info,
         );
         let with_id = ParseBackTopologyDelta::new(
-            TopologyChangeKind::NodeModified, Some(d(b"n")), "mod", ParseBackSeverity::Info,
+            TopologyChangeKind::NodeModified,
+            Some(d(b"n")),
+            "mod",
+            ParseBackSeverity::Info,
         );
         assert_ne!(without.id, with_id.id);
     }
@@ -449,10 +472,16 @@ mod tests {
     #[test]
     fn plan_different_scope_differs() {
         let p1 = ParseBackPlan::new(
-            policy_id(), mat_plan_id(), ParseBackScanScope::AffectedCratesOnly, topo_id(),
+            policy_id(),
+            mat_plan_id(),
+            ParseBackScanScope::AffectedCratesOnly,
+            topo_id(),
         );
         let p2 = ParseBackPlan::new(
-            policy_id(), mat_plan_id(), ParseBackScanScope::FullWorkspace, topo_id(),
+            policy_id(),
+            mat_plan_id(),
+            ParseBackScanScope::FullWorkspace,
+            topo_id(),
         );
         assert_ne!(p1.id, p2.id);
     }
@@ -474,7 +503,10 @@ mod tests {
     fn plan_different_baseline_topology_differs() {
         let p1 = basic_plan();
         let p2 = ParseBackPlan::new(
-            policy_id(), mat_plan_id(), ParseBackScanScope::AffectedCratesOnly, d(b"other-topo"),
+            policy_id(),
+            mat_plan_id(),
+            ParseBackScanScope::AffectedCratesOnly,
+            d(b"other-topo"),
         );
         assert_ne!(p1.id, p2.id);
     }
@@ -524,7 +556,10 @@ mod tests {
     #[test]
     fn report_new_deterministic() {
         let delta = ParseBackTopologyDelta::new(
-            TopologyChangeKind::NodeAdded, None, "new file", ParseBackSeverity::Info,
+            TopologyChangeKind::NodeAdded,
+            None,
+            "new file",
+            ParseBackSeverity::Info,
         );
         let r1 = ParseBackReport::new(
             mat_plan_id(),
@@ -552,7 +587,10 @@ mod tests {
     #[test]
     fn report_verify_id_with_deltas() {
         let delta = ParseBackTopologyDelta::new(
-            TopologyChangeKind::EdgeAdded, None, "new dep", ParseBackSeverity::Warning,
+            TopologyChangeKind::EdgeAdded,
+            None,
+            "new dep",
+            ParseBackSeverity::Warning,
         );
         let r = ParseBackReport::new(
             mat_plan_id(),
@@ -594,18 +632,33 @@ mod tests {
     fn report_worst_severity_max() {
         let deltas = vec![
             ParseBackTopologyDelta::new(
-                TopologyChangeKind::NodeAdded, None, "a", ParseBackSeverity::Info,
+                TopologyChangeKind::NodeAdded,
+                None,
+                "a",
+                ParseBackSeverity::Info,
             ),
             ParseBackTopologyDelta::new(
-                TopologyChangeKind::EdgeRemoved, None, "b", ParseBackSeverity::Critical,
+                TopologyChangeKind::EdgeRemoved,
+                None,
+                "b",
+                ParseBackSeverity::Critical,
             ),
             ParseBackTopologyDelta::new(
-                TopologyChangeKind::NodeModified, None, "c", ParseBackSeverity::Warning,
+                TopologyChangeKind::NodeModified,
+                None,
+                "c",
+                ParseBackSeverity::Warning,
             ),
         ];
         let r = ParseBackReport::new(
-            mat_plan_id(), ParseBackOutcome::Failed, deltas, topo_id(),
-            d(b"post"), vec![], bundle_id(), 300,
+            mat_plan_id(),
+            ParseBackOutcome::Failed,
+            deltas,
+            topo_id(),
+            d(b"post"),
+            vec![],
+            bundle_id(),
+            300,
         );
         assert_eq!(r.worst_severity(), Some(&ParseBackSeverity::Critical));
     }
@@ -656,9 +709,8 @@ mod tests {
             policy_id(),
             ReplayStatus::Replayable,
         );
-        let r = ParseBackReport::topology_unchanged(
-            mat_plan_id(), topo_id(), ev_bundle.bundle_id, 750,
-        );
+        let r =
+            ParseBackReport::topology_unchanged(mat_plan_id(), topo_id(), ev_bundle.bundle_id, 750);
         assert!(r.verify_id());
         assert_ne!(r.evidence_bundle_id, Digest::ZERO);
     }

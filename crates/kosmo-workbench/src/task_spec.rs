@@ -37,12 +37,7 @@ pub struct TaskSpec {
 }
 
 impl TaskSpec {
-    pub fn new(
-        kind: TaskKind,
-        context_pack_id: Digest,
-        policy_id: Digest,
-        run_id: Digest,
-    ) -> Self {
+    pub fn new(kind: TaskKind, context_pack_id: Digest, policy_id: Digest, run_id: Digest) -> Self {
         let mut spec = Self {
             task_id: Digest::ZERO,
             kind,
@@ -102,7 +97,9 @@ mod tests {
     #[test]
     fn task_spec_verify_id() {
         let t = TaskSpec::new(
-            TaskKind::WorkspaceScan { root: "/repo".into() },
+            TaskKind::WorkspaceScan {
+                root: "/repo".into(),
+            },
             Digest::ZERO,
             Digest::ZERO,
             Digest::ZERO,
@@ -113,7 +110,12 @@ mod tests {
 
     #[test]
     fn task_spec_label_changes_id() {
-        let base = TaskSpec::new(TaskKind::DryRunReport, Digest::ZERO, Digest::ZERO, Digest::ZERO);
+        let base = TaskSpec::new(
+            TaskKind::DryRunReport,
+            Digest::ZERO,
+            Digest::ZERO,
+            Digest::ZERO,
+        );
         let labeled = base.clone().with_label("x", "y");
         assert_ne!(base.task_id, labeled.task_id);
     }

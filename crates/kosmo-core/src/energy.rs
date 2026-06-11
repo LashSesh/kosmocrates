@@ -427,7 +427,9 @@ mod tests {
         );
         assert_eq!(EnergyFactors::gate_factor(&GateResult::Pass), Q16::ONE);
         assert_eq!(
-            EnergyFactors::gate_factor(&GateResult::Warn { message: "m".into() }),
+            EnergyFactors::gate_factor(&GateResult::Warn {
+                message: "m".into()
+            }),
             Q16::HALF
         );
     }
@@ -499,7 +501,9 @@ mod tests {
     fn energy_ranks_but_never_bypasses_gate() {
         let perfect_tripolar = TripolarEnergy::unit(); // D = 1, maximal
         let factors = EnergyFactors::derive(
-            &GateResult::Reject { reason: "missing evidence".into() },
+            &GateResult::Reject {
+                reason: "missing evidence".into(),
+            },
             &TaintLabel::Clean,
             &LicenseStatus::Permissive { spdx: "MIT".into() },
             FoundrySurvival::Passed,
@@ -523,7 +527,9 @@ mod tests {
             TripolarEnergy::unit(),
             EnergyFactors::derive(
                 &GateResult::Pass,
-                &TaintLabel::Quarantined { reason: "untrusted".into() },
+                &TaintLabel::Quarantined {
+                    reason: "untrusted".into(),
+                },
                 &LicenseStatus::Permissive { spdx: "MIT".into() },
                 FoundrySurvival::Passed,
                 Q16::ONE,

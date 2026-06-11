@@ -92,7 +92,11 @@ pub struct KcubeArtifact {
 
 impl KcubeArtifact {
     pub fn new(kind: KcubeArtifactKind, path: impl Into<String>, bytes: Vec<u8>) -> Self {
-        Self { kind, path: path.into(), bytes }
+        Self {
+            kind,
+            path: path.into(),
+            bytes,
+        }
     }
 }
 
@@ -117,7 +121,9 @@ impl std::fmt::Display for KcubeReadError {
             Self::InvalidMagic => write!(f, "invalid magic bytes"),
             Self::InvalidVersion { actual } => write!(f, "unknown format version {actual}"),
             Self::ArtifactSectionTruncated => write!(f, "artifact section truncated"),
-            Self::InvalidManifestMarker => write!(f, "manifest marker not found at expected offset"),
+            Self::InvalidManifestMarker => {
+                write!(f, "manifest marker not found at expected offset")
+            }
             Self::ManifestTruncated => write!(f, "manifest section truncated"),
             Self::ManifestParseError(e) => write!(f, "manifest JSON parse error: {e}"),
         }
@@ -135,7 +141,9 @@ pub struct KcubeExecutor {
 impl KcubeExecutor {
     /// Create an executor that reads and writes `.kcube` files in `target_dir`.
     pub fn new(target_dir: impl Into<PathBuf>) -> Self {
-        Self { target_dir: target_dir.into() }
+        Self {
+            target_dir: target_dir.into(),
+        }
     }
 
     /// Write a `.kcube` archive from the provided artifacts under `policy`.
@@ -159,7 +167,9 @@ impl KcubeExecutor {
             return KcubeWriteReport::new(
                 Digest::ZERO,
                 policy.id,
-                KcubeWriteOutcome::DeniedByPolicy { reason: "allow_write is false".into() },
+                KcubeWriteOutcome::DeniedByPolicy {
+                    reason: "allow_write is false".into(),
+                },
                 None,
                 0,
                 None,
@@ -174,14 +184,13 @@ impl KcubeExecutor {
             if !policy.allowed_artifact_kinds.is_empty()
                 && !policy.is_artifact_kind_allowed(&art.kind)
             {
-                let reason = format!(
-                    "artifact kind {:?} not in policy allowed list",
-                    art.kind
-                );
+                let reason = format!("artifact kind {:?} not in policy allowed list", art.kind);
                 return KcubeWriteReport::new(
                     Digest::ZERO,
                     policy.id,
-                    KcubeWriteOutcome::DeniedByPolicy { reason: reason.clone() },
+                    KcubeWriteOutcome::DeniedByPolicy {
+                        reason: reason.clone(),
+                    },
                     None,
                     0,
                     None,
@@ -230,12 +239,13 @@ impl KcubeExecutor {
 
         // Gate 3: overwrite guard
         if out_path.exists() && !policy.allow_overwrite {
-            let reason =
-                format!("target {file_name} exists and allow_overwrite is false");
+            let reason = format!("target {file_name} exists and allow_overwrite is false");
             return KcubeWriteReport::new(
                 package.id,
                 policy.id,
-                KcubeWriteOutcome::DeniedByPolicy { reason: reason.clone() },
+                KcubeWriteOutcome::DeniedByPolicy {
+                    reason: reason.clone(),
+                },
                 None,
                 0,
                 None,
@@ -250,7 +260,9 @@ impl KcubeExecutor {
             return KcubeWriteReport::new(
                 package.id,
                 policy.id,
-                KcubeWriteOutcome::Failed { reason: format!("create_dir_all: {e}") },
+                KcubeWriteOutcome::Failed {
+                    reason: format!("create_dir_all: {e}"),
+                },
                 None,
                 0,
                 None,
@@ -265,7 +277,9 @@ impl KcubeExecutor {
             return KcubeWriteReport::new(
                 package.id,
                 policy.id,
-                KcubeWriteOutcome::Failed { reason: format!("write: {e}") },
+                KcubeWriteOutcome::Failed {
+                    reason: format!("write: {e}"),
+                },
                 None,
                 0,
                 None,
@@ -276,8 +290,7 @@ impl KcubeExecutor {
         }
 
         let written_bytes = file_bytes.len() as u64;
-        let written_path_digest =
-            Digest::of_bytes(out_path.to_string_lossy().as_bytes());
+        let written_path_digest = Digest::of_bytes(out_path.to_string_lossy().as_bytes());
 
         // Roundtrip verification: re-read and re-compute artifact SHA-256
         let roundtrip = if policy.require_roundtrip_verification {
@@ -367,7 +380,9 @@ fn observed_package_digest(file_bytes: &[u8]) -> Option<Digest> {
         return None;
     }
     let art_len = u64::from_le_bytes(
-        file_bytes[ARTIFACT_LEN_OFFSET..ARTIFACT_START].try_into().ok()?,
+        file_bytes[ARTIFACT_LEN_OFFSET..ARTIFACT_START]
+            .try_into()
+            .ok()?,
     ) as usize;
     let art_end = ARTIFACT_START.checked_add(art_len)?;
     if art_end > file_bytes.len() {
@@ -381,7 +396,9 @@ fn observed_package_digest(file_bytes: &[u8]) -> Option<Digest> {
 /// This is the public entry point for import/verification workflows.
 pub fn parse_kcube_file(file_bytes: &[u8]) -> Result<KcubePackage, KcubeReadError> {
     if file_bytes.len() < ARTIFACT_START {
-        return Err(KcubeReadError::TooShort { len: file_bytes.len() });
+        return Err(KcubeReadError::TooShort {
+            len: file_bytes.len(),
+        });
     }
     if &file_bytes[0..8] != MAGIC {
         return Err(KcubeReadError::InvalidMagic);
@@ -391,7 +408,9 @@ pub fn parse_kcube_file(file_bytes: &[u8]) -> Result<KcubePackage, KcubeReadErro
         return Err(KcubeReadError::InvalidVersion { actual: version });
     }
     let art_len = u64::from_le_bytes(
-        file_bytes[ARTIFACT_LEN_OFFSET..ARTIFACT_START].try_into().unwrap(),
+        file_bytes[ARTIFACT_LEN_OFFSET..ARTIFACT_START]
+            .try_into()
+            .unwrap(),
     ) as usize;
     let art_end = ARTIFACT_START
         .checked_add(art_len)
@@ -410,7 +429,9 @@ pub fn parse_kcube_file(file_bytes: &[u8]) -> Result<KcubePackage, KcubeReadErro
         return Err(KcubeReadError::ManifestTruncated);
     }
     let mfst_len = u32::from_le_bytes(
-        file_bytes[mfst_len_start..mfst_len_start + 4].try_into().unwrap(),
+        file_bytes[mfst_len_start..mfst_len_start + 4]
+            .try_into()
+            .unwrap(),
     ) as usize;
 
     let mfst_data_start = mfst_len_start + 4;
@@ -431,7 +452,13 @@ pub fn parse_kcube_file(file_bytes: &[u8]) -> Result<KcubePackage, KcubeReadErro
 pub fn kcube_file_name(scope: &str, sequence: u64) -> String {
     let slug: String = scope
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     format!("{slug}-seq{sequence}.kcube")
 }
@@ -570,7 +597,10 @@ mod tests {
     fn parse_wrong_magic() {
         let mut file = vec![0u8; ARTIFACT_START + 20];
         file[0..8].copy_from_slice(b"NOTMAGIC");
-        assert_eq!(parse_kcube_file(&file).unwrap_err(), KcubeReadError::InvalidMagic);
+        assert_eq!(
+            parse_kcube_file(&file).unwrap_err(),
+            KcubeReadError::InvalidMagic
+        );
     }
 
     #[test]
@@ -604,10 +634,17 @@ mod tests {
         let dir = tmp_dir("allow-write-false");
         let exec = KcubeExecutor::new(&dir);
         let policy = report_only_policy();
-        let report = exec.write("scope", vec![crystal_artifact("a")], &policy, bundle_id(), 1);
+        let report = exec.write(
+            "scope",
+            vec![crystal_artifact("a")],
+            &policy,
+            bundle_id(),
+            1,
+        );
         assert!(
             matches!(&report.outcome, KcubeWriteOutcome::DeniedByPolicy { reason } if reason.contains("allow_write")),
-            "expected DeniedByPolicy, got {:?}", report.outcome
+            "expected DeniedByPolicy, got {:?}",
+            report.outcome
         );
         assert_eq!(report.written_bytes, 0);
         assert!(report.written_path_digest.is_none());
@@ -632,7 +669,8 @@ mod tests {
         let report = exec.write("scope", vec![bad_art], &policy, bundle_id(), 1);
         assert!(
             matches!(&report.outcome, KcubeWriteOutcome::DeniedByPolicy { reason } if reason.contains("PolicyProfile")),
-            "expected DeniedByPolicy, got {:?}", report.outcome
+            "expected DeniedByPolicy, got {:?}",
+            report.outcome
         );
         assert!(report.verify_id());
     }
@@ -643,13 +681,26 @@ mod tests {
         let exec = KcubeExecutor::new(&dir);
         let policy = write_once_policy();
         // First write succeeds
-        let r1 = exec.write("scope", vec![crystal_artifact("c")], &policy, bundle_id(), 5);
+        let r1 = exec.write(
+            "scope",
+            vec![crystal_artifact("c")],
+            &policy,
+            bundle_id(),
+            5,
+        );
         assert!(r1.outcome.is_written(), "first write should succeed");
         // Second write to same sequence should be blocked
-        let r2 = exec.write("scope", vec![crystal_artifact("d")], &policy, bundle_id(), 5);
+        let r2 = exec.write(
+            "scope",
+            vec![crystal_artifact("d")],
+            &policy,
+            bundle_id(),
+            5,
+        );
         assert!(
             matches!(&r2.outcome, KcubeWriteOutcome::DeniedByPolicy { reason } if reason.contains("allow_overwrite")),
-            "expected DeniedByPolicy on overwrite, got {:?}", r2.outcome
+            "expected DeniedByPolicy on overwrite, got {:?}",
+            r2.outcome
         );
         assert!(r2.verify_id());
     }
@@ -680,7 +731,13 @@ mod tests {
     fn write_evidence_bound_in_report() {
         let dir = tmp_dir("evidence-bound");
         let exec = KcubeExecutor::new(&dir);
-        let report = exec.write("sc", vec![crystal_artifact("e")], &write_once_policy(), bundle_id(), 2);
+        let report = exec.write(
+            "sc",
+            vec![crystal_artifact("e")],
+            &write_once_policy(),
+            bundle_id(),
+            2,
+        );
         assert_eq!(report.evidence_bundle_id, bundle_id());
         assert_ne!(report.evidence_bundle_id, Digest::ZERO);
     }
@@ -689,9 +746,18 @@ mod tests {
     fn write_roundtrip_passes_by_default() {
         let dir = tmp_dir("roundtrip-passes");
         let exec = KcubeExecutor::new(&dir);
-        let report = exec.write("rt-scope", vec![crystal_artifact("r")], &write_once_policy(), bundle_id(), 1);
+        let report = exec.write(
+            "rt-scope",
+            vec![crystal_artifact("r")],
+            &write_once_policy(),
+            bundle_id(),
+            1,
+        );
         assert!(report.outcome.is_written(), "{:?}", report.outcome);
-        assert!(report.roundtrip_passed(), "roundtrip verification must pass");
+        assert!(
+            report.roundtrip_passed(),
+            "roundtrip verification must pass"
+        );
         let rt = report.roundtrip.as_ref().unwrap();
         assert!(rt.verify_id());
     }
@@ -711,7 +777,13 @@ mod tests {
     fn write_package_id_is_content_addressed() {
         let dir = tmp_dir("pkg-id-ca");
         let exec = KcubeExecutor::new(&dir);
-        let r = exec.write("sc", vec![crystal_artifact("p")], &write_once_policy(), bundle_id(), 1);
+        let r = exec.write(
+            "sc",
+            vec![crystal_artifact("p")],
+            &write_once_policy(),
+            bundle_id(),
+            1,
+        );
         assert!(r.outcome.is_written(), "{:?}", r.outcome);
         // package_id in the report must be the id of the KcubePackage
         assert_ne!(r.package_id, Digest::ZERO);
@@ -744,7 +816,13 @@ mod tests {
     fn read_package_digest_matches_written_digest() {
         let dir = tmp_dir("read-digest-match");
         let exec = KcubeExecutor::new(&dir);
-        let report = exec.write("sc", vec![crystal_artifact("d")], &write_once_policy(), bundle_id(), 7);
+        let report = exec.write(
+            "sc",
+            vec![crystal_artifact("d")],
+            &write_once_policy(),
+            bundle_id(),
+            7,
+        );
         assert!(report.outcome.is_written(), "{:?}", report.outcome);
         let file_name = kcube_file_name("sc", 7);
         let pkg = exec.read(&file_name).unwrap();
@@ -776,7 +854,13 @@ mod tests {
     fn cross006_evidence_non_zero_in_write_report() {
         let dir = tmp_dir("cross006-write");
         let exec = KcubeExecutor::new(&dir);
-        let report = exec.write("s", vec![crystal_artifact("v")], &write_once_policy(), bundle_id(), 1);
+        let report = exec.write(
+            "s",
+            vec![crystal_artifact("v")],
+            &write_once_policy(),
+            bundle_id(),
+            1,
+        );
         assert_ne!(report.evidence_bundle_id, Digest::ZERO);
     }
 

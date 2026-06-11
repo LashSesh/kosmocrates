@@ -2312,7 +2312,9 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 }
 
 fn is_leap(y: u64) -> bool {
-    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
+    // `%` instead of `u64::is_multiple_of` — the latter is stable only since
+    // Rust 1.87, above the workspace MSRV of 1.82.
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
 #[cfg(test)]

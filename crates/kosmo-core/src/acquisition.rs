@@ -360,8 +360,12 @@ mod tests {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn bundle_id() -> Digest { d(b"bundle") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
 
     fn basic_source() -> AcquiredSource {
         AcquiredSource::new(
@@ -400,13 +404,17 @@ mod tests {
 
     #[test]
     fn license_passed_is_passed() {
-        let o = LicenseCheckOutcome::Passed { spdx_id: "MIT".into() };
+        let o = LicenseCheckOutcome::Passed {
+            spdx_id: "MIT".into(),
+        };
         assert!(o.is_passed());
     }
 
     #[test]
     fn license_failed_not_passed() {
-        let o = LicenseCheckOutcome::Failed { reason: "GPL incompatible".into() };
+        let o = LicenseCheckOutcome::Failed {
+            reason: "GPL incompatible".into(),
+        };
         assert!(!o.is_passed());
     }
 
@@ -417,7 +425,9 @@ mod tests {
 
     #[test]
     fn secret_scan_failed_not_passed() {
-        let o = SecretScanOutcome::Failed { findings: vec!["AWS key".into()] };
+        let o = SecretScanOutcome::Failed {
+            findings: vec!["AWS key".into()],
+        };
         assert!(!o.is_passed());
     }
 
@@ -486,9 +496,15 @@ mod tests {
     #[test]
     fn sandbox_all_allow_flags_false() {
         let s = AcquisitionSandbox::new(d(b"path"), policy_id());
-        assert!(!s.allow_execution, "SAFETY_POLICY §2: no acquired repo executed");
+        assert!(
+            !s.allow_execution,
+            "SAFETY_POLICY §2: no acquired repo executed"
+        );
         assert!(!s.allow_host_write);
-        assert!(!s.allow_context_injection, "SAFETY_POLICY §1: no external code in context");
+        assert!(
+            !s.allow_context_injection,
+            "SAFETY_POLICY §1: no external code in context"
+        );
     }
 
     // --- AcquiredSource (initial state) ---
@@ -534,8 +550,9 @@ mod tests {
 
     #[test]
     fn source_license_check_alone_does_not_clear() {
-        let s = basic_source()
-            .with_license_check(LicenseCheckOutcome::Passed { spdx_id: "MIT".into() });
+        let s = basic_source().with_license_check(LicenseCheckOutcome::Passed {
+            spdx_id: "MIT".into(),
+        });
         assert_eq!(s.taint, AcquisitionTaint::SecretScanNotRun);
         assert!(s.taint.is_tainted());
         assert!(s.verify_id());
@@ -552,7 +569,9 @@ mod tests {
     #[test]
     fn source_both_checks_passed_clears_taint() {
         let s = basic_source()
-            .with_license_check(LicenseCheckOutcome::Passed { spdx_id: "Apache-2.0".into() })
+            .with_license_check(LicenseCheckOutcome::Passed {
+                spdx_id: "Apache-2.0".into(),
+            })
             .with_secret_scan(SecretScanOutcome::Passed);
         assert_eq!(s.taint, AcquisitionTaint::Cleared);
         assert!(s.may_proceed_to_foundry());
@@ -562,7 +581,9 @@ mod tests {
     #[test]
     fn source_failed_license_does_not_clear() {
         let s = basic_source()
-            .with_license_check(LicenseCheckOutcome::Failed { reason: "GPL".into() })
+            .with_license_check(LicenseCheckOutcome::Failed {
+                reason: "GPL".into(),
+            })
             .with_secret_scan(SecretScanOutcome::Passed);
         assert_eq!(s.taint, AcquisitionTaint::Unverified);
         assert!(!s.may_proceed_to_foundry());
@@ -572,7 +593,9 @@ mod tests {
     #[test]
     fn source_failed_secret_scan_does_not_clear() {
         let s = basic_source()
-            .with_license_check(LicenseCheckOutcome::Passed { spdx_id: "MIT".into() })
+            .with_license_check(LicenseCheckOutcome::Passed {
+                spdx_id: "MIT".into(),
+            })
             .with_secret_scan(SecretScanOutcome::Failed {
                 findings: vec!["GITHUB_TOKEN".into()],
             });
@@ -584,8 +607,9 @@ mod tests {
     #[test]
     fn source_taint_changes_id() {
         let s1 = basic_source();
-        let s2 = basic_source()
-            .with_license_check(LicenseCheckOutcome::Passed { spdx_id: "MIT".into() });
+        let s2 = basic_source().with_license_check(LicenseCheckOutcome::Passed {
+            spdx_id: "MIT".into(),
+        });
         assert_ne!(s1.id, s2.id);
     }
 
@@ -593,7 +617,9 @@ mod tests {
     fn source_cleared_then_secret_scan_fail_reverts() {
         // Applying a failing scan after clearing must revert taint.
         let s = basic_source()
-            .with_license_check(LicenseCheckOutcome::Passed { spdx_id: "MIT".into() })
+            .with_license_check(LicenseCheckOutcome::Passed {
+                spdx_id: "MIT".into(),
+            })
             .with_secret_scan(SecretScanOutcome::Passed) // cleared
             .with_secret_scan(SecretScanOutcome::Failed {
                 findings: vec!["AWS_SECRET".into()],
@@ -618,7 +644,10 @@ mod tests {
     #[test]
     fn r8_no_execution_of_acquired_source() {
         let sandbox = AcquisitionSandbox::new(d(b"sandbox"), policy_id());
-        assert!(!sandbox.allow_execution, "SAFETY_POLICY §2: never execute acquired repo");
+        assert!(
+            !sandbox.allow_execution,
+            "SAFETY_POLICY §2: never execute acquired repo"
+        );
     }
 
     #[test]
@@ -639,7 +668,9 @@ mod tests {
     #[test]
     fn r8_cleared_source_allowed_for_foundry() {
         let s = basic_source()
-            .with_license_check(LicenseCheckOutcome::Passed { spdx_id: "MIT".into() })
+            .with_license_check(LicenseCheckOutcome::Passed {
+                spdx_id: "MIT".into(),
+            })
             .with_secret_scan(SecretScanOutcome::Passed);
         assert!(s.may_proceed_to_foundry());
         // Note: even Cleared requires explicit operator approval before trusted use.

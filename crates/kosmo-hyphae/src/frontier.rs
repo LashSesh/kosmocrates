@@ -15,7 +15,7 @@ pub enum SourceIntentKind {
 /// Serialize-only for content-addressing.
 #[derive(Serialize)]
 struct IntentContent {
-    kind: String,   // stable JSON of SourceIntentKind
+    kind: String, // stable JSON of SourceIntentKind
     target_void_id: Option<Digest>,
     taint_label: String,
     authority_label: String,
@@ -44,7 +44,13 @@ impl SourceIntent {
             taint_label: format!("{:?}", taint),
             authority_label: format!("{:?}", authority),
         });
-        Self { intent_id, kind, target_void_id, taint, authority }
+        Self {
+            intent_id,
+            kind,
+            target_void_id,
+            taint,
+            authority,
+        }
     }
 }
 
@@ -68,9 +74,8 @@ impl SourceEvidence {
         taint: TaintLabel,
         license: LicenseStatus,
     ) -> Self {
-        let evidence_id = Digest::of_bytes(
-            &[source_path.as_bytes(), content_digest.as_bytes()].concat(),
-        );
+        let evidence_id =
+            Digest::of_bytes(&[source_path.as_bytes(), content_digest.as_bytes()].concat());
         Self {
             evidence_id,
             source_path,
@@ -108,7 +113,12 @@ impl SourceFrontierGraph {
             evidence_ids: vec![],
             policy_id,
         });
-        Self { graph_id, intents: vec![], evidence: vec![], policy_id }
+        Self {
+            graph_id,
+            intents: vec![],
+            evidence: vec![],
+            policy_id,
+        }
     }
 
     pub fn from_intents(mut intents: Vec<SourceIntent>, policy_id: Digest) -> Self {
@@ -118,7 +128,12 @@ impl SourceFrontierGraph {
             evidence_ids: vec![],
             policy_id,
         });
-        Self { graph_id, intents, evidence: vec![], policy_id }
+        Self {
+            graph_id,
+            intents,
+            evidence: vec![],
+            policy_id,
+        }
     }
 
     /// Build a frontier from a void map and its derived deficiency vector.
@@ -146,7 +161,9 @@ impl SourceFrontierGraph {
                     SourceIntentKind::FillVoid { void_id: v.void_id },
                     Some(v.void_id),
                     TaintLabel::Unverified,
-                    AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+                    AuthorityLabel::Agent {
+                        name: "hyphae-v0.3".into(),
+                    },
                 )
             })
             .collect();
@@ -154,10 +171,14 @@ impl SourceFrontierGraph {
         // One ReduceDeficiency intent per deficiency kind (category-level intents).
         for entry in &deficiency_vector.entries {
             intents.push(SourceIntent::new(
-                SourceIntentKind::ReduceDeficiency { deficiency_kind: entry.kind.clone() },
+                SourceIntentKind::ReduceDeficiency {
+                    deficiency_kind: entry.kind.clone(),
+                },
                 None,
                 TaintLabel::Unverified,
-                AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+                AuthorityLabel::Agent {
+                    name: "hyphae-v0.3".into(),
+                },
             ));
         }
 
@@ -178,10 +199,14 @@ impl SourceFrontierGraph {
         for motif in motifs {
             if motif.support_score.at_least(min_support) {
                 self.intents.push(SourceIntent::new(
-                    SourceIntentKind::SuggestPattern { pattern_name: motif.name.clone() },
+                    SourceIntentKind::SuggestPattern {
+                        pattern_name: motif.name.clone(),
+                    },
                     None,
                     motif.taint.clone(),
-                    AuthorityLabel::Agent { name: "hyphae-v0.3".into() },
+                    AuthorityLabel::Agent {
+                        name: "hyphae-v0.3".into(),
+                    },
                 ));
             }
         }
@@ -219,13 +244,17 @@ mod tests {
             SourceIntentKind::FillVoid { void_id: vid },
             Some(vid),
             TaintLabel::Unverified,
-            AuthorityLabel::Agent { name: "hyphae".into() },
+            AuthorityLabel::Agent {
+                name: "hyphae".into(),
+            },
         );
         let i2 = SourceIntent::new(
             SourceIntentKind::FillVoid { void_id: vid },
             Some(vid),
             TaintLabel::Unverified,
-            AuthorityLabel::Agent { name: "hyphae".into() },
+            AuthorityLabel::Agent {
+                name: "hyphae".into(),
+            },
         );
         assert_eq!(i1.intent_id, i2.intent_id);
     }
@@ -233,19 +262,25 @@ mod tests {
     #[test]
     fn frontier_from_void_map() {
         let pid = Digest::of_bytes(b"p");
-        let voids = vec![
-            HostVoid::new(
-                HostVoidKind::MissingTestFiber { for_module: "src/lib.rs".into() },
-                Q16::HALF,
-                "src/lib.rs".into(),
-            ),
-        ];
+        let voids = vec![HostVoid::new(
+            HostVoidKind::MissingTestFiber {
+                for_module: "src/lib.rs".into(),
+            },
+            Q16::HALF,
+            "src/lib.rs".into(),
+        )];
         let vm = TopologicalVoidMap::from_voids(voids, pid);
         let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
         // 1 FillVoid intent + 1 ReduceDeficiency(TestCoverage) intent
         assert_eq!(frontier.intents.len(), 2);
-        assert!(frontier.intents.iter().any(|i| matches!(&i.kind, SourceIntentKind::FillVoid { .. })));
-        assert!(frontier.intents.iter().any(|i| matches!(&i.kind, SourceIntentKind::ReduceDeficiency { .. })));
+        assert!(frontier
+            .intents
+            .iter()
+            .any(|i| matches!(&i.kind, SourceIntentKind::FillVoid { .. })));
+        assert!(frontier
+            .intents
+            .iter()
+            .any(|i| matches!(&i.kind, SourceIntentKind::ReduceDeficiency { .. })));
         assert!(frontier.verify_id());
     }
 
@@ -263,12 +298,16 @@ mod tests {
         let pid = Digest::of_bytes(b"p");
         let voids = vec![
             HostVoid::new(
-                HostVoidKind::MissingTestFiber { for_module: "src/a.rs".into() },
+                HostVoidKind::MissingTestFiber {
+                    for_module: "src/a.rs".into(),
+                },
                 Q16::HALF,
                 "src/a.rs".into(),
             ),
             HostVoid::new(
-                HostVoidKind::MissingDocFiber { for_module: "src/b.rs".into() },
+                HostVoidKind::MissingDocFiber {
+                    for_module: "src/b.rs".into(),
+                },
                 Q16::HALF,
                 "src/b.rs".into(),
             ),
@@ -277,10 +316,15 @@ mod tests {
         let frontier = SourceFrontierGraph::from_void_map(&vm, pid);
         // 2 FillVoid + 2 ReduceDeficiency (TestCoverage + Documentation)
         assert_eq!(frontier.intents.len(), 4);
-        let reduce_count = frontier.intents.iter()
+        let reduce_count = frontier
+            .intents
+            .iter()
             .filter(|i| matches!(&i.kind, SourceIntentKind::ReduceDeficiency { .. }))
             .count();
-        assert_eq!(reduce_count, 2, "one ReduceDeficiency intent per deficiency kind");
+        assert_eq!(
+            reduce_count, 2,
+            "one ReduceDeficiency intent per deficiency kind"
+        );
         assert!(frontier.verify_id());
     }
 }

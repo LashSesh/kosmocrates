@@ -2,6 +2,7 @@
 //!
 //! Serves the pipeline over a REST API and an embedded single-page browser UI.
 //!
+//! ```text
 //! USAGE:
 //!     kosmo-server [--port <n>] [--host <addr>] [--open]
 //!
@@ -9,6 +10,11 @@
 //!     GET  /                  Browser UI
 //!     GET  /api/health        Version ping
 //!     POST /api/analyse       Run pipeline, return structured report
+//!     POST /api/promote       Substrate→core promotion (offer/batch/
+//!                             calibration/ledger — mirrors kosmo-promote)
+//!     POST /api/recall        Pfauenthron++ retrieval over an Infinity
+//!                             Ledger (read-only; the ledger must exist)
+//! ```
 
 use std::net::SocketAddr;
 use std::process;
@@ -23,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
-use kosmo_pipeline::{ActionItemKind, IntegrationRunOptions, run_workspace_pipeline};
+use kosmo_pipeline::{run_workspace_pipeline, ActionItemKind, IntegrationRunOptions};
 
 // ─── Request / Response types ────────────────────────────────────────────────
 
@@ -36,20 +42,33 @@ struct AnalyseRequest {
 
 #[derive(Deserialize, Default)]
 struct AnalyseFlags {
-    #[serde(default)] all: bool,
-    #[serde(default)] metatron: bool,
-    #[serde(default)] lpcm: bool,
-    #[serde(default)] systemcube: bool,
-    #[serde(default)] surgery: bool,
-    #[serde(default)] crystals: bool,
-    #[serde(default)] norms: bool,
-    #[serde(default)] motifs: bool,
-    #[serde(default)] pse: bool,
-    #[serde(default)] operator: bool,
-    #[serde(default = "default_capacity")] capacity: u32,
+    #[serde(default)]
+    all: bool,
+    #[serde(default)]
+    metatron: bool,
+    #[serde(default)]
+    lpcm: bool,
+    #[serde(default)]
+    systemcube: bool,
+    #[serde(default)]
+    surgery: bool,
+    #[serde(default)]
+    crystals: bool,
+    #[serde(default)]
+    norms: bool,
+    #[serde(default)]
+    motifs: bool,
+    #[serde(default)]
+    pse: bool,
+    #[serde(default)]
+    operator: bool,
+    #[serde(default = "default_capacity")]
+    capacity: u32,
 }
 
-fn default_capacity() -> u32 { 100 }
+fn default_capacity() -> u32 {
+    100
+}
 
 #[derive(Serialize)]
 struct ActionItemRow {
@@ -91,51 +110,55 @@ struct AnalyseResponse {
 fn q16_str(q: Q16) -> String {
     let raw = q.raw();
     let i = raw / 65536;
-    let f = ((raw.unsigned_abs() % 65536) * 10000 / 65536) as u64;
+    let f = (raw.unsigned_abs() % 65536) * 10000 / 65536;
     format!("{}.{:04}", i, f)
 }
 
-fn hex16(d: &Digest) -> String { d.to_hex()[..16].to_string() }
+fn hex16(d: &Digest) -> String {
+    d.to_hex()[..16].to_string()
+}
 
 fn gate_label(r: &GateResult) -> &'static str {
     match r {
-        GateResult::Pass              => "Pass",
-        GateResult::Warn { .. }       => "Warn",
-        GateResult::Reject { .. }     => "Reject",
-        GateResult::Downgrade { .. }  => "Downgrade",
+        GateResult::Pass => "Pass",
+        GateResult::Warn { .. } => "Warn",
+        GateResult::Reject { .. } => "Reject",
+        GateResult::Downgrade { .. } => "Downgrade",
     }
 }
 
 fn kind_label(k: &ActionItemKind) -> &'static str {
     match k {
-        ActionItemKind::FillVoid { .. }         => "FillVoid",
-        ActionItemKind::RepairTopology { .. }   => "RepairTopology",
-        ActionItemKind::PromoteToPse { .. }     => "PromoteToPse",
-        ActionItemKind::ReviewCrystal { .. }    => "ReviewCrystal",
-        ActionItemKind::ApplyNorm { .. }        => "ApplyNorm",
+        ActionItemKind::FillVoid { .. } => "FillVoid",
+        ActionItemKind::RepairTopology { .. } => "RepairTopology",
+        ActionItemKind::PromoteToPse { .. } => "PromoteToPse",
+        ActionItemKind::ReviewCrystal { .. } => "ReviewCrystal",
+        ActionItemKind::ApplyNorm { .. } => "ApplyNorm",
         ActionItemKind::RealizeWishFacet { .. } => "RealizeWishFacet",
     }
 }
 
 fn kind_group(k: &ActionItemKind) -> &'static str {
     match k {
-        ActionItemKind::FillVoid { .. }         => "void",
-        ActionItemKind::RepairTopology { .. }   => "topology",
-        ActionItemKind::PromoteToPse { .. }     => "pse",
-        ActionItemKind::ReviewCrystal { .. }    => "crystal",
-        ActionItemKind::ApplyNorm { .. }        => "norm",
+        ActionItemKind::FillVoid { .. } => "void",
+        ActionItemKind::RepairTopology { .. } => "topology",
+        ActionItemKind::PromoteToPse { .. } => "pse",
+        ActionItemKind::ReviewCrystal { .. } => "crystal",
+        ActionItemKind::ApplyNorm { .. } => "norm",
         ActionItemKind::RealizeWishFacet { .. } => "wish",
     }
 }
 
 fn target_id(k: &ActionItemKind) -> String {
     match k {
-        ActionItemKind::FillVoid { void_id }                  => hex16(void_id),
-        ActionItemKind::RepairTopology { surgery_option_id }  => hex16(surgery_option_id),
-        ActionItemKind::PromoteToPse { candidate_id }         => hex16(candidate_id),
-        ActionItemKind::ReviewCrystal { candidate_id }        => hex16(candidate_id),
-        ActionItemKind::ApplyNorm { norm_candidate_id, .. }   => hex16(norm_candidate_id),
-        ActionItemKind::RealizeWishFacet { facet }            => facet.key.clone(),
+        ActionItemKind::FillVoid { void_id } => hex16(void_id),
+        ActionItemKind::RepairTopology { surgery_option_id } => hex16(surgery_option_id),
+        ActionItemKind::PromoteToPse { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ReviewCrystal { candidate_id } => hex16(candidate_id),
+        ActionItemKind::ApplyNorm {
+            norm_candidate_id, ..
+        } => hex16(norm_candidate_id),
+        ActionItemKind::RealizeWishFacet { facet } => facet.key.clone(),
     }
 }
 
@@ -200,12 +223,11 @@ async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse
     let options = build_options(&req.flags);
     let path_str = req.path.clone();
 
-    let report = tokio::task::spawn_blocking(move || {
-        run_workspace_pipeline(&path_str, &options, &policy)
-    })
-    .await
-    .map_err(|e| ApiError(e.to_string()))?
-    .map_err(|e| ApiError(e.to_string()))?;
+    let report =
+        tokio::task::spawn_blocking(move || run_workspace_pipeline(&path_str, &options, &policy))
+            .await
+            .map_err(|e| ApiError(e.to_string()))?
+            .map_err(|e| ApiError(e.to_string()))?;
 
     let items = report.action_items();
     let action_items = items
@@ -222,14 +244,14 @@ async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse
         })
         .collect();
 
-    let source_count = report.hyphae_result.host_cube.void_map.voids.len()
-        + report.source_cubes.len();
+    let source_count =
+        report.hyphae_result.host_cube.void_map.voids.len() + report.source_cubes.len();
 
     let void_ranking = report
         .void_priority_ranking
         .iter()
         .take(20)
-        .map(|d| hex16(d))
+        .map(hex16)
         .collect();
 
     let gate_warn = matches!(report.final_result, GateResult::Warn { .. });
@@ -262,6 +284,275 @@ async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse
     }))
 }
 
+// ─── Promotion + recall (the unification surfaced) ──────────────────────────
+
+#[derive(Deserialize)]
+struct PromoteRequest {
+    path: String,
+    #[serde(default)]
+    offer: bool,
+    #[serde(default)]
+    batch: bool,
+    #[serde(default)]
+    all_kinds: bool,
+    /// `default | planning | adaptive | substrate` — an explicit operator
+    /// choice because it changes what may become memory. The canonical
+    /// definitions live in `kosmo-promote`'s `Calibration` enum.
+    #[serde(default = "default_calibration")]
+    calibration: String,
+    /// Anchor accepted crystals in the Infinity Ledger at this path
+    /// (host write; only acts together with `offer`).
+    #[serde(default)]
+    ledger: Option<String>,
+}
+
+fn default_calibration() -> String {
+    "default".into()
+}
+
+#[derive(Deserialize)]
+struct RecallRequest {
+    /// Infinity-Ledger directory. Must exist — recall is read-only and
+    /// never creates a ledger.
+    ledger: String,
+    query: String,
+    #[serde(default = "default_top")]
+    top: usize,
+}
+
+fn default_top() -> usize {
+    5
+}
+
+/// Engine config for a calibration mode (see `kosmo-promote::Calibration`).
+fn calibration_config(mode: &str) -> Result<pse_types::Config, String> {
+    use pse_types::Config;
+    match mode {
+        "default" => Ok(Config::default()),
+        "planning" => Ok(Config::preset_planning()),
+        "adaptive" => Ok(Config::preset_streaming()),
+        "substrate" => {
+            let mut c = Config::preset_planning();
+            // Kairos as the discriminant (the preset_anomaly_detection
+            // rationale); the 8-fold conjunctive gate remains fully armed.
+            c.consensus.consensus_threshold = 0.0;
+            c.consensus.mirror_consistency_eta = 0.0;
+            Ok(c)
+        }
+        other => Err(format!(
+            "unknown calibration '{other}' (default|planning|adaptive|substrate)"
+        )),
+    }
+}
+
+/// Synchronous promotion core — the HTTP mirror of `kosmo-promote`
+/// (offer/batch/calibration/ledger; no state/feedback/store surfaces, which
+/// stay CLI-only). Fail-closed: without `offer` the engine is never touched;
+/// the ledger is only written in offer mode.
+fn do_promote(req: &PromoteRequest) -> Result<serde_json::Value, String> {
+    use kosmo_core::ImplementationMode;
+    use kosmo_pse_bridge::{
+        PromotionOutcome, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
+    };
+    use pse_adapter_kosmo::{offer_batch, offer_candidates, KosmoBridgeAdapter};
+
+    let pipeline_policy = PolicyProfile::default_report_only();
+    let options = IntegrationRunOptions::all_layers(8);
+    let report = run_workspace_pipeline(&req.path, &options, &pipeline_policy)
+        .map_err(|e| format!("pipeline failed: {e}"))?;
+
+    let kinds = if req.all_kinds {
+        vec![
+            PseBridgeCandidateKind::CertifiedCrystal,
+            PseBridgeCandidateKind::StructuralObservation,
+            PseBridgeCandidateKind::TopologyObservation,
+        ]
+    } else {
+        vec![PseBridgeCandidateKind::CertifiedCrystal]
+    };
+    let candidates: Vec<_> = report
+        .pse_candidates
+        .iter()
+        .filter(|c| kinds.contains(&c.kind))
+        .cloned()
+        .collect();
+
+    let profile = if req.offer {
+        PolicyProfile {
+            mode: ImplementationMode::DryRun,
+            ..PolicyProfile::default()
+        }
+    } else {
+        PolicyProfile::default()
+    };
+    let bridge_policy =
+        PseBridgePolicy::allow(pipeline_policy.id, kinds, PseBridgeRateLimit::strict());
+    let adapter = KosmoBridgeAdapter::new(&req.path)
+        .with_allowed_kinds(bridge_policy.allowed_candidate_kinds.clone());
+
+    let config = calibration_config(&req.calibration)?;
+    let mut state = pse_core::GlobalState::new(&config);
+    let mut offers = if req.batch {
+        offer_batch(
+            &mut state,
+            &config,
+            &profile,
+            &bridge_policy,
+            &candidates,
+            &adapter,
+        )
+    } else {
+        offer_candidates(
+            &mut state,
+            &config,
+            &profile,
+            &bridge_policy,
+            &candidates,
+            &adapter,
+        )
+    };
+
+    // Optional Infinity-Ledger anchor (host write — offer mode only).
+    let mut block_hashes: Vec<Option<String>> = vec![None; offers.len()];
+    let mut ledger_commits = 0usize;
+    if let (Some(ledger), true) = (&req.ledger, req.offer) {
+        let mut il = pse_adapter_il::ILStore::open(ledger, "kosmo-server")
+            .map_err(|e| format!("cannot open ledger {ledger}: {e}"))?;
+        let question = format!("kosmo-server:{}", req.path);
+        let mut anchored: std::collections::BTreeMap<
+            [u8; 32],
+            (String, Option<pse_adapter_il::qtic::QticCertificate>),
+        > = std::collections::BTreeMap::new();
+        for (i, offer) in offers.iter().enumerate() {
+            let Some(crystal) = &offer.crystal else {
+                continue;
+            };
+            if anchored.contains_key(&crystal.crystal_id) {
+                continue;
+            }
+            let chunks = vec![candidates[i].label.clone()];
+            match il.commit_with_feedback(crystal, &chunks, state.commit_index as usize, &question)
+            {
+                Ok(fb) => {
+                    anchored.insert(crystal.crystal_id, (fb.block_hash, fb.qtic_certificate));
+                }
+                Err(e) => eprintln!("[promote] ledger commit failed: {e}"),
+            }
+        }
+        ledger_commits = anchored.len();
+        for (i, offer) in offers.iter_mut().enumerate() {
+            let Some(crystal) = &offer.crystal else {
+                continue;
+            };
+            if let Some((hash, cert)) = anchored.get(&crystal.crystal_id) {
+                block_hashes[i] = Some(hash.clone());
+                if let Some(cert) = cert {
+                    offer.qtic = Some(cert.clone());
+                }
+            }
+        }
+    }
+
+    let mut accepted = 0usize;
+    let mut deferred = 0usize;
+    let mut rejected = 0usize;
+    let mut skipped = 0usize;
+    let rows: Vec<serde_json::Value> = offers
+        .iter()
+        .zip(candidates.iter())
+        .zip(block_hashes.iter())
+        .map(|((o, c), bh)| {
+            match &o.outcome {
+                PromotionOutcome::Accepted => accepted += 1,
+                PromotionOutcome::Deferred => deferred += 1,
+                PromotionOutcome::Rejected { .. } => rejected += 1,
+                PromotionOutcome::SkippedByPolicy | PromotionOutcome::SkippedByReportOnly => {
+                    skipped += 1
+                }
+            }
+            serde_json::json!({
+                "label": c.label,
+                "kind": format!("{:?}", c.kind),
+                "outcome": o.outcome,
+                "crystal_committed": o.crystal.is_some(),
+                "qtic_class": o.qtic.as_ref().map(|q| q.class_u8()),
+                "block_hash": bh,
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "path": req.path,
+        "mode": if req.offer { "offer" } else { "report-only" },
+        "calibration": req.calibration,
+        "batch": req.batch,
+        "offered": candidates.len(),
+        "accepted": accepted,
+        "deferred": deferred,
+        "rejected": rejected,
+        "skipped": skipped,
+        "engine_commit_index": state.commit_index,
+        "engine_state": format!("{:?}", state.engine_state),
+        "ledger_commits": ledger_commits,
+        "offers": rows,
+    }))
+}
+
+/// Synchronous recall core — Pfauenthron++ (`D = ψ·ρ·ω`) over the ledger's
+/// anchored crystals, plus the causal lineage of the top hit. Read-only by
+/// contract: a missing ledger is an error, never a silently created store.
+fn do_recall(req: &RecallRequest) -> Result<serde_json::Value, String> {
+    let path = std::path::Path::new(&req.ledger);
+    if !path.exists() {
+        return Err(format!("no ledger at {} — nothing to recall", req.ledger));
+    }
+    let il = pse_adapter_il::ILStore::open(path, "kosmo-server")
+        .map_err(|e| format!("cannot open ledger {}: {e}", req.ledger))?;
+    let query_vec = pse_adapter_il::text_to_vector8(&req.query);
+    let mut entries = il.build_context_entries(&query_vec);
+    entries.truncate(req.top.max(1));
+    let lineage = entries
+        .first()
+        .map(|top| il.causal_explanation(&top.crystal_id));
+    let rows: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "crystal_id": e.crystal_id,
+                "tripolar_score": e.tripolar_score,
+                "qtic_class": e.qtic_class,
+                "stability": e.stability,
+                "commit_index": e.commit_index,
+                "scale_tag": e.scale_tag,
+                "question": e.question,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "query": req.query,
+        "ledger": req.ledger,
+        "anchored_crystals": il.len(),
+        "results": rows,
+        "lineage": lineage,
+    }))
+}
+
+async fn promote(Json(req): Json<PromoteRequest>) -> Result<Json<serde_json::Value>, ApiError> {
+    tokio::task::spawn_blocking(move || do_promote(&req))
+        .await
+        .map_err(|e| ApiError(e.to_string()))?
+        .map(Json)
+        .map_err(ApiError)
+}
+
+async fn recall(Json(req): Json<RecallRequest>) -> Result<Json<serde_json::Value>, ApiError> {
+    tokio::task::spawn_blocking(move || do_recall(&req))
+        .await
+        .map_err(|e| ApiError(e.to_string()))?
+        .map(Json)
+        .map_err(ApiError)
+}
+
 // ─── Server args ─────────────────────────────────────────────────────────────
 
 struct ServerArgs {
@@ -272,7 +563,11 @@ struct ServerArgs {
 
 fn parse_server_args() -> Result<ServerArgs, String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    let mut args = ServerArgs { port: 7777, host: "127.0.0.1".into(), open: false };
+    let mut args = ServerArgs {
+        port: 7777,
+        host: "127.0.0.1".into(),
+        open: false,
+    };
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
@@ -299,12 +594,18 @@ fn parse_server_args() -> Result<ServerArgs, String> {
             }
             "--port" => {
                 i += 1;
-                if i >= raw.len() { return Err("--port requires a number".into()); }
-                args.port = raw[i].parse().map_err(|_| format!("invalid port: {}", raw[i]))?;
+                if i >= raw.len() {
+                    return Err("--port requires a number".into());
+                }
+                args.port = raw[i]
+                    .parse()
+                    .map_err(|_| format!("invalid port: {}", raw[i]))?;
             }
             "--host" => {
                 i += 1;
-                if i >= raw.len() { return Err("--host requires an address".into()); }
+                if i >= raw.len() {
+                    return Err("--host requires an address".into());
+                }
                 args.host = raw[i].clone();
             }
             "--open" => args.open = true,
@@ -333,7 +634,9 @@ async fn main() {
     let app = Router::new()
         .route("/", get(serve_index))
         .route("/api/health", get(health))
-        .route("/api/analyse", post(analyse));
+        .route("/api/analyse", post(analyse))
+        .route("/api/promote", post(promote))
+        .route("/api/recall", post(recall));
 
     let addr_str = format!("{}:{}", args.host, args.port);
     let addr: SocketAddr = addr_str.parse().unwrap_or_else(|_| {
@@ -351,7 +654,9 @@ async fn main() {
 
     if args.open {
         let url = format!("http://{addr}");
-        let _ = std::process::Command::new("xdg-open").arg(&url).spawn()
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
             .or_else(|_| std::process::Command::new("open").arg(&url).spawn());
     }
 
@@ -359,4 +664,125 @@ async fn main() {
         eprintln!("server error: {e}");
         process::exit(1);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fresh polyglot scratch workspace (mirrors the kosmo-promote tests).
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join("kosmo-server-tests").join(tag);
+        std::fs::remove_dir_all(&root).ok();
+        let ws = root.join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        let files: [(&str, &str); 4] = [
+            (
+                "fib.py",
+                "import os\n\ndef a(x):\n    return x\n\ndef b(y):\n    return y\n",
+            ),
+            (
+                "fib.rs",
+                "use std::io;\npub fn a(x: u32) -> u32 { x }\npub fn b(y: u32) -> u32 { y }\n",
+            ),
+            (
+                "fib.go",
+                "package main\nimport \"fmt\"\nfunc a(n int) int { return n }\nfunc b(n int) int { return n }\n",
+            ),
+            (
+                "fib.js",
+                "function a(x) {\n  return x;\n}\nfunction b(y) {\n  return y;\n}\n",
+            ),
+        ];
+        for (name, content) in files {
+            std::fs::write(ws.join(name), content).unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn recall_on_missing_ledger_is_an_error() {
+        let req = RecallRequest {
+            ledger: "/tmp/kosmo-server-tests/definitely-missing-ledger".into(),
+            query: "anything".into(),
+            top: 5,
+        };
+        let err = do_recall(&req).unwrap_err();
+        assert!(err.contains("no ledger"), "must name the failure: {err}");
+        assert!(
+            !std::path::Path::new(&req.ledger).exists(),
+            "recall is read-only — it must never create a ledger"
+        );
+    }
+
+    #[test]
+    fn bad_calibration_is_an_error() {
+        assert!(calibration_config("yolo").is_err());
+        assert!(calibration_config("substrate").is_ok());
+    }
+
+    #[test]
+    fn promote_report_only_is_inert() {
+        let root = scratch("promote-report-only");
+        let req = PromoteRequest {
+            path: root.join("ws").to_string_lossy().into_owned(),
+            offer: false,
+            batch: true,
+            all_kinds: true,
+            calibration: "substrate".into(),
+            ledger: None,
+        };
+        let doc = do_promote(&req).expect("report-only must succeed");
+        assert_eq!(doc["mode"], "report-only");
+        assert_eq!(doc["engine_commit_index"], 0, "engine untouched");
+        assert_eq!(doc["accepted"], 0);
+        assert_eq!(
+            doc["skipped"], doc["offered"],
+            "every candidate skipped by policy"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn promote_offer_batch_substrate_crystallizes_and_recall_finds_it() {
+        let root = scratch("promote-full");
+        let ledger = root.join("il");
+        let req = PromoteRequest {
+            path: root.join("ws").to_string_lossy().into_owned(),
+            offer: true,
+            batch: true,
+            all_kinds: true,
+            calibration: "substrate".into(),
+            ledger: Some(ledger.to_string_lossy().into_owned()),
+        };
+        let doc = do_promote(&req).expect("offer must succeed");
+        assert!(
+            doc["accepted"].as_u64().unwrap() > 0,
+            "the ensemble must crystallize: {doc}"
+        );
+        assert!(doc["ledger_commits"].as_u64().unwrap() >= 1);
+        let offers = doc["offers"].as_array().unwrap();
+        let committed: Vec<_> = offers
+            .iter()
+            .filter(|o| o["crystal_committed"] == true)
+            .collect();
+        assert!(
+            committed.iter().all(|o| o["qtic_class"] == 5),
+            "anchored → Q5"
+        );
+
+        // The HTTP recall finds what the HTTP promote anchored.
+        let recall = do_recall(&RecallRequest {
+            ledger: ledger.to_string_lossy().into_owned(),
+            query: "missing test coverage for a module".into(),
+            top: 3,
+        })
+        .expect("recall must succeed");
+        let results = recall["results"].as_array().unwrap();
+        assert!(!results.is_empty(), "anchored knowledge must be findable");
+        assert_eq!(results[0]["qtic_class"], 5);
+        assert!(recall["lineage"].as_str().is_some(), "lineage present");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

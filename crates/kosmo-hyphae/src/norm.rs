@@ -1,6 +1,6 @@
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, PromotionFeedback, Q16, TripolarEnergy,
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult,
+    LicenseStatus, PromotionFeedback, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +42,14 @@ impl NormGeneCandidate {
             evidence_bundle_id,
             policy_id,
         });
-        Self { candidate_id, name, description, fitness_score, evidence_bundle_id, policy_id }
+        Self {
+            candidate_id,
+            name,
+            description,
+            fitness_score,
+            evidence_bundle_id,
+            policy_id,
+        }
     }
 
     /// Fitness above threshold is a metric — it does NOT confer trust.
@@ -111,13 +118,22 @@ impl NormFitnessTrace {
             observation_count: 0,
             policy_id,
         });
-        Self { trace_id, candidate_id, observations: vec![], policy_id }
+        Self {
+            trace_id,
+            candidate_id,
+            observations: vec![],
+            policy_id,
+        }
     }
 
     /// Append an observation. Returns a new trace (non-mutating).
     pub fn observe(mut self, fitness: Q16, evidence_ref: Digest) -> Self {
         let sequence = self.observations.len() as u64;
-        self.observations.push(FitnessObservation { sequence, fitness, evidence_ref });
+        self.observations.push(FitnessObservation {
+            sequence,
+            fitness,
+            evidence_ref,
+        });
         self.trace_id = Digest::of(&TraceContent {
             candidate_id: self.candidate_id,
             observation_count: self.observations.len() as u64,
@@ -128,7 +144,10 @@ impl NormFitnessTrace {
 
     /// Latest fitness observation, or `Q16::ZERO` if no observations yet.
     pub fn latest_fitness(&self) -> Q16 {
-        self.observations.last().map(|o| o.fitness).unwrap_or(Q16::ZERO)
+        self.observations
+            .last()
+            .map(|o| o.fitness)
+            .unwrap_or(Q16::ZERO)
     }
 
     /// Append a fitness observation derived from a `PromotionFeedback` record.
@@ -158,12 +177,8 @@ mod tests {
     fn norm_gene_candidate_is_content_addressed() {
         let pid = Digest::of_bytes(b"p");
         let ev_id = Digest::of_bytes(b"e");
-        let c1 = NormGeneCandidate::new(
-            "test-norm".into(), "desc".into(), Q16::HALF, ev_id, pid,
-        );
-        let c2 = NormGeneCandidate::new(
-            "test-norm".into(), "desc".into(), Q16::HALF, ev_id, pid,
-        );
+        let c1 = NormGeneCandidate::new("test-norm".into(), "desc".into(), Q16::HALF, ev_id, pid);
+        let c2 = NormGeneCandidate::new("test-norm".into(), "desc".into(), Q16::HALF, ev_id, pid);
         assert_eq!(c1.candidate_id, c2.candidate_id);
         assert_ne!(c1.candidate_id, Digest::ZERO);
     }
@@ -173,9 +188,8 @@ mod tests {
         // SAFETY INVARIANT: exceeds_fitness_threshold is a metric only.
         // Spec: do not treat NormGeneCandidate as a trusted norm.
         let pid = Digest::of_bytes(b"p");
-        let cand = NormGeneCandidate::new(
-            "high-fit".into(), "".into(), Q16::ONE, Digest::ZERO, pid,
-        );
+        let cand =
+            NormGeneCandidate::new("high-fit".into(), "".into(), Q16::ONE, Digest::ZERO, pid);
         // Fitness = 1.0 (maximum)
         assert!(cand.exceeds_fitness_threshold(Q16::HALF));
         // But the candidate struct has NO is_trusted field.
@@ -236,13 +250,19 @@ mod tests {
         let pid = Digest::of_bytes(b"p");
         let cid = Digest::of_bytes(b"c");
         let feedback = PromotionFeedback::new(
-            Digest::of_bytes(b"rec"), Digest::of_bytes(b"cand"),
-            cid, FeedbackOutcome::Rejected,
-            Q16::ONE, pid, Digest::of_bytes(b"ev"),
+            Digest::of_bytes(b"rec"),
+            Digest::of_bytes(b"cand"),
+            cid,
+            FeedbackOutcome::Rejected,
+            Q16::ONE,
+            pid,
+            Digest::of_bytes(b"ev"),
         );
         let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
-        assert!(trace.latest_fitness().is_zero(),
-            "rejected feedback must produce zero fitness (CROSS-010 analogue)");
+        assert!(
+            trace.latest_fitness().is_zero(),
+            "rejected feedback must produce zero fitness (CROSS-010 analogue)"
+        );
     }
 
     #[test]
@@ -251,9 +271,13 @@ mod tests {
         let pid = Digest::of_bytes(b"p");
         let cid = Digest::of_bytes(b"c");
         let feedback = PromotionFeedback::new(
-            Digest::of_bytes(b"rec"), Digest::of_bytes(b"cand"),
-            cid, FeedbackOutcome::Deferred,
-            Q16::ONE, pid, Digest::of_bytes(b"ev"),
+            Digest::of_bytes(b"rec"),
+            Digest::of_bytes(b"cand"),
+            cid,
+            FeedbackOutcome::Deferred,
+            Q16::ONE,
+            pid,
+            Digest::of_bytes(b"ev"),
         );
         let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
         assert_eq!(trace.observations[0].evidence_ref, feedback.id);

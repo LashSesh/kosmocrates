@@ -1,7 +1,8 @@
 use crate::code_hdag::CodeHDAG;
 use crate::deficiency::DeficiencyVector;
 use crate::void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
-use kosmo_core::{Digest, PolicyProfile, Q16, TaintLabel};
+use crate::xlang::CrossLanguageFingerprint;
+use kosmo_core::{Digest, PolicyProfile, TaintLabel, Q16};
 use kosmo_workbench::workspace::{WorkspaceEntryKind, WorkspaceIndex};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,7 +21,11 @@ impl HostBinding {
         b.extend_from_slice(workspace_index_id.as_bytes());
         b.extend_from_slice(policy_id.as_bytes());
         let binding_id = Digest::of_bytes(&b);
-        Self { binding_id, workspace_index_id, policy_id }
+        Self {
+            binding_id,
+            workspace_index_id,
+            policy_id,
+        }
     }
 }
 
@@ -32,6 +37,7 @@ struct HostCubeContent {
     deficiency_vector_id: Digest,
     entry_count: u64,
     hdag_count: u64,
+    fingerprint_count: u64,
     policy_id: Digest,
 }
 
@@ -55,16 +61,22 @@ pub struct HostCube {
     /// multiple voids (MissingTestFiber, MissingDocFiber, etc.).
     /// Empty when entries lack content.
     pub hdag_by_void_id: BTreeMap<Digest, CodeHDAG>,
+    /// Cross-language structural fingerprint keyed by `void.void_id`, populated
+    /// alongside `hdag_by_void_id` for every supported language (Rust, Python,
+    /// JavaScript, Go). This is the language-independent comparability artifact
+    /// the pipeline uses to rank cubes by cross-language structural resonance.
+    pub fingerprint_by_void_id: BTreeMap<Digest, CrossLanguageFingerprint>,
     pub policy_id: Digest,
 }
 
 impl HostCube {
     pub fn from_workspace_index(index: &WorkspaceIndex, policy: &PolicyProfile) -> Self {
         let binding = HostBinding::new(index.index_id, policy.id);
-        let (voids, hdag_by_void_id) = Self::derive_voids_and_hdags(index);
+        let (voids, hdag_by_void_id, fingerprint_by_void_id) = Self::derive_voids_and_hdags(index);
         let void_map = TopologicalVoidMap::from_voids(voids, policy.id);
         let deficiency_vector = DeficiencyVector::from_void_map(&void_map);
         let hdag_count = hdag_by_void_id.len() as u64;
+        let fingerprint_count = fingerprint_by_void_id.len() as u64;
 
         let cube_id = Digest::of(&HostCubeContent {
             binding_id: binding.binding_id,
@@ -72,6 +84,7 @@ impl HostCube {
             deficiency_vector_id: deficiency_vector.vector_id,
             entry_count: index.entry_count,
             hdag_count,
+            fingerprint_count,
             policy_id: policy.id,
         });
 
@@ -82,23 +95,38 @@ impl HostCube {
             deficiency_vector,
             entry_count: index.entry_count,
             hdag_by_void_id,
+            fingerprint_by_void_id,
             policy_id: policy.id,
         }
     }
 
-    /// Derive topological voids and, when entry content is available, CodeHDAGs.
+    /// Derive topological voids and, when entry content is available, CodeHDAGs
+    /// and cross-language structural fingerprints.
     ///
     /// When `entry.content` is `Some`, a CodeHDAG is extracted from the source text
     /// and stored under each void_id created for that file. This lets downstream
     /// layers (pipeline SourceCube construction) enrich energy assessments with
     /// `rho_coherence` (test-to-definition ratio) and `omega_phase` (complexity signal).
     ///
+    /// A [`CrossLanguageFingerprint`] is computed in lockstep and stored under the
+    /// same void_ids, giving the pipeline a language-independent structural profile
+    /// per void for cross-language resonance ranking.
+    ///
     /// Void severity is also modulated by HDAG structure when content is available:
     /// `MissingTestFiber` severity scales with definition count (more definitions →
     /// higher urgency for test coverage).
-    fn derive_voids_and_hdags(index: &WorkspaceIndex) -> (Vec<HostVoid>, BTreeMap<Digest, CodeHDAG>) {
+    #[allow(clippy::type_complexity)]
+    fn derive_voids_and_hdags(
+        index: &WorkspaceIndex,
+    ) -> (
+        Vec<HostVoid>,
+        BTreeMap<Digest, CodeHDAG>,
+        BTreeMap<Digest, CrossLanguageFingerprint>,
+    ) {
         let mut voids: Vec<HostVoid> = Vec::new();
         let mut hdag_by_void_id: BTreeMap<Digest, CodeHDAG> = BTreeMap::new();
+        let mut fingerprint_by_void_id: BTreeMap<Digest, CrossLanguageFingerprint> =
+            BTreeMap::new();
 
         let source_entries: Vec<_> = index
             .entries
@@ -124,15 +152,18 @@ impl HostCube {
             let src = entry.path.as_str();
             let stem = module_stem(src);
 
-            // Extract HDAG when source content is available.
-            let hdag_opt: Option<CodeHDAG> = entry.content.as_deref().map(|text| {
-                CodeHDAG::extract_from_rust_source(
-                    entry.digest,
-                    src,
-                    text,
-                    TaintLabel::Unverified,
-                )
+            // Extract HDAG when source content is available. Language is detected
+            // from the path, so Rust, Python, JavaScript, and Go all lift into the
+            // same content-addressed graph (fail-closed: unknown extension → no HDAG).
+            let hdag_opt: Option<CodeHDAG> = entry.content.as_deref().and_then(|text| {
+                CodeHDAG::extract_auto(entry.digest, src, text, TaintLabel::Unverified)
             });
+
+            // The language-independent structural fingerprint, in lockstep with the HDAG.
+            let fp_opt: Option<CrossLanguageFingerprint> = entry
+                .content
+                .as_deref()
+                .and_then(|text| CrossLanguageFingerprint::from_auto(entry.digest, src, text));
 
             let has_test = test_paths.iter().any(|t| path_contains_stem(t, stem));
             if !has_test {
@@ -147,12 +178,17 @@ impl HostCube {
                     Q16::ratio(1, 2).unwrap_or(Q16::ZERO)
                 };
                 let void = HostVoid::new(
-                    HostVoidKind::MissingTestFiber { for_module: src.to_string() },
+                    HostVoidKind::MissingTestFiber {
+                        for_module: src.to_string(),
+                    },
                     severity,
                     src.to_string(),
                 );
                 if let Some(ref hdag) = hdag_opt {
                     hdag_by_void_id.insert(void.void_id, hdag.clone());
+                }
+                if let Some(ref fp) = fp_opt {
+                    fingerprint_by_void_id.insert(void.void_id, fp.clone());
                 }
                 voids.push(void);
             }
@@ -160,18 +196,23 @@ impl HostCube {
             let has_doc = doc_paths.iter().any(|d| path_contains_stem(d, stem));
             if !has_doc {
                 let void = HostVoid::new(
-                    HostVoidKind::MissingDocFiber { for_module: src.to_string() },
+                    HostVoidKind::MissingDocFiber {
+                        for_module: src.to_string(),
+                    },
                     Q16::ratio(1, 4).unwrap_or(Q16::ZERO),
                     src.to_string(),
                 );
                 if let Some(ref hdag) = hdag_opt {
                     hdag_by_void_id.insert(void.void_id, hdag.clone());
                 }
+                if let Some(ref fp) = fp_opt {
+                    fingerprint_by_void_id.insert(void.void_id, fp.clone());
+                }
                 voids.push(void);
             }
         }
 
-        (voids, hdag_by_void_id)
+        (voids, hdag_by_void_id, fingerprint_by_void_id)
     }
 
     pub fn void_count(&self) -> usize {
@@ -183,10 +224,17 @@ impl HostCube {
     }
 }
 
-/// Extract the module stem from a source path (filename without extension).
+/// Extract the module stem from a source path (filename without its extension).
+///
+/// Language-agnostic: strips the final extension so `fib.py`, `fib.go`, and
+/// `fib.rs` all share the stem `fib`, letting test/doc companion detection work
+/// uniformly across languages.
 fn module_stem(path: &str) -> &str {
-    let filename = path.split('/').last().unwrap_or(path);
-    filename.strip_suffix(".rs").unwrap_or(filename)
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    match filename.rfind('.') {
+        Some(dot) if dot > 0 => &filename[..dot],
+        _ => filename,
+    }
 }
 
 /// True if `path` contains `stem` as a substring (case-sensitive).
@@ -249,24 +297,27 @@ mod tests {
         let policy = PolicyProfile::default_report_only();
         let index = make_index(vec![src("src/foo.rs")]);
         let cube = HostCube::from_workspace_index(&index, &policy);
-        let test_voids = cube.void_map.count_by_kind(|k| {
-            matches!(k, HostVoidKind::MissingTestFiber { .. })
-        });
-        assert!(test_voids > 0, "untested source file must produce a MissingTestFiber void");
+        let test_voids = cube
+            .void_map
+            .count_by_kind(|k| matches!(k, HostVoidKind::MissingTestFiber { .. }));
+        assert!(
+            test_voids > 0,
+            "untested source file must produce a MissingTestFiber void"
+        );
     }
 
     #[test]
     fn host_cube_no_test_void_when_companion_present() {
         let policy = PolicyProfile::default_report_only();
-        let index = make_index(vec![
-            src("src/bar.rs"),
-            test_file("tests/bar_test.rs"),
-        ]);
+        let index = make_index(vec![src("src/bar.rs"), test_file("tests/bar_test.rs")]);
         let cube = HostCube::from_workspace_index(&index, &policy);
-        let test_voids = cube.void_map.count_by_kind(|k| {
-            matches!(k, HostVoidKind::MissingTestFiber { .. })
-        });
-        assert_eq!(test_voids, 0, "source with test companion must not produce void");
+        let test_voids = cube
+            .void_map
+            .count_by_kind(|k| matches!(k, HostVoidKind::MissingTestFiber { .. }));
+        assert_eq!(
+            test_voids, 0,
+            "source with test companion must not produce void"
+        );
     }
 
     #[test]
@@ -294,7 +345,10 @@ mod tests {
         // Entry has no content — HDAGs should not be populated.
         let index = make_index(vec![src("src/lib.rs")]);
         let cube = HostCube::from_workspace_index(&index, &policy);
-        assert!(cube.hdag_by_void_id.is_empty(), "no HDAGs expected without source content");
+        assert!(
+            cube.hdag_by_void_id.is_empty(),
+            "no HDAGs expected without source content"
+        );
     }
 
     #[test]
@@ -304,9 +358,16 @@ mod tests {
         let index = make_index(vec![src_with_content("src/lib.rs", source)]);
         let cube = HostCube::from_workspace_index(&index, &policy);
         // Two voids (TestFiber + DocFiber) should each have an HDAG entry.
-        assert_eq!(cube.hdag_by_void_id.len(), 2, "both voids must carry the HDAG");
+        assert_eq!(
+            cube.hdag_by_void_id.len(),
+            2,
+            "both voids must carry the HDAG"
+        );
         for hdag in cube.hdag_by_void_id.values() {
-            assert!(hdag.definition_count() >= 2, "expected at least 2 fn definitions");
+            assert!(
+                hdag.definition_count() >= 2,
+                "expected at least 2 fn definitions"
+            );
         }
     }
 
@@ -324,13 +385,29 @@ mod tests {
         let dense = make_index(vec![src_with_content("src/dense.rs", &dense_src)]);
         let cube_dense = HostCube::from_workspace_index(&dense, &policy);
 
-        let severity_sparse = cube_sparse.void_map.voids.iter()
-            .find(|v| matches!(&v.kind, crate::void_map::HostVoidKind::MissingTestFiber { .. }))
+        let severity_sparse = cube_sparse
+            .void_map
+            .voids
+            .iter()
+            .find(|v| {
+                matches!(
+                    &v.kind,
+                    crate::void_map::HostVoidKind::MissingTestFiber { .. }
+                )
+            })
             .map(|v| v.severity)
             .expect("sparse must have MissingTestFiber");
 
-        let severity_dense = cube_dense.void_map.voids.iter()
-            .find(|v| matches!(&v.kind, crate::void_map::HostVoidKind::MissingTestFiber { .. }))
+        let severity_dense = cube_dense
+            .void_map
+            .voids
+            .iter()
+            .find(|v| {
+                matches!(
+                    &v.kind,
+                    crate::void_map::HostVoidKind::MissingTestFiber { .. }
+                )
+            })
             .map(|v| v.severity)
             .expect("dense must have MissingTestFiber");
 
@@ -341,10 +418,57 @@ mod tests {
     }
 
     #[test]
+    fn host_cube_extracts_hdag_from_python_source() {
+        // Cross-language hypercube materialization: a Python file with no test
+        // companion produces a MissingTestFiber void carrying a real CodeHDAG,
+        // extracted by the polyglot path — not the Rust extractor.
+        let policy = PolicyProfile::default_report_only();
+        let py = "import os\n\ndef alpha(x):\n    return x\n\ndef beta(y):\n    return y\n";
+        let index = make_index(vec![src_with_content("pkg/fib.py", py)]);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+        assert!(
+            !cube.hdag_by_void_id.is_empty(),
+            "Python source must yield an HDAG"
+        );
+        for hdag in cube.hdag_by_void_id.values() {
+            assert!(
+                hdag.definition_count() >= 2,
+                "expected at least two Python defs, got {}",
+                hdag.definition_count()
+            );
+        }
+    }
+
+    #[test]
+    fn host_cube_stores_cross_language_fingerprint() {
+        let policy = PolicyProfile::default_report_only();
+        let py = "import os\n\ndef alpha(x):\n    return x\n";
+        let index = make_index(vec![src_with_content("pkg/mod.py", py)]);
+        let cube = HostCube::from_workspace_index(&index, &policy);
+        assert!(
+            !cube.fingerprint_by_void_id.is_empty(),
+            "fingerprint must be stored"
+        );
+        assert_eq!(
+            cube.fingerprint_by_void_id.len(),
+            cube.hdag_by_void_id.len(),
+            "fingerprint and HDAG maps populate in lockstep"
+        );
+        for fp in cube.fingerprint_by_void_id.values() {
+            assert!(
+                fp.verify_id(),
+                "stored fingerprint must be content-addressed"
+            );
+            assert!(fp.structural_count >= 2, "one import + one def");
+        }
+    }
+
+    #[test]
     fn host_cube_id_differs_with_and_without_hdag() {
         let policy = PolicyProfile::default_report_only();
         let index_no_content = make_index(vec![src("src/lib.rs")]);
-        let index_with_content = make_index(vec![src_with_content("src/lib.rs", "pub fn foo() {}")]);
+        let index_with_content =
+            make_index(vec![src_with_content("src/lib.rs", "pub fn foo() {}")]);
         let cube_no = HostCube::from_workspace_index(&index_no_content, &policy);
         let cube_with = HostCube::from_workspace_index(&index_with_content, &policy);
         // hdag_count participates in cube_id — so HDAG-enriched cube has a different id.

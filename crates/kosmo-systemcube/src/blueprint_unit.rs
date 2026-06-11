@@ -6,7 +6,7 @@
 
 use kosmo_core::{
     AuthorityLabel, Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, PolicyProfile, Q16, TaintLabel, TripolarEnergy,
+    GateResult, LicenseStatus, PolicyProfile, TaintLabel, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 
@@ -254,7 +254,10 @@ mod tests {
             &policy(),
         );
         let assessment = u.energy_assessment(&GateResult::Pass);
-        assert!(assessment.energy.raw() > 0, "accepted unit must have positive energy");
+        assert!(
+            assessment.energy.raw() > 0,
+            "accepted unit must have positive energy"
+        );
         assert_eq!(assessment.subject_id, u.unit_id);
         assert_eq!(assessment.evidence_bundle_id, u.unit_id);
     }
@@ -271,7 +274,11 @@ mod tests {
         );
         assert_eq!(u.status, BlueprintUnitStatus::RejectedOpaque);
         let assessment = u.energy_assessment(&GateResult::Pass);
-        assert_eq!(assessment.energy.raw(), 0, "opaque-rejected unit must have zero energy");
+        assert_eq!(
+            assessment.energy.raw(),
+            0,
+            "opaque-rejected unit must have zero energy"
+        );
     }
 
     #[test]
@@ -297,7 +304,8 @@ mod tests {
         assert!(
             e_clean > e_tainted,
             "clean unit (energy={}) must rank above tainted unit (energy={})",
-            e_clean.raw(), e_tainted.raw()
+            e_clean.raw(),
+            e_tainted.raw()
         );
     }
 }

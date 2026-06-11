@@ -134,7 +134,53 @@ td.desc{word-break:break-word}
     </div>
   </div>
 
+  <div class="card">
+    <div class="path-row">
+      <label for="promote-path">Promote — workspace</label>
+      <input type="text" id="promote-path" value="." placeholder="/path/to/workspace" spellcheck="false">
+    </div>
+    <div class="flags">
+      <label class="flag"><input type="checkbox" id="p-offer"> Offer (feed the engine — without it: report-only, engine untouched)</label>
+      <label class="flag"><input type="checkbox" id="p-batch" checked> Batch (ensemble resonance)</label>
+      <label class="flag"><input type="checkbox" id="p-all-kinds" checked> All kinds</label>
+      <label class="flag">Calibration
+        <select id="p-calibration">
+          <option value="default">default (fail-closed)</option>
+          <option value="planning">planning</option>
+          <option value="adaptive">adaptive</option>
+          <option value="substrate">substrate</option>
+        </select>
+      </label>
+    </div>
+    <div class="path-row">
+      <label for="p-ledger">Ledger (optional)</label>
+      <input type="text" id="p-ledger" value="" placeholder="/path/to/ledger — anchors accepted crystals (Q5); host write, offer mode only" spellcheck="false">
+    </div>
+    <div class="actions-row">
+      <button id="promote-btn" onclick="runPromote()">Promote</button>
+      <span id="promote-status" class="status-msg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="path-row">
+      <label for="recall-ledger">Recall — Infinity Ledger</label>
+      <input type="text" id="recall-ledger" value="" placeholder="/path/to/ledger (must exist — recall is read-only)" spellcheck="false">
+    </div>
+    <div class="path-row">
+      <label for="recall-query">Query</label>
+      <input type="text" id="recall-query" value="" placeholder="e.g. missing test coverage for a module" spellcheck="false"
+             onkeydown="if(event.key==='Enter')runRecall()">
+    </div>
+    <div class="actions-row">
+      <button id="recall-btn" onclick="runRecall()">Recall (D = ψ·ρ·ω)</button>
+      <span id="recall-status" class="status-msg"></span>
+    </div>
+  </div>
+
   <div id="error-box" class="error-card hidden"></div>
+  <div id="promote-results"></div>
+  <div id="recall-results"></div>
   <div id="results"></div>
 
 </main>
@@ -195,6 +241,142 @@ async function runAnalyse(){
   }finally{
     btn.disabled=false;
     btn.textContent='Analyse';
+  }
+}
+
+async function runPromote(){
+  const btn=document.getElementById('promote-btn');
+  const status=document.getElementById('promote-status');
+  const errBox=document.getElementById('error-box');
+  const out=document.getElementById('promote-results');
+
+  const body={
+    path:document.getElementById('promote-path').value.trim()||'.',
+    offer:document.getElementById('p-offer').checked,
+    batch:document.getElementById('p-batch').checked,
+    all_kinds:document.getElementById('p-all-kinds').checked,
+    calibration:document.getElementById('p-calibration').value,
+  };
+  const ledger=document.getElementById('p-ledger').value.trim();
+  if(ledger)body.ledger=ledger;
+
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Promoting…';
+  status.textContent='';
+  errBox.classList.add('hidden');
+
+  try{
+    const t0=Date.now();
+    const resp=await fetch('/api/promote',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const elapsed=((Date.now()-t0)/1000).toFixed(2);
+    if(!resp.ok){
+      let msg='Promotion failed';
+      try{const j=await resp.json();msg=j.error||msg;}catch(_){}
+      errBox.textContent=msg;
+      errBox.classList.remove('hidden');
+      out.innerHTML='';
+      return;
+    }
+    const d=await resp.json();
+    status.textContent=`completed in ${elapsed}s`;
+    renderPromote(d);
+  }catch(e){
+    errBox.textContent=e.message;
+    errBox.classList.remove('hidden');
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Promote';
+  }
+}
+
+function renderPromote(d){
+  const out=document.getElementById('promote-results');
+  let html=`
+  <div class="card">
+    <h2>Promotion <span class="count">${d.mode}</span></h2>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value">${d.offered}</div><div class="stat-label">offered</div></div>
+      <div class="stat-card"><div class="stat-value${d.accepted>0?'':' warn'}">${d.accepted}</div><div class="stat-label">accepted</div></div>
+      <div class="stat-card"><div class="stat-value">${d.deferred}</div><div class="stat-label">deferred</div></div>
+      <div class="stat-card"><div class="stat-value">${d.skipped}</div><div class="stat-label">skipped</div></div>
+    </div>
+    <div class="meta-list">
+      <div>calibration <span>${esc(d.calibration)}</span></div>
+      <div>engine <span>${esc(d.engine_state)}</span> · commit_index <span>${d.engine_commit_index}</span></div>
+      <div>ledger commits <span>${d.ledger_commits}</span></div>
+    </div>`;
+  if(d.offers.length>0){
+    html+=`<table><thead><tr><th>label</th><th>kind</th><th>outcome</th><th>QTIC</th><th>IL block</th></tr></thead><tbody>`;
+    d.offers.forEach(o=>{
+      const outcome=typeof o.outcome==='string'?o.outcome:Object.keys(o.outcome)[0];
+      html+=`<tr><td>${esc(o.label)}</td><td>${esc(o.kind)}</td><td>${esc(outcome)}</td><td>${o.qtic_class!=null?'Q'+o.qtic_class:'–'}</td><td>${o.block_hash?`<code>${esc(o.block_hash.slice(0,16))}</code>`:'–'}</td></tr>`;
+    });
+    html+=`</tbody></table>`;
+  }
+  html+=`</div>`;
+  out.innerHTML=html;
+}
+
+async function runRecall(){
+  const btn=document.getElementById('recall-btn');
+  const status=document.getElementById('recall-status');
+  const errBox=document.getElementById('error-box');
+  const out=document.getElementById('recall-results');
+
+  const ledger=document.getElementById('recall-ledger').value.trim();
+  const query=document.getElementById('recall-query').value.trim();
+  if(!ledger||!query){
+    errBox.textContent='Recall needs a ledger path and a query.';
+    errBox.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Recalling…';
+  status.textContent='';
+  errBox.classList.add('hidden');
+
+  try{
+    const resp=await fetch('/api/recall',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ledger,query,top:5})
+    });
+    if(!resp.ok){
+      let msg='Recall failed';
+      try{const j=await resp.json();msg=j.error||msg;}catch(_){}
+      errBox.textContent=msg;
+      errBox.classList.remove('hidden');
+      out.innerHTML='';
+      return;
+    }
+    const d=await resp.json();
+    status.textContent=`${d.anchored_crystals} anchored crystal(s)`;
+    let html=`<div class="card"><h2>Recall <span class="count">${d.results.length}</span></h2>`;
+    if(d.results.length===0){
+      html+=`<div class="meta-list"><div>no crystal resonates with this query</div></div>`;
+    }else{
+      html+=`<table><thead><tr><th>#</th><th>D = ψ·ρ·ω</th><th>QTIC</th><th>stability</th><th>t</th><th>crystal</th><th>provenance</th></tr></thead><tbody>`;
+      d.results.forEach((r,i)=>{
+        html+=`<tr><td>${i+1}</td><td>${r.tripolar_score.toFixed(4)}</td><td>Q${r.qtic_class??'-'}</td><td>${r.stability.toFixed(2)}</td><td>${r.commit_index}</td><td><code>${esc(r.crystal_id)}</code></td><td>${esc(r.question)}</td></tr>`;
+      });
+      html+=`</tbody></table>`;
+      if(d.lineage){
+        html+=`<div class="meta-list"><div>lineage of top hit <span>${esc(d.lineage)}</span></div></div>`;
+      }
+    }
+    html+=`</div>`;
+    out.innerHTML=html;
+  }catch(e){
+    errBox.textContent=e.message;
+    errBox.classList.remove('hidden');
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Recall (D = ψ·ρ·ω)';
   }
 }
 

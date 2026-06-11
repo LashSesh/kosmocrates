@@ -56,8 +56,15 @@ impl StructuralYield {
         policy_id: Digest,
     ) -> Self {
         let yield_id = Self::compute_id_from(
-            &kind, &host_void_id, &deficiency_kind_ref,
-            &[], &None, &taint, &authority, &evidence_bundle_id, &policy_id,
+            &kind,
+            &host_void_id,
+            &deficiency_kind_ref,
+            &[],
+            &None,
+            &taint,
+            &authority,
+            &evidence_bundle_id,
+            &policy_id,
         );
         Self {
             yield_id,
@@ -78,9 +85,15 @@ impl StructuralYield {
         self.gate_trace_id = Some(trace_id);
         // Re-seal the yield_id after adding gate trace
         self.yield_id = Self::compute_id_from(
-            &self.kind, &self.host_void_id, &self.deficiency_kind_ref,
-            &self.motif_candidate_ids, &self.hdag_id, &self.taint,
-            &self.authority, &self.evidence_bundle_id, &self.policy_id,
+            &self.kind,
+            &self.host_void_id,
+            &self.deficiency_kind_ref,
+            &self.motif_candidate_ids,
+            &self.hdag_id,
+            &self.taint,
+            &self.authority,
+            &self.evidence_bundle_id,
+            &self.policy_id,
         );
         self
     }
@@ -144,7 +157,10 @@ mod tests {
             Digest::ZERO,
         );
         assert!(!y.has_void_reference(), "must not have void reference");
-        assert!(!y.is_workbench_usable(), "must not be workbench-usable without void ref");
+        assert!(
+            !y.is_workbench_usable(),
+            "must not be workbench-usable without void ref"
+        );
     }
 
     #[test]
@@ -184,12 +200,22 @@ mod tests {
     fn structural_yield_id_deterministic() {
         let vid = Digest::of_bytes(b"v");
         let y1 = StructuralYield::new(
-            StructuralYieldKind::DeficiencyFill, Some(vid), None,
-            TaintLabel::Clean, AuthorityLabel::Foundry, Digest::ZERO, Digest::ZERO,
+            StructuralYieldKind::DeficiencyFill,
+            Some(vid),
+            None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            Digest::ZERO,
+            Digest::ZERO,
         );
         let y2 = StructuralYield::new(
-            StructuralYieldKind::DeficiencyFill, Some(vid), None,
-            TaintLabel::Clean, AuthorityLabel::Foundry, Digest::ZERO, Digest::ZERO,
+            StructuralYieldKind::DeficiencyFill,
+            Some(vid),
+            None,
+            TaintLabel::Clean,
+            AuthorityLabel::Foundry,
+            Digest::ZERO,
+            Digest::ZERO,
         );
         assert_eq!(y1.yield_id, y2.yield_id);
     }

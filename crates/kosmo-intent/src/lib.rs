@@ -276,7 +276,10 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
     if trimmed.starts_with("//") {
         // Capability marker: `// kosmo:capability: <name>` (also `//!`). This is
         // how the otherwise-invisible `Capability` facet becomes observable.
-        let body = trimmed.trim_start_matches('/').trim_start_matches('!').trim_start();
+        let body = trimmed
+            .trim_start_matches('/')
+            .trim_start_matches('!')
+            .trim_start();
         if let Some(cap) = body.strip_prefix("kosmo:capability:") {
             let name = cap.trim();
             if !name.is_empty() {
@@ -290,7 +293,10 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
     let mut tokens = body.split_whitespace().peekable();
 
     // Unambiguous fn modifiers.
-    while matches!(tokens.peek(), Some(&"async") | Some(&"unsafe") | Some(&"default")) {
+    while matches!(
+        tokens.peek(),
+        Some(&"async") | Some(&"unsafe") | Some(&"default")
+    ) {
         tokens.next();
     }
     // `const` / `static` are item keywords, unless `const fn`.
@@ -617,7 +623,9 @@ fn behavior_specs_from_dir(dir: impl AsRef<Path>) -> Vec<(String, String)> {
 /// [`observe_workspace`] (crate facets via `cargo metadata`) merged with the
 /// `Module` / `Symbol` facets lexed from every `.rs` file under `root`. This is
 /// what lets a wish target finer structure than whole crates.
-pub fn observe_workspace_deep(root: impl Into<PathBuf>) -> Result<ObservedTopology, ParseBackError> {
+pub fn observe_workspace_deep(
+    root: impl Into<PathBuf>,
+) -> Result<ObservedTopology, ParseBackError> {
     let root = root.into();
     let mut observed = observe_workspace(root.clone())?;
     for facet in facets_from_rust_dir(&root) {
@@ -993,7 +1001,9 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
     match norm(word).as_str() {
         "crate" | "crates" | "package" | "packages" => Some(WishFacetKind::Crate),
         "module" | "modules" | "mod" => Some(WishFacetKind::Module),
-        "function" | "functions" | "fn" | "func" | "method" | "methods" => Some(WishFacetKind::Symbol),
+        "function" | "functions" | "fn" | "func" | "method" | "methods" => {
+            Some(WishFacetKind::Symbol)
+        }
         "type" | "types" | "struct" | "structs" | "enum" | "enums" | "trait" | "traits"
         | "interface" | "symbol" | "symbols" => Some(WishFacetKind::Symbol),
         "dependency" | "dependencies" | "depends" | "dep" => Some(WishFacetKind::Dependency),
@@ -1145,7 +1155,12 @@ pub fn compile_wish(prose: &str, policy_id: Digest, evidence_bundle_id: Digest) 
         i += 1;
     }
     let predicates: Vec<WishPredicate> = facets.into_iter().map(WishPredicate::require).collect();
-    Wish::new(prose.trim().to_string(), predicates, policy_id, evidence_bundle_id)
+    Wish::new(
+        prose.trim().to_string(),
+        predicates,
+        policy_id,
+        evidence_bundle_id,
+    )
 }
 
 /// Error from a [`WishCompiler`] backend (e.g. an LLM call failing).
@@ -1230,9 +1245,7 @@ impl WishSession {
     pub fn observe(&mut self, observed: &ObservedTopology) -> &WishAssessment {
         let assessment = assess_wish(&self.wish, observed, self.evidence_bundle_id);
         self.assessments.push(assessment);
-        self.assessments
-            .last()
-            .expect("just pushed an assessment")
+        self.assessments.last().expect("just pushed an assessment")
     }
 
     /// All assessments recorded so far, oldest first.
@@ -1276,7 +1289,7 @@ impl WishSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{AttractorStatus, Q16, Wish, WishClosureStatus, WishFacet, WishPredicate};
+    use kosmo_core::{AttractorStatus, Wish, WishClosureStatus, WishFacet, WishPredicate, Q16};
     use kosmo_parseback::CrateFingerprint;
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -1481,7 +1494,8 @@ mod tests {
 
     #[test]
     fn facets_from_source_strips_generics_and_params() {
-        let f = facets_from_source("pub fn map<T>(x: T) -> T { x }\npub struct Holder<T> { _p: T }\n");
+        let f =
+            facets_from_source("pub fn map<T>(x: T) -> T { x }\npub struct Holder<T> { _p: T }\n");
         assert!(f.contains(&WishFacet::symbol("map")));
         assert!(f.contains(&WishFacet::symbol("Holder")));
     }
@@ -1528,7 +1542,10 @@ mod tests {
     #[test]
     fn compile_wish_extracts_crate() {
         let w = compile_wish("I want a crate kosmo-server", d(b"policy"), d(b"bundle"));
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("kosmo-server")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("kosmo-server")));
     }
 
     #[test]
@@ -1538,7 +1555,10 @@ mod tests {
             d(b"policy"),
             d(b"bundle"),
         );
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("routes")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::module("routes")));
         assert!(w
             .predicates
             .iter()
@@ -1548,7 +1568,10 @@ mod tests {
     #[test]
     fn compile_wish_handles_backticks_and_fillers() {
         let w = compile_wish("a crate called `kosmo-foo`", d(b"policy"), d(b"bundle"));
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("kosmo-foo")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("kosmo-foo")));
     }
 
     #[test]
@@ -1560,7 +1583,9 @@ mod tests {
         );
         for name in ["Widget", "Draw", "Color"] {
             assert!(
-                w.predicates.iter().any(|p| p.facet == WishFacet::symbol(name)),
+                w.predicates
+                    .iter()
+                    .any(|p| p.facet == WishFacet::symbol(name)),
                 "missing {name}"
             );
         }
@@ -1590,8 +1615,13 @@ mod tests {
     #[test]
     fn rule_compiler_trait_compiles() {
         let c = RuleWishCompiler;
-        let w = c.compile("a crate gamma", d(b"policy"), d(b"bundle")).unwrap();
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("gamma")));
+        let w = c
+            .compile("a crate gamma", d(b"policy"), d(b"bundle"))
+            .unwrap();
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("gamma")));
         assert_eq!(c.name(), "rule-based");
     }
 
@@ -1714,7 +1744,10 @@ mod tests {
     fn behavior_specs_pair_marker_with_test_name() {
         let src = "// kosmo:behavior: add(2,3)=>5\n#[test]\nfn kosmo_spec_abc() { assert_eq!(add(2,3),5); }\n";
         let pairs = behavior_specs_from_source(src);
-        assert_eq!(pairs, vec![("kosmo_spec_abc".to_string(), "add(2,3)=>5".to_string())]);
+        assert_eq!(
+            pairs,
+            vec![("kosmo_spec_abc".to_string(), "add(2,3)=>5".to_string())]
+        );
     }
 
     #[test]
@@ -1791,7 +1824,10 @@ mod tests {
         // One prose phrase → a four-facet bundle.
         let w = compile_wish("a crud user", Digest::ZERO, Digest::ZERO);
         assert_eq!(w.predicate_count(), 4);
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("user")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::module("user")));
         assert!(w
             .predicates
             .iter()
@@ -1801,8 +1837,14 @@ mod tests {
     #[test]
     fn compile_wish_mixes_archetype_and_leaf() {
         let w = compile_wish("a crud user and a crate api", Digest::ZERO, Digest::ZERO);
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("api")));
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("user")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("api")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::module("user")));
         assert_eq!(w.predicate_count(), 5, "4 from crud + 1 crate");
     }
 
@@ -1843,7 +1885,10 @@ mod tests {
 
         let facets = facets_from_rust_dir(&root);
         // Both the bare facet and the crate-qualified facet are present.
-        assert!(facets.contains(&WishFacet::symbol("handle")), "bare missing");
+        assert!(
+            facets.contains(&WishFacet::symbol("handle")),
+            "bare missing"
+        );
         assert!(
             facets.contains(&WishFacet::symbol("handle@api")),
             "crate-qualified missing"
@@ -1910,15 +1955,24 @@ mod tests {
     fn parse_run_expect_forms() {
         assert_eq!(
             parse_run_expect("exit:0"),
-            Some(RunExpect { exit: Some(0), stdout_contains: None })
+            Some(RunExpect {
+                exit: Some(0),
+                stdout_contains: None
+            })
         );
         assert_eq!(
             parse_run_expect("out~hi"),
-            Some(RunExpect { exit: None, stdout_contains: Some("hi".into()) })
+            Some(RunExpect {
+                exit: None,
+                stdout_contains: Some("hi".into())
+            })
         );
         assert_eq!(
             parse_run_expect("exit:0,out~hi"),
-            Some(RunExpect { exit: Some(0), stdout_contains: Some("hi".into()) })
+            Some(RunExpect {
+                exit: Some(0),
+                stdout_contains: Some("hi".into())
+            })
         );
         assert!(parse_run_expect("garbage").is_none());
     }
@@ -1935,7 +1989,10 @@ mod tests {
     #[test]
     fn run_matches_is_failclosed_on_nonexit() {
         use kosmo_sandbox::{RunVerdict, RuntimeWitness};
-        let e = RunExpect { exit: Some(0), stdout_contains: Some("5".into()) };
+        let e = RunExpect {
+            exit: Some(0),
+            stdout_contains: Some("5".into()),
+        };
         // A timed-out run never matches — even with the right stdout printed.
         let timed = RuntimeWitness {
             verdict: RunVerdict::TimedOut,
@@ -1978,18 +2035,27 @@ mod tests {
         assert_eq!(probe.path, "/health");
         assert_eq!(expect.status, Some(200));
         assert!(parse_service_key("noarrow").is_none());
-        assert!(parse_service_key("GET:=>200").is_none(), "empty path rejected");
+        assert!(
+            parse_service_key("GET:=>200").is_none(),
+            "empty path rejected"
+        );
     }
 
     #[test]
     fn parse_service_expect_forms() {
         assert_eq!(
             parse_service_expect("200"),
-            Some(ServiceExpect { status: Some(200), body_contains: None })
+            Some(ServiceExpect {
+                status: Some(200),
+                body_contains: None
+            })
         );
         assert_eq!(
             parse_service_expect("200,body~ok"),
-            Some(ServiceExpect { status: Some(200), body_contains: Some("ok".into()) })
+            Some(ServiceExpect {
+                status: Some(200),
+                body_contains: Some("ok".into())
+            })
         );
         assert!(parse_service_expect("xyz").is_none());
     }
@@ -2006,7 +2072,10 @@ mod tests {
     #[test]
     fn service_matches_is_failclosed_on_never_ready() {
         use kosmo_sandbox::{ServiceVerdict, ServiceWitness};
-        let e = ServiceExpect { status: Some(200), body_contains: None };
+        let e = ServiceExpect {
+            status: Some(200),
+            body_contains: None,
+        };
         // A server that never came up never matches.
         let never = ServiceWitness {
             verdict: ServiceVerdict::NeverReady,
@@ -2157,8 +2226,14 @@ mod tests {
         match run_workspace_tests(&dir) {
             Ok(results) if !results.is_empty() => {
                 let facets = passing_test_facets(&results);
-                assert!(facets.contains(&WishFacet::test("green")), "green test passes");
-                assert!(!facets.contains(&WishFacet::test("red")), "red test fails → not a facet");
+                assert!(
+                    facets.contains(&WishFacet::test("green")),
+                    "green test passes"
+                );
+                assert!(
+                    !facets.contains(&WishFacet::test("red")),
+                    "red test fails → not a facet"
+                );
             }
             _ => eprintln!("cargo test unavailable, skipping"),
         }

@@ -83,11 +83,7 @@ pub struct EvidenceBundle {
 
 impl EvidenceBundle {
     /// Construct a sealed bundle: compute `bundle_id` from content.
-    pub fn seal(
-        refs: Vec<EvidenceRef>,
-        policy_id: Digest,
-        replay_status: ReplayStatus,
-    ) -> Self {
+    pub fn seal(refs: Vec<EvidenceRef>, policy_id: Digest, replay_status: ReplayStatus) -> Self {
         let id = Digest::of(&EvidenceBundleContent {
             refs: &refs,
             policy_id: &policy_id,
@@ -155,11 +151,7 @@ mod tests {
 
     #[test]
     fn evidence_bundle_verify_id_passes() {
-        let b = EvidenceBundle::seal(
-            vec![],
-            dummy_policy_id(),
-            ReplayStatus::NotApplicable,
-        );
+        let b = EvidenceBundle::seal(vec![], dummy_policy_id(), ReplayStatus::NotApplicable);
         assert!(b.verify_id());
     }
 

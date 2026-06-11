@@ -1,5 +1,9 @@
 //! Kosmocrates LLM wish compiler — prose intent → content-addressed [`Wish`].
 //!
+//! This is the human-facing front door of the wish-to-system machine (see
+//! [`docs/WISH_TO_SYSTEM.md`] §2, *target*): it turns a plain-language request
+//! into the explicit, measurable `Wish` the rest of the loop descends toward.
+//!
 //! The LLM-backed counterpart to `kosmo-intent`'s deterministic
 //! [`compile_wish`](kosmo_intent::compile_wish). It implements the same
 //! [`WishCompiler`] trait, so it drops into the agent loop wherever the rule
@@ -7,14 +11,33 @@
 //! small HTTP server with a router and a request handler") is turned into a
 //! structured facet set by a model instead of by keyword rules.
 //!
-//! The model is the **only** non-deterministic step: it emits a list of target
-//! facets, which are folded into a `Wish` whose `id` is content-addressed over
-//! the (sorted, de-duplicated) facet set and the prose label. Everything
-//! downstream — assessment, the attractor contract, the loop — stays
-//! deterministic and replayable.
+//! ## Flow
 //!
-//! Transport (Anthropic / OpenAI-compatible, retry, JSON extraction) is shared
-//! with the rest of the substrate via [`kosmo_llm`].
+//! `prose` → [`build_prompt`] (under a pinned [`system_prompt`] contract) →
+//! one [`kosmo_llm`] call → JSON facet list → [`parse_wish_response`] folds it
+//! into a `Wish` (sorted, de-duplicated facets; `id` content-addressed over the
+//! facet set and the prose label).
+//!
+//! ## The one non-deterministic step
+//!
+//! The model call is the **only** non-deterministic step in the whole machine.
+//! Its output is re-determinized immediately at the `Wish` boundary, so
+//! everything downstream — assessment, the attractor contract, the loop — stays
+//! deterministic and replayable. Sampling `temperature` lives only in the
+//! request body, never in a content-addressed structure (CROSS-007).
+//!
+//! ## Constraints
+//!
+//! - **Fail-closed.** A malformed model response is a `WishCompileError`, never a
+//!   half-built `Wish`.
+//! - **Transport is shared & endpoint-supplied.** Anthropic / OpenAI-compatible
+//!   transport, retry, and JSON extraction come from [`kosmo_llm`]; no network
+//!   destination is hard-coded.
+//!
+//! [`docs/WISH_TO_SYSTEM.md`]: ../../../docs/WISH_TO_SYSTEM.md
+//! [`build_prompt`]: crate::build_prompt
+//! [`system_prompt`]: crate::system_prompt
+//! [`parse_wish_response`]: crate::parse_wish_response
 
 use kosmo_core::{Digest, Wish, WishFacet, WishFacetKind, WishPredicate};
 use kosmo_intent::{WishCompileError, WishCompiler};
@@ -61,10 +84,12 @@ impl WishCompiler for LlmWishCompiler {
         evidence_bundle_id: Digest,
     ) -> Result<Wish, WishCompileError> {
         let user = build_prompt(prose);
-        let (raw, _tokens) = self
-            .config
-            .complete(system_prompt(), &user)
-            .map_err(|e| WishCompileError { message: e.to_string() })?;
+        let (raw, _tokens) =
+            self.config
+                .complete(system_prompt(), &user)
+                .map_err(|e| WishCompileError {
+                    message: e.to_string(),
+                })?;
         parse_wish_response(&raw, prose, policy_id, evidence_bundle_id)
     }
 
@@ -207,16 +232,28 @@ mod tests {
         ]}"#;
         let w = parse_wish_response(raw, "build a server", d(b"p"), d(b"e")).unwrap();
         assert_eq!(w.label, "build a server");
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("kosmo-server")));
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::module("routes")));
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::symbol("handle_request")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("kosmo-server")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::module("routes")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::symbol("handle_request")));
     }
 
     #[test]
     fn parse_wish_response_tolerates_fences() {
         let raw = "Sure:\n```json\n{\"facets\":[{\"kind\":\"crate\",\"key\":\"alpha\"}]}\n```";
         let w = parse_wish_response(raw, "alpha", d(b"p"), d(b"e")).unwrap();
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("alpha")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("alpha")));
     }
 
     #[test]
@@ -228,7 +265,10 @@ mod tests {
         ]}"#;
         let w = parse_wish_response(raw, "p", d(b"p"), d(b"e")).unwrap();
         assert_eq!(w.predicate_count(), 1);
-        assert!(w.predicates.iter().any(|p| p.facet == WishFacet::crate_("real")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("real")));
     }
 
     #[test]
@@ -249,13 +289,34 @@ mod tests {
         assert_eq!(facet_kind_from_str("Module"), Some(WishFacetKind::Module));
         assert_eq!(facet_kind_from_str("fn"), Some(WishFacetKind::Symbol));
         assert_eq!(facet_kind_from_str("trait"), Some(WishFacetKind::Symbol));
-        assert_eq!(facet_kind_from_str("resolution"), Some(WishFacetKind::Resolution));
-        assert_eq!(facet_kind_from_str("dependency"), Some(WishFacetKind::Dependency));
-        assert_eq!(facet_kind_from_str("signature"), Some(WishFacetKind::Signature));
-        assert_eq!(facet_kind_from_str("contract"), Some(WishFacetKind::Contract));
-        assert_eq!(facet_kind_from_str("behavior"), Some(WishFacetKind::Behavior));
-        assert_eq!(facet_kind_from_str("composition"), Some(WishFacetKind::Composition));
-        assert_eq!(facet_kind_from_str("capability"), Some(WishFacetKind::Capability));
+        assert_eq!(
+            facet_kind_from_str("resolution"),
+            Some(WishFacetKind::Resolution)
+        );
+        assert_eq!(
+            facet_kind_from_str("dependency"),
+            Some(WishFacetKind::Dependency)
+        );
+        assert_eq!(
+            facet_kind_from_str("signature"),
+            Some(WishFacetKind::Signature)
+        );
+        assert_eq!(
+            facet_kind_from_str("contract"),
+            Some(WishFacetKind::Contract)
+        );
+        assert_eq!(
+            facet_kind_from_str("behavior"),
+            Some(WishFacetKind::Behavior)
+        );
+        assert_eq!(
+            facet_kind_from_str("composition"),
+            Some(WishFacetKind::Composition)
+        );
+        assert_eq!(
+            facet_kind_from_str("capability"),
+            Some(WishFacetKind::Capability)
+        );
         assert_eq!(facet_kind_from_str("test"), Some(WishFacetKind::Test));
         assert_eq!(facet_kind_from_str("nonsense"), None);
     }

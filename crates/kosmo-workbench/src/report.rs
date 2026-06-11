@@ -45,10 +45,7 @@ impl RunReport {
         mode: ImplementationMode,
         mut notes: Vec<String>,
     ) -> Self {
-        notes.push(format!(
-            "Mode: {:?}. No host files were modified.",
-            mode
-        ));
+        notes.push(format!("Mode: {:?}. No host files were modified.", mode));
 
         let workspace_index_id = workspace.map(|w| w.index_id);
         let workspace_entry_count = workspace.map(|w| w.entry_count).unwrap_or(0);
@@ -94,10 +91,7 @@ impl RunReport {
         } else {
             out.push_str(" [no scan]\n");
         }
-        out.push_str(&format!(
-            "Evidence     : {}\n",
-            self.evidence_bundle_id
-        ));
+        out.push_str(&format!("Evidence     : {}\n", self.evidence_bundle_id));
 
         if !self.foundry_results.is_empty() {
             out.push_str("\nFoundry Checks:\n");
@@ -142,10 +136,7 @@ mod tests {
     use super::*;
     use crate::foundry::FoundryRunner;
     use crate::workspace::WorkspaceIndex;
-    use kosmo_core::{
-        Digest, EvidenceBundle, ImplementationMode,
-        PolicyProfile, RunDescriptor,
-    };
+    use kosmo_core::{Digest, EvidenceBundle, ImplementationMode, PolicyProfile, RunDescriptor};
 
     fn make_run(policy: &PolicyProfile) -> RunDescriptor {
         RunDescriptor::new(policy.id, "/workspace/test")
@@ -156,7 +147,14 @@ mod tests {
         let policy = PolicyProfile::default_report_only();
         let run = make_run(&policy);
         let bundle = EvidenceBundle::empty(policy.id);
-        let report = RunReport::new(&run, None, vec![], &bundle, ImplementationMode::ReportOnly, vec![]);
+        let report = RunReport::new(
+            &run,
+            None,
+            vec![],
+            &bundle,
+            ImplementationMode::ReportOnly,
+            vec![],
+        );
         assert_ne!(report.report_id, Digest::ZERO);
     }
 
@@ -165,8 +163,22 @@ mod tests {
         let policy = PolicyProfile::default_report_only();
         let run = make_run(&policy);
         let bundle = EvidenceBundle::empty(policy.id);
-        let r1 = RunReport::new(&run, None, vec![], &bundle, ImplementationMode::ReportOnly, vec![]);
-        let r2 = RunReport::new(&run, None, vec![], &bundle, ImplementationMode::ReportOnly, vec![]);
+        let r1 = RunReport::new(
+            &run,
+            None,
+            vec![],
+            &bundle,
+            ImplementationMode::ReportOnly,
+            vec![],
+        );
+        let r2 = RunReport::new(
+            &run,
+            None,
+            vec![],
+            &bundle,
+            ImplementationMode::ReportOnly,
+            vec![],
+        );
         assert_eq!(r1.report_id, r2.report_id);
     }
 
@@ -177,15 +189,10 @@ mod tests {
         let pid = Digest::of_bytes(b"pid");
 
         // Build a tiny workspace index
-        let idx = WorkspaceIndex::from_entries(
-            "/workspace/test".into(),
-            vec![],
-            pid,
-        );
+        let idx = WorkspaceIndex::from_entries("/workspace/test".into(), vec![], pid);
 
         // Run foundry in report-only mode (will all be Skipped)
-        let foundry_output = FoundryRunner::standard_checks(policy.clone())
-            .run_all(idx.index_id);
+        let foundry_output = FoundryRunner::standard_checks(policy.clone()).run_all(idx.index_id);
 
         let report = RunReport::new(
             &run,
@@ -225,7 +232,9 @@ mod tests {
         assert!(text.contains("Run Report"));
         assert!(text.contains("Phase 2 test run"));
         // host_write was never attempted — policy enforces it
-        assert_eq!(policy.check_host_write().unwrap_err().to_string(),
-            "host write denied by policy (ReportOnly or allow_host_write=false)");
+        assert_eq!(
+            policy.check_host_write().unwrap_err().to_string(),
+            "host write denied by policy (ReportOnly or allow_host_write=false)"
+        );
     }
 }

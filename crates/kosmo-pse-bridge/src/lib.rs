@@ -1,5 +1,10 @@
 //! Candidate-only bridge from `kosmo-*` artifacts to PSE observations.
 //!
+//! The substrate analyses topology and synthesizes systems (see
+//! [`docs/SUBSTRATE.md`] and [`docs/WISH_TO_SYSTEM.md`]); when one of its
+//! artifacts is worth remembering, it is *offered* to the PSE crystallization
+//! engine — never committed directly. This crate is that one-way offer desk.
+//!
 //! ## Architecture contract
 //!
 //! This crate is the ONLY permitted crossing point between the `kosmo-*` layer
@@ -14,8 +19,38 @@
 //! - It does NOT call any PSE-internal gate or cascade.
 //! - It does NOT promote `CorpusCartography` to trusted memory.
 //! - In `ReportOnly` mode, all submission attempts produce `SkippedByReportOnly`.
+//!
+//! ## Promotion lifecycle
+//!
+//! 1. **Wrap.** A `kosmo-*` artifact (a structural yield, a topology diff, a
+//!    validation closure, a `.kcube` descriptor, a certified structural crystal)
+//!    becomes a [`PseBridgeCandidate`] — content-addressed by *reference*
+//!    (`observation_digest`), carrying a `Q16` `confidence` and full
+//!    evidence/policy provenance.
+//! 2. **Bundle.** One or more candidates are gathered into a [`PromotionRequest`].
+//! 3. **Gate.** [`validate_candidate`] applies the policy: outside an execution
+//!    mode that permits it, the request is refused fail-closed.
+//! 4. **Decide.** PSE returns a [`PromotionOutcome`] — `Promoted`, `Rejected`,
+//!    `SkippedByReportOnly`, or `SkippedByPolicy`. This crate models the outcome;
+//!    it never makes the crystallization decision itself.
+//! 5. **Feed back.** [`build_promotion_feedback`] turns the outcome into a
+//!    [`PromotionFeedback`] the agent loop consumes, so a promoted observation
+//!    raises — and a rejected one lowers — the confidence of similar future work.
+//!
+//! ## Constraints
+//!
+//! - **No floats (CROSS-007).** `confidence` and every score are `Q16`.
+//! - **Fail-closed.** Default `ReportOnly` policy yields `SkippedByReportOnly`;
+//!   promotion requires an explicit execution mode.
+//! - **Content-addressed & evidence-bound.** Each candidate's `id` is the digest
+//!   of its fields; `evidence_bundle_id` is non-zero (CROSS-006).
+//!
+//! [`docs/SUBSTRATE.md`]: ../../../SUBSTRATE.md
+//! [`docs/WISH_TO_SYSTEM.md`]: ../../../docs/WISH_TO_SYSTEM.md
 
-use kosmo_core::{Digest, EvidenceRef, FeedbackOutcome, ImplementationMode, PolicyProfile, PromotionFeedback, Q16};
+use kosmo_core::{
+    Digest, EvidenceRef, FeedbackOutcome, ImplementationMode, PolicyProfile, PromotionFeedback, Q16,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -32,6 +67,12 @@ pub enum PseBridgeCandidateKind {
     ValidationResult,
     /// A `KcubePackage` descriptor offered as a knowledge artifact.
     KcubeArtifact,
+    /// A certified `StructuralCrystalRecord` — the substrate's strongest durable
+    /// artifact: gate-passed, constraint-certified, replay-proofed, and (when the
+    /// source carried content) bearing a cross-language structural fingerprint.
+    /// This is the primary unification path from the substrate's CAD library
+    /// into PSE crystallization.
+    CertifiedCrystal,
     Custom(String),
 }
 
@@ -461,21 +502,30 @@ pub fn build_promotion_feedback(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{EvidenceBundle, EvidenceKind, ImplementationMode, PolicyProfile, ReplayStatus};
+    use kosmo_core::{
+        EvidenceBundle, EvidenceKind, ImplementationMode, PolicyProfile, ReplayStatus,
+    };
 
     fn d(seed: &[u8]) -> Digest {
         Digest::of_bytes(seed)
     }
 
-    fn policy_id() -> Digest { d(b"policy") }
-    fn bundle_id() -> Digest { d(b"bundle") }
+    fn policy_id() -> Digest {
+        d(b"policy")
+    }
+    fn bundle_id() -> Digest {
+        d(b"bundle")
+    }
 
     fn report_only_profile() -> PolicyProfile {
         PolicyProfile::default()
     }
 
     fn elevated_profile() -> PolicyProfile {
-        PolicyProfile { mode: ImplementationMode::DryRun, ..PolicyProfile::default() }
+        PolicyProfile {
+            mode: ImplementationMode::DryRun,
+            ..PolicyProfile::default()
+        }
     }
 
     fn basic_candidate() -> PseBridgeCandidate {
@@ -528,11 +578,21 @@ mod tests {
     fn candidate_different_kinds_differ() {
         let c1 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         let c2 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::TopologyObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         assert_ne!(c1.id, c2.id);
     }
@@ -548,11 +608,21 @@ mod tests {
     fn candidate_different_confidence_differs() {
         let c1 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         let c2 = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ZERO, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ZERO,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         assert_ne!(c1.id, c2.id);
     }
@@ -624,7 +694,11 @@ mod tests {
     fn request_with_refs_changes_id() {
         let r = PromotionRequest::new(d(b"cand"), d(b"bp"), bundle_id(), 1);
         let id_before = r.id;
-        let r2 = r.with_refs(vec![EvidenceRef::new(d(b"x"), EvidenceKind::RunRecord, "run")]);
+        let r2 = r.with_refs(vec![EvidenceRef::new(
+            d(b"x"),
+            EvidenceKind::RunRecord,
+            "run",
+        )]);
         assert_ne!(id_before, r2.id);
         assert!(r2.verify_id());
     }
@@ -654,7 +728,9 @@ mod tests {
 
     #[test]
     fn outcome_rejected_is_failure() {
-        let o = PromotionOutcome::Rejected { reason: "low confidence".into() };
+        let o = PromotionOutcome::Rejected {
+            reason: "low confidence".into(),
+        };
         assert!(o.is_failure_class());
         assert!(!o.is_accepted());
     }
@@ -685,8 +761,10 @@ mod tests {
 
     #[test]
     fn record_new_deterministic() {
-        let r1 = PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
-        let r2 = PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
+        let r1 =
+            PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
+        let r2 =
+            PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);
         assert_eq!(r1.id, r2.id);
     }
 
@@ -694,7 +772,9 @@ mod tests {
     fn record_verify_id() {
         let r = PromotionRequestRecord::new(
             d(b"req"),
-            PromotionOutcome::Rejected { reason: "threshold".into() },
+            PromotionOutcome::Rejected {
+                reason: "threshold".into(),
+            },
             bundle_id(),
             100,
         );
@@ -737,7 +817,12 @@ mod tests {
     fn validate_disallowed_kind_skips() {
         let c = PseBridgeCandidate::new(
             PseBridgeCandidateKind::KcubeArtifact,
-            d(b"obs"), "x", Q16::ONE, d(b"run"), bundle_id(), policy_id(),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
         );
         let p = allow_policy(); // only allows Structural + Topology
         let result = validate_candidate(&c, &p, &elevated_profile());
@@ -748,7 +833,10 @@ mod tests {
     fn validate_zero_evidence_rejected() {
         let c = PseBridgeCandidate::new(
             PseBridgeCandidateKind::StructuralObservation,
-            d(b"obs"), "x", Q16::ONE, d(b"run"),
+            d(b"obs"),
+            "x",
+            Q16::ONE,
+            d(b"run"),
             Digest::ZERO, // no evidence
             policy_id(),
         );
@@ -806,5 +894,29 @@ mod tests {
         );
         assert!(c.verify_id());
         assert_ne!(c.evidence_bundle_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn certified_crystal_kind_roundtrips_and_is_distinct() {
+        // The unification kind: serde-stable and distinct from the scan kind, so
+        // PSE-side routing can tell a certified crystal from a raw observation.
+        let c = PseBridgeCandidate::new(
+            PseBridgeCandidateKind::CertifiedCrystal,
+            d(b"record"),
+            "crystal:python:abc",
+            Q16::ratio(3, 4).unwrap(),
+            d(b"run"),
+            bundle_id(),
+            policy_id(),
+        );
+        assert!(c.verify_id());
+        let json = serde_json::to_string(&c).unwrap();
+        let back: PseBridgeCandidate = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, c, "serde roundtrip must be lossless");
+        assert_eq!(back.kind, PseBridgeCandidateKind::CertifiedCrystal);
+        assert_ne!(
+            PseBridgeCandidateKind::CertifiedCrystal,
+            PseBridgeCandidateKind::StructuralObservation
+        );
     }
 }

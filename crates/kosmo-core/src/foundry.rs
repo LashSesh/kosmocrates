@@ -125,12 +125,7 @@ impl FoundryCommandPolicy {
     pub fn default_cargo_policy() -> Self {
         let allowed = vec![AllowedFoundryCommand {
             program: "cargo".into(),
-            allowed_subcommands: vec![
-                "check".into(),
-                "test".into(),
-                "fmt".into(),
-                "clippy".into(),
-            ],
+            allowed_subcommands: vec!["check".into(), "test".into(), "fmt".into(), "clippy".into()],
             allow_arbitrary_args: false,
         }];
         let mut p = Self {
@@ -148,8 +143,7 @@ impl FoundryCommandPolicy {
     pub fn is_command_allowed(&self, program: &str, subcommand: &str) -> bool {
         self.allowed_commands.iter().any(|c| {
             c.program == program
-                && (c.allow_arbitrary_args
-                    || c.allowed_subcommands.iter().any(|s| s == subcommand))
+                && (c.allow_arbitrary_args || c.allowed_subcommands.iter().any(|s| s == subcommand))
         })
     }
 
@@ -504,7 +498,8 @@ impl FoundryExecutionReport {
     }
 
     fn compute_id(&self) -> Digest {
-        let check_result_ids: Vec<&Digest> = self.check_results.iter().map(|c| &c.check_id).collect();
+        let check_result_ids: Vec<&Digest> =
+            self.check_results.iter().map(|c| &c.check_id).collect();
         Digest::of(&ReportContent {
             plan_id: &self.plan_id,
             outcome: &self.outcome,
@@ -566,14 +561,10 @@ mod tests {
 
     #[test]
     fn sandbox_spec_different_kinds_differ() {
-        let s1 = FoundrySandboxSpec::new(
-            FoundrySandboxKind::ReportOnlyNoExec,
-            dummy_digest(b"root"),
-        );
-        let s2 = FoundrySandboxSpec::new(
-            FoundrySandboxKind::IsolatedWorktree,
-            dummy_digest(b"root"),
-        );
+        let s1 =
+            FoundrySandboxSpec::new(FoundrySandboxKind::ReportOnlyNoExec, dummy_digest(b"root"));
+        let s2 =
+            FoundrySandboxSpec::new(FoundrySandboxKind::IsolatedWorktree, dummy_digest(b"root"));
         assert_ne!(s1.id, s2.id);
     }
 
@@ -765,7 +756,8 @@ mod tests {
         p2.policy_id = dummy_digest(b"other-policy");
         p2.id = {
             let check_ids: Vec<&Digest> = p2.checks.iter().map(|c| &c.id).collect();
-            let evidence_digests: Vec<&Digest> = p2.evidence_refs.iter().map(|e| &e.digest).collect();
+            let evidence_digests: Vec<&Digest> =
+                p2.evidence_refs.iter().map(|e| &e.digest).collect();
             Digest::of(&PlanContent {
                 policy_id: &p2.policy_id,
                 workspace_index_id: &p2.workspace_index_id,

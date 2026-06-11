@@ -3,12 +3,31 @@
 //! One place for the connection + sampling config, the provider-specific request
 //! shapes (Anthropic Messages API and any OpenAI-compatible `/chat/completions`
 //! endpoint), retry/backoff, response extraction, and a tolerant brace-balanced
-//! JSON-object extractor. Task crates (`kosmo-intent-llm` for prose→`Wish`, and
-//! in time `kosmo-synthesizer-llm` for patches) supply the prompts and parse the
-//! result; this crate carries the bytes.
+//! JSON-object extractor. Task crates (`kosmo-intent-llm` for prose→`Wish`,
+//! `kosmo-synthesizer-llm` for patches) supply the prompts and parse the result;
+//! this crate carries the bytes.
 //!
-//! Determinism note: a float (`temperature`) appears only inside the outbound
-//! request body, never in any gate path or content-address (CROSS-007).
+//! ## Contract
+//!
+//! [`LlmConfig::complete`] takes a `(system, user)` prompt pair and returns the
+//! raw model text plus a token count — nothing more. It never parses, hashes, or
+//! interprets the response; that is the caller's job, and the caller immediately
+//! re-determinizes the result into a content-addressed artifact. This crate is
+//! therefore the **single non-deterministic boundary** of the wish-to-system
+//! machine (see [`docs/WISH_TO_SYSTEM.md`] §5); everything upstream and
+//! downstream of it is deterministic and replayable.
+//!
+//! ## Constraints
+//!
+//! - **No floats in gate paths (CROSS-007).** A `temperature` float appears only
+//!   inside the outbound request body — never in any gate path or content
+//!   address. Confidence/score values cross back as integer percentages that
+//!   callers convert to `Q16`.
+//! - **Endpoints are caller-supplied.** The crate has no hard-coded network
+//!   destination; the provider base URL comes from config or the environment, so
+//!   it builds and tests with no external network dependency.
+//!
+//! [`docs/WISH_TO_SYSTEM.md`]: ../../../docs/WISH_TO_SYSTEM.md
 
 use std::time::Duration;
 
@@ -295,16 +314,26 @@ pub struct LlmError {
 
 impl LlmError {
     pub fn permanent(msg: impl Into<String>) -> Self {
-        Self { message: msg.into(), recoverable: false }
+        Self {
+            message: msg.into(),
+            recoverable: false,
+        }
     }
     pub fn transient(msg: impl Into<String>) -> Self {
-        Self { message: msg.into(), recoverable: true }
+        Self {
+            message: msg.into(),
+            recoverable: true,
+        }
     }
 }
 
 impl std::fmt::Display for LlmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "llm error (recoverable={}): {}", self.recoverable, self.message)
+        write!(
+            f,
+            "llm error (recoverable={}): {}",
+            self.recoverable, self.message
+        )
     }
 }
 impl std::error::Error for LlmError {}
@@ -383,7 +412,9 @@ mod tests {
     #[test]
     fn endpoint_per_provider() {
         assert!(LlmConfig::claude("k").endpoint().ends_with("/v1/messages"));
-        assert!(LlmConfig::cerebras("k").endpoint().ends_with("/chat/completions"));
+        assert!(LlmConfig::cerebras("k")
+            .endpoint()
+            .ends_with("/chat/completions"));
     }
 
     #[test]
@@ -429,13 +460,19 @@ mod tests {
 
     #[test]
     fn extract_json_plain() {
-        assert_eq!(extract_json_object(r#"{"a":1}"#).as_deref(), Some(r#"{"a":1}"#));
+        assert_eq!(
+            extract_json_object(r#"{"a":1}"#).as_deref(),
+            Some(r#"{"a":1}"#)
+        );
     }
 
     #[test]
     fn extract_json_from_fenced_prose() {
         let raw = "Here you go:\n```json\n{\"a\": 1, \"b\": 2}\n```\nThanks!";
-        assert_eq!(extract_json_object(raw).as_deref(), Some(r#"{"a": 1, "b": 2}"#));
+        assert_eq!(
+            extract_json_object(raw).as_deref(),
+            Some(r#"{"a": 1, "b": 2}"#)
+        );
     }
 
     #[test]

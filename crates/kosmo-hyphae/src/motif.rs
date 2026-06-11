@@ -1,12 +1,12 @@
 use kosmo_core::{
-    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival,
-    GateResult, LicenseStatus, Q16, TaintLabel, TripolarEnergy,
+    Digest, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, GateResult,
+    LicenseStatus, TaintLabel, TripolarEnergy, Q16,
 };
 use serde::{Deserialize, Serialize};
 
 /// A recurring structural pattern candidate observed across source evidence.
 ///
-/// `support_score` is a Q16 value in [0, 1]. Gate comparisons use
+/// `support_score` is a Q16 value in `[0, 1]`. Gate comparisons use
 /// `support_score.raw()` (integer) — no float in gate paths (CROSS-007).
 /// High support does not bypass gates (CROSS-010).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,8 +47,14 @@ impl MotifCandidate {
             .concat(),
         );
         Self {
-            motif_id, name, support_count, support_score,
-            hdag_pattern_id, taint, evidence_bundle_id, policy_id,
+            motif_id,
+            name,
+            support_count,
+            support_score,
+            hdag_pattern_id,
+            taint,
+            evidence_bundle_id,
+            policy_id,
         }
     }
 
@@ -87,14 +93,22 @@ impl MotifCandidate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kosmo_core::{Digest, GateResult, Q16, TaintLabel};
+    use kosmo_core::{Digest, GateResult, TaintLabel, Q16};
 
-    fn pid() -> Digest { Digest::of_bytes(b"p") }
+    fn pid() -> Digest {
+        Digest::of_bytes(b"p")
+    }
 
     #[test]
     fn motif_support_score_is_ratio() {
         let m = MotifCandidate::new(
-            "test-pattern".into(), 3, 4, None, TaintLabel::Clean, Digest::ZERO, pid(),
+            "test-pattern".into(),
+            3,
+            4,
+            None,
+            TaintLabel::Clean,
+            Digest::ZERO,
+            pid(),
         );
         assert!((m.support_score.to_f64() - 0.75).abs() < 1e-4);
     }
@@ -102,7 +116,13 @@ mod tests {
     #[test]
     fn cross_010_high_support_does_not_bypass_gates() {
         let m = MotifCandidate::new(
-            "high-support".into(), 10, 10, None, TaintLabel::Unverified, Digest::ZERO, pid(),
+            "high-support".into(),
+            10,
+            10,
+            None,
+            TaintLabel::Unverified,
+            Digest::ZERO,
+            pid(),
         );
         assert_eq!(m.support_score, Q16::ONE);
         assert!(matches!(m.taint, TaintLabel::Unverified));
@@ -110,8 +130,24 @@ mod tests {
 
     #[test]
     fn motif_deterministic() {
-        let m1 = MotifCandidate::new("p".into(), 2, 4, None, TaintLabel::Clean, Digest::ZERO, pid());
-        let m2 = MotifCandidate::new("p".into(), 2, 4, None, TaintLabel::Clean, Digest::ZERO, pid());
+        let m1 = MotifCandidate::new(
+            "p".into(),
+            2,
+            4,
+            None,
+            TaintLabel::Clean,
+            Digest::ZERO,
+            pid(),
+        );
+        let m2 = MotifCandidate::new(
+            "p".into(),
+            2,
+            4,
+            None,
+            TaintLabel::Clean,
+            Digest::ZERO,
+            pid(),
+        );
         assert_eq!(m1.motif_id, m2.motif_id);
     }
 
@@ -129,10 +165,20 @@ mod tests {
     fn motif_quarantine_zeroes_energy() {
         let ev = Digest::of_bytes(b"ev");
         let m = MotifCandidate::new(
-            "tainted".into(), 10, 10, None,
-            TaintLabel::Quarantined { reason: "test".into() }, ev, pid(),
+            "tainted".into(),
+            10,
+            10,
+            None,
+            TaintLabel::Quarantined {
+                reason: "test".into(),
+            },
+            ev,
+            pid(),
         );
         let a = m.energy_assessment(&GateResult::Pass);
-        assert!(a.kernel.is_zeroed(), "quarantined taint must collapse energy to zero");
+        assert!(
+            a.kernel.is_zeroed(),
+            "quarantined taint must collapse energy to zero"
+        );
     }
 }

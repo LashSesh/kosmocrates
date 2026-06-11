@@ -49,7 +49,13 @@ impl CorpusEntity {
             taint: format!("{:?}", taint),
             policy_id,
         });
-        Self { entity_id, kind, data_digest, taint, policy_id }
+        Self {
+            entity_id,
+            kind,
+            data_digest,
+            taint,
+            policy_id,
+        }
     }
 }
 
@@ -73,7 +79,11 @@ pub struct CorpusRelation {
 
 impl CorpusRelation {
     pub fn new(from_id: Digest, to_id: Digest, kind: RelationKind) -> Self {
-        Self { from_id, to_id, kind }
+        Self {
+            from_id,
+            to_id,
+            kind,
+        }
     }
 }
 
@@ -104,7 +114,12 @@ impl CorpusCartography {
             relation_count: 0,
             policy_id,
         });
-        Self { cartography_id, entities: vec![], relations: vec![], policy_id }
+        Self {
+            cartography_id,
+            entities: vec![],
+            relations: vec![],
+            policy_id,
+        }
     }
 
     /// Append new entities and relations. Returns the updated cartography and
@@ -118,8 +133,7 @@ impl CorpusCartography {
         new_relations: Vec<CorpusRelation>,
     ) -> (CorpusCartography, CorpusCartographyUpdate) {
         let before_id = self.cartography_id;
-        let existing_ids: BTreeSet<Digest> =
-            self.entities.iter().map(|e| e.entity_id).collect();
+        let existing_ids: BTreeSet<Digest> = self.entities.iter().map(|e| e.entity_id).collect();
 
         let novel: Vec<CorpusEntity> = new_entities
             .into_iter()
@@ -147,9 +161,7 @@ impl CorpusCartography {
 
         let mut merged_relations = self.relations.clone();
         merged_relations.extend(novel_relations);
-        merged_relations.sort_by(|a, b| {
-            a.from_id.cmp(&b.from_id).then(a.to_id.cmp(&b.to_id))
-        });
+        merged_relations.sort_by(|a, b| a.from_id.cmp(&b.from_id).then(a.to_id.cmp(&b.to_id)));
 
         let after_id = Digest::of(&CartographyContent {
             entity_ids: merged_entities.iter().map(|e| e.entity_id).collect(),
@@ -375,10 +387,22 @@ pub struct CartographyPrecheck {
 impl CartographyPrecheck {
     pub fn check(run: &HyphaeRunResult) -> Self {
         let passed = run.run_id != Digest::ZERO;
-        let reason = if !passed { Some("run_id is zero".into()) } else { None };
-        let precheck_id =
-            Digest::of(&PrecheckContent { run_id: run.run_id, policy_id: run.policy_id });
-        Self { precheck_id, run_id: run.run_id, passed, reason, policy_id: run.policy_id }
+        let reason = if !passed {
+            Some("run_id is zero".into())
+        } else {
+            None
+        };
+        let precheck_id = Digest::of(&PrecheckContent {
+            run_id: run.run_id,
+            policy_id: run.policy_id,
+        });
+        Self {
+            precheck_id,
+            run_id: run.run_id,
+            passed,
+            reason,
+            policy_id: run.policy_id,
+        }
     }
 }
 
@@ -401,8 +425,7 @@ pub struct ReplayManifest {
 
 impl ReplayManifest {
     pub fn from_run(run: &HyphaeRunResult) -> Self {
-        let mut artifact_digests: Vec<Digest> =
-            vec![run.host_cube.cube_id, run.frontier.graph_id];
+        let mut artifact_digests: Vec<Digest> = vec![run.host_cube.cube_id, run.frontier.graph_id];
         for d in &run.decisions {
             artifact_digests.push(d.decision_id);
             artifact_digests.push(d.evidence_bundle_id);
@@ -417,7 +440,12 @@ impl ReplayManifest {
             policy_id: run.policy_id,
         });
 
-        Self { manifest_id, run_id: run.run_id, artifact_digests, policy_id: run.policy_id }
+        Self {
+            manifest_id,
+            run_id: run.run_id,
+            artifact_digests,
+            policy_id: run.policy_id,
+        }
     }
 }
 
@@ -435,7 +463,8 @@ mod tests {
                 path: p.to_string(),
                 digest: Digest::of_bytes(p.as_bytes()),
                 size_bytes: 100,
-                kind: WorkspaceEntryKind::SourceFile, content: None,
+                kind: WorkspaceEntryKind::SourceFile,
+                content: None,
             })
             .collect();
         let count = entries.len() as u64;
@@ -462,12 +491,19 @@ mod tests {
         let pid = Digest::of_bytes(b"p");
         let corpus = CorpusCartography::empty(pid);
         let entity = CorpusEntity::new(
-            CorpusEntityKind::Yield, Digest::of_bytes(b"y"), TaintLabel::Synthetic, pid,
+            CorpusEntityKind::Yield,
+            Digest::of_bytes(b"y"),
+            TaintLabel::Synthetic,
+            pid,
         );
         let (corpus2, _) = corpus.append(vec![entity.clone()], vec![]);
         // Append the same entity again — should be deduplicated
         let (corpus3, update) = corpus2.append(vec![entity], vec![]);
-        assert_eq!(corpus3.entity_count(), 1, "duplicate entity must not be added twice");
+        assert_eq!(
+            corpus3.entity_count(),
+            1,
+            "duplicate entity must not be added twice"
+        );
         assert!(update.is_noop(), "re-appending same entity is a noop");
     }
 
@@ -475,8 +511,18 @@ mod tests {
     fn corpus_append_grows_monotonically() {
         let pid = Digest::of_bytes(b"p");
         let corpus = CorpusCartography::empty(pid);
-        let e1 = CorpusEntity::new(CorpusEntityKind::Yield, Digest::of_bytes(b"a"), TaintLabel::Synthetic, pid);
-        let e2 = CorpusEntity::new(CorpusEntityKind::Decision, Digest::of_bytes(b"b"), TaintLabel::Synthetic, pid);
+        let e1 = CorpusEntity::new(
+            CorpusEntityKind::Yield,
+            Digest::of_bytes(b"a"),
+            TaintLabel::Synthetic,
+            pid,
+        );
+        let e2 = CorpusEntity::new(
+            CorpusEntityKind::Decision,
+            Digest::of_bytes(b"b"),
+            TaintLabel::Synthetic,
+            pid,
+        );
         let (corpus2, _) = corpus.append(vec![e1], vec![]);
         let (corpus3, _) = corpus2.append(vec![e2], vec![]);
         assert_eq!(corpus3.entity_count(), 2);
@@ -491,8 +537,14 @@ mod tests {
         let run = passive_run(&index, &policy);
         let corpus = CorpusCartography::empty(policy.id);
         let (updated, update) = corpus.update_from_run(&run);
-        assert!(updated.entity_count() > 0, "run must add entities to corpus");
-        assert!(!update.is_noop(), "update from a non-empty run must not be a noop");
+        assert!(
+            updated.entity_count() > 0,
+            "run must add entities to corpus"
+        );
+        assert!(
+            !update.is_noop(),
+            "update from a non-empty run must not be a noop"
+        );
         assert_ne!(updated.cartography_id, corpus.cartography_id);
     }
 
@@ -504,7 +556,10 @@ mod tests {
         let corpus = CorpusCartography::empty(policy.id);
         let (corpus1, _) = corpus.update_from_run(&run);
         let (corpus2, update2) = corpus1.update_from_run(&run);
-        assert_eq!(corpus1.cartography_id, corpus2.cartography_id, "re-appending same run must be idempotent");
+        assert_eq!(
+            corpus1.cartography_id, corpus2.cartography_id,
+            "re-appending same run must be idempotent"
+        );
         assert!(update2.is_noop());
     }
 
@@ -525,7 +580,10 @@ mod tests {
         let index = make_index(&["src/alpha.rs"]);
         let run = passive_run(&index, &policy);
         let manifest = ReplayManifest::from_run(&run);
-        assert!(manifest.artifact_digests.len() >= 2, "manifest must contain at least host_cube and frontier");
+        assert!(
+            manifest.artifact_digests.len() >= 2,
+            "manifest must contain at least host_cube and frontier"
+        );
         assert_eq!(manifest.run_id, run.run_id);
         assert_ne!(manifest.manifest_id, Digest::ZERO);
     }
