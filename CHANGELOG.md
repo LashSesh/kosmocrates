@@ -15,6 +15,88 @@ note explicitly says so.
 
 ### Added
 
+* **Promotion memory — cross-session engine state and the CAD library as a source**
+
+  The promotion path learns. `kosmo-promote --state <path>` persists the PSE
+  engine's crystal archive across sessions (JSON array of `SemanticCrystal`)
+  and warm-starts `PatternMemory` on the next run — the same `pse-core`
+  cross-session mechanism `cross_session_proof.rs` uses — so repeated offers of
+  recurring substrate output build the resonance that can eventually flip
+  `Deferred` into `Accepted`. The explicit flag is the operator's write
+  authorization (the `--store` precedent); report-only never writes, and a
+  corrupt archive is a **hard error** with the file left untouched — never a
+  silent cold start over discarded memory. And the durable CAD library itself
+  became a promotion source: `StructuralCrystalRecord` now carries its
+  certifying candidate's `evidence_bundle_id` as a first-class content-addressed
+  field (CROSS-006 direct instead of transitive), so `kosmo-promote --store
+  <cadlib.jsonl>` can wrap store-loaded crystals without resolving candidates —
+  integrity-checked first, a tampered record is a hard error and is never
+  offered. `crystal_to_pse_candidate` simplifies accordingly (evidence from the
+  record; the pipeline's candidate-lookup disappears). +5 binary-integration
+  tests (archive round-trip, report-only inertness, corrupt-archive,
+  store-to-engine, tampered-store).
+
+* **Substrate→core unification — certified crystals flow into the PSE engine**
+
+  The integration `SUBSTRATE.md` had deferred pending empirical validation
+  (147/147) is implemented **end to end**. Offer side:
+  `kosmo-pipeline::crystal_to_pse_candidate` wraps every crystal certified in a
+  run as a `PseBridgeCandidate` of new kind `CertifiedCrystal` (confidence
+  `(ρ+ω)/2` in `Q16`, cross-language fingerprint as metadata, evidence-bound).
+  Consumption side: the new `adapters/pse-adapter-kosmo` canonicalizes
+  candidates into PSE `Observation`s — fail-closed at the crossing
+  (unparseable, tampered, evidence-free, or disallowed-kind payloads are never
+  ingested) — and `offer_candidate` feeds them through `pse_core::macro_step`
+  under full policy gating; the `Q16→f64` seam is here, confidence becoming the
+  semantic `phase_hint` so structurally similar crystals can resonate. PSE
+  alone decides crystallization: committed crystal → `Accepted`, clean
+  ingestion without crystallization → `Deferred`. The operator entry point is
+  the new `kosmo-promote` CLI (report-only by default, `--offer` to feed the
+  engine in-memory, `--json`), live-verified over a seven-language workspace
+  (30 candidates ingested, commit_index 30). A capstone integration test
+  drives the whole stack — clean-taint yield → gate cascade → certified,
+  fingerprinted crystal → bridge → real engine — for crystals from three
+  languages, plus the fail-closed counterpart (ReportOnly never touches the
+  engine). The dependency direction holds: no `kosmo-*` crate imports `pse-*`;
+  the adapter lives on the PSE side and consumes the bridge.
+
+* **The `kosmo-*` layer passes every CI gate (production readiness)**
+
+  The toolchain pins floating `stable`, which had moved to rustc/clippy 1.94 —
+  newer lints fired as errors under the CI `RUSTFLAGS="-D warnings"` gate, and
+  the layer had never been run through `cargo fmt` (the `pse-*` core was
+  already clean on both). Fixed every clippy violation across all 19 `kosmo-*`
+  crates and 5 tools (all behavior-preserving; a workspace `clippy.toml`
+  raises `too-many-arguments-threshold` to 12 because content-addressed
+  record constructors take one argument per content field), formatted the
+  whole layer with `cargo fmt` (74 files, pure formatting), and repaired every
+  broken intra-doc link for `cargo doc -D warnings`. The full gate set —
+  fmt --check, clippy --all-targets, test --all-targets, test --doc,
+  doc --no-deps, all under `-D warnings` — is green for the substrate layer.
+
+* **Cross-language substrate — seven languages into one hypercube**
+
+  The Rust-only link at the head of the cube chain is gone.
+  `kosmo-hyphae::xlang` lifts Python, JavaScript, Go, C, Java, and C++ source
+  into the **same** content-addressed `CodeHDAG` a Rust file produces (the
+  language taxonomy mined from the PSE-Codex corpus and its `normalize`
+  Rosetta table; its tree-sitter + `f64` spectral machinery deliberately not
+  ported — CROSS-007). Keyword-anchored extraction for the corpus four;
+  a deliberately conservative heuristic for the keyword-less C family that
+  under-counts rather than emit a false positive. A content-addressed `Q16`
+  `CrossLanguageFingerprint` (function/type/import/test densities,
+  integer-only `similarity`) makes structure comparable across languages:
+  `HostCube` stores one per void, `SourceCube`s gain a
+  `cross_language_resonance` dimension, and certified crystals carry the
+  fingerprint into the CAD library so `crystal_resonance` matches voids
+  against prior crystals **across languages and across runs** (a Go crystal
+  can resonate with a structurally-similar Python void). Verified end-to-end:
+  `kosmo-substrate` over a 7-language workspace produces voids with
+  HDAG-scaled severities for every file. Also consolidated the wish-to-system
+  machine's documentation into [`docs/WISH_TO_SYSTEM.md`](docs/WISH_TO_SYSTEM.md)
+  ("CAD/CAM for software") and raised `kosmo-llm`, `kosmo-intent-llm`, and
+  `kosmo-pse-bridge` module docs to reference level.
+
 * **`Service` facet — observe by serving and probing (Runtime floor, beam 5)**
 
   The deepest observation, and the **completion of the Runtime floor**: a wish
