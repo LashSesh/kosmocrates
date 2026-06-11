@@ -15,6 +15,21 @@ note explicitly says so.
 
 ### Added
 
+* **Recall — the anchored memory is queryable**
+
+  The last missing link: remembering → finding. `kosmo-promote --recall
+  <query>` runs Pfauenthron++ retrieval over the Infinity Ledger's anchored
+  crystals — the query embeds via `text_to_vector8`, every crystal is ranked
+  by the tripolar score `D = ψ·ρ·ω` (semantic × structural × temporal, the
+  same unified retrieval the cognition system uses for its own memory), and
+  the top hits return with QTIC class, stability, provenance (the promotion
+  scope travels as the crystal's `question`), and the **causal lineage** of
+  the best hit. Read-only by contract: `--recall` requires `--ledger`, a
+  missing ledger is a hard error, and recall never creates one — no silent
+  empty store. First query ever over promoted substrate knowledge, live:
+  `--recall "missing test coverage for python module"` → `D=0.4668 | Q5 |
+  stability 0.76 | kosmo-promote:/tmp/polyglot7`, lineage: causal root.
+
 * **Full QTIC — the Infinity-Ledger lift (Q5 for promoted substrate knowledge)**
 
   The meeting point `docs/CONVERGENCE.md` §5 named is live: the two HDAGs meet

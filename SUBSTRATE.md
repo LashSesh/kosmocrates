@@ -145,6 +145,25 @@ Response fields: `gate`, `void_count`, `total_severity`, `action_items[]`,
 
 `GET /api/health` returns `{ "status": "ok", "version": "..." }`.
 
+The unification is surfaced over HTTP too (mirroring `kosmo-promote`;
+`--state`/`--feedback`/`--store` remain CLI-only):
+
+```bash
+# Substrate→core promotion — fail-closed without "offer": engine untouched.
+curl -s -X POST http://localhost:7777/api/promote \
+  -H 'Content-Type: application/json' \
+  -d '{"path":".","offer":true,"batch":true,"all_kinds":true,
+       "calibration":"substrate","ledger":"~/.kosmo/il"}' \
+  | jq '{accepted, ledger_commits, engine_state}'
+
+# Recall — Pfauenthron++ (D = ψ·ρ·ω) over the ledger; read-only, the
+# ledger must exist. The browser UI has a matching Recall panel.
+curl -s -X POST http://localhost:7777/api/recall \
+  -H 'Content-Type: application/json' \
+  -d '{"ledger":"~/.kosmo/il","query":"missing test coverage","top":5}' \
+  | jq '.results[] | {tripolar_score, qtic_class, question}'
+```
+
 ### 5. Promotion — `kosmo-promote` (substrate→core)
 
 ```bash
