@@ -662,7 +662,7 @@ mod tests {
         let fixpoint = arr1(&[1.0, 2.0, 3.0, 2.0, 1.0]);
         let mci = crystallizer.compute_mci(&fixpoint);
 
-        assert!(mci >= 0.0 && mci <= 1.0);
+        assert!((0.0..=1.0).contains(&mci));
     }
 
     #[test]

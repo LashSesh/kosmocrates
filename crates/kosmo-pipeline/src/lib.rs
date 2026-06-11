@@ -541,25 +541,6 @@ fn best_cross_language_resonance(
     }
 }
 
-/// Wrap a certified [`StructuralCrystalRecord`] as a [`PseBridgeCandidate`] —
-/// the substrate→core unification adapter.
-///
-/// The certified crystal is the substrate's strongest durable artifact
-/// (gate-passed, constraint-certified, replay-proofed), so this is the primary
-/// offer path from the CAD library into PSE crystallization. The candidate is
-/// **offer-only**: PSE runs its own gate cascade and decides crystallization
-/// (the bridge's architecture contract).
-///
-/// - `observation_digest` = `record.record_id` (content-addressing by reference).
-/// - `confidence` = `(ρ + ω) / 2` in `Q16` integer arithmetic — the record's
-///   structural poles, following the substrate convention that a record without
-///   HDAG provenance carries the unconstrained baseline `Q16::ONE` for both.
-/// - When the record carries a [`CrossLanguageFingerprint`], its language and
-///   `fingerprint_id` travel as metadata so the PSE side can route and de-dupe
-///   cross-language patterns.
-/// - `evidence_bundle_id` comes from the record itself — every certified record
-///   is directly evidence-bound (CROSS-006), so store-loaded CAD-library
-///   crystals are promotable without resolving their certifying candidate.
 // ─── Wish landscape: findings become wish proposals ──────────────────────────
 
 /// One point in the wish landscape: a substrate finding projected into the
@@ -767,6 +748,25 @@ pub fn measure_landscape(
         .collect()
 }
 
+/// Wrap a certified [`StructuralCrystalRecord`] as a [`PseBridgeCandidate`] —
+/// the substrate→core unification adapter.
+///
+/// The certified crystal is the substrate's strongest durable artifact
+/// (gate-passed, constraint-certified, replay-proofed), so this is the primary
+/// offer path from the CAD library into PSE crystallization. The candidate is
+/// **offer-only**: PSE runs its own gate cascade and decides crystallization
+/// (the bridge's architecture contract).
+///
+/// - `observation_digest` = `record.record_id` (content-addressing by reference).
+/// - `confidence` = `(ρ + ω) / 2` in `Q16` integer arithmetic — the record's
+///   structural poles, following the substrate convention that a record without
+///   HDAG provenance carries the unconstrained baseline `Q16::ONE` for both.
+/// - When the record carries a [`CrossLanguageFingerprint`], its language and
+///   `fingerprint_id` travel as metadata so the PSE side can route and de-dupe
+///   cross-language patterns.
+/// - `evidence_bundle_id` comes from the record itself — every certified record
+///   is directly evidence-bound (CROSS-006), so store-loaded CAD-library
+///   crystals are promotable without resolving their certifying candidate.
 pub fn crystal_to_pse_candidate(
     record: &StructuralCrystalRecord,
     source_run_id: Digest,
