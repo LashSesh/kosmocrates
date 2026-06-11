@@ -276,6 +276,26 @@ stability, provenance (the promotion scope travels as the crystal's
 by contract: it never creates a ledger; a missing path is a hard error,
 never a silent empty store.
 
+Finally, the anchored memory **works**: hand the same ledger to the agent
+runner and every synthesis request is grounded in what the system has
+already learned — and every patch cites the crystals it received:
+
+```bash
+# 1. Learn: anchor this workspace's certified knowledge (Q5).
+kosmo-promote . --offer --batch --all-kinds --calibration substrate \
+    --ledger ~/.kosmo/il
+
+# 2. Build with memory: each action recalls its top crystals (Pfauenthron),
+#    the LLM prompt carries them as advisory context, and the run report
+#    shows  `memory  grounded by N anchored crystal(s): <ids>`  per step.
+kosmo-run --provider claude --ledger ~/.kosmo/il --ground-top 5 .
+```
+
+The grounding is advisory — it decorates prompts and reports, it never
+gates. A missing ledger is a hard error (memory explicitly asked for must
+exist), and an action whose description resonates with nothing carries an
+honestly empty citation list.
+
 ---
 
 

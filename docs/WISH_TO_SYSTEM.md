@@ -161,6 +161,14 @@ selected. Three properties keep this honest:
    to the full materialization gate. Under the default `ReportOnly` policy it is
    `SkippedByPolicy` — written nowhere. Energy and confidence *rank*; they never
    *gate* (CROSS-010).
+4. **Memory grounds, it does not gate.** With `--ledger <path>` each request is
+   grounded in the anchored Infinity-Ledger knowledge (Pfauenthron recall per
+   action; `kosmo_pse_bridge::MemoryRecall`): the top crystals ride along as a
+   clearly-delimited advisory prompt section, and the resulting patch **cites**
+   the crystal IDs it received (`grounding_crystal_ids`) — auditable provenance
+   from a generated patch back to certified knowledge. Recall failures are loud
+   (a memory explicitly attached must answer), and nothing recalled ever enters
+   a gate or a content-addressed identity.
 
 Swap the LLM for `FacetScaffolder` (`--scaffold`) or `MockSynthesizer` and the
 **entire** loop becomes deterministic and offline — the mode the 147-scenario
@@ -190,6 +198,10 @@ kosmo-run --wish "<prose>" --scaffold --apply .
 
 # Apply and land each accepted patch as its own git commit:
 kosmo-run --provider mock --apply --commit .
+
+# Ground synthesis in the anchored memory (see SUBSTRATE.md §5 — first
+# `kosmo-promote --ledger` learns, then this builds with what was learned):
+kosmo-run --provider claude --ledger ~/.kosmo/il --ground-top 5 .
 
 # Prüfstand — the built-in fidelity harness over a reference corpus:
 kosmo-run --pruefstand

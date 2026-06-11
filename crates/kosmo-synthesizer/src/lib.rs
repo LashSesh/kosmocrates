@@ -12,9 +12,10 @@
 //!
 //! ```text
 //! ActionItem
-//!   └─ SynthesisRequest  (context: workspace path + source snippets)
+//!   └─ SynthesisRequest  (context: workspace path + source snippets
+//!        │                + recalled ledger memory, see MemoryGroundingEntry)
 //!        └─ ActionSynthesizer::synthesize()
-//!             └─ SynthesisResult
+//!             └─ SynthesisResult  (cites the grounding crystals it received)
 //!                  └─ Patch  (Vec<FileChange>, content-addressed)
 //! ```
 
@@ -25,6 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use kosmo_core::{Digest, WishFacet, WishFacetKind, Q16};
 use kosmo_pipeline::{ActionItem, ActionItemKind};
+use kosmo_pse_bridge::MemoryGroundingEntry;
 
 // ─── Source context ───────────────────────────────────────────────────────────
 
@@ -56,6 +58,13 @@ pub struct SynthesisRequest {
     /// Top-N source files ranked by structural relevance to the action target.
     /// Empty when no context extraction has been performed.
     pub source_snippets: Vec<SourceSnippet>,
+    /// Anchored knowledge recalled from the promotion ledger for this action
+    /// (see `kosmo_pse_bridge::MemoryRecall`). Advisory context only — like
+    /// `source_snippets` it is NOT part of `request_id`: context decorates a
+    /// request, it does not change which action is being resolved. Empty when
+    /// no memory was attached.
+    #[serde(default)]
+    pub memory_grounding: Vec<MemoryGroundingEntry>,
 }
 
 impl SynthesisRequest {
@@ -72,11 +81,18 @@ impl SynthesisRequest {
             action_item,
             workspace_path,
             source_snippets: vec![],
+            memory_grounding: vec![],
         }
     }
 
     pub fn with_snippets(mut self, snippets: Vec<SourceSnippet>) -> Self {
         self.source_snippets = snippets;
+        self
+    }
+
+    /// Attach recalled, ledger-anchored knowledge as advisory context.
+    pub fn with_grounding(mut self, grounding: Vec<MemoryGroundingEntry>) -> Self {
+        self.memory_grounding = grounding;
         self
     }
 }
@@ -221,6 +237,13 @@ pub struct SynthesisResult {
     pub test_hint: Option<String>,
     /// LLM token cost. Zero for rule-based or mock synthesizers.
     pub tokens_used: u32,
+    /// Provenance: the ledger-anchored crystals whose recalled knowledge was
+    /// in context when this patch was synthesized (`crystal_id`s from
+    /// `SynthesisRequest::memory_grounding`). Empty when synthesis ran
+    /// without memory. Audit trails can follow a patch back to the anchored
+    /// knowledge that informed it.
+    #[serde(default)]
+    pub grounding_crystal_ids: Vec<String>,
 }
 
 impl SynthesisResult {
@@ -236,7 +259,20 @@ impl SynthesisResult {
             confidence,
             test_hint: None,
             tokens_used: 0,
+            grounding_crystal_ids: vec![],
         }
+    }
+
+    /// Record which grounding crystals were in context for this synthesis.
+    /// Every [`ActionSynthesizer`] implementation calls this so the
+    /// provenance invariant holds regardless of backend.
+    pub fn citing(mut self, request: &SynthesisRequest) -> Self {
+        self.grounding_crystal_ids = request
+            .memory_grounding
+            .iter()
+            .map(|g| g.crystal_id.clone())
+            .collect();
+        self
     }
 }
 
@@ -290,6 +326,62 @@ pub trait ActionSynthesizer: Send + Sync {
     /// Soft token budget hint. Implementations may ignore this.
     fn token_budget(&self) -> u32 {
         4096
+    }
+}
+
+// ─── GroundedSynthesizer ──────────────────────────────────────────────────────
+
+/// A synthesizer with memory: grounds every request in recalled,
+/// ledger-anchored knowledge before delegating to the inner backend.
+///
+/// The recall query is the action's description — the same free-text door
+/// `kosmo-promote --recall` uses. Recall failures surface as *transient*
+/// [`SynthesisError`]s (the caller was explicitly given a memory; degrading
+/// silently to memory-free synthesis would be fail-open).
+pub struct GroundedSynthesizer {
+    inner: std::sync::Arc<dyn ActionSynthesizer>,
+    recall: std::sync::Arc<dyn kosmo_pse_bridge::MemoryRecall>,
+    top: usize,
+    label: String,
+}
+
+impl GroundedSynthesizer {
+    pub fn new(
+        inner: std::sync::Arc<dyn ActionSynthesizer>,
+        recall: std::sync::Arc<dyn kosmo_pse_bridge::MemoryRecall>,
+        top: usize,
+    ) -> Self {
+        let label = format!("{}+memory", inner.name());
+        Self {
+            inner,
+            recall,
+            top,
+            label,
+        }
+    }
+}
+
+impl ActionSynthesizer for GroundedSynthesizer {
+    fn synthesize(&self, request: &SynthesisRequest) -> Result<SynthesisResult, SynthesisError> {
+        let hits = self
+            .recall
+            .recall(&request.action_item.description, self.top)
+            .map_err(|e| {
+                SynthesisError::transient(format!(
+                    "memory recall failed ({}): {e}",
+                    self.recall.source()
+                ))
+            })?;
+        let grounded = request.clone().with_grounding(hits);
+        self.inner.synthesize(&grounded)
+    }
+
+    fn name(&self) -> &str {
+        &self.label
+    }
+
+    fn token_budget(&self) -> u32 {
+        self.inner.token_budget()
     }
 }
 
@@ -351,7 +443,8 @@ impl ActionSynthesizer for MockSynthesizer {
                 &request.action_item.action_id.to_hex()[..8]
             ),
             self.confidence,
-        ))
+        )
+        .citing(request))
     }
 
     fn name(&self) -> &str {
@@ -1114,7 +1207,7 @@ impl ActionSynthesizer for FacetScaffolder {
             )
         };
         let patch = Patch::new(request.request_id, changes, "facet-scaffolder");
-        Ok(SynthesisResult::new(patch, rationale, confidence))
+        Ok(SynthesisResult::new(patch, rationale, confidence).citing(request))
     }
 
     fn name(&self) -> &str {
@@ -1670,5 +1763,103 @@ mod tests {
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "unknown crate → honest no-op");
         std::fs::remove_dir_all(&ws).ok();
+    }
+
+    // ─── Memory grounding ────────────────────────────────────────────────────
+
+    fn grounding_fixture() -> Vec<MemoryGroundingEntry> {
+        vec![MemoryGroundingEntry {
+            crystal_id: "ab12cd34ef56ab12".into(),
+            stability: 0.76,
+            qtic_class: Some(5),
+            tripolar_score: 0.4668,
+            commit_index: 3,
+            scale_tag: "il-refined".into(),
+            question: "kosmo-promote:/ws/alpha".into(),
+        }]
+    }
+
+    #[test]
+    fn grounding_decorates_but_does_not_change_request_identity() {
+        let bare = make_request();
+        let grounded = make_request().with_grounding(grounding_fixture());
+        // Same action + workspace + policy ⇒ same request_id; context
+        // (snippets, memory) never changes which action is being resolved.
+        assert_eq!(bare.request_id, grounded.request_id);
+        assert_eq!(grounded.memory_grounding.len(), 1);
+    }
+
+    #[test]
+    fn synthesis_result_cites_the_grounding_it_received() {
+        let req = make_request().with_grounding(grounding_fixture());
+        let res = MockSynthesizer::confident().synthesize(&req).unwrap();
+        assert_eq!(res.grounding_crystal_ids, vec!["ab12cd34ef56ab12"]);
+
+        // Without memory the citation list is honestly empty.
+        let bare = MockSynthesizer::confident()
+            .synthesize(&make_request())
+            .unwrap();
+        assert!(bare.grounding_crystal_ids.is_empty());
+    }
+
+    struct ScriptedRecall;
+    impl kosmo_pse_bridge::MemoryRecall for ScriptedRecall {
+        fn recall(&self, _query: &str, top: usize) -> Result<Vec<MemoryGroundingEntry>, String> {
+            Ok(grounding_fixture().into_iter().take(top).collect())
+        }
+        fn source(&self) -> String {
+            "scripted://test".into()
+        }
+    }
+
+    struct BrokenRecall;
+    impl kosmo_pse_bridge::MemoryRecall for BrokenRecall {
+        fn recall(&self, _q: &str, _t: usize) -> Result<Vec<MemoryGroundingEntry>, String> {
+            Err("ledger unreadable".into())
+        }
+        fn source(&self) -> String {
+            "broken://test".into()
+        }
+    }
+
+    #[test]
+    fn grounded_synthesizer_grounds_and_inner_cites() {
+        let g = GroundedSynthesizer::new(
+            std::sync::Arc::new(MockSynthesizer::confident()),
+            std::sync::Arc::new(ScriptedRecall),
+            5,
+        );
+        assert_eq!(g.name(), "mock-confident+memory");
+        let res = g.synthesize(&make_request()).unwrap();
+        assert_eq!(res.grounding_crystal_ids, vec!["ab12cd34ef56ab12"]);
+    }
+
+    #[test]
+    fn grounded_synthesizer_fails_loud_when_memory_breaks() {
+        let g = GroundedSynthesizer::new(
+            std::sync::Arc::new(MockSynthesizer::confident()),
+            std::sync::Arc::new(BrokenRecall),
+            5,
+        );
+        let err = g.synthesize(&make_request()).unwrap_err();
+        assert!(err.recoverable, "memory failure is transient, not skipped");
+        assert!(err.message.contains("broken://test"));
+    }
+
+    #[test]
+    fn old_serialized_requests_and_results_still_parse() {
+        // Pre-grounding JSON (no memory_grounding / grounding_crystal_ids
+        // fields) must deserialize — the fields are #[serde(default)].
+        let req = make_request();
+        let mut v = serde_json::to_value(&req).unwrap();
+        v.as_object_mut().unwrap().remove("memory_grounding");
+        let back: SynthesisRequest = serde_json::from_value(v).unwrap();
+        assert!(back.memory_grounding.is_empty());
+
+        let res = MockSynthesizer::confident().synthesize(&req).unwrap();
+        let mut v = serde_json::to_value(&res).unwrap();
+        v.as_object_mut().unwrap().remove("grounding_crystal_ids");
+        let back: SynthesisResult = serde_json::from_value(v).unwrap();
+        assert!(back.grounding_crystal_ids.is_empty());
     }
 }

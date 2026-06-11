@@ -45,6 +45,26 @@
 //! - **Content-addressed & evidence-bound.** Each candidate's `id` is the digest
 //!   of its fields; `evidence_bundle_id` is non-zero (CROSS-006).
 //!
+//! ## Memory return path
+//!
+//! Since the promotion lifecycle anchors accepted crystals in the
+//! Infinity Ledger (full QTIC, Q5), the bridge also models the *reverse*
+//! direction: [`MemoryRecall`] + [`MemoryGroundingEntry`] let recalled,
+//! anchored knowledge travel back into substrate work (e.g. as advisory
+//! context in LLM synthesis prompts). The same contract discipline holds:
+//!
+//! - This crate still does NOT depend on `pse-core` (or any `pse-*` crate).
+//!   Implementations of [`MemoryRecall`] live in the adapter layer *above*
+//!   both stacks (`pse-adapter-kosmo`); `kosmo-*` consumers only see the
+//!   trait.
+//! - Recalled scores (`tripolar_score`, `stability`) are **advisory floats
+//!   from the retrieval side** — they decorate prompts and reports, and are
+//!   never inputs to a gate (CROSS-007 governs gate paths; nothing here
+//!   gates).
+//! - Provenance travels: every grounding entry names the crystal it came
+//!   from, so a synthesized patch can cite the anchored knowledge that
+//!   informed it.
+//!
 //! [`docs/SUBSTRATE.md`]: ../../../SUBSTRATE.md
 //! [`docs/WISH_TO_SYSTEM.md`]: ../../../docs/WISH_TO_SYSTEM.md
 
@@ -499,6 +519,76 @@ pub fn build_promotion_feedback(
     )
 }
 
+// ─── Memory return path ───────────────────────────────────────────────────────
+
+/// One recalled, ledger-anchored crystal — the unit of knowledge that flows
+/// *back* across the bridge into substrate work.
+///
+/// Mirrors the cognition layer's recall summary field-for-field so nothing is
+/// lost or invented at the seam. The float scores come from Pfauenthron
+/// retrieval (`D = ψ·ρ·ω`) and are **advisory only**: they order and decorate,
+/// they never gate (CROSS-007 governs gate paths; grounding is not one).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MemoryGroundingEntry {
+    /// Hex prefix of the anchored crystal's ID — the provenance anchor a
+    /// synthesized patch can cite.
+    pub crystal_id: String,
+    /// PSE stability score ∈ `[0, 1]` at anchor time.
+    pub stability: f64,
+    /// QTIC conformance class (0–5) of the anchored crystal, if certified.
+    pub qtic_class: Option<u8>,
+    /// Pfauenthron++ tripolar relevance to the query that recalled it.
+    pub tripolar_score: f64,
+    /// Ledger commit index (extrinsic time *t*) of the anchor.
+    pub commit_index: i64,
+    /// Scale tag of the crystal (e.g. `"il-refined"`, `"original"`).
+    pub scale_tag: String,
+    /// The question that prompted the crystal's formation — for promoted
+    /// substrate knowledge this is the promotion scope (where it was learned).
+    pub question: String,
+}
+
+impl MemoryGroundingEntry {
+    /// Deterministic one-line rendering for prompts and reports:
+    /// `D=0.4668 | Q5 | stability 0.76 | t=3 | il-refined | <id> | <question>`.
+    pub fn compact_line(&self) -> String {
+        let qtic = self
+            .qtic_class
+            .map(|q| format!("Q{q}"))
+            .unwrap_or_else(|| "Q?".into());
+        format!(
+            "D={:.4} | {} | stability {:.2} | t={} | {} | {} | {}",
+            self.tripolar_score,
+            qtic,
+            self.stability,
+            self.commit_index,
+            self.scale_tag,
+            self.crystal_id,
+            self.question
+        )
+    }
+}
+
+/// Read-only recall over the anchored memory, seen from the substrate side.
+///
+/// The substrate never opens the ledger itself (that would require a `pse-*`
+/// dependency); it receives this capability from the layer above. The one
+/// production implementation is `pse-adapter-kosmo::LedgerRecall`, which runs
+/// the same Pfauenthron retrieval `kosmo-promote --recall` uses.
+///
+/// Contract:
+/// - **Read-only.** Implementations must never create or mutate the store.
+/// - **Errors are loud.** A caller that was explicitly given a memory must
+///   not degrade silently — propagate the error (fail-closed).
+/// - **Deterministic.** Same store state + same query ⇒ same entries.
+pub trait MemoryRecall: Send + Sync {
+    /// Top-`top` anchored crystals resonating with `query` (entries with
+    /// `D ≤ 0` are excluded by the retrieval, so the result may be shorter).
+    fn recall(&self, query: &str, top: usize) -> Result<Vec<MemoryGroundingEntry>, String>;
+    /// Human-readable description of the memory source (e.g. the ledger path).
+    fn source(&self) -> String;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -918,5 +1008,41 @@ mod tests {
             PseBridgeCandidateKind::CertifiedCrystal,
             PseBridgeCandidateKind::StructuralObservation
         );
+    }
+
+    // ─── Memory return path ──────────────────────────────────────────────────
+
+    fn grounding_entry() -> MemoryGroundingEntry {
+        MemoryGroundingEntry {
+            crystal_id: "ab12cd34ef56ab12".into(),
+            stability: 0.76,
+            qtic_class: Some(5),
+            tripolar_score: 0.4668,
+            commit_index: 3,
+            scale_tag: "il-refined".into(),
+            question: "kosmo-promote:/tmp/polyglot7".into(),
+        }
+    }
+
+    #[test]
+    fn grounding_entry_serde_roundtrip_is_lossless() {
+        let e = grounding_entry();
+        let json = serde_json::to_string(&e).unwrap();
+        let back: MemoryGroundingEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, e);
+    }
+
+    #[test]
+    fn grounding_compact_line_is_deterministic_and_complete() {
+        let line = grounding_entry().compact_line();
+        assert_eq!(
+            line,
+            "D=0.4668 | Q5 | stability 0.76 | t=3 | il-refined | ab12cd34ef56ab12 \
+             | kosmo-promote:/tmp/polyglot7"
+        );
+        // Unclassified crystals render Q? instead of inventing a class.
+        let mut e = grounding_entry();
+        e.qtic_class = None;
+        assert!(e.compact_line().contains("| Q? |"));
     }
 }

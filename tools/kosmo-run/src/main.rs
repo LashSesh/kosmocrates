@@ -41,8 +41,12 @@ use kosmo_intent::{
     observe_workspace_validated, WishSession,
 };
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
-use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
+use kosmo_pse_bridge::MemoryRecall;
+use kosmo_synthesizer::{
+    ActionSynthesizer, FacetScaffolder, GroundedSynthesizer, MockSynthesizer, SynthesisRequest,
+};
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
+use pse_adapter_kosmo::LedgerRecall;
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
@@ -75,6 +79,11 @@ struct Args {
     /// Run the empirical Prüfstand: descend a reference corpus of known-good
     /// (and deliberately broken) systems and report the fidelity.
     pruefstand: bool,
+    /// Path to an Infinity-Ledger store: synthesis is then grounded in the
+    /// anchored memory (Pfauenthron recall per action). Missing path = error.
+    ledger: Option<String>,
+    /// How many recalled crystals to attach per action (default 5).
+    ground_top: u32,
 }
 
 impl Default for Args {
@@ -97,6 +106,8 @@ impl Default for Args {
             provider_set: false,
             wish_session: None,
             pruefstand: false,
+            ledger: None,
+            ground_top: 5,
         }
     }
 }
@@ -138,7 +149,15 @@ OPTIONS:\n\
     --pruefstand          descend a built-in reference corpus of known-good and\n\
                           deliberately broken systems; report fidelity and exit\n\
                           non-zero if any verdict is wrong (--validated runs the\n\
-                          behavioural scenarios' suites too)\n\n\
+                          behavioural scenarios' suites too)\n\
+\n\
+  MEMORY (anchored knowledge from the promotion ledger):\n\
+    --ledger <path>       ground every synthesis in the Infinity-Ledger memory:\n\
+                          per action, the top recalled crystals (Pfauenthron\n\
+                          D = \u{3c8}\u{b7}\u{3c1}\u{b7}\u{3c9}) ride along as advisory context and each\n\
+                          patch cites the crystals it received. Read-only; a\n\
+                          missing ledger is a hard error, never a silent skip.\n\
+    --ground-top <n>      recalled crystals per action (default: 5)\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -206,6 +225,16 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
             "--pruefstand" | "--testbench" => args.pruefstand = true,
+            "--ledger" => {
+                args.ledger = Some(argv.next().ok_or("--ledger needs a value")?);
+            }
+            "--ground-top" => {
+                args.ground_top = argv
+                    .next()
+                    .ok_or("--ground-top needs a value")?
+                    .parse()
+                    .map_err(|_| "--ground-top must be a number")?;
+            }
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -257,6 +286,19 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
         other => Err(format!(
             "unknown provider '{other}' (expected claude | cerebras | mock | env)"
         )),
+    }
+}
+
+/// Open the anchored memory when `--ledger` was given. Hard error on a
+/// missing or unreadable store — memory explicitly asked for must exist
+/// (the read-only contract of `LedgerRecall::open`).
+fn open_recall(args: &Args) -> Result<Option<Arc<dyn MemoryRecall>>, String> {
+    match &args.ledger {
+        Some(p) => {
+            let recall = LedgerRecall::open(Path::new(p))?;
+            Ok(Some(Arc::new(recall)))
+        }
+        None => Ok(None),
     }
 }
 
@@ -373,6 +415,15 @@ fn render_text(report: &AgentRunReport, synth_name: &str, color: bool) {
         );
         println!("    action  {}", truncate(&step.action.description, 100));
         println!("    why     {}", truncate(&step.synthesis.rationale, 100));
+        if !step.synthesis.grounding_crystal_ids.is_empty() {
+            println!(
+                "    memory  {}grounded by {} anchored crystal(s): {}{}",
+                c(CYAN),
+                step.synthesis.grounding_crystal_ids.len(),
+                truncate(&step.synthesis.grounding_crystal_ids.join(", "), 80),
+                c(RESET)
+            );
+        }
         if let Some(hint) = &step.synthesis.test_hint {
             println!("    verify  {}{}{}", c(DIM), hint, c(RESET));
         }
@@ -486,6 +537,26 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             }
         } else {
             None
+        };
+        // With --ledger, the fallback synthesizes with memory: every request
+        // is grounded in the anchored knowledge before the LLM sees it. The
+        // deterministic scaffolder needs no memory — it builds exactly.
+        let fallback: Option<Arc<dyn ActionSynthesizer>> = match (&fallback, open_recall(args)?) {
+            (Some(inner), Some(recall)) => Some(Arc::new(GroundedSynthesizer::new(
+                inner.clone(),
+                recall,
+                args.ground_top as usize,
+            ))),
+            (None, Some(recall)) => {
+                eprintln!(
+                    "kosmo-run: --ledger {} attached but no LLM fallback is active \
+                     (add --provider); the deterministic scaffolder runs memory-free",
+                    recall.source()
+                );
+                None
+            }
+            (Some(inner), None) => Some(inner.clone()),
+            (None, None) => None,
         };
         let prior = args
             .wish_session
@@ -859,6 +930,7 @@ fn run() -> Result<ExitCode, String> {
         dry_run: !args.apply,
         pipeline_options,
         commit_to_git: args.commit && args.apply,
+        grounding_top: args.ground_top,
     };
     // --apply escalates to OperatorApproved (host writes permitted, gated by
     // per-patch cargo validation + rollback). Default stays report-only.
@@ -871,6 +943,16 @@ fn run() -> Result<ExitCode, String> {
     let mut session = AgentSession::new(options, policy, synthesizer);
     if args.apply {
         session = session.with_validator(Arc::new(CargoFoundryValidator::new()));
+    }
+    if let Some(recall) = open_recall(&args)? {
+        if !args.json {
+            println!(
+                "memory  {} (top {} recalled crystal(s) per action)",
+                recall.source(),
+                args.ground_top
+            );
+        }
+        session = session.with_recall(recall);
     }
     let report = session.run(&args.path).map_err(|e| e.to_string())?;
 

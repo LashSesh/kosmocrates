@@ -36,6 +36,7 @@ use kosmo_core::{
 use kosmo_intent::WishSession;
 use kosmo_materialize::{MaterializeOptions, MaterializeReport, Materializer, PatchValidator};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions, WorkspacePipelineSession};
+use kosmo_pse_bridge::MemoryRecall;
 use kosmo_synthesizer::{ActionSynthesizer, SynthesisRequest, SynthesisResult};
 
 pub use kosmo_materialize::{AlwaysFail, AlwaysPass, CargoFoundryValidator};
@@ -57,6 +58,9 @@ pub struct AgentOptions {
     /// When `true` and `dry_run` is `false`, each accepted patch is committed
     /// to the workspace's git history via `git add -A && git commit`.
     pub commit_to_git: bool,
+    /// How many recalled crystals to attach per action when a memory is
+    /// present (see [`AgentSession::with_recall`]). Default: 5.
+    pub grounding_top: u32,
 }
 
 impl Default for AgentOptions {
@@ -67,6 +71,7 @@ impl Default for AgentOptions {
             dry_run: true,
             pipeline_options: IntegrationRunOptions::report_only(),
             commit_to_git: false,
+            grounding_top: 5,
         }
     }
 }
@@ -82,6 +87,10 @@ impl AgentOptions {
     }
     pub fn with_pipeline_options(mut self, o: IntegrationRunOptions) -> Self {
         self.pipeline_options = o;
+        self
+    }
+    pub fn with_grounding_top(mut self, n: u32) -> Self {
+        self.grounding_top = n;
         self
     }
 }
@@ -376,6 +385,9 @@ impl AgentRunReport {
 pub enum AgentError {
     Pipeline(String),
     Synthesis(String),
+    /// The attached memory failed to answer. A session that was explicitly
+    /// given a memory must not degrade silently (fail-closed).
+    Recall(String),
 }
 
 impl fmt::Display for AgentError {
@@ -383,6 +395,7 @@ impl fmt::Display for AgentError {
         match self {
             AgentError::Pipeline(s) => write!(f, "pipeline error: {s}"),
             AgentError::Synthesis(s) => write!(f, "synthesis error: {s}"),
+            AgentError::Recall(s) => write!(f, "memory recall error: {s}"),
         }
     }
 }
@@ -413,6 +426,10 @@ pub struct AgentSession {
     /// Optional wish-attractor driver: observes the workspace against a target
     /// topology each run and tracks convergence. `None` ⇒ no wish governance.
     wish_session: Option<WishSession>,
+    /// Optional anchored memory: when present, each action's synthesis request
+    /// is grounded with the top recalled crystals (see
+    /// [`AgentSession::with_recall`]). `None` ⇒ synthesis runs memory-free.
+    recall: Option<Arc<dyn MemoryRecall>>,
 }
 
 impl AgentSession {
@@ -432,6 +449,7 @@ impl AgentSession {
             policy,
             validator: None,
             wish_session: None,
+            recall: None,
         }
     }
 
@@ -451,6 +469,17 @@ impl AgentSession {
     /// binds the assessments and traces (CROSS-006).
     pub fn with_wish(mut self, wish: Wish, evidence_bundle_id: Digest) -> Self {
         self.wish_session = Some(WishSession::new(wish, evidence_bundle_id));
+        self
+    }
+
+    /// Attach an anchored memory. Each action's synthesis request is then
+    /// grounded with the top [`AgentOptions::grounding_top`] crystals the
+    /// memory recalls for the action's description, and every
+    /// [`SynthesisResult`] cites the crystals it received
+    /// (`grounding_crystal_ids`). Recall failures abort the run — a session
+    /// that was explicitly given a memory must not degrade silently.
+    pub fn with_recall(mut self, recall: Arc<dyn MemoryRecall>) -> Self {
+        self.recall = Some(recall);
         self
     }
 
@@ -593,7 +622,18 @@ impl AgentSession {
                 break;
             }
 
-            let request = SynthesisRequest::new(action.clone(), workspace);
+            let mut request = SynthesisRequest::new(action.clone(), workspace);
+
+            // ── 2b. Ground in anchored memory ────────────────────────────────
+            // The action's description is the recall query — the same free-text
+            // door `kosmo-promote --recall` uses. What the memory returns rides
+            // along as advisory context; the result will cite it.
+            if let Some(recall) = &self.recall {
+                let hits = recall
+                    .recall(&action.description, self.options.grounding_top as usize)
+                    .map_err(AgentError::Recall)?;
+                request = request.with_grounding(hits);
+            }
 
             let synthesis = match self.synthesizer.synthesize(&request) {
                 Ok(r) => r,
@@ -772,6 +812,7 @@ mod tests {
             dry_run: false,
             pipeline_options: IntegrationRunOptions::report_only(),
             commit_to_git: false,
+            grounding_top: 5,
         };
         let synth = Arc::new(MockSynthesizer::confident());
         let mut s = AgentSession::new(opts, PolicyProfile::operator_approved(), synth)
@@ -807,6 +848,7 @@ mod tests {
             dry_run: false,
             pipeline_options: IntegrationRunOptions::report_only(),
             commit_to_git: false,
+            grounding_top: 5,
         };
         let synth = Arc::new(MockSynthesizer::confident());
         let mut s = AgentSession::new(opts, PolicyProfile::operator_approved(), synth)
@@ -839,6 +881,7 @@ mod tests {
             dry_run: true,
             pipeline_options: IntegrationRunOptions::report_only(),
             commit_to_git: false,
+            grounding_top: 5,
         };
         let synth = Arc::new(MockSynthesizer::uncertain());
         let mut s = AgentSession::new(opts, PolicyProfile::default_report_only(), synth);
@@ -1207,6 +1250,7 @@ mod tests {
             dry_run: false,
             pipeline_options: IntegrationRunOptions::report_only(),
             commit_to_git: false,
+            grounding_top: 5,
         };
         let mut s = AgentSession::new(
             opts,
@@ -1310,6 +1354,7 @@ mod tests {
             dry_run: false,
             pipeline_options: IntegrationRunOptions::report_only(),
             commit_to_git: false,
+            grounding_top: 5,
         };
         let wish = Wish::new(
             "expose handle_request",
@@ -1347,5 +1392,83 @@ mod tests {
         assert!(!s.wish_diverging(), "the descent was contractive");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Memory-grounded synthesis ───────────────────────────────────────────
+
+    use kosmo_pse_bridge::MemoryGroundingEntry;
+
+    /// Deterministic stand-in for `pse-adapter-kosmo::LedgerRecall`.
+    struct ScriptedRecall;
+    impl MemoryRecall for ScriptedRecall {
+        fn recall(&self, query: &str, top: usize) -> Result<Vec<MemoryGroundingEntry>, String> {
+            assert!(!query.is_empty(), "query must be the action description");
+            Ok(vec![MemoryGroundingEntry {
+                crystal_id: "ab12cd34ef56ab12".into(),
+                stability: 0.76,
+                qtic_class: Some(5),
+                tripolar_score: 0.4668,
+                commit_index: 3,
+                scale_tag: "il-refined".into(),
+                question: "kosmo-promote:/ws/alpha".into(),
+            }]
+            .into_iter()
+            .take(top)
+            .collect())
+        }
+        fn source(&self) -> String {
+            "scripted://test".into()
+        }
+    }
+
+    struct BrokenRecall;
+    impl MemoryRecall for BrokenRecall {
+        fn recall(&self, _q: &str, _t: usize) -> Result<Vec<MemoryGroundingEntry>, String> {
+            Err("ledger unreadable".into())
+        }
+        fn source(&self) -> String {
+            "broken://test".into()
+        }
+    }
+
+    #[test]
+    fn grounded_session_cites_memory_in_every_step() {
+        let opts = AgentOptions::default()
+            .with_max_steps(3)
+            .with_min_confidence(Q16::ZERO);
+        let mut s = session(opts, true).with_recall(Arc::new(ScriptedRecall));
+        let report = s.run(&tmp()).unwrap();
+        assert!(report.steps_synthesized >= 1, "need at least one step");
+        for step in &report.steps {
+            assert_eq!(
+                step.synthesis.grounding_crystal_ids,
+                vec!["ab12cd34ef56ab12"],
+                "every synthesis must cite the memory it received"
+            );
+        }
+    }
+
+    #[test]
+    fn without_memory_steps_carry_no_citations() {
+        let opts = AgentOptions::default()
+            .with_max_steps(2)
+            .with_min_confidence(Q16::ZERO);
+        let mut s = session(opts, true);
+        let report = s.run(&tmp()).unwrap();
+        for step in &report.steps {
+            assert!(step.synthesis.grounding_crystal_ids.is_empty());
+        }
+    }
+
+    #[test]
+    fn recall_failure_aborts_the_run_loudly() {
+        let opts = AgentOptions::default()
+            .with_max_steps(2)
+            .with_min_confidence(Q16::ZERO);
+        let mut s = session(opts, true).with_recall(Arc::new(BrokenRecall));
+        match s.run(&tmp()) {
+            Err(AgentError::Recall(msg)) => assert!(msg.contains("ledger unreadable")),
+            other => panic!("expected AgentError::Recall, got {other:?}"),
+        }
     }
 }

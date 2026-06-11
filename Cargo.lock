@@ -1517,6 +1517,7 @@ dependencies = [
  "kosmo-intent",
  "kosmo-materialize",
  "kosmo-pipeline",
+ "kosmo-pse-bridge",
  "kosmo-synthesizer",
  "serde",
  "serde_json",
@@ -1694,8 +1695,10 @@ dependencies = [
  "kosmo-core",
  "kosmo-intent",
  "kosmo-pipeline",
+ "kosmo-pse-bridge",
  "kosmo-synthesizer",
  "kosmo-synthesizer-llm",
+ "pse-adapter-kosmo",
  "serde_json",
 ]
 
@@ -1750,6 +1753,7 @@ version = "0.1.0"
 dependencies = [
  "kosmo-core",
  "kosmo-pipeline",
+ "kosmo-pse-bridge",
  "serde",
  "serde_json",
 ]
@@ -1760,6 +1764,7 @@ version = "0.1.0"
 dependencies = [
  "kosmo-core",
  "kosmo-pipeline",
+ "kosmo-pse-bridge",
  "kosmo-synthesizer",
  "reqwest",
  "serde",
@@ -2715,6 +2720,7 @@ dependencies = [
  "pse-types",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

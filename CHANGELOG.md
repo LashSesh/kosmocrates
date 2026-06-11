@@ -13,6 +13,45 @@ note explicitly says so.
 
 ## [Unreleased]
 
+### Added
+
+* **Memory-grounded synthesis — the anchored knowledge works**
+
+  The loop that closed at recall now drives the build: hand `kosmo-run` the
+  same Infinity-Ledger the promotion path anchors into (`--ledger <path>`,
+  `--ground-top <n>`), and every action's synthesis request is grounded in
+  the crystals the system has already learned — recalled per action with the
+  same Pfauenthron retrieval (`D = ψ·ρ·ω`) that powers
+  `kosmo-promote --recall`, rendered into the LLM prompt as a
+  clearly-delimited *Anchored knowledge* section, and **cited** in the
+  result: `SynthesisResult::grounding_crystal_ids` carries the provenance
+  from every generated patch back to the certified knowledge that informed
+  it (`kosmo-run` prints `memory grounded by N anchored crystal(s): …` per
+  step).
+
+  The bridge becomes a round trip without bending a single layering rule:
+  `kosmo-pse-bridge` gains the reverse-direction contract
+  (`MemoryRecall` trait + `MemoryGroundingEntry`, mirror of the cognition
+  layer's recall summary), `pse-adapter-kosmo::LedgerRecall` implements it
+  above both stacks, and `kosmo-*` consumers only ever see the trait —
+  CROSS-002 intact. `AgentSession::with_recall` grounds the agent loop
+  (`AgentOptions::grounding_top`), and the new
+  `kosmo_synthesizer::GroundedSynthesizer` wraps any backend with memory
+  for the wish-descent's LLM fallback. The discipline holds everywhere:
+  grounding is advisory context — float scores from the retrieval side
+  decorate prompts and reports but never gate, never enter a
+  content-addressed identity (`request_id` unchanged by context, house
+  rule); a missing ledger is a hard error; recall failures are loud
+  (fail-closed, never silent memory-free degradation); and an action that
+  resonates with nothing carries an honestly empty citation list.
+
+  Proven live end-to-end: `kosmo-promote --offer --batch --all-kinds
+  --calibration substrate --ledger …` anchored a polyglot workspace's
+  knowledge (14/14 accepted, Q5, all eight Kairos gates open), then
+  `kosmo-run --provider mock --ledger …` synthesized on the same workspace
+  with steps citing the anchored crystal — learning → anchoring →
+  remembering → **building with memory**, one unbroken chain.
+
 ### Fixed
 
 * **Workspace builds on current stable (CI green again)** — two latent

@@ -59,8 +59,18 @@ operator's `--batch --calibration substrate` choice — commits real
 verdicts flow back as `PromotionFeedback` into the pipeline's norm fitness
 (`--feedback`).
 
-**Convergence verdict: live.** One crystal vocabulary per layer, one sanctioned
-promotion path between them, memory flowing in both directions.
+And since the memory-grounding arc, the anchored crystals flow back as
+*working knowledge*: the bridge's reverse direction (`MemoryRecall` +
+`MemoryGroundingEntry`, implemented by `pse-adapter-kosmo::LedgerRecall`)
+runs the same Pfauenthron retrieval `--recall` uses and feeds the hits into
+LLM synthesis prompts (`kosmo-run --ledger`). Every synthesized patch cites
+the crystal IDs it received (`SynthesisResult::grounding_crystal_ids`) —
+provenance from patch back to anchored knowledge. The grounding is advisory
+context only; it never gates.
+
+**Convergence verdict: live, round-trip.** One crystal vocabulary per layer,
+one sanctioned promotion path between them — and the promoted knowledge now
+returns across the same bridge to ground the substrate's synthesis.
 
 ## 3. Gates — same doctrine, composed in sequence
 

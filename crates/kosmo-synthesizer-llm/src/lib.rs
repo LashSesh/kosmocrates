@@ -424,7 +424,7 @@ impl ActionSynthesizer for LlmSynthesizer {
         let (raw, tokens) = self.call(system_prompt(), &user)?;
         let mut result = parse_synthesis_response(&raw, request, &self.label)?;
         result.tokens_used = tokens;
-        Ok(result)
+        Ok(result.citing(request))
     }
 
     fn name(&self) -> &str {
@@ -518,6 +518,19 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
                 snip.path.to_string_lossy(),
                 snip.content
             ));
+        }
+    }
+
+    if !request.memory_grounding.is_empty() {
+        s.push_str(
+            "\n# Anchored knowledge (recalled from the promotion ledger)\n\n\
+             Certified structural insights this system has previously learned \
+             and anchored, ranked by relevance to this action (Pfauenthron \
+             D = psi*rho*omega). Advisory context: prefer consistency with it, \
+             but always verify against the workspace above.\n",
+        );
+        for (rank, g) in request.memory_grounding.iter().enumerate() {
+            s.push_str(&format!("\n{}. {}\n", rank + 1, g.compact_line()));
         }
     }
 
@@ -837,5 +850,37 @@ mod tests {
             result.rationale
         );
         assert_eq!(result.patch.request_id, req.request_id);
+    }
+
+    // ─── Memory grounding in the prompt ──────────────────────────────────────
+
+    fn grounded_request() -> SynthesisRequest {
+        make_request().with_grounding(vec![kosmo_pse_bridge::MemoryGroundingEntry {
+            crystal_id: "ab12cd34ef56ab12".into(),
+            stability: 0.76,
+            qtic_class: Some(5),
+            tripolar_score: 0.4668,
+            commit_index: 3,
+            scale_tag: "il-refined".into(),
+            question: "kosmo-promote:/ws/alpha".into(),
+        }])
+    }
+
+    #[test]
+    fn prompt_renders_anchored_knowledge_section() {
+        let prompt = build_user_prompt(&grounded_request());
+        assert!(prompt.contains("# Anchored knowledge"));
+        assert!(prompt.contains(
+            "1. D=0.4668 | Q5 | stability 0.76 | t=3 | il-refined \
+             | ab12cd34ef56ab12 | kosmo-promote:/ws/alpha"
+        ));
+        // The section is advisory, the workspace stays authoritative.
+        assert!(prompt.contains("always verify against the workspace"));
+    }
+
+    #[test]
+    fn prompt_omits_memory_section_without_grounding() {
+        let prompt = build_user_prompt(&make_request());
+        assert!(!prompt.contains("# Anchored knowledge"));
     }
 }

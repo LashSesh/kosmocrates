@@ -38,8 +38,8 @@
 
 use kosmo_core::{Digest, PolicyProfile};
 use kosmo_pse_bridge::{
-    validate_candidate, PromotionOutcome, PseBridgeCandidate, PseBridgeCandidateKind,
-    PseBridgePolicy,
+    validate_candidate, MemoryGroundingEntry, MemoryRecall, PromotionOutcome, PseBridgeCandidate,
+    PseBridgeCandidateKind, PseBridgePolicy,
 };
 use pse_adapter_il::qtic::{classify, QticCertificate, QticInput, MCI_THRESHOLD};
 use pse_core::GlobalState;
@@ -411,6 +411,78 @@ pub fn describe_crystal(crystal: &SemanticCrystal, candidate: &PseBridgeCandidat
         crystal.stability_score,
         crystal.region.len()
     )
+}
+
+// ─── Memory return path: LedgerRecall ─────────────────────────────────────────
+
+/// Convert one cognition-side recall summary into the bridge's grounding type.
+///
+/// Field-for-field — the seam invents nothing and drops nothing.
+pub fn summary_to_grounding(s: &pse_adapter_il::CrystalSummary) -> MemoryGroundingEntry {
+    MemoryGroundingEntry {
+        crystal_id: s.crystal_id.clone(),
+        stability: s.stability,
+        qtic_class: s.qtic_class,
+        tripolar_score: s.tripolar_score,
+        commit_index: s.commit_index,
+        scale_tag: s.scale_tag.clone(),
+        question: s.question.clone(),
+    }
+}
+
+/// The production [`MemoryRecall`] implementation: Pfauenthron++ retrieval
+/// (`D = ψ·ρ·ω`, [`pse_adapter_il::ILStore::build_context_entries`]) over an
+/// Infinity-Ledger store — the same retrieval `kosmo-promote --recall` runs,
+/// packaged as the capability a substrate consumer can hold without ever
+/// importing `pse-*` itself.
+///
+/// Read-only by contract: [`LedgerRecall::open`] refuses a missing path
+/// instead of silently creating an empty store.
+pub struct LedgerRecall {
+    store: pse_adapter_il::ILStore,
+    source: String,
+}
+
+impl LedgerRecall {
+    /// Open an existing ledger read-only. A missing path is a hard error —
+    /// a caller that asked for memory must not run without it.
+    pub fn open(path: &std::path::Path) -> Result<Self, String> {
+        if !path.exists() {
+            return Err(format!(
+                "no ledger at {} — nothing to recall",
+                path.display()
+            ));
+        }
+        let store = pse_adapter_il::ILStore::open(path, "pse-adapter-kosmo")
+            .map_err(|e| format!("cannot open ledger {}: {e}", path.display()))?;
+        Ok(Self {
+            store,
+            source: path.display().to_string(),
+        })
+    }
+
+    /// Number of anchored crystals visible to recall.
+    pub fn len(&self) -> usize {
+        self.store.len()
+    }
+
+    /// `true` when the ledger holds no anchored crystals.
+    pub fn is_empty(&self) -> bool {
+        self.store.len() == 0
+    }
+}
+
+impl MemoryRecall for LedgerRecall {
+    fn recall(&self, query: &str, top: usize) -> Result<Vec<MemoryGroundingEntry>, String> {
+        let query_vec = pse_adapter_il::text_to_vector8(query);
+        let mut entries = self.store.build_context_entries(&query_vec);
+        entries.truncate(top);
+        Ok(entries.iter().map(summary_to_grounding).collect())
+    }
+
+    fn source(&self) -> String {
+        self.source.clone()
+    }
 }
 
 #[cfg(test)]
@@ -859,5 +931,113 @@ mod tests {
             &adapter,
         );
         assert!(skipped.qtic.is_none());
+    }
+
+    // ─── Memory return path ──────────────────────────────────────────────────
+
+    fn anchored_crystal(seed: u8, stability: f64) -> SemanticCrystal {
+        SemanticCrystal {
+            crystal_id: {
+                let mut id = [0u8; 32];
+                id[0] = seed;
+                id[1] = 0x4B; // 'K' — kosmo-side fixture marker
+                id
+            },
+            region: vec![],
+            constraint_program: Default::default(),
+            stability_score: stability,
+            topology_signature: Default::default(),
+            betti_numbers: vec![],
+            evidence_chain: Default::default(),
+            commit_proof: Default::default(),
+            operator_versions: Default::default(),
+            created_at: 1,
+            free_energy: 0.0,
+            carrier_instance_idx: 0,
+            scale_tag: String::new(),
+            universe_id: String::new(),
+            sub_crystal_ids: vec![],
+            parent_crystal_ids: vec![],
+            genesis_metadata: None,
+            metatron_signature: None,
+        }
+    }
+
+    #[test]
+    fn ledger_recall_refuses_missing_path() {
+        let err = LedgerRecall::open(std::path::Path::new("/nonexistent/ledger-xyz"))
+            .err()
+            .expect("missing ledger must be a hard error");
+        assert!(err.contains("nothing to recall"), "got: {err}");
+    }
+
+    #[test]
+    fn ledger_recall_returns_faithful_grounding_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("il");
+
+        // Anchor two crystals with distinct provenance questions.
+        let mut store = pse_adapter_il::ILStore::open(&path, "test").unwrap();
+        store
+            .commit_with_feedback(
+                &anchored_crystal(1, 0.80),
+                &["python module routing lacks test coverage".to_string()],
+                0,
+                "kosmo-promote:/ws/alpha",
+            )
+            .unwrap();
+        store
+            .commit_with_feedback(
+                &anchored_crystal(2, 0.60),
+                &["rust workspace pipeline ranking".to_string()],
+                0,
+                "kosmo-promote:/ws/beta",
+            )
+            .unwrap();
+        drop(store);
+
+        let recall = LedgerRecall::open(&path).unwrap();
+        assert_eq!(recall.len(), 2);
+
+        let hits = recall
+            .recall("python module routing lacks test coverage", 5)
+            .unwrap();
+        assert!(!hits.is_empty(), "query must resonate with anchored memory");
+        // Faithful mapping: scores in range, provenance question preserved,
+        // crystal id non-empty — and the top hit is the matching crystal.
+        for h in &hits {
+            assert!(h.tripolar_score > 0.0);
+            assert!((0.0..=1.0).contains(&h.stability));
+            assert!(!h.crystal_id.is_empty());
+        }
+        assert_eq!(hits[0].question, "kosmo-promote:/ws/alpha");
+
+        // `top` truncates.
+        let one = recall.recall("module", 1).unwrap();
+        assert!(one.len() <= 1);
+    }
+
+    #[test]
+    fn ledger_recall_is_read_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("il");
+        let mut store = pse_adapter_il::ILStore::open(&path, "test").unwrap();
+        store
+            .commit_with_feedback(
+                &anchored_crystal(7, 0.7),
+                &["anchored knowledge".to_string()],
+                0,
+                "scope",
+            )
+            .unwrap();
+        drop(store);
+
+        let recall = LedgerRecall::open(&path).unwrap();
+        let _ = recall.recall("anchored knowledge", 3).unwrap();
+        drop(recall);
+
+        // Recalling must not have grown the store.
+        let reopened = LedgerRecall::open(&path).unwrap();
+        assert_eq!(reopened.len(), 1);
     }
 }
