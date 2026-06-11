@@ -15,6 +15,28 @@ note explicitly says so.
 
 ### Added
 
+* **Landscape surfaces — and adopted wishes carry the full armament**
+
+  The wish landscape reaches every operator surface: `POST /api/landscape`
+  (kosmo-server; read-only by design — adopting/descending stays on the
+  CLI where `--apply` is explicit), a browser panel ("Map the landscape",
+  ranked table with standing badges and the adopt command line), and the
+  TUI (`l` — summary line plus the top peaks under the stats). One
+  standing definition for all of them:
+  `kosmo_pipeline::{LandscapeStanding, measure_landscape}` (lifted out of
+  kosmo-run; CLI, server and TUI now share it).
+
+  Adoption is armed: an adopted landscape descent uses the same fallback
+  chain as wish mode (`wish_fallback` — deterministic scaffolder first,
+  then the provider-gated LLM, memory-grounded under `--ledger` via
+  `GroundedSynthesizer`). Landscape meets tank: the system realizes its
+  own proposals with its own anchored knowledge.
+
+  The HTTP recall caught up with the tank while we were there: hits now
+  carry their `claims` and the query embeds through the store's embedder
+  seam (`embed_query`) instead of a raw projection; the browser recall
+  table renders the claim lines.
+
 * **The wish landscape — the findings become the wish menu**
 
   The operator's words made executable: *"damit ließe sich eine ganze

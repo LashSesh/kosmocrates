@@ -111,6 +111,7 @@ kosmo-tui .
 kosmo-tui . --all
 
 # Keybindings: q=quit  r=rerun  p=promote (in-memory engine offer)
+#              l=landscape (findings → ranked wish proposals)
 #              ↑↓/jk=navigate  PgUp/PgDn=page  g/G=top/bottom
 ```
 
@@ -159,10 +160,19 @@ curl -s -X POST http://localhost:7777/api/promote \
 
 # Recall — Pfauenthron++ (D = ψ·ρ·ω) over the ledger; read-only, the
 # ledger must exist. The browser UI has a matching Recall panel.
+# Hits carry the anchored claim lines (`claims`) — content, not just scores.
 curl -s -X POST http://localhost:7777/api/recall \
   -H 'Content-Type: application/json' \
   -d '{"ledger":"~/.kosmo/il","query":"missing test coverage","top":5}' \
-  | jq '.results[] | {tripolar_score, qtic_class, question}'
+  | jq '.results[] | {tripolar_score, qtic_class, question, claims}'
+
+# Wish landscape — the findings projected into ranked wish proposals with a
+# measured standing (met/open/beyond-observation/beyond-vocabulary).
+# Read-only: adopting/descending stays on the operator CLI (kosmo-run).
+curl -s -X POST http://localhost:7777/api/landscape \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"."}' \
+  | jq '{open, met, top: .proposals[:3]}'
 ```
 
 ### 5. Promotion — `kosmo-promote` (substrate→core)

@@ -713,6 +713,60 @@ pub fn propose_wishes(voids: &[kosmo_hyphae::HostVoid]) -> WishLandscape {
     landscape
 }
 
+/// The measured standing of one [`WishProposal`] against an observed
+/// topology — the honesty column of the landscape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LandscapeStanding {
+    /// The facet is already present — nothing to wish for.
+    Met,
+    /// Observable and unmet — adoptable.
+    Open,
+    /// The wish world cannot see the target (non-Rust module, crate root):
+    /// honest residue, not a stalling wish.
+    BeyondObservation,
+    /// No observation was available (e.g. not a cargo workspace).
+    Unmeasured,
+}
+
+impl LandscapeStanding {
+    /// Stable lowercase label for JSON surfaces.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Met => "met",
+            Self::Open => "open",
+            Self::BeyondObservation => "beyond-observation",
+            Self::Unmeasured => "unmeasured",
+        }
+    }
+}
+
+/// Measure every proposal against an observed topology (or mark all
+/// [`LandscapeStanding::Unmeasured`] when none is available). One standing
+/// definition for every surface — CLI, server, TUI.
+pub fn measure_landscape(
+    landscape: &WishLandscape,
+    observed: Option<&kosmo_core::ObservedTopology>,
+) -> Vec<LandscapeStanding> {
+    landscape
+        .proposals
+        .iter()
+        .map(|p| match observed {
+            None => LandscapeStanding::Unmeasured,
+            Some(obs) => {
+                if obs.contains(&p.facet) {
+                    LandscapeStanding::Met
+                } else if obs.contains(&WishFacet::module(p.subject.clone()))
+                    || obs.contains(&WishFacet::symbol(p.subject.clone()))
+                {
+                    LandscapeStanding::Open
+                } else {
+                    LandscapeStanding::BeyondObservation
+                }
+            }
+        })
+        .collect()
+}
+
 pub fn crystal_to_pse_candidate(
     record: &StructuralCrystalRecord,
     source_run_id: Digest,

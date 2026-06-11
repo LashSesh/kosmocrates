@@ -6,7 +6,7 @@
 //! USAGE:
 //!     kosmo-tui [OPTIONS] [PATH]
 //!
-//! Keybindings: q/Esc=quit  r=rerun  p=promote  ↑↓/jk=navigate  PgUp/PgDn=page  g=top  G=bottom
+//! Keybindings: q/Esc=quit  r=rerun  p=promote  l=landscape  ↑↓/jk=navigate  PgUp/PgDn=page  g=top  G=bottom
 //! ```
 //!
 //! `p` offers the workspace's gated candidates to the PSE engine — ensemble
@@ -210,6 +210,70 @@ struct PromotionSummary {
     qtic_top: Option<u8>,
 }
 
+/// One row of the TUI wish landscape: standing mark, facet, severity.
+#[derive(Debug)]
+struct LandscapeRow {
+    mark: &'static str,
+    facet: String,
+    severity: f64,
+    rationale: String,
+}
+
+/// Summary of the last `l` landscape run.
+#[derive(Debug)]
+struct LandscapeSummary {
+    proposals: usize,
+    met: usize,
+    open: usize,
+    beyond_observation: usize,
+    beyond_vocabulary: usize,
+    /// The highest peaks (top 3 by severity).
+    top: Vec<LandscapeRow>,
+}
+
+/// Map the workspace's findings into the wish landscape — read-only
+/// (the adopting/descending surfaces stay on `kosmo-run` where `--apply`
+/// is explicit).
+fn run_landscape(path: &str) -> Result<LandscapeSummary, String> {
+    use kosmo_pipeline::{
+        measure_landscape, propose_wishes, run_workspace_pipeline, LandscapeStanding,
+    };
+    let policy = PolicyProfile::default_report_only();
+    let options = IntegrationRunOptions::report_only();
+    let report = run_workspace_pipeline(path, &options, &policy)
+        .map_err(|e| format!("pipeline failed: {e}"))?;
+    let landscape = propose_wishes(&report.hyphae_result.host_cube.void_map.voids);
+    let observed = kosmo_intent::observe_workspace_deep(path).ok();
+    let standing = measure_landscape(&landscape, observed.as_ref());
+
+    let count = |s: LandscapeStanding| standing.iter().filter(|x| **x == s).count();
+    let top = landscape
+        .proposals
+        .iter()
+        .zip(&standing)
+        .take(3)
+        .map(|(p, s)| LandscapeRow {
+            mark: match s {
+                LandscapeStanding::Met => "✓",
+                LandscapeStanding::Open => "✗",
+                LandscapeStanding::BeyondObservation => "∅",
+                LandscapeStanding::Unmeasured => "?",
+            },
+            facet: format!("{:?} {}", p.facet.kind, p.facet.key),
+            severity: p.severity.to_f64(),
+            rationale: p.rationale.clone(),
+        })
+        .collect();
+    Ok(LandscapeSummary {
+        proposals: landscape.proposals.len(),
+        met: count(LandscapeStanding::Met),
+        open: count(LandscapeStanding::Open),
+        beyond_observation: count(LandscapeStanding::BeyondObservation),
+        beyond_vocabulary: landscape.unmapped.len(),
+        top,
+    })
+}
+
 /// Offer the workspace's gated candidates to the PSE engine — ensemble batch
 /// under the substrate calibration, in-memory only (no host writes; the
 /// persisting surfaces stay on `kosmo-promote`/HTTP where paths are explicit).
@@ -310,6 +374,8 @@ struct App {
     offset: usize,
     /// Result of the last `p` promotion run (in-memory offer), if any.
     promotion: Option<Result<PromotionSummary, String>>,
+    /// Result of the last `l` landscape mapping, if any.
+    landscape: Option<Result<LandscapeSummary, String>>,
 }
 
 impl App {
@@ -321,11 +387,16 @@ impl App {
             selected: 0,
             offset: 0,
             promotion: None,
+            landscape: None,
         }
     }
 
     fn run_promotion(&mut self) {
         self.promotion = Some(run_promotion(&self.path));
+    }
+
+    fn run_landscape(&mut self) {
+        self.landscape = Some(run_landscape(&self.path));
     }
 
     fn run_pipeline(&mut self) {
@@ -731,6 +802,9 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
         if let Some(promotion) = &app.promotion {
             lines.push(promotion_line(promotion));
         }
+        if let Some(landscape) = &app.landscape {
+            lines.extend(landscape_lines_render(landscape));
+        }
         f.render_widget(Paragraph::new(lines), inner);
     }
 }
@@ -822,6 +896,13 @@ fn render_status_bar(f: &mut Frame, area: Rect) {
         ),
         Span::styled(":promote  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
+            "l",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":landscape  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
             "↑↓/jk",
             Style::default()
                 .fg(Color::Yellow)
@@ -848,7 +929,12 @@ fn render_status_bar(f: &mut Frame, area: Rect) {
 
 fn ui(f: &mut Frame, app: &App, list_height: usize) {
     // The workspace pane grows by one line when a promotion summary exists.
-    let stats_height = if app.promotion.is_some() { 4 } else { 3 };
+    let landscape_lines = match &app.landscape {
+        Some(Ok(s)) => 1 + s.top.len() as u16,
+        Some(Err(_)) => 1,
+        None => 0,
+    };
+    let stats_height = (if app.promotion.is_some() { 4 } else { 3 }) + landscape_lines;
     let vertical = Layout::vertical([
         Constraint::Length(3),            // header
         Constraint::Min(5),               // action list + detail
@@ -912,6 +998,13 @@ fn run_tui(mut app: App) -> io::Result<()> {
                         })?;
                         app.run_promotion();
                     }
+                    KeyCode::Char('l') => {
+                        terminal.draw(|f| {
+                            let h = f.area().height.saturating_sub(10) as usize;
+                            ui(f, &app, h);
+                        })?;
+                        app.run_landscape();
+                    }
                     KeyCode::Down | KeyCode::Char('j') => app.scroll_down(list_height),
                     KeyCode::Up | KeyCode::Char('k') => app.scroll_up(),
                     KeyCode::Char('g') => app.go_top(),
@@ -963,6 +1056,51 @@ fn main() {
     if let Err(e) = run_tui(app) {
         eprintln!("terminal error: {e}");
         process::exit(1);
+    }
+}
+
+/// Render the last `l` landscape mapping: one summary line plus the top
+/// peaks (mark · facet · severity · provenance).
+fn landscape_lines_render(landscape: &Result<LandscapeSummary, String>) -> Vec<Line<'static>> {
+    match landscape {
+        Ok(s) => {
+            let open_style = if s.open > 0 {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Green)
+            };
+            let mut lines = vec![Line::from(vec![
+                Span::styled("landscape: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("{} proposal(s)", s.proposals)),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{} met", s.met), Style::default().fg(Color::Green)),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{} open", s.open), open_style),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!(
+                    "{} beyond obs · {} beyond vocab",
+                    s.beyond_observation, s.beyond_vocabulary
+                )),
+            ])];
+            for row in &s.top {
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(row.mark.to_string(), Style::default().fg(Color::Yellow)),
+                    Span::raw(format!(" sev={:.2} {} ", row.severity, row.facet)),
+                    Span::styled(
+                        format!("← {}", row.rationale),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]));
+            }
+            lines
+        }
+        Err(e) => vec![Line::from(vec![
+            Span::styled("landscape: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("error: {e}"), Style::default().fg(Color::Red)),
+        ])],
     }
 }
 
@@ -1029,5 +1167,38 @@ mod tests {
             err.contains("pipeline failed"),
             "must name the failure: {err}"
         );
+    }
+
+    #[test]
+    fn tui_landscape_core_maps_and_measures() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-tui-landscape-{nanos}"));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub mod router;\n").unwrap();
+        std::fs::write(
+            root.join("src/router.rs"),
+            "pub fn dispatch(p: &str) -> u32 { p.len() as u32 }\n",
+        )
+        .unwrap();
+
+        let s = run_landscape(&root.to_string_lossy()).expect("landscape must run");
+        assert!(s.proposals > 0, "findings project to proposals");
+        assert!(s.open >= 1, "the undocumented module is open");
+        assert!(!s.top.is_empty(), "the peaks render");
+        assert!(s.top[0].severity > 0.0);
+
+        // The render path stays total over both arms.
+        assert!(!landscape_lines_render(&Ok(s)).is_empty());
+        assert!(!landscape_lines_render(&Err("boom".into())).is_empty());
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

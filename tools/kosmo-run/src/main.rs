@@ -41,8 +41,8 @@ use kosmo_intent::{
     observe_workspace_validated, WishSession,
 };
 use kosmo_pipeline::{
-    propose_wishes, run_workspace_pipeline, ActionItem, ActionItemKind, IntegrationRunOptions,
-    WishProposal,
+    measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem, ActionItemKind,
+    IntegrationRunOptions, LandscapeStanding, WishProposal,
 };
 use kosmo_pse_bridge::MemoryRecall;
 use kosmo_synthesizer::{
@@ -316,6 +316,50 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
     }
 }
 
+/// Arm an optional LLM fallback with the anchored memory: with `--ledger`,
+/// every fallback request is grounded in recalled knowledge before the LLM
+/// sees it ([`GroundedSynthesizer`]). The deterministic scaffolder needs no
+/// memory — it builds exactly. Shared by wish mode and landscape adoption.
+fn arm_fallback(
+    args: &Args,
+    inner: Option<Arc<dyn ActionSynthesizer>>,
+) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
+    Ok(match (inner, open_recall(args)?) {
+        (Some(inner), Some(recall)) => Some(Arc::new(GroundedSynthesizer::new(
+            inner,
+            recall,
+            args.ground_top as usize,
+        ))),
+        (None, Some(recall)) => {
+            eprintln!(
+                "kosmo-run: --ledger {} attached but no LLM fallback is active \
+                 (add --provider); the deterministic scaffolder runs memory-free",
+                recall.source()
+            );
+            None
+        }
+        (inner, None) => inner,
+    })
+}
+
+/// The optional LLM fallback for facet realization: built only when a
+/// provider was explicitly chosen, then armed with memory via
+/// [`arm_fallback`]. Deterministic-only when `None`.
+fn wish_fallback(args: &Args) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
+    let inner = if args.provider_set {
+        match build_synthesizer(args) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("kosmo-run: LLM fallback disabled ({e}); deterministic only");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    arm_fallback(args, inner)
+}
+
 /// Open the anchored memory when `--ledger` was given. Hard error on a
 /// missing or unreadable store — memory explicitly asked for must exist
 /// (the read-only contract of `LedgerRecall::open`).
@@ -559,38 +603,19 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
     // world even see? (A non-Rust module is honest residue, not a stalling
     // wish.) Observation needs a cargo workspace — fail-soft to "unmeasured".
     let observed = observe_workspace_deep(&args.path).ok();
+    let standing = measure_landscape(&landscape, observed.as_ref());
 
-    #[derive(Clone, Copy, PartialEq)]
-    enum Standing {
-        Met,
-        Open,
-        Invisible,
-        Unmeasured,
-    }
-    let standing: Vec<Standing> = landscape
-        .proposals
+    let met = standing
         .iter()
-        .map(|p| match &observed {
-            None => Standing::Unmeasured,
-            Some(obs) => {
-                if obs.contains(&p.facet) {
-                    Standing::Met
-                } else if obs.contains(&WishFacet::module(p.subject.clone()))
-                    || obs.contains(&WishFacet::symbol(p.subject.clone()))
-                {
-                    Standing::Open
-                } else {
-                    Standing::Invisible
-                }
-            }
-        })
-        .collect();
-
-    let met = standing.iter().filter(|s| **s == Standing::Met).count();
-    let open = standing.iter().filter(|s| **s == Standing::Open).count();
+        .filter(|s| **s == LandscapeStanding::Met)
+        .count();
+    let open = standing
+        .iter()
+        .filter(|s| **s == LandscapeStanding::Open)
+        .count();
     let invisible = standing
         .iter()
-        .filter(|s| **s == Standing::Invisible)
+        .filter(|s| **s == LandscapeStanding::BeyondObservation)
         .count();
 
     if args.json {
@@ -605,12 +630,7 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
                     "severity": format!("{:?}", p.severity),
                     "subject": p.subject,
                     "rationale": p.rationale,
-                    "standing": match s {
-                        Standing::Met => "met",
-                        Standing::Open => "open",
-                        Standing::Invisible => "beyond-observation",
-                        Standing::Unmeasured => "unmeasured",
-                    },
+                    "standing": s.label(),
                 })
             })
             .collect();
@@ -651,10 +671,10 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
         );
         for (p, s) in landscape.proposals.iter().zip(&standing) {
             let (mark, color) = match s {
-                Standing::Met => ("\u{2713}", GREEN),
-                Standing::Open => ("\u{2717}", YELLOW),
-                Standing::Invisible => ("\u{2205}", DIM),
-                Standing::Unmeasured => ("?", DIM),
+                LandscapeStanding::Met => ("\u{2713}", GREEN),
+                LandscapeStanding::Open => ("\u{2717}", YELLOW),
+                LandscapeStanding::BeyondObservation => ("\u{2205}", DIM),
+                LandscapeStanding::Unmeasured => ("?", DIM),
             };
             println!(
                 "    {}{}{} sev={:>5} {:?} {}  {}\u{2190} {}{}",
@@ -694,7 +714,7 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
             .proposals
             .iter()
             .zip(&standing)
-            .filter(|(_, s)| **s == Standing::Open)
+            .filter(|(_, s)| **s == LandscapeStanding::Open)
             .map(|(p, _)| p)
             .take(args.adopt as usize)
             .collect();
@@ -725,7 +745,20 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
             println!("  (read-only — add --apply to descend the adopted wish)");
             return Ok(ExitCode::SUCCESS);
         }
-        let session = descend_to_wish(&args.path, &wish, report.report_id, false, 8, None, None)?;
+        // Adopted wishes descend with the same armament as wish mode: the
+        // deterministic scaffolder first, then — when a provider is chosen —
+        // the LLM fallback, memory-grounded under --ledger. Landscape meets
+        // tank: the system realizes its own proposals with its own knowledge.
+        let fallback = wish_fallback(args)?;
+        let session = descend_to_wish(
+            &args.path,
+            &wish,
+            report.report_id,
+            false,
+            8,
+            fallback.as_deref(),
+            None,
+        )?;
         print!("{}", descent_report(&session, args.color));
         let realized = session
             .latest()
@@ -756,38 +789,8 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     // re-observe, until the wish is realized. This WRITES to the workspace.
     if args.apply {
         // LLM fallback for facets the deterministic scaffolder can't build —
-        // only when a provider was explicitly chosen (else: deterministic only).
-        let fallback = if args.provider_set {
-            match build_synthesizer(args) {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    eprintln!("kosmo-run: LLM fallback disabled ({e}); deterministic only");
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        // With --ledger, the fallback synthesizes with memory: every request
-        // is grounded in the anchored knowledge before the LLM sees it. The
-        // deterministic scaffolder needs no memory — it builds exactly.
-        let fallback: Option<Arc<dyn ActionSynthesizer>> = match (&fallback, open_recall(args)?) {
-            (Some(inner), Some(recall)) => Some(Arc::new(GroundedSynthesizer::new(
-                inner.clone(),
-                recall,
-                args.ground_top as usize,
-            ))),
-            (None, Some(recall)) => {
-                eprintln!(
-                    "kosmo-run: --ledger {} attached but no LLM fallback is active \
-                     (add --provider); the deterministic scaffolder runs memory-free",
-                    recall.source()
-                );
-                None
-            }
-            (Some(inner), None) => Some(inner.clone()),
-            (None, None) => None,
-        };
+        // provider-gated, memory-armed under --ledger (see wish_fallback).
+        let fallback = wish_fallback(args)?;
         let prior = args
             .wish_session
             .as_deref()

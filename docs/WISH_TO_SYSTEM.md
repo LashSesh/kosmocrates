@@ -246,6 +246,15 @@ vocabulary** (findings no facet kind expresses yet — listed, counted, never
 silently dropped). An adopted wish is evidence-bound to the diagnosis: its
 `evidence_bundle_id` is the pipeline `report_id` that proposed it.
 
+The landscape is on every surface: the CLI above, `POST /api/landscape`
+(kosmo-server, read-only), the browser panel ("Map the landscape"), and the
+TUI (`l`). And an adopted descent carries the full armament: the
+deterministic scaffolder first, then — when `--provider` is chosen — the
+LLM fallback, memory-grounded under `--ledger`
+(`kosmo-run --landscape --adopt 3 --apply --provider claude --ledger
+~/.kosmo/il`): the system realizes its own proposals with its own anchored
+knowledge.
+
 ---
 
 ## 7. Where this sits in the stack
