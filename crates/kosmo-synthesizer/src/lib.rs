@@ -12,9 +12,10 @@
 //!
 //! ```text
 //! ActionItem
-//!   └─ SynthesisRequest  (context: workspace path + source snippets)
+//!   └─ SynthesisRequest  (context: workspace path + source snippets
+//!        │                + recalled ledger memory, see MemoryGroundingEntry)
 //!        └─ ActionSynthesizer::synthesize()
-//!             └─ SynthesisResult
+//!             └─ SynthesisResult  (cites the grounding crystals it received)
 //!                  └─ Patch  (Vec<FileChange>, content-addressed)
 //! ```
 
@@ -25,6 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use kosmo_core::{Digest, WishFacet, WishFacetKind, Q16};
 use kosmo_pipeline::{ActionItem, ActionItemKind};
+use kosmo_pse_bridge::MemoryGroundingEntry;
 
 // ─── Source context ───────────────────────────────────────────────────────────
 
@@ -56,6 +58,13 @@ pub struct SynthesisRequest {
     /// Top-N source files ranked by structural relevance to the action target.
     /// Empty when no context extraction has been performed.
     pub source_snippets: Vec<SourceSnippet>,
+    /// Anchored knowledge recalled from the promotion ledger for this action
+    /// (see `kosmo_pse_bridge::MemoryRecall`). Advisory context only — like
+    /// `source_snippets` it is NOT part of `request_id`: context decorates a
+    /// request, it does not change which action is being resolved. Empty when
+    /// no memory was attached.
+    #[serde(default)]
+    pub memory_grounding: Vec<MemoryGroundingEntry>,
 }
 
 impl SynthesisRequest {
@@ -72,11 +81,18 @@ impl SynthesisRequest {
             action_item,
             workspace_path,
             source_snippets: vec![],
+            memory_grounding: vec![],
         }
     }
 
     pub fn with_snippets(mut self, snippets: Vec<SourceSnippet>) -> Self {
         self.source_snippets = snippets;
+        self
+    }
+
+    /// Attach recalled, ledger-anchored knowledge as advisory context.
+    pub fn with_grounding(mut self, grounding: Vec<MemoryGroundingEntry>) -> Self {
+        self.memory_grounding = grounding;
         self
     }
 }
@@ -221,6 +237,13 @@ pub struct SynthesisResult {
     pub test_hint: Option<String>,
     /// LLM token cost. Zero for rule-based or mock synthesizers.
     pub tokens_used: u32,
+    /// Provenance: the ledger-anchored crystals whose recalled knowledge was
+    /// in context when this patch was synthesized (`crystal_id`s from
+    /// `SynthesisRequest::memory_grounding`). Empty when synthesis ran
+    /// without memory. Audit trails can follow a patch back to the anchored
+    /// knowledge that informed it.
+    #[serde(default)]
+    pub grounding_crystal_ids: Vec<String>,
 }
 
 impl SynthesisResult {
@@ -236,7 +259,20 @@ impl SynthesisResult {
             confidence,
             test_hint: None,
             tokens_used: 0,
+            grounding_crystal_ids: vec![],
         }
+    }
+
+    /// Record which grounding crystals were in context for this synthesis.
+    /// Every [`ActionSynthesizer`] implementation calls this so the
+    /// provenance invariant holds regardless of backend.
+    pub fn citing(mut self, request: &SynthesisRequest) -> Self {
+        self.grounding_crystal_ids = request
+            .memory_grounding
+            .iter()
+            .map(|g| g.crystal_id.clone())
+            .collect();
+        self
     }
 }
 
@@ -290,6 +326,62 @@ pub trait ActionSynthesizer: Send + Sync {
     /// Soft token budget hint. Implementations may ignore this.
     fn token_budget(&self) -> u32 {
         4096
+    }
+}
+
+// ─── GroundedSynthesizer ──────────────────────────────────────────────────────
+
+/// A synthesizer with memory: grounds every request in recalled,
+/// ledger-anchored knowledge before delegating to the inner backend.
+///
+/// The recall query is the action's description — the same free-text door
+/// `kosmo-promote --recall` uses. Recall failures surface as *transient*
+/// [`SynthesisError`]s (the caller was explicitly given a memory; degrading
+/// silently to memory-free synthesis would be fail-open).
+pub struct GroundedSynthesizer {
+    inner: std::sync::Arc<dyn ActionSynthesizer>,
+    recall: std::sync::Arc<dyn kosmo_pse_bridge::MemoryRecall>,
+    top: usize,
+    label: String,
+}
+
+impl GroundedSynthesizer {
+    pub fn new(
+        inner: std::sync::Arc<dyn ActionSynthesizer>,
+        recall: std::sync::Arc<dyn kosmo_pse_bridge::MemoryRecall>,
+        top: usize,
+    ) -> Self {
+        let label = format!("{}+memory", inner.name());
+        Self {
+            inner,
+            recall,
+            top,
+            label,
+        }
+    }
+}
+
+impl ActionSynthesizer for GroundedSynthesizer {
+    fn synthesize(&self, request: &SynthesisRequest) -> Result<SynthesisResult, SynthesisError> {
+        let hits = self
+            .recall
+            .recall(&request.action_item.description, self.top)
+            .map_err(|e| {
+                SynthesisError::transient(format!(
+                    "memory recall failed ({}): {e}",
+                    self.recall.source()
+                ))
+            })?;
+        let grounded = request.clone().with_grounding(hits);
+        self.inner.synthesize(&grounded)
+    }
+
+    fn name(&self) -> &str {
+        &self.label
+    }
+
+    fn token_budget(&self) -> u32 {
+        self.inner.token_budget()
     }
 }
 
@@ -351,7 +443,8 @@ impl ActionSynthesizer for MockSynthesizer {
                 &request.action_item.action_id.to_hex()[..8]
             ),
             self.confidence,
-        ))
+        )
+        .citing(request))
     }
 
     fn name(&self) -> &str {
@@ -399,6 +492,7 @@ impl FacetScaffolder {
     fn scaffold_kind(ws: &Path, kind: &WishFacetKind, key: &str) -> Vec<FileChange> {
         match kind {
             WishFacetKind::Symbol => Self::scaffold_symbol(ws, key),
+            WishFacetKind::Doc => Self::scaffold_doc(ws, key),
             WishFacetKind::Signature => Self::scaffold_signature(ws, key),
             WishFacetKind::Contract => Self::scaffold_contract(ws, key),
             WishFacetKind::Module => Self::scaffold_module(ws, key),
@@ -423,6 +517,7 @@ impl FacetScaffolder {
         matches!(
             kind,
             WishFacetKind::Symbol
+                | WishFacetKind::Doc
                 | WishFacetKind::Signature
                 | WishFacetKind::Contract
                 | WishFacetKind::Module
@@ -548,6 +643,59 @@ impl FacetScaffolder {
             &format!("fn {name}"),
             &format!("pub fn {name}({param_list}){arrow} {{ todo!(\"kosmo: implement {name}\") }}"),
         )
+    }
+
+    /// Scaffold a [`WishFacetKind::Doc`] facet: find the public item named
+    /// `key` in the crate's sources and insert a doc-comment stub line
+    /// directly above its definition. The dual of `kosmo-intent`'s doc
+    /// observation, so scaffold → observe round-trips and the descent
+    /// converges. Honest no-ops: item not found, or already documented.
+    /// Like every scaffold the stub is structurally present and honestly
+    /// minimal — it names itself a stub to refine, never fakes prose.
+    fn scaffold_doc(ws: &Path, key: &str) -> Vec<FileChange> {
+        let src = ws.join("src");
+        let mut files: Vec<PathBuf> = walk_rs_files(&src);
+        files.sort();
+        for path in files {
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let lines: Vec<&str> = content.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if !line_declares_pub_item(line, key) && !line_declares_module(line, key) {
+                    continue;
+                }
+                // Already documented? Walk upward over attribute lines.
+                let mut j = i;
+                while j > 0 {
+                    let prev = lines[j - 1].trim();
+                    if prev.starts_with("#[") && !prev.starts_with("#[doc") {
+                        j -= 1;
+                        continue;
+                    }
+                    break;
+                }
+                if j > 0 {
+                    let prev = lines[j - 1].trim();
+                    if prev.starts_with("///") || prev.starts_with("#[doc") {
+                        return vec![]; // already documented — honest no-op
+                    }
+                }
+                // Insert the stub above the attribute block (docs precede attrs).
+                let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+                let stub =
+                    format!("{indent}/// `{key}` — doc stub scaffolded by kosmo; refine me.");
+                let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+                out.insert(j, stub);
+                let rel = path.strip_prefix(ws).unwrap_or(&path).to_path_buf();
+                let mut body = out.join("\n");
+                if content.ends_with('\n') {
+                    body.push('\n');
+                }
+                return vec![FileChange::modify(rel, body)];
+            }
+        }
+        vec![] // item not found — honest no-op
     }
 
     /// Append several `(marker, snippet)` items to the crate's lib in a
@@ -994,6 +1142,105 @@ fn register_member(toml: &str, name: &str) -> Option<String> {
     Some(out)
 }
 
+/// Walk `root` for `.rs` files. Skips `target` and dotted directories.
+/// Deterministic once sorted by the caller.
+fn walk_rs_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == "target" || name.starts_with('.') {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// Does this source line declare the module `name` (`mod name;` /
+/// `pub mod name {`, any visibility)? The doc scaffold docks where the
+/// Module facet itself is observed — the declaration, not the file.
+fn line_declares_module(line: &str, name: &str) -> bool {
+    let trimmed = line.trim();
+    let body = trimmed
+        .strip_prefix("pub ")
+        .or_else(|| {
+            trimmed
+                .find(") ")
+                .filter(|_| trimmed.starts_with("pub("))
+                .map(|i| &trimmed[i + 2..])
+        })
+        .unwrap_or(trimmed);
+    let Some(rest) = body.strip_prefix("mod ") else {
+        return false;
+    };
+    let ident: String = rest
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    ident == name
+}
+
+/// Does this source line declare a **public** item named `name`?
+/// The lexical mirror of `kosmo-intent`'s item observation: `pub` visibility,
+/// optional `async`/`unsafe`/`default` modifiers, then an item keyword
+/// (`fn`/`struct`/`enum`/`trait`/`type`/`union`/`const`/`static`) and the
+/// identifier. Reads the opening line only — deterministic.
+fn line_declares_pub_item(line: &str, name: &str) -> bool {
+    let trimmed = line.trim();
+    if !(trimmed.starts_with("pub ") || trimmed.starts_with("pub(")) {
+        return false;
+    }
+    let body = match trimmed.find(' ') {
+        Some(i) => trimmed[i + 1..].trim_start(),
+        None => return false,
+    };
+    let mut tokens = body.split_whitespace().peekable();
+    while matches!(
+        tokens.peek(),
+        Some(&"async") | Some(&"unsafe") | Some(&"default") | Some(&"const") | Some(&"static")
+    ) {
+        tokens.next();
+    }
+    let Some(kw) = tokens.next() else {
+        return false;
+    };
+    if !matches!(
+        kw,
+        "fn" | "struct" | "enum" | "trait" | "type" | "union" | "const" | "static"
+    ) {
+        // `pub(crate) fn …` — the visibility token itself was consumed above;
+        // `pub(...)` keys keep their keyword in `body`, handled by the loop.
+        return false;
+    }
+    tokens
+        .next()
+        .and_then(|tok| {
+            let ident: String = tok
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if ident.is_empty() {
+                None
+            } else {
+                Some(ident)
+            }
+        })
+        .is_some_and(|ident| ident == name)
+}
+
 /// Walk `ws` for `Cargo.toml` files and return `(package_name, manifest_path)`
 /// for each that declares a `[package]`. Skips `target` and dotted directories.
 fn find_crate_manifests(ws: &Path) -> Vec<(String, PathBuf)> {
@@ -1114,7 +1361,7 @@ impl ActionSynthesizer for FacetScaffolder {
             )
         };
         let patch = Patch::new(request.request_id, changes, "facet-scaffolder");
-        Ok(SynthesisResult::new(patch, rationale, confidence))
+        Ok(SynthesisResult::new(patch, rationale, confidence).citing(request))
     }
 
     fn name(&self) -> &str {
@@ -1133,8 +1380,11 @@ mod tests {
     fn make_request() -> SynthesisRequest {
         let policy = PolicyProfile::default_report_only();
         let options = IntegrationRunOptions::report_only();
-        // Use a temp dir — no .rs files so the workspace is minimal but valid.
-        let tmpdir = std::env::temp_dir();
+        // A stable, empty subdir — no .rs files, so the workspace is minimal
+        // but valid. Never the temp dir itself: CI runners keep root-owned
+        // entries in /tmp that fail the pipeline walk with EACCES.
+        let tmpdir = std::env::temp_dir().join("kosmo-synth-test-ws");
+        std::fs::create_dir_all(&tmpdir).unwrap();
         let tmpdir_str = tmpdir.to_string_lossy().to_string();
         let report = run_workspace_pipeline(&tmpdir_str, &options, &policy).unwrap();
         let items = report.action_items();
@@ -1670,5 +1920,171 @@ mod tests {
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "unknown crate → honest no-op");
         std::fs::remove_dir_all(&ws).ok();
+    }
+
+    // ─── Doc scaffold: the documented-item facet round-trips ─────────────────
+
+    #[test]
+    fn scaffold_doc_inserts_stub_above_item() {
+        let dir = temp_ws("pub fn helper() -> u32 { 1 }\n");
+        let req = wish_request(&dir, WishFacet::doc("helper"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert_eq!(res.patch.file_changes.len(), 1);
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.kind, FileChangeKind::Modify);
+        let lines: Vec<&str> = fc.content.lines().collect();
+        assert!(
+            lines[0].starts_with("/// `helper`"),
+            "stub above the item: {}",
+            lines[0]
+        );
+        assert!(lines[1].starts_with("pub fn helper"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_doc_goes_above_attribute_block() {
+        let dir = temp_ws("#[derive(Debug)]\npub struct Routed;\n");
+        let req = wish_request(&dir, WishFacet::doc("Routed"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        let lines: Vec<&str> = c.lines().collect();
+        assert!(lines[0].starts_with("/// `Routed`"), "docs precede attrs");
+        assert_eq!(lines[1], "#[derive(Debug)]");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_doc_is_an_honest_noop_when_documented_or_missing() {
+        let dir = temp_ws("/// Already documented.\npub fn helper() {}\n");
+        let req = wish_request(&dir, WishFacet::doc("helper"));
+        assert!(
+            FacetScaffolder.synthesize(&req).unwrap().patch.is_empty(),
+            "already documented → no-op"
+        );
+        let req = wish_request(&dir, WishFacet::doc("ghost"));
+        assert!(
+            FacetScaffolder.synthesize(&req).unwrap().patch.is_empty(),
+            "unknown item → no-op, never a lie"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_doc_observe_roundtrip_converges() {
+        // scaffold → apply → the facet observation logic must see it as met
+        // (the convergence contract between scaffolder and observer).
+        let dir = temp_ws("pub fn helper() -> u32 { 1 }\n");
+        let req = wish_request(&dir, WishFacet::doc("helper"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        std::fs::write(dir.join(&fc.path), &fc.content).unwrap();
+        let second = FacetScaffolder
+            .synthesize(&wish_request(&dir, WishFacet::doc("helper")))
+            .unwrap();
+        assert!(
+            second.patch.is_empty(),
+            "after applying the stub, the same wish scaffolds nothing"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Memory grounding ────────────────────────────────────────────────────
+
+    fn grounding_fixture() -> Vec<MemoryGroundingEntry> {
+        vec![MemoryGroundingEntry {
+            crystal_id: "ab12cd34ef56ab12".into(),
+            stability: 0.76,
+            qtic_class: Some(5),
+            tripolar_score: 0.4668,
+            commit_index: 3,
+            scale_tag: "il-refined".into(),
+            question: "kosmo-promote:/ws/alpha".into(),
+            claims: vec!["python module routing lacks test coverage".into()],
+        }]
+    }
+
+    #[test]
+    fn grounding_decorates_but_does_not_change_request_identity() {
+        let bare = make_request();
+        let grounded = make_request().with_grounding(grounding_fixture());
+        // Same action + workspace + policy ⇒ same request_id; context
+        // (snippets, memory) never changes which action is being resolved.
+        assert_eq!(bare.request_id, grounded.request_id);
+        assert_eq!(grounded.memory_grounding.len(), 1);
+    }
+
+    #[test]
+    fn synthesis_result_cites_the_grounding_it_received() {
+        let req = make_request().with_grounding(grounding_fixture());
+        let res = MockSynthesizer::confident().synthesize(&req).unwrap();
+        assert_eq!(res.grounding_crystal_ids, vec!["ab12cd34ef56ab12"]);
+
+        // Without memory the citation list is honestly empty.
+        let bare = MockSynthesizer::confident()
+            .synthesize(&make_request())
+            .unwrap();
+        assert!(bare.grounding_crystal_ids.is_empty());
+    }
+
+    struct ScriptedRecall;
+    impl kosmo_pse_bridge::MemoryRecall for ScriptedRecall {
+        fn recall(&self, _query: &str, top: usize) -> Result<Vec<MemoryGroundingEntry>, String> {
+            Ok(grounding_fixture().into_iter().take(top).collect())
+        }
+        fn source(&self) -> String {
+            "scripted://test".into()
+        }
+    }
+
+    struct BrokenRecall;
+    impl kosmo_pse_bridge::MemoryRecall for BrokenRecall {
+        fn recall(&self, _q: &str, _t: usize) -> Result<Vec<MemoryGroundingEntry>, String> {
+            Err("ledger unreadable".into())
+        }
+        fn source(&self) -> String {
+            "broken://test".into()
+        }
+    }
+
+    #[test]
+    fn grounded_synthesizer_grounds_and_inner_cites() {
+        let g = GroundedSynthesizer::new(
+            std::sync::Arc::new(MockSynthesizer::confident()),
+            std::sync::Arc::new(ScriptedRecall),
+            5,
+        );
+        assert_eq!(g.name(), "mock-confident+memory");
+        let res = g.synthesize(&make_request()).unwrap();
+        assert_eq!(res.grounding_crystal_ids, vec!["ab12cd34ef56ab12"]);
+    }
+
+    #[test]
+    fn grounded_synthesizer_fails_loud_when_memory_breaks() {
+        let g = GroundedSynthesizer::new(
+            std::sync::Arc::new(MockSynthesizer::confident()),
+            std::sync::Arc::new(BrokenRecall),
+            5,
+        );
+        let err = g.synthesize(&make_request()).unwrap_err();
+        assert!(err.recoverable, "memory failure is transient, not skipped");
+        assert!(err.message.contains("broken://test"));
+    }
+
+    #[test]
+    fn old_serialized_requests_and_results_still_parse() {
+        // Pre-grounding JSON (no memory_grounding / grounding_crystal_ids
+        // fields) must deserialize — the fields are #[serde(default)].
+        let req = make_request();
+        let mut v = serde_json::to_value(&req).unwrap();
+        v.as_object_mut().unwrap().remove("memory_grounding");
+        let back: SynthesisRequest = serde_json::from_value(v).unwrap();
+        assert!(back.memory_grounding.is_empty());
+
+        let res = MockSynthesizer::confident().synthesize(&req).unwrap();
+        let mut v = serde_json::to_value(&res).unwrap();
+        v.as_object_mut().unwrap().remove("grounding_crystal_ids");
+        let back: SynthesisResult = serde_json::from_value(v).unwrap();
+        assert!(back.grounding_crystal_ids.is_empty());
     }
 }

@@ -152,7 +152,7 @@ impl AgendaItem {
 
 /// Prioritised action list for moving the IL store toward the health fixpoint.
 ///
-/// Built by [`ILStore::epistemic_agenda`].
+/// Built by [`ILStore::epistemic_agenda`](crate::ILStore::epistemic_agenda).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpistemicAgenda {
     /// Prioritised action items (descending priority, capped at `max_items`).
@@ -202,7 +202,7 @@ impl EpistemicAgenda {
 
 // ─── AgendaConfig ─────────────────────────────────────────────────────────────
 
-/// Configuration for [`ILStore::epistemic_agenda`].
+/// Configuration for [`ILStore::epistemic_agenda`](crate::ILStore::epistemic_agenda).
 #[derive(Debug, Clone)]
 pub struct AgendaConfig {
     /// Decay model for lifecycle staleness analysis.

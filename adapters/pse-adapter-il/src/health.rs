@@ -100,7 +100,7 @@ impl CrystalHealthMetrics {
 
 /// Store-level epistemic health dashboard.
 ///
-/// Built by [`ILStore::memory_health`].  All fields are computed purely from
+/// Built by [`ILStore::memory_health`](crate::ILStore::memory_health).  All fields are computed purely from
 /// the IL index — no disk reads beyond what's already loaded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryHealthReport {

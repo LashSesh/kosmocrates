@@ -16,4 +16,4 @@ rand.workspace = true
 rand_distr.workspace = true
 
 # Numerical computing
-ndarray = "0.15"
+ndarray = { workspace = true }

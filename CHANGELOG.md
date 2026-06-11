@@ -15,6 +15,228 @@ note explicitly says so.
 
 ### Added
 
+* **Landscape surfaces — and adopted wishes carry the full armament**
+
+  The wish landscape reaches every operator surface: `POST /api/landscape`
+  (kosmo-server; read-only by design — adopting/descending stays on the
+  CLI where `--apply` is explicit), a browser panel ("Map the landscape",
+  ranked table with standing badges and the adopt command line), and the
+  TUI (`l` — summary line plus the top peaks under the stats). One
+  standing definition for all of them:
+  `kosmo_pipeline::{LandscapeStanding, measure_landscape}` (lifted out of
+  kosmo-run; CLI, server and TUI now share it).
+
+  Adoption is armed: an adopted landscape descent uses the same fallback
+  chain as wish mode (`wish_fallback` — deterministic scaffolder first,
+  then the provider-gated LLM, memory-grounded under `--ledger` via
+  `GroundedSynthesizer`). Landscape meets tank: the system realizes its
+  own proposals with its own anchored knowledge.
+
+  The HTTP recall caught up with the tank while we were there: hits now
+  carry their `claims` and the query embeds through the store's embedder
+  seam (`embed_query`) instead of a raw projection; the browser recall
+  table renders the claim lines.
+
+* **The wish landscape — the findings become the wish menu**
+
+  The operator's words made executable: *"damit ließe sich eine ganze
+  Wunschlandschaft mappen."* `kosmo-run --landscape` runs the substrate
+  pipeline and projects every finding the wish vocabulary can express into
+  a ranked **wish-proposal landscape** (`kosmo_pipeline::propose_wishes`,
+  pure and deterministic): `MissingDocFiber{m}` → `Doc(stem(m))`,
+  `MissingTestFiber{m}` → `Test("<stem>_smoke")` — content-addressed
+  proposals carrying the void's severity (ranking **and** the adopted
+  predicate's weight), the subject module, and full provenance. Path
+  targets normalise to module stems (`src/router.rs` → `router`), so the
+  projection speaks the name the wish world observes.
+
+  Every proposal is measured against the observed topology and rendered
+  with an honest standing: **met**, **open** (adoptable), **beyond
+  observation** (non-Rust modules, crate roots — the wish world cannot see
+  the target, so it is residue, not a stalling wish), **beyond vocabulary**
+  (finding kinds no facet expresses yet — listed and counted, never
+  dropped). Inexpressible findings remain first-class residue
+  (`UnmappedVoid`).
+
+  `--adopt <n>` turns the top open proposals into ONE wish: predicates
+  weighted by severity (`WishPredicate::weighted`), the wish
+  evidence-bound to the diagnosis itself (`evidence_bundle_id` = the
+  pipeline `report_id`). Read-only by default — it prints the wish and the
+  contract line; under `--apply` the existing descent takes over. Live on
+  a mixed workspace: 6 proposals (2 open, 4 beyond observation), top-2
+  adopted, `iter 0: 0/2 UNSTARTED → iter 1: 2/2 REALIZED` — the doc stub
+  above `pub mod router;`, the smoke test in the lib.
+
+  Supporting growth in the Doc facet: module declarations are now
+  docu-observable (`/// above mod x;` yields `Doc(x)` — the same place the
+  Module facet is observed) and docu-scaffoldable
+  (`line_declares_module`), so module-level findings round-trip.
+
+  Diagnosis → landscape → choice → wish → descent → reality: the system
+  now proposes its own goals; the operator chooses; nothing is adopted
+  automatically (energy ranks, never gates — applied to intent).
+
+* **The Doc facet — the wish language learns the language of the findings**
+
+  Stage 2 begins where the substrate's diagnosis is loudest: its two most
+  common findings are missing tests and missing docs, and while tests were
+  already expressible, *"documented"* was not a wish the system could
+  measure. Now it is, end to end:
+
+  * `WishFacetKind::Doc` (keyed like `Symbol`, `name` or `name@crate`):
+    a public item carrying a doc comment immediately above its definition.
+  * **Observation** (`kosmo-intent::facets_from_source`): `///`, `//!` and
+    `#[doc = …]` lines are tracked through attribute blocks; documented
+    public items yield `Doc` facets, private or undocumented items honestly
+    do not.
+  * **Prose** (`compile_wish`): `docs of helper`, `docs for helper`,
+    `documented helper`, `documentation for helper` (`for` joins the
+    filler words, which also reads better for `a test for …`).
+  * **Deterministic scaffold** (`FacetScaffolder::scaffold_doc`): finds the
+    public item across the crate's sources, inserts a doc-stub line above
+    its attribute block (docs precede attrs), and stays an honest no-op
+    when the item is already documented or does not exist. The stub names
+    itself a stub — structurally present, honestly minimal, exactly the
+    contract `todo!()` scaffolds follow.
+  * **Convergence**, proven live and by test: `kosmo-run --wish "docs for
+    route" --apply` descends `UNSTARTED (0/1) → REALIZED (1/1)` with the
+    stub landing above the item; an already-documented item realizes
+    without writing; scaffold → observe round-trips (the second scaffold
+    is empty).
+
+  The loop this closes: the substrate *finds* `MissingDocFiber`, the
+  memory *anchors* it as claims, and the wish language can now *target*
+  it — diagnosis, memory, and intent finally speak one vocabulary.
+
+* **The memory tank — anchored knowledge carries content, and the
+  embedding becomes a versioned socket**
+
+  Stage 1 of the road past the masterwork skeleton: recall now returns
+  *knowledge*, not just metadata. Every ledger commit persists bounded
+  **claim lines** (`ILStore` index `claims`, 8 × 200 chars, deterministic):
+  `kosmo-promote --ledger` anchors what was actually certified — an
+  ensemble crystal carries its deduplicated member findings with
+  multiplicity (`void_hyp:MissingTestFiber … ×3`), a single crystal its
+  label, kind and metadata, both with evidence/run provenance. The claims
+  surface everywhere the memory does: `--recall` prints them under each
+  hit (text + JSON), `CrystalSummary.claims` →
+  `MemoryGroundingEntry.claims` → the LLM prompt's *Anchored knowledge*
+  section renders them as content lines, and the budget estimator counts
+  them honestly.
+
+  Underneath, the text-embedding seam is now explicit and swappable:
+  `pse_adapter_il::TextEmbedder` (deterministic, named, fixed-dimension)
+  with `HashEmbedder8`/`hash8-v1` wrapping the original 4-gram projection
+  bit-for-bit. The store's index is **tagged with its embedder id**
+  (pre-seam ledgers normalise to `hash8-v1`); opening a populated store
+  with a different embedder refuses loudly — cosine across embedding
+  functions is noise, and the system prefers failing to lying.
+  `ILStore::open_with_embedder` + `embed_query` make a real embedding
+  model a drop-in: the dim-4 test embedder round-trips commit → recall at
+  its own dimension, pinned by test. All query paths
+  (`context_for_query`, `build_grounded_prompt`, `causal_retrieval`,
+  `LedgerRecall`) go through the store's embedder.
+
+  Compatibility pinned by tests: pre-claims/pre-seam indexes load
+  unchanged (serde defaults; claims honestly empty), the default
+  embedder's vectors are bit-identical to the legacy projection, and the
+  whole content chain — promote-anchor → recall claims → grounding
+  claims → prompt lines — is asserted end to end.
+
+* **Memory-grounded synthesis — the anchored knowledge works**
+
+  The loop that closed at recall now drives the build: hand `kosmo-run` the
+  same Infinity-Ledger the promotion path anchors into (`--ledger <path>`,
+  `--ground-top <n>`), and every action's synthesis request is grounded in
+  the crystals the system has already learned — recalled per action with the
+  same Pfauenthron retrieval (`D = ψ·ρ·ω`) that powers
+  `kosmo-promote --recall`, rendered into the LLM prompt as a
+  clearly-delimited *Anchored knowledge* section, and **cited** in the
+  result: `SynthesisResult::grounding_crystal_ids` carries the provenance
+  from every generated patch back to the certified knowledge that informed
+  it (`kosmo-run` prints `memory grounded by N anchored crystal(s): …` per
+  step).
+
+  The bridge becomes a round trip without bending a single layering rule:
+  `kosmo-pse-bridge` gains the reverse-direction contract
+  (`MemoryRecall` trait + `MemoryGroundingEntry`, mirror of the cognition
+  layer's recall summary), `pse-adapter-kosmo::LedgerRecall` implements it
+  above both stacks, and `kosmo-*` consumers only ever see the trait —
+  CROSS-002 intact. `AgentSession::with_recall` grounds the agent loop
+  (`AgentOptions::grounding_top`), and the new
+  `kosmo_synthesizer::GroundedSynthesizer` wraps any backend with memory
+  for the wish-descent's LLM fallback. The discipline holds everywhere:
+  grounding is advisory context — float scores from the retrieval side
+  decorate prompts and reports but never gate, never enter a
+  content-addressed identity (`request_id` unchanged by context, house
+  rule); a missing ledger is a hard error; recall failures are loud
+  (fail-closed, never silent memory-free degradation); and an action that
+  resonates with nothing carries an honestly empty citation list.
+
+  Proven live end-to-end: `kosmo-promote --offer --batch --all-kinds
+  --calibration substrate --ledger …` anchored a polyglot workspace's
+  knowledge (14/14 accepted, Q5, all eight Kairos gates open), then
+  `kosmo-run --provider mock --ledger …` synthesized on the same workspace
+  with steps citing the anchored crystal — learning → anchoring →
+  remembering → **building with memory**, one unbroken chain.
+
+### Fixed
+
+* **Workspace builds on current stable (CI green again)** — two latent
+  breakages surfaced by the floating `stable` toolchain (CI: 1.96):
+
+  The six vendored Infinity-Ledger crates (`vendors/infinityledger/mef-*`)
+  are **auto-adopted into the root workspace** — cargo pulls path
+  dependencies living inside the repository into the enclosing workspace,
+  nested workspace manifest or not — so their `*.workspace = true` keys
+  resolve against the *root* `[workspace.dependencies]`. Two root-level
+  bumps therefore reached code that was never compiled against them:
+  `rand_distr` 0.6 (built on rand 0.10) met workspace `rand` 0.9 and broke
+  `mef-solvecoagula` (E0277), and the split ndarray lines (literal `0.15`
+  in mef-core/mef-solvecoagula vs workspace `0.17` in mef-tic/mef-spiral)
+  broke `mef-core`'s pipeline with cross-version `ArrayBase` types (E0308).
+  Fix: `rand_distr` pinned back to the 0.5 line with a comment documenting
+  the rand-pairing constraint, and all mef crates unified on workspace
+  ndarray. The lockfile shrank: `rand 0.10.1`, `rand_core 0.10.1`, and
+  `ndarray 0.15.6` left the graph.
+
+* **clippy 1.96** — `explicit_counter_loop` in the twin
+  `verify_integrity` loops (`kosmo-core/src/cartography.rs`,
+  `kosmo-store/src/lib.rs`) rewritten with the `(1_u64..).zip(…)` idiom;
+  two `unnecessary_sort_by` descending sorts (`kosmo-pipeline`,
+  `pse-adapter-il`) now use `sort_by_key(Reverse(…))`.
+
+* **rustdoc 1.96 under `-D warnings`** — stricter intra-doc-link scoping
+  surfaced 32 latent findings once the vendored crates compiled again:
+  cross-module links like `` [`ILStore::commit_as`] `` in `pse-adapter-il`
+  module docs now carry explicit `(crate::…)` targets, literal brackets in
+  prose (`∈ [0,1]`, tensor indices `T[1] − T[4]`, mef-spiral's PoR
+  formula) are code-spanned, and the unfenced USAGE blocks in
+  `nxalien-cli` / `kosmo-substrate` got the same ```text fences as the
+  other tools. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace` is
+  clean again.
+
+### Changed
+
+* **Supply-chain gates are now enforceable** (`cargo deny check` clean on
+  all four invariants):
+
+  * Every internal path dependency carries `version = "0.1.0"` (87
+    insertions across kosmo-*, the adapters, and mef-core). cargo-deny's
+    `wildcards = "deny"` counts versionless path dependencies as wildcard
+    requirements — the pse-* crates already followed the path+version
+    convention; the rest of the workspace now matches.
+  * `kosmo-promote` is `publish = false` like every other `tools/` binary.
+  * `deny.toml`: RUSTSEC-2024-0436 (paste — unmaintained, compile-time
+    proc-macro via simba ← nalgebra) documented-ignored;
+    `CDLA-Permissive-2.0` allowed (webpki-root-certs CA-bundle data via
+    rustls-platform-verifier ← reqwest).
+  * `security.yml`: the comment now states the actual behaviour — the
+    cargo-deny action checks the `--all-features` graph (its input
+    default), which is deliberately broader than what ships by default.
+
+### Added
+
 * **Recall — the anchored memory is queryable**
 
   The last missing link: remembering → finding. `kosmo-promote --recall

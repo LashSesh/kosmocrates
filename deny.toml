@@ -37,7 +37,13 @@ yanked = "warn"
 # `ignore` is the escape hatch for upstream advisories we cannot fix
 # (e.g. a dep on a yanked transitive). Document each entry with a
 # tracking issue.
-ignore = []
+ignore = [
+    # paste is unmaintained (not vulnerable). It is a compile-time-only
+    # proc-macro pulled via simba 0.9 <- nalgebra (0.34 via pse-metatron,
+    # 0.33 via the vendored IL crates). Drop this entry once nalgebra's
+    # simba line migrates off paste.
+    "RUSTSEC-2024-0436",
+]
 
 # ─── licenses ──────────────────────────────────────────────────────────────
 [licenses]
@@ -57,6 +63,9 @@ allow = [
     "CC0-1.0",             # tiny-keccak, some test fixtures
     "MPL-2.0",             # webpki-roots
     "OpenSSL",             # if ever pulled — combo with Apache-2.0 below
+    "CDLA-Permissive-2.0", # webpki-root-certs: Mozilla CA-bundle *data*
+                           # (via rustls-platform-verifier <- reqwest on
+                           # targets without a native trust store)
 ]
 # Workspace own crates default to MIT (see workspace.package.license).
 confidence-threshold = 0.92

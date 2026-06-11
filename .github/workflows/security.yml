@@ -32,6 +32,9 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.check }}
-          # `arguments: --all-features` would broaden the graph; we stay
-          # on default features to match what ships to consumers.
+          # The action's `arguments` input defaults to `--all-features`,
+          # so the checked graph includes optional features (e.g. the
+          # vendored IL crates behind pse-adapter-il's `il-pipeline`).
+          # That is broader than what ships by default — we keep it: a
+          # feature anyone can enable is part of the supply chain.
           rust-version: stable

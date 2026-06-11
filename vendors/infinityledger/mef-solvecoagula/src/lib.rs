@@ -514,7 +514,7 @@ mod tests {
         assert!(result.is_ok());
         let (_fixpoint, info) = result.unwrap();
         assert!(info.history.is_some());
-        assert!(info.lyapunov_series.len() > 0);
+        assert!(!info.lyapunov_series.is_empty());
     }
 
     #[test]
@@ -610,9 +610,11 @@ mod tests {
 
     #[test]
     fn test_convergence_with_custom_config() {
-        let mut config = SolveCoagulaConfig::default();
-        config.max_iter = 500;
-        config.eps = 1e-5;
+        let config = SolveCoagulaConfig {
+            max_iter: 500,
+            eps: 1e-5,
+            ..Default::default()
+        };
 
         let sc = SolveCoagula::new(config).unwrap();
 

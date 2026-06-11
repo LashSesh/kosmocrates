@@ -18,10 +18,12 @@ name = "kosmo-run"
 path = "src/main.rs"
 
 [dependencies]
-kosmo-core            = { path = "../../crates/kosmo-core" }
-kosmo-intent          = { path = "../../crates/kosmo-intent" }
-kosmo-pipeline        = { path = "../../crates/kosmo-pipeline" }
-kosmo-synthesizer     = { path = "../../crates/kosmo-synthesizer" }
-kosmo-synthesizer-llm = { path = "../../crates/kosmo-synthesizer-llm" }
-kosmo-agent           = { path = "../../crates/kosmo-agent" }
+kosmo-core            = { path = "../../crates/kosmo-core", version = "0.1.0" }
+kosmo-intent          = { path = "../../crates/kosmo-intent", version = "0.1.0" }
+kosmo-pipeline        = { path = "../../crates/kosmo-pipeline", version = "0.1.0" }
+kosmo-synthesizer     = { path = "../../crates/kosmo-synthesizer", version = "0.1.0" }
+kosmo-synthesizer-llm = { path = "../../crates/kosmo-synthesizer-llm", version = "0.1.0" }
+kosmo-agent           = { path = "../../crates/kosmo-agent", version = "0.1.0" }
+kosmo-pse-bridge      = { path = "../../crates/kosmo-pse-bridge", version = "0.1.0" }
+pse-adapter-kosmo     = { path = "../../adapters/pse-adapter-kosmo", version = "0.1.0" }
 serde_json            = { workspace = true }

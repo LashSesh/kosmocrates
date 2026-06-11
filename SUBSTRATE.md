@@ -111,6 +111,7 @@ kosmo-tui .
 kosmo-tui . --all
 
 # Keybindings: q=quit  r=rerun  p=promote (in-memory engine offer)
+#              l=landscape (findings → ranked wish proposals)
 #              ↑↓/jk=navigate  PgUp/PgDn=page  g/G=top/bottom
 ```
 
@@ -159,10 +160,19 @@ curl -s -X POST http://localhost:7777/api/promote \
 
 # Recall — Pfauenthron++ (D = ψ·ρ·ω) over the ledger; read-only, the
 # ledger must exist. The browser UI has a matching Recall panel.
+# Hits carry the anchored claim lines (`claims`) — content, not just scores.
 curl -s -X POST http://localhost:7777/api/recall \
   -H 'Content-Type: application/json' \
   -d '{"ledger":"~/.kosmo/il","query":"missing test coverage","top":5}' \
-  | jq '.results[] | {tripolar_score, qtic_class, question}'
+  | jq '.results[] | {tripolar_score, qtic_class, question, claims}'
+
+# Wish landscape — the findings projected into ranked wish proposals with a
+# measured standing (met/open/beyond-observation/beyond-vocabulary).
+# Read-only: adopting/descending stays on the operator CLI (kosmo-run).
+curl -s -X POST http://localhost:7777/api/landscape \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"."}' \
+  | jq '{open, met, top: .proposals[:3]}'
 ```
 
 ### 5. Promotion — `kosmo-promote` (substrate→core)
@@ -275,6 +285,40 @@ stability, provenance (the promotion scope travels as the crystal's
 `question`), and the **causal lineage** of the best hit. Recall is read-only
 by contract: it never creates a ledger; a missing path is a hard error,
 never a silent empty store.
+
+Since the memory-tank arc the hits carry **content, not just metadata**:
+the claim lines anchored at promotion time (what was certified, the
+deduplicated member findings of an ensemble crystal, the evidence
+provenance) persist in the ledger index — bounded to 8 × 200 chars per
+crystal — and surface under every hit:
+
+```text
+ 1. D=0.1245 | Q5 | stability 0.78 | t=0 | 7deecadf4eaeb37e | kosmo-promote:/tmp/ws
+    · ensemble of 14 certified candidates from the substrate gate cascade @ /tmp/ws
+    · void_hyp:MissingTestFiber (TopologyObservation) ×3
+    · ambiguity:Boundary (TopologyObservation) ×6
+    · evidence bundle 143f4685f1b7 | source run a2e8b2b080a9
+```
+
+Finally, the anchored memory **works**: hand the same ledger to the agent
+runner and every synthesis request is grounded in what the system has
+already learned — and every patch cites the crystals it received:
+
+```bash
+# 1. Learn: anchor this workspace's certified knowledge (Q5).
+kosmo-promote . --offer --batch --all-kinds --calibration substrate \
+    --ledger ~/.kosmo/il
+
+# 2. Build with memory: each action recalls its top crystals (Pfauenthron),
+#    the LLM prompt carries them as advisory context, and the run report
+#    shows  `memory  grounded by N anchored crystal(s): <ids>`  per step.
+kosmo-run --provider claude --ledger ~/.kosmo/il --ground-top 5 .
+```
+
+The grounding is advisory — it decorates prompts and reports, it never
+gates. A missing ledger is a hard error (memory explicitly asked for must
+exist), and an action whose description resonates with nothing carries an
+honestly empty citation list.
 
 ---
 

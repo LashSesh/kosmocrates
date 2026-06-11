@@ -384,8 +384,7 @@ impl CorpusCartographyStore for InMemoryCartographyStore {
             ));
         }
 
-        let mut expected_seq: u64 = 1;
-        for entry in &self.manifest.entries {
+        for (expected_seq, entry) in (1_u64..).zip(self.manifest.entries.iter()) {
             if !entry.verify_id() {
                 return Ok(CartographyIntegrityReport::new(
                     self.manifest.id,
@@ -407,7 +406,6 @@ impl CorpusCartographyStore for InMemoryCartographyStore {
                     evidence_bundle_id,
                 ));
             }
-            expected_seq += 1;
         }
 
         Ok(CartographyIntegrityReport::new(

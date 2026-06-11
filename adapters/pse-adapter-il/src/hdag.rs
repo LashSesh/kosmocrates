@@ -114,7 +114,7 @@ struct HDAGData {
 ///
 /// Acyclicity is maintained by the coherence potential gate:
 /// an edge (i→j) is created only when ψ(T_j) ≥ ψ(T_i) − ε,
-/// where ψ(T) = T[1] − T[4] (morphic − entropic).  This makes the
+/// where `ψ(T) = T[1] − T[4]` (morphic − entropic).  This makes the
 /// coherence potential monotonically non-decreasing along any path,
 /// which is incompatible with a cycle.
 pub struct HDAG {

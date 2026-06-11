@@ -18,15 +18,17 @@ serde_json     = { workspace = true }
 sha2           = { workspace = true }
 
 # Infinity Ledger crates — vendored from infinityledger-r-main.zip.
-# They remain in their own workspace (vendors/infinityledger/Cargo.toml)
-# so their deps (sha2 = "0.10", thiserror = "1", nalgebra = "0.33") are
-# resolved independently from PSE's workspace versions.
-mef-core       = { path = "../../vendors/infinityledger/mef-core",       optional = true }
-mef-ingestion  = { path = "../../vendors/infinityledger/mef-ingestion",   optional = true }
-mef-solvecoagula = { path = "../../vendors/infinityledger/mef-solvecoagula", optional = true }
-mef-tic        = { path = "../../vendors/infinityledger/mef-tic",         optional = true }
-mef-ledger     = { path = "../../vendors/infinityledger/mef-ledger",      optional = true }
-mef-spiral     = { path = "../../vendors/infinityledger/mef-spiral",      optional = true }
+# Although vendors/infinityledger/ carries its own workspace manifest,
+# cargo auto-adopts path dependencies living inside this repository into
+# the ROOT workspace: these six crates build as ordinary members, and
+# their `*.workspace = true` keys resolve against the root Cargo.toml.
+# Keep that in mind when bumping root [workspace.dependencies].
+mef-core       = { path = "../../vendors/infinityledger/mef-core", version = "0.1.0",       optional = true }
+mef-ingestion  = { path = "../../vendors/infinityledger/mef-ingestion", version = "0.1.0",   optional = true }
+mef-solvecoagula = { path = "../../vendors/infinityledger/mef-solvecoagula", version = "0.1.0", optional = true }
+mef-tic        = { path = "../../vendors/infinityledger/mef-tic", version = "0.1.0",         optional = true }
+mef-ledger     = { path = "../../vendors/infinityledger/mef-ledger", version = "0.1.0",      optional = true }
+mef-spiral     = { path = "../../vendors/infinityledger/mef-spiral", version = "0.1.0",      optional = true }
 
 [features]
 # Enable direct MEFCore pipeline (requires IL workspace to compile)

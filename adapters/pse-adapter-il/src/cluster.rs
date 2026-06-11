@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
-/// Configuration for [`ILStore::cluster_knowledge`].
+/// Configuration for [`ILStore::cluster_knowledge`](crate::ILStore::cluster_knowledge).
 #[derive(Debug, Clone)]
 pub struct ClusterConfig {
     /// Cosine similarity threshold for adding an edge to the similarity graph.
@@ -139,7 +139,7 @@ pub struct BridgeCrystal {
 
 /// Full knowledge topology report for an IL store.
 ///
-/// Built by [`ILStore::cluster_knowledge`].
+/// Built by [`ILStore::cluster_knowledge`](crate::ILStore::cluster_knowledge).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusteringReport {
     /// Configuration used to produce this report.

@@ -9,7 +9,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-kosmo-core = { path = "../kosmo-core" }
-kosmo-hyphae = { path = "../kosmo-hyphae" }
+kosmo-core = { path = "../kosmo-core", version = "0.1.0" }
+kosmo-hyphae = { path = "../kosmo-hyphae", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }

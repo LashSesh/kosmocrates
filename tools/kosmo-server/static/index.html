@@ -178,9 +178,22 @@ td.desc{word-break:break-word}
     </div>
   </div>
 
+  <div class="card">
+    <div class="path-row">
+      <label for="landscape-path">Wish landscape — workspace</label>
+      <input type="text" id="landscape-path" value="." placeholder="/path/to/workspace" spellcheck="false"
+             onkeydown="if(event.key==='Enter')runLandscape()">
+    </div>
+    <div class="actions-row">
+      <button id="landscape-btn" onclick="runLandscape()">Map the landscape</button>
+      <span id="landscape-status" class="status-msg"></span>
+    </div>
+  </div>
+
   <div id="error-box" class="error-card hidden"></div>
   <div id="promote-results"></div>
   <div id="recall-results"></div>
+  <div id="landscape-results"></div>
   <div id="results"></div>
 
 </main>
@@ -321,6 +334,58 @@ function renderPromote(d){
   out.innerHTML=html;
 }
 
+async function runLandscape(){
+  const btn=document.getElementById('landscape-btn');
+  const status=document.getElementById('landscape-status');
+  const errBox=document.getElementById('error-box');
+  const out=document.getElementById('landscape-results');
+  const path=document.getElementById('landscape-path').value.trim()||'.';
+
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Mapping…';
+  status.textContent='';
+  errBox.classList.add('hidden');
+
+  try{
+    const resp=await fetch('/api/landscape',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({path,all:false})
+    });
+    if(!resp.ok){
+      let msg='Landscape failed';
+      try{const j=await resp.json();msg=j.error||msg;}catch(_){}
+      errBox.textContent=msg;
+      errBox.classList.remove('hidden');
+      out.innerHTML='';
+      return;
+    }
+    const d=await resp.json();
+    status.textContent=`${d.proposals.length} proposal(s) · ${d.met} met · ${d.open} open`;
+    const badge=s=>({met:'✓',open:'✗','beyond-observation':'∅',unmeasured:'?'}[s]||'?');
+    let html=`<div class="card"><h2>Wish landscape <span class="count">${d.proposals.length}</span></h2>`;
+    html+=`<div class="meta-list"><div>met <span>${d.met}</span></div><div>open <span>${d.open}</span></div>`+
+          `<div>beyond observation <span>${d.beyond_observation}</span></div>`+
+          `<div>beyond vocabulary <span>${d.beyond_vocabulary}</span></div></div>`;
+    if(d.proposals.length){
+      html+=`<table><thead><tr><th></th><th>severity</th><th>facet</th><th>key</th><th>provenance</th></tr></thead><tbody>`;
+      d.proposals.forEach(p=>{
+        html+=`<tr><td>${badge(p.standing)}</td><td>${esc(p.severity)}</td><td>${esc(p.facet_kind)}</td><td><code>${esc(p.facet_key)}</code></td><td>${esc(p.rationale)}</td></tr>`;
+      });
+      html+=`</tbody></table>`;
+      html+=`<div class="meta-list"><div>adopt the open peaks <span><code>kosmo-run --landscape --adopt N --apply ${esc(path)}</code></span></div></div>`;
+    }
+    html+=`</div>`;
+    out.innerHTML=html;
+  }catch(e){
+    errBox.textContent='Request failed: '+e;
+    errBox.classList.remove('hidden');
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Map the landscape';
+  }
+}
+
 async function runRecall(){
   const btn=document.getElementById('recall-btn');
   const status=document.getElementById('recall-status');
@@ -362,7 +427,9 @@ async function runRecall(){
     }else{
       html+=`<table><thead><tr><th>#</th><th>D = ψ·ρ·ω</th><th>QTIC</th><th>stability</th><th>t</th><th>crystal</th><th>provenance</th></tr></thead><tbody>`;
       d.results.forEach((r,i)=>{
-        html+=`<tr><td>${i+1}</td><td>${r.tripolar_score.toFixed(4)}</td><td>Q${r.qtic_class??'-'}</td><td>${r.stability.toFixed(2)}</td><td>${r.commit_index}</td><td><code>${esc(r.crystal_id)}</code></td><td>${esc(r.question)}</td></tr>`;
+        const claims=(r.claims&&r.claims.length)
+          ?`<div class="dim">${r.claims.map(c=>`· ${esc(c)}`).join('<br>')}</div>`:'';
+        html+=`<tr><td>${i+1}</td><td>${r.tripolar_score.toFixed(4)}</td><td>Q${r.qtic_class??'-'}</td><td>${r.stability.toFixed(2)}</td><td>${r.commit_index}</td><td><code>${esc(r.crystal_id)}</code></td><td>${esc(r.question)}${claims}</td></tr>`;
       });
       html+=`</tbody></table>`;
       if(d.lineage){

@@ -14,17 +14,17 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-kosmo-core = { path = "../../crates/kosmo-core" }
-kosmo-hyphae = { path = "../../crates/kosmo-hyphae" }
-kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
-kosmo-foundry = { path = "../../crates/kosmo-foundry" }
-kosmo-store = { path = "../../crates/kosmo-store" }
-kosmo-parseback = { path = "../../crates/kosmo-parseback" }
-kosmo-operator = { path = "../../crates/kosmo-operator" }
-kosmo-kcube = { path = "../../crates/kosmo-kcube" }
-kosmo-systemcube = { path = "../../crates/kosmo-systemcube" }
-kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
-kosmo-workbench = { path = "../../crates/kosmo-workbench" }
+kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
+kosmo-hyphae = { path = "../../crates/kosmo-hyphae", version = "0.1.0" }
+kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge", version = "0.1.0" }
+kosmo-foundry = { path = "../../crates/kosmo-foundry", version = "0.1.0" }
+kosmo-store = { path = "../../crates/kosmo-store", version = "0.1.0" }
+kosmo-parseback = { path = "../../crates/kosmo-parseback", version = "0.1.0" }
+kosmo-operator = { path = "../../crates/kosmo-operator", version = "0.1.0" }
+kosmo-kcube = { path = "../../crates/kosmo-kcube", version = "0.1.0" }
+kosmo-systemcube = { path = "../../crates/kosmo-systemcube", version = "0.1.0" }
+kosmo-pipeline = { path = "../../crates/kosmo-pipeline", version = "0.1.0" }
+kosmo-workbench = { path = "../../crates/kosmo-workbench", version = "0.1.0" }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 

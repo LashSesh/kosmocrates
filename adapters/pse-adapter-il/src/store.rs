@@ -46,6 +46,30 @@ pub struct ILMatch {
     pub score: f64,
 }
 
+/// Maximum number of claims persisted per index entry.
+const MAX_CLAIMS: usize = 8;
+/// Maximum characters per persisted claim (deterministic char-boundary cut).
+const MAX_CLAIM_CHARS: usize = 200;
+
+/// Bound `source_chunks` into the persisted claim set: at most
+/// [`MAX_CLAIMS`] entries of at most [`MAX_CLAIM_CHARS`] characters each,
+/// empty chunks dropped. Deterministic — same chunks, same claims.
+fn bound_claims(source_chunks: &[String]) -> Vec<String> {
+    source_chunks
+        .iter()
+        .filter(|c| !c.trim().is_empty())
+        .take(MAX_CLAIMS)
+        .map(|c| {
+            if c.chars().count() > MAX_CLAIM_CHARS {
+                let cut: String = c.chars().take(MAX_CLAIM_CHARS - 1).collect();
+                format!("{cut}…")
+            } else {
+                c.clone()
+            }
+        })
+        .collect()
+}
+
 /// On-disk index entry (one per committed crystal).
 #[derive(Serialize, Deserialize, Clone)]
 struct IndexEntry {
@@ -54,6 +78,8 @@ struct IndexEntry {
     tic_id: String,
     block_hash: String,
     block_file: String,
+    /// Embedding vector. Historically always 8-dim (`hash8-v1`); its
+    /// dimension is whatever the index's `embedder_id` produces.
     vector8: Vec<f64>,
     /// Spiral phase derived from the fixpoint; used as HDAG node phase.
     phase: f64,
@@ -84,6 +110,12 @@ struct IndexEntry {
     /// Kuramoto coherence at commit time (topology_signature.kuramoto_coherence).
     #[serde(default)]
     kuramoto: f64,
+    /// The textual knowledge this crystal is anchored over — a bounded copy
+    /// of the `source_chunks` passed at commit time (see [`bound_claims`]).
+    /// Empty for commits that pre-date this field. This is what recall
+    /// surfaces as *content*, not just metadata.
+    #[serde(default)]
+    claims: Vec<String>,
 }
 
 fn default_stability() -> f64 {
@@ -94,6 +126,12 @@ fn default_stability() -> f64 {
 #[derive(Serialize, Deserialize, Default)]
 struct ILIndex {
     entries: Vec<IndexEntry>,
+    /// Which [`TextEmbedder`](crate::TextEmbedder) produced every vector in
+    /// `entries`. Empty on indexes that pre-date the seam — normalised to
+    /// [`HASH8_EMBEDDER_ID`](crate::HASH8_EMBEDDER_ID) at open when entries
+    /// exist. Mixing embedders in one store is refused at open.
+    #[serde(default)]
+    embedder_id: String,
 }
 
 /// File-based IL store: ledger blocks + cosine-similarity nearest-neighbour.
@@ -105,6 +143,10 @@ pub struct ILStore {
     genesis_hash: String,
     base_path: PathBuf,
     hdag: Option<HDAG>,
+    /// The one embedding function every vector in this store goes through
+    /// (see [`crate::embedder`]). Tagged into the index; mismatches refuse
+    /// to open.
+    embedder: std::sync::Arc<dyn crate::TextEmbedder>,
 
     #[cfg(feature = "il-pipeline")]
     mef_core: Option<MEFCore>,
@@ -113,8 +155,28 @@ pub struct ILStore {
 impl ILStore {
     /// Open or create an `ILStore` at `base_path`.
     /// `seed` is forwarded to `CrystalAdapter` (and MEFCore when active).
+    /// Uses the default [`HashEmbedder8`](crate::HashEmbedder8) (`hash8-v1`).
     pub fn open(base_path: impl AsRef<Path>, seed: &str) -> Result<Self, String> {
-        Self::open_inner(base_path, seed, false)
+        Self::open_inner(
+            base_path,
+            seed,
+            false,
+            std::sync::Arc::new(crate::HashEmbedder8),
+        )
+    }
+
+    /// Open or create an `ILStore` with a custom [`TextEmbedder`](crate::TextEmbedder).
+    ///
+    /// The store's index records the embedder id; opening a populated store
+    /// with a *different* embedder is a hard error (vectors from different
+    /// embedding functions are not comparable). This is the drop-in socket
+    /// for a real embedding model.
+    pub fn open_with_embedder(
+        base_path: impl AsRef<Path>,
+        seed: &str,
+        embedder: std::sync::Arc<dyn crate::TextEmbedder>,
+    ) -> Result<Self, String> {
+        Self::open_inner(base_path, seed, false, embedder)
     }
 
     /// Open or create an `ILStore` that drives `MEFCore::process()` internally.
@@ -124,13 +186,19 @@ impl ILStore {
     /// `il-pipeline` feature is compiled in.
     #[cfg(feature = "il-pipeline")]
     pub fn open_with_pipeline(base_path: impl AsRef<Path>, seed: &str) -> Result<Self, String> {
-        Self::open_inner(base_path, seed, true)
+        Self::open_inner(
+            base_path,
+            seed,
+            true,
+            std::sync::Arc::new(crate::HashEmbedder8),
+        )
     }
 
     fn open_inner(
         base_path: impl AsRef<Path>,
         seed: &str,
         #[allow(unused_variables)] with_pipeline: bool,
+        embedder: std::sync::Arc<dyn crate::TextEmbedder>,
     ) -> Result<Self, String> {
         let base = base_path.as_ref().to_path_buf();
         std::fs::create_dir_all(&base)
@@ -141,13 +209,31 @@ impl ILStore {
             .map_err(|e| format!("cannot create ledger dir: {e}"))?;
 
         let index_path = base.join("il_index.json");
-        let index = if index_path.exists() {
+        let mut index: ILIndex = if index_path.exists() {
             let s = std::fs::read_to_string(&index_path)
                 .map_err(|e| format!("cannot read IL index: {e}"))?;
             serde_json::from_str(&s).unwrap_or_default()
         } else {
             ILIndex::default()
         };
+
+        // Embedder discipline: a populated pre-seam index carries hash8-v1
+        // vectors by construction; tag it. A populated index tagged with a
+        // different embedder must not be queried through this one — cosine
+        // across embedding functions is noise, so refuse loudly.
+        if index.embedder_id.is_empty() && !index.entries.is_empty() {
+            index.embedder_id = crate::HASH8_EMBEDDER_ID.to_string();
+        }
+        if !index.entries.is_empty() && index.embedder_id != embedder.id() {
+            return Err(format!(
+                "IL store at {:?} was embedded with '{}' but opened with '{}' \
+                 — refusing mismatched retrieval",
+                base,
+                index.embedder_id,
+                embedder.id()
+            ));
+        }
+        index.embedder_id = embedder.id().to_string();
 
         let hdag = {
             let hdag_path = base.join("hdag");
@@ -182,9 +268,22 @@ impl ILStore {
             genesis_hash: "0".repeat(64),
             base_path: base,
             hdag,
+            embedder,
             #[cfg(feature = "il-pipeline")]
             mef_core,
         })
+    }
+
+    /// Embed free text with this store's embedder — the only correct way to
+    /// produce a query vector for this store's entries.
+    pub fn embed_query(&self, text: &str) -> Vec<f64> {
+        self.embedder.embed(text)
+    }
+
+    /// The id of the embedding function every vector in this store went
+    /// through (e.g. `"hash8-v1"`).
+    pub fn embedder_id(&self) -> &str {
+        &self.index.embedder_id
     }
 
     /// Convert a crystal and commit it to the ledger + index.
@@ -214,7 +313,7 @@ impl ILStore {
         question: &str,
     ) -> Result<ValidationFeedback, String> {
         let payload = self.build_payload(crystal, source_chunks, session, question)?;
-        let result = self.commit_payload(crystal, payload)?;
+        let result = self.commit_payload(crystal, payload, bound_claims(source_chunks))?;
 
         let mut feedback = ValidationFeedback::from_crystal_heuristic(
             result.block_hash.clone(),
@@ -282,15 +381,21 @@ impl ILStore {
             return Ok(payload);
         }
 
-        // Default PSE-side mapping
-        self.adapter
-            .convert_with_provenance(crystal, source_chunks, session, question)
+        // Default PSE-side mapping, embedded through this store's embedder.
+        self.adapter.convert_with_provenance_using(
+            self.embedder.as_ref(),
+            crystal,
+            source_chunks,
+            session,
+            question,
+        )
     }
 
     fn commit_payload(
         &mut self,
         crystal: &SemanticCrystal,
         payload: ILPayload,
+        claims: Vec<String>,
     ) -> Result<CommitResult, String> {
         // Idempotent: return existing data if already committed
         if let Some(existing) = self
@@ -400,6 +505,7 @@ impl ILStore {
             scale_tag: crystal.scale_tag.clone(),
             agent_id: String::new(), // set by commit_as() after the fact
             kuramoto: crystal.topology_signature.kuramoto_coherence,
+            claims,
         });
         self.save_index()?;
 
@@ -556,8 +662,8 @@ impl ILStore {
     ///
     /// Implements the Timeless Monolith tripolar formula D = ψ · ρ · ω:
     ///   ψ — IL semantic alignment: cosine(query_vec, crystal.vector8)
-    ///   ρ — PSE structural coherence: crystal stability_score ∈ [0,1]
-    ///   ω — HDAG temporal readiness: normalised coherence potential ∈ [0,1]
+    ///   ρ — PSE structural coherence: crystal stability_score ∈ `[0,1]`
+    ///   ω — HDAG temporal readiness: normalised coherence potential ∈ `[0,1]`
     ///
     /// Multiplicative form acts as a Gabriel4D Funnel: a crystal must score
     /// non-trivially on all three axes to reach the retrieval core.
@@ -884,7 +990,7 @@ impl ILStore {
     /// Aggregates per-crystal metrics into a [`MemoryHealthReport`] that
     /// reflects the current epistemic quality of the crystal store.
     ///
-    /// Call [`MemoryHealthReport::is_healthy`] to check whether the store
+    /// Call [`MemoryHealthReport::is_healthy`](crate::MemoryHealthReport::is_healthy) to check whether the store
     /// meets the baseline health criteria (≥ 80 % Q4+, mean uncertainty ≤ 0.30).
     ///
     /// [`MemoryHealthReport`]: crate::health::MemoryHealthReport
@@ -1012,23 +1118,20 @@ impl ILStore {
 
     /// Build a PSE-grounded LLM prompt for the given query.
     ///
-    /// 1. Embeds the query via [`text_to_vector8`].
+    /// 1. Embeds the query via the store's embedder ([`ILStore::embed_query`](crate::ILStore::embed_query)).
     /// 2. Selects crystals via Pfauenthron++ + the `PromptConfig` budget.
     /// 3. Optionally appends the causal explanation of the top-ranked crystal.
-    /// 4. Returns a [`GroundedPrompt`] with a structured system message and
+    /// 4. Returns a [`GroundedPrompt`](crate::GroundedPrompt) with a structured system message and
     ///    the unchanged user query.
     ///
-    /// Pass [`GroundedPrompt::system_message`] and [`GroundedPrompt::user_message`]
+    /// Pass [`GroundedPrompt::system_message`](crate::GroundedPrompt::system_message) and [`GroundedPrompt::user_message`](crate::GroundedPrompt::user_message)
     /// to any OpenAI-compatible SDK.
-    ///
-    /// [`text_to_vector8`]: crate::adapter::text_to_vector8
     pub fn build_grounded_prompt(
         &self,
         query: &str,
         config: &crate::prompt::PromptConfig,
     ) -> crate::prompt::GroundedPrompt {
-        use crate::adapter::text_to_vector8;
-        let query_vec = text_to_vector8(query);
+        let query_vec = self.embed_query(query);
         let all_entries = self.build_context_entries(&query_vec);
         let selected: Vec<crate::context::CrystalSummary> = config
             .budget
@@ -1224,6 +1327,7 @@ impl ILStore {
                     commit_index: entry.block_index,
                     scale_tag: entry.scale_tag.clone(),
                     question: entry.question.clone(),
+                    claims: entry.claims.clone(),
                 })
             })
             .collect();
@@ -1873,7 +1977,7 @@ impl ILStore {
                 }
             })
             .collect();
-        bridge_crystals.sort_by(|a, b| b.cross_cluster_degree.cmp(&a.cross_cluster_degree));
+        bridge_crystals.sort_by_key(|c| std::cmp::Reverse(c.cross_cluster_degree));
 
         let clustered = n - singletons.len();
         let clustered_fraction = clustered as f64 / n as f64;
@@ -1890,7 +1994,7 @@ impl ILStore {
 
     /// Causal retrieval: semantic search expanded through the HDAG causal graph.
     ///
-    /// 1. Embeds `query` via [`text_to_vector8`].
+    /// 1. Embeds `query` via the store's embedder ([`ILStore::embed_query`](crate::ILStore::embed_query)).
     /// 2. Selects `config.seed_k` crystals by Pfauenthron++ (D = ψ·ρ·ω).
     /// 3. Expands each seed up to `config.max_depth` hops through the causal
     ///    graph (ancestors, descendants, or both, as configured).
@@ -1903,22 +2007,20 @@ impl ILStore {
     /// The result carries [`CausalRole`] annotations so the LLM can
     /// distinguish seeds from causal context.
     ///
-    /// Use [`CausalRetrievalResult::to_annotated_context_block`] to build
+    /// Use [`CausalRetrievalResult::to_annotated_context_block`](crate::CausalRetrievalResult::to_annotated_context_block) to build
     /// the system message fragment, or pass each entry to a custom renderer.
     ///
-    /// [`text_to_vector8`]: crate::adapter::text_to_vector8
     /// [`CausalRole`]: crate::retrieval::CausalRole
     pub fn causal_retrieval(
         &self,
         query: &str,
         config: &crate::retrieval::CausalRetrievalConfig,
     ) -> crate::retrieval::CausalRetrievalResult {
-        use crate::adapter::text_to_vector8;
         use crate::context::CrystalSummary;
         use crate::retrieval::{CausalRetrievalResult, CausalRole, CausallyGroundedEntry};
         use std::collections::HashMap;
 
-        let query_vec = text_to_vector8(query);
+        let query_vec = self.embed_query(query);
         let alpha = config.causal_blend.clamp(0.0, 1.0);
 
         // ── Step 1: semantic seed selection ──────────────────────────────
@@ -1958,6 +2060,7 @@ impl ILStore {
                 commit_index: entry.block_index,
                 scale_tag: entry.scale_tag.clone(),
                 question: entry.question.clone(),
+                claims: entry.claims.clone(),
             })
         };
 
@@ -3509,5 +3612,150 @@ mod tests {
         assert!((metrics.stability - 0.80).abs() < 1e-9);
         assert!((metrics.coherence - 0.70).abs() < 1e-9);
         assert!((0.0..=1.0).contains(&metrics.uncertainty));
+    }
+
+    // ─── Claims: the memory carries content ──────────────────────────────────
+
+    #[test]
+    fn claims_persist_and_surface_in_recall() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+
+        let long = "x".repeat(500);
+        let mut chunks: Vec<String> = (0..9)
+            .map(|i| format!("claim {i}: module routing lacks tests"))
+            .collect();
+        chunks.push(long.clone());
+        chunks.push("   ".into()); // blank chunks are dropped
+
+        store
+            .commit_with_feedback(&dummy_crystal(0.8), &chunks, 0, "module routing tests")
+            .unwrap();
+        drop(store);
+
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        let hits = store.build_context_entries(&store.embed_query("module routing tests"));
+        assert!(!hits.is_empty());
+        let claims = &hits[0].claims;
+        assert_eq!(claims.len(), MAX_CLAIMS, "bounded to MAX_CLAIMS");
+        assert_eq!(claims[0], "claim 0: module routing lacks tests");
+        for c in claims {
+            assert!(c.chars().count() <= MAX_CLAIM_CHARS);
+        }
+    }
+
+    #[test]
+    fn legacy_index_without_new_fields_still_opens_as_hash8() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("ledger")).unwrap();
+        // A pre-seam index: no `embedder_id`, no `claims` on the entry.
+        let legacy = serde_json::json!({
+            "entries": [{
+                "block_index": 0,
+                "crystal_id_hex": "ab".repeat(32),
+                "tic_id": "ab".repeat(8),
+                "block_hash": "00".repeat(32),
+                "block_file": "block_000000.mef",
+                "vector8": [0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "phase": 0.1
+            }]
+        });
+        std::fs::write(
+            dir.path().join("il_index.json"),
+            serde_json::to_string_pretty(&legacy).unwrap(),
+        )
+        .unwrap();
+
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        assert_eq!(
+            store.embedder_id(),
+            crate::HASH8_EMBEDDER_ID,
+            "legacy => hash8"
+        );
+        assert_eq!(store.len(), 1);
+        // Pre-claims entries surface with honestly empty claims.
+        let summaries = store.build_context_entries(&[0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert!(!summaries.is_empty());
+        assert!(summaries[0].claims.is_empty());
+    }
+
+    // ─── Embedder seam: versioned, swappable, fail-closed ────────────────────
+
+    /// Deterministic 4-dim test embedder (char-class histogram).
+    struct Test4;
+    impl crate::TextEmbedder for Test4 {
+        fn id(&self) -> &str {
+            "test4-v1"
+        }
+        fn dim(&self) -> usize {
+            4
+        }
+        fn embed(&self, text: &str) -> Vec<f64> {
+            let mut v = [1e-6f64; 4];
+            for ch in text.chars() {
+                let b = if ch.is_alphabetic() {
+                    0
+                } else if ch.is_numeric() {
+                    1
+                } else if ch.is_whitespace() {
+                    2
+                } else {
+                    3
+                };
+                v[b] += 1.0;
+            }
+            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            v.iter().map(|x| x / norm).collect()
+        }
+    }
+
+    #[test]
+    fn embedder_mismatch_refuses_to_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ILStore::open(dir.path(), "TEST").unwrap();
+        store
+            .commit_with_feedback(&dummy_crystal(0.7), &["anchored".into()], 0, "a question")
+            .unwrap();
+        drop(store);
+
+        let err = ILStore::open_with_embedder(dir.path(), "TEST", std::sync::Arc::new(Test4))
+            .err()
+            .expect("mismatched embedder must refuse");
+        assert!(err.contains("hash8-v1"), "names the stored embedder: {err}");
+        assert!(
+            err.contains("test4-v1"),
+            "names the offered embedder: {err}"
+        );
+        assert!(err.contains("refusing"), "{err}");
+
+        // The store stays usable with the right embedder.
+        let store = ILStore::open(dir.path(), "TEST").unwrap();
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn custom_embedder_roundtrip_at_its_own_dimension() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store =
+            ILStore::open_with_embedder(dir.path(), "TEST", std::sync::Arc::new(Test4)).unwrap();
+        assert_eq!(store.embedder_id(), "test4-v1");
+
+        store
+            .commit_with_feedback(
+                &dummy_crystal(0.8),
+                &["alpha beta gamma".into()],
+                0,
+                "letters only here",
+            )
+            .unwrap();
+        drop(store);
+
+        let store =
+            ILStore::open_with_embedder(dir.path(), "TEST", std::sync::Arc::new(Test4)).unwrap();
+        let q = store.embed_query("letters only here");
+        assert_eq!(q.len(), 4, "query vector carries the embedder's dimension");
+        let hits = store.build_context_entries(&q);
+        assert!(!hits.is_empty(), "dim-4 store must answer dim-4 queries");
+        assert!(hits[0].tripolar_score > 0.0);
     }
 }

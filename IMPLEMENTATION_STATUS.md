@@ -1,10 +1,10 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅ → RunFacet ✅ → RuntimeCapstone ✅ → ServiceFacet ✅ → XLangTopology ✅ → XLangResonance ✅ → WishDocs ✅ → CiGatesGreen ✅ → CertifiedCrystalOffer ✅ → PseAdapterKosmo ✅ → PromoteCLI ✅ → EngineMemory ✅ → StoreSource ✅ → FeedbackLoop ✅ → QticCertificates ✅ → ConvergenceMap ✅ → EnsembleResonance ✅ → SubstrateCalibration ✅ → IlAnchorQ5 ✅ → PfauenthronRecall ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅ → RunFacet ✅ → RuntimeCapstone ✅ → ServiceFacet ✅ → XLangTopology ✅ → XLangResonance ✅ → WishDocs ✅ → CiGatesGreen ✅ → CertifiedCrystalOffer ✅ → PseAdapterKosmo ✅ → PromoteCLI ✅ → EngineMemory ✅ → StoreSource ✅ → FeedbackLoop ✅ → QticCertificates ✅ → ConvergenceMap ✅ → EnsembleResonance ✅ → SubstrateCalibration ✅ → IlAnchorQ5 ✅ → PfauenthronRecall ✅ → MemoryGroundedSynthesis ✅ → MemoryTank ✅ → EmbedderSocket ✅ → DocFacet ✅ → WishLandscape ✅ → LandscapeSurfaces ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1177 substrate-layer tests** (kosmo-core 384, kosmo-hyphae 231, kosmo-pse-bridge 36, kosmo-kcube 25, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 23, kosmo-store 14, kosmo-pipeline 125, kosmo-synthesizer 37, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 72, kosmo-llm 14, kosmo-intent-llm 9, kosmo-sandbox 13, kosmo-run 22, kosmo-foundry 13, pse-adapter-kosmo 13, kosmo-promote 18) — 0 failures. `--pruefstand --validated`: 13/13 corpus scenarios faithful (keystone at unit, process, and service boundaries)
+- **1194 substrate-layer tests** (kosmo-core 384, kosmo-hyphae 231, kosmo-pse-bridge 38, kosmo-kcube 25, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 23, kosmo-store 14, kosmo-pipeline 125, kosmo-synthesizer 42, kosmo-synthesizer-llm 16, kosmo-agent 27, kosmo-materialize 11, kosmo-intent 72, kosmo-llm 14, kosmo-intent-llm 9, kosmo-sandbox 13, kosmo-run 24, kosmo-foundry 13, pse-adapter-kosmo 16, kosmo-promote 18) — 0 failures. `--pruefstand --validated`: 13/13 corpus scenarios faithful (keystone at unit, process, and service boundaries)
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **CI gates green for the whole kosmo layer**: `fmt --check`, `clippy --all-targets`, `test --all-targets`, `test --doc`, `doc --no-deps` — all under `-D warnings` ✅
 - **Substrate→core unification end to end**: `CertifiedCrystal` offer (`crystal_to_pse_candidate`) → `pse-adapter-kosmo` → `pse_core::macro_step`; `kosmo-promote` operator CLI with cross-session engine memory (`--state`), the CAD library as source (`--store`), the verdict→fitness loop (`--feedback`), and the Infinity-Ledger anchor (`--ledger`) ✅
@@ -23,6 +23,51 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Landscape surfaces + armed adoption (2026-06-11)
+
+The landscape on every surface, with one standing definition — and adopted descents carry the full armament.
+
+- `kosmo_pipeline::{LandscapeStanding, measure_landscape}`: the honesty column lifted into the pipeline; CLI, server and TUI share it (kosmo-run refactored onto it).
+- `POST /api/landscape` (read-only; adoption stays on the CLI) + browser panel with standing badges; TUI `l` keybinding (summary + top peaks, dynamic stats height).
+- Adoption armed: `wish_fallback`/`arm_fallback` factored and shared by wish mode and landscape adoption — deterministic scaffolds first, provider-gated LLM fallback, memory-grounded under `--ledger`.
+- HTTP recall caught up with the tank: `claims` in results, query via the store's embedder seam (`embed_query`); browser renders claim lines.
+- +1 server test (endpoint maps/measures; bad path is a hard error; claims over HTTP pinned in the e2e test), +1 TUI test (core maps and measures; render total over both arms).
+
+### The wish landscape — the findings become the wish menu (2026-06-11)
+
+The whole workspace's findings, mapped into one ranked wish landscape — the operator chooses, the descent realizes.
+
+- `kosmo_pipeline::propose_wishes(&[HostVoid]) -> WishLandscape` (pure, deterministic, content-addressed): `MissingDocFiber{m}` → `Doc(stem)`, `MissingTestFiber{m}` → `Test("<stem>_smoke")`; severity = rank = adopted predicate weight; dedup per facet (max severity), inexpressible findings stay first-class residue (`UnmappedVoid`).
+- `kosmo-run --landscape [--adopt n] [--apply]`: measured standing per proposal (met / open / beyond observation / beyond vocabulary — fail-soft to unmeasured without cargo); adoption builds ONE `Wish` (weighted predicates, `evidence_bundle_id` = the diagnosis `report_id`); read-only without `--apply`; exit 4 when an adopted descent does not realize.
+- Doc facet grew to modules: `/// above mod x;` observes `Doc(x)`; `scaffold_doc` docks at the declaration (`line_declares_module`).
+- Live: mixed workspace → 6 proposals (2 open, 4 beyond observation), top-2 adopted → `0/2 UNSTARTED → 2/2 REALIZED`, stub + smoke test on disk. +3 pipeline tests, +3 CLI tests (JSON standings, read-only contract, adopt-descend through the real binary).
+
+### The Doc facet — findings become wishes (2026-06-11)
+
+The wish language learns the substrate's loudest finding: `MissingDocFiber` is now a *measurable target*, not just a diagnosis.
+
+- `WishFacetKind::Doc` + `WishFacet::doc()` (keyed `name` / `name@crate`); observation in `facets_from_source` (`///`, `//!`, `#[doc=…]`, tracked through attribute blocks; public items only); prose forms `docs of|for X`, `documented X`, `documentation for X` (`for` joins FILLERS).
+- `FacetScaffolder::scaffold_doc`: workspace-wide item search (`walk_rs_files` + `line_declares_pub_item`), stub inserted above the attribute block, honest no-ops (already documented / unknown item), crate-targetable via `@`.
+- Convergence pinned: `descend_realizes_doc_wish` (unmet → scaffold → REALIZED, stub lands above the item), realized-without-writing for documented items, scaffold→observe round-trip. Live: `kosmo-run --wish "docs for route" --apply` → `iter 0: 0/1 UNSTARTED → iter 1: 1/1 REALIZED ✓`. +2 intent, +4 scaffolder, +2 kosmo-run tests.
+
+### The memory tank + the embedder socket (2026-06-11)
+
+Stage 1 past the skeleton: the memory carries content, and the perception sharpness becomes upgradeable.
+
+- **Claims**: every ledger commit persists bounded claim lines (`ILStore` index, 8 × 200 chars; blank chunks dropped, deterministic truncation). `kosmo-promote --ledger` anchors real findings — ensemble crystals carry deduplicated member labels with multiplicity, single crystals their metadata, both with evidence/run provenance. Surfaced under every `--recall` hit (text + JSON), through `CrystalSummary.claims` → `MemoryGroundingEntry.claims` → content lines in the LLM prompt's *Anchored knowledge* section; the context budget counts them.
+- **Embedder seam**: `TextEmbedder` trait (deterministic, named, fixed-dim) + `HashEmbedder8` (`hash8-v1`, bit-for-bit the legacy 4-gram projection). The index is tagged with its embedder id; pre-seam stores normalise to `hash8-v1`; a populated store opened with a different embedder refuses loudly. `open_with_embedder` + `embed_query`; every query path goes through the store's embedder. A dim-4 test embedder round-trips commit → recall at its own dimension — a real embedding model is a drop-in, not a surgery.
+- Live: the polyglot workspace's ensemble crystal recalls with its findings catalogue (`ensemble of 14 certified candidates`, `void_hyp:MissingTestFiber … ×3`, `ambiguity:Boundary ×6`, evidence line) and grounds `kosmo-run` synthesis with that content. +5 IL-store tests, +1 embedder test, content assertions pinned across adapter/llm/promote.
+
+### Memory-grounded synthesis — the anchored knowledge works (2026-06-11)
+
+The chain's last link: learning → anchoring → remembering → **building with memory**.
+
+- The bridge becomes a round trip with the layering intact (CROSS-002): `kosmo-pse-bridge` carries the reverse-direction contract (`MemoryRecall` trait + `MemoryGroundingEntry`, field-for-field mirror of the cognition layer's recall summary); `pse-adapter-kosmo::LedgerRecall` implements it above both stacks (same Pfauenthron retrieval as `--recall`); `kosmo-*` consumers only see the trait.
+- `kosmo-run --ledger <path> [--ground-top n]`: every action's synthesis request is grounded in its top recalled crystals (query = the action description); the LLM prompt carries them as a delimited *Anchored knowledge* section (advisory: "always verify against the workspace"); `AgentSession::with_recall` + `GroundedSynthesizer` (wraps any backend with memory — used for the wish-descent's LLM fallback).
+- Provenance end-to-end: `SynthesisResult::grounding_crystal_ids` cites exactly what each synthesis received (`.citing(request)` in every backend — Mock, FacetScaffolder, LLM); `kosmo-run` prints `memory  grounded by N anchored crystal(s): <ids>` per step. Honesty pinned by tests: empty resonance ⇒ empty citations; context never enters `request_id`; old serialized requests/results still parse.
+- Fail-closed: missing ledger = hard error (CLI test), broken recall aborts the run loudly (`AgentError::Recall`) or surfaces as a transient `SynthesisError` (wrapper) — never silent memory-free degradation. Read-only recall pinned (the ledger does not grow).
+- Live proof: promote anchored a polyglot workspace (14/14 ACCEPTED, Q5, kairos true) → `kosmo-run --provider mock --ledger` on the same workspace synthesized steps citing the anchored crystal. +3 bridge, +3 adapter, +5 synthesizer, +2 synthesizer-llm, +3 agent, +2 kosmo-run tests.
 
 ### Pfauenthron recall — the memory is queryable (2026-06-11)
 

@@ -328,6 +328,7 @@ fn run_recall(query: &str, args: &Args) -> ! {
                     "commit_index": e.commit_index,
                     "scale_tag": e.scale_tag,
                     "question": e.question,
+                    "claims": e.claims,
                 })
             })
             .collect();
@@ -362,6 +363,9 @@ fn run_recall(query: &str, args: &Args) -> ! {
                 e.crystal_id,
                 e.question
             );
+            for claim in &e.claims {
+                println!("        · {claim}");
+            }
         }
         // The lineage of the best hit — retrieval returns not just a fact
         // but where it came from.
@@ -373,6 +377,55 @@ fn run_recall(query: &str, args: &Args) -> ! {
         }
     }
     process::exit(0)
+}
+
+/// The claim lines anchored alongside a promoted crystal — the textual
+/// knowledge the ledger entry carries (the store bounds them to 8 × 200
+/// chars). Deterministic: what was certified, which members an ensemble
+/// crystal carries, and the evidence provenance.
+fn ensemble_claims(
+    members: &[&kosmo_pse_bridge::PseBridgeCandidate],
+    workspace: &str,
+) -> Vec<String> {
+    let Some(first) = members.first() else {
+        return vec![];
+    };
+    let mut claims = Vec::new();
+    if members.len() == 1 {
+        claims.push(format!(
+            "{} — certified {:?} candidate from the substrate gate cascade @ {}",
+            first.label, first.kind, workspace
+        ));
+        // Single crystal: its metadata (language, fingerprint_id, …) is the content.
+        for (k, v) in first.metadata.iter().take(5) {
+            claims.push(format!("{k}: {v}"));
+        }
+    } else {
+        claims.push(format!(
+            "ensemble of {} certified candidates from the substrate gate cascade @ {}",
+            members.len(),
+            workspace
+        ));
+        // Ensemble crystal: the member labels are the content (deduplicated,
+        // first-seen order, with multiplicity).
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for c in members {
+            let line = format!("{} ({:?})", c.label, c.kind);
+            match counts.iter_mut().find(|(l, _)| *l == line) {
+                Some((_, n)) => *n += 1,
+                None => counts.push((line, 1)),
+            }
+        }
+        for (line, n) in counts.into_iter().take(6) {
+            claims.push(if n > 1 { format!("{line} ×{n}") } else { line });
+        }
+    }
+    claims.push(format!(
+        "evidence bundle {} | source run {}",
+        &first.evidence_bundle_id.to_hex()[..12],
+        &first.source_run_id.to_hex()[..12]
+    ));
+    claims
 }
 
 /// The thresholds the Kairos gate actually applied on the last step: the
@@ -615,7 +668,21 @@ fn main() {
                 if anchored.contains_key(&crystal.crystal_id) {
                     continue;
                 }
-                let chunks = vec![candidates[i].label.clone()];
+                // The chunks are the crystal's *content*: what the substrate
+                // certified, in operator-readable claim lines. They shape the
+                // embedding AND persist as the entry's claims — what recall
+                // (and memory-grounded synthesis) later surfaces as knowledge,
+                // not just metadata. An ensemble crystal (one crystal carrying
+                // a whole batch) aggregates the claims of every member.
+                let members: Vec<&kosmo_pse_bridge::PseBridgeCandidate> = offers
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| {
+                        o.crystal.as_ref().map(|c| c.crystal_id) == Some(crystal.crystal_id)
+                    })
+                    .map(|(j, _)| &candidates[j])
+                    .collect();
+                let chunks = ensemble_claims(&members, &args.path);
                 match il.commit_with_feedback(
                     crystal,
                     &chunks,

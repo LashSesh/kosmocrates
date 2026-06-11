@@ -9,7 +9,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-kosmo-core = { path = "../kosmo-core" }
+kosmo-core = { path = "../kosmo-core", version = "0.1.0" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

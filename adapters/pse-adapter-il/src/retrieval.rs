@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
-/// Configuration for [`ILStore::causal_retrieval`].
+/// Configuration for [`ILStore::causal_retrieval`](crate::ILStore::causal_retrieval).
 #[derive(Debug, Clone)]
 pub struct CausalRetrievalConfig {
     /// Number of seed crystals to select via Pfauenthron++ before causal expansion.
@@ -169,7 +169,7 @@ impl CausalRetrievalResult {
 
     /// Build a `[PSE-CONTEXT]` block with causal role annotations.
     ///
-    /// Drop-in replacement for the output of [`ILStore::context_for_query`],
+    /// Drop-in replacement for the output of [`ILStore::context_for_query`](crate::ILStore::context_for_query),
     /// but with `[SEED]` / `[ANCESTOR depth=N]` / `[DESCENDANT depth=N]`
     /// suffixes so the LLM can reason about the provenance of each entry.
     pub fn to_annotated_context_block(&self) -> String {
@@ -228,6 +228,7 @@ mod tests {
             commit_index: 1,
             scale_tag: "test".to_string(),
             question: "test question".to_string(),
+            claims: vec![],
         }
     }
 

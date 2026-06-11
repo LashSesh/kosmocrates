@@ -82,7 +82,7 @@ pub struct CausalLink {
 /// Complete causal structure derived from the HDAG.
 ///
 /// Build via [`CausalGraph::from_edges`] (called internally by
-/// [`ILStore::build_causal_graph`]).
+/// [`ILStore::build_causal_graph`](crate::ILStore::build_causal_graph)).
 #[derive(Debug, Clone, Default)]
 pub struct CausalGraph {
     pub links: Vec<CausalLink>,

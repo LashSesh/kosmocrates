@@ -12,6 +12,8 @@
 //!     POST /api/analyse       Run pipeline, return structured report
 //!     POST /api/promote       Substrate→core promotion (offer/batch/
 //!                             calibration/ledger — mirrors kosmo-promote)
+//!     POST /api/landscape     The wish landscape: findings projected into
+//!                             ranked wish proposals with measured standing
 //!     POST /api/recall        Pfauenthron++ retrieval over an Infinity
 //!                             Ledger (read-only; the ledger must exist)
 //! ```
@@ -311,6 +313,14 @@ fn default_calibration() -> String {
 }
 
 #[derive(Deserialize)]
+struct LandscapeRequest {
+    path: String,
+    /// Enable all optional pipeline layers (heavier scan).
+    #[serde(default)]
+    all: bool,
+}
+
+#[derive(Deserialize)]
 struct RecallRequest {
     /// Infinity-Ledger directory. Must exist — recall is read-only and
     /// never creates a ledger.
@@ -508,7 +518,9 @@ fn do_recall(req: &RecallRequest) -> Result<serde_json::Value, String> {
     }
     let il = pse_adapter_il::ILStore::open(path, "kosmo-server")
         .map_err(|e| format!("cannot open ledger {}: {e}", req.ledger))?;
-    let query_vec = pse_adapter_il::text_to_vector8(&req.query);
+    // The store's embedder seam — never a raw projection (hash8 by default,
+    // tagged in the index; a mismatched store refuses upstream).
+    let query_vec = il.embed_query(&req.query);
     let mut entries = il.build_context_entries(&query_vec);
     entries.truncate(req.top.max(1));
     let lineage = entries
@@ -525,6 +537,7 @@ fn do_recall(req: &RecallRequest) -> Result<serde_json::Value, String> {
                 "commit_index": e.commit_index,
                 "scale_tag": e.scale_tag,
                 "question": e.question,
+                "claims": e.claims,
             })
         })
         .collect();
@@ -535,6 +548,62 @@ fn do_recall(req: &RecallRequest) -> Result<serde_json::Value, String> {
         "results": rows,
         "lineage": lineage,
     }))
+}
+
+/// Synchronous landscape core — the substrate's findings projected into the
+/// wish vocabulary, measured against the observed topology. Read-only; the
+/// server never adopts or descends (that is the operator CLI's job).
+fn do_landscape(req: &LandscapeRequest) -> Result<serde_json::Value, String> {
+    let policy = kosmo_core::PolicyProfile::default_report_only();
+    let options = if req.all {
+        kosmo_pipeline::IntegrationRunOptions::all_layers(100)
+    } else {
+        kosmo_pipeline::IntegrationRunOptions::report_only()
+    };
+    let report = kosmo_pipeline::run_workspace_pipeline(&req.path, &options, &policy)
+        .map_err(|e| format!("pipeline failed on {}: {e}", req.path))?;
+    let landscape = kosmo_pipeline::propose_wishes(&report.hyphae_result.host_cube.void_map.voids);
+    let observed = kosmo_intent::observe_workspace_deep(&req.path).ok();
+    let standing = kosmo_pipeline::measure_landscape(&landscape, observed.as_ref());
+
+    let count = |s: kosmo_pipeline::LandscapeStanding| standing.iter().filter(|x| **x == s).count();
+    let rows: Vec<serde_json::Value> = landscape
+        .proposals
+        .iter()
+        .zip(&standing)
+        .map(|(p, s)| {
+            serde_json::json!({
+                "facet_kind": format!("{:?}", p.facet.kind),
+                "facet_key": p.facet.key,
+                "severity": format!("{:.2}", p.severity.to_f64()),
+                "subject": p.subject,
+                "rationale": p.rationale,
+                "standing": s.label(),
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "path": req.path,
+        "report_id": report.report_id.to_hex(),
+        "proposals": rows,
+        "met": count(kosmo_pipeline::LandscapeStanding::Met),
+        "open": count(kosmo_pipeline::LandscapeStanding::Open),
+        "beyond_observation": count(kosmo_pipeline::LandscapeStanding::BeyondObservation),
+        "beyond_vocabulary": landscape.unmapped.len(),
+        "unmapped": landscape
+            .unmapped
+            .iter()
+            .map(|u| serde_json::json!({"kind": u.kind_label, "location": u.location}))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+async fn landscape(Json(req): Json<LandscapeRequest>) -> Result<Json<serde_json::Value>, ApiError> {
+    tokio::task::spawn_blocking(move || do_landscape(&req))
+        .await
+        .map_err(|e| ApiError(e.to_string()))?
+        .map(Json)
+        .map_err(ApiError)
 }
 
 async fn promote(Json(req): Json<PromoteRequest>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -636,7 +705,8 @@ async fn main() {
         .route("/api/health", get(health))
         .route("/api/analyse", post(analyse))
         .route("/api/promote", post(promote))
-        .route("/api/recall", post(recall));
+        .route("/api/recall", post(recall))
+        .route("/api/landscape", post(landscape));
 
     let addr_str = format!("{}:{}", args.host, args.port);
     let addr: SocketAddr = addr_str.parse().unwrap_or_else(|_| {
@@ -771,7 +841,7 @@ mod tests {
             "anchored → Q5"
         );
 
-        // The HTTP recall finds what the HTTP promote anchored.
+        // The HTTP recall finds what the HTTP promote anchored — with content.
         let recall = do_recall(&RecallRequest {
             ledger: ledger.to_string_lossy().into_owned(),
             query: "missing test coverage for a module".into(),
@@ -782,6 +852,55 @@ mod tests {
         assert!(!results.is_empty(), "anchored knowledge must be findable");
         assert_eq!(results[0]["qtic_class"], 5);
         assert!(recall["lineage"].as_str().is_some(), "lineage present");
+        assert!(
+            !results[0]["claims"].as_array().unwrap().is_empty(),
+            "the tank's claims surface over HTTP too"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn landscape_endpoint_maps_and_measures() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-server-landscape-{nanos}"));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub mod router;\n").unwrap();
+        std::fs::write(
+            root.join("src/router.rs"),
+            "pub fn dispatch(p: &str) -> u32 { p.len() as u32 }\n",
+        )
+        .unwrap();
+
+        let doc = do_landscape(&LandscapeRequest {
+            path: root.to_string_lossy().into_owned(),
+            all: false,
+        })
+        .expect("landscape must succeed");
+        let proposals = doc["proposals"].as_array().unwrap();
+        assert!(!proposals.is_empty(), "findings project to proposals");
+        let router_doc = proposals
+            .iter()
+            .find(|p| p["facet_key"] == "router" && p["facet_kind"] == "Doc")
+            .expect("doc proposal for the undocumented module");
+        assert_eq!(router_doc["standing"], "open");
+        assert!(doc["open"].as_u64().unwrap() >= 1);
+        assert!(!doc["report_id"].as_str().unwrap().is_empty());
+
+        // A nonexistent path is a hard error, not an empty landscape.
+        assert!(do_landscape(&LandscapeRequest {
+            path: "/nonexistent/kosmo-landscape-xyz".into(),
+            all: false,
+        })
+        .is_err());
 
         std::fs::remove_dir_all(&root).ok();
     }

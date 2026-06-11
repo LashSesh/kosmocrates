@@ -52,6 +52,13 @@ pub enum WishFacetKind {
     Contract,
     /// A test is present (`#[test] fn name`), keyed by the test function name.
     Test,
+    /// A **documented** public item is present: the item named by the key
+    /// carries a doc comment (`///` or `#[doc = …]`) immediately above its
+    /// definition. The wish-language mirror of the substrate's most common
+    /// finding (`MissingDocFiber`): "docs of helper" is now a measurable
+    /// target, not just a diagnosis. Keyed like [`WishFacetKind::Symbol`]
+    /// (bare name, optionally `name@crate`).
+    Doc,
     /// A *validated behaviour* is present, keyed by a spec `"name(args)=>expected"`.
     /// The keystone of the behaviour axis: this facet is satisfied **only** when
     /// a scaffolded spec-test pinning that input→output pair actually *passes*
@@ -106,6 +113,10 @@ impl WishFacet {
     }
     pub fn symbol(path: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Symbol, path)
+    }
+    /// A documented-item facet: the named public item carries a doc comment.
+    pub fn doc(path: impl Into<String>) -> Self {
+        Self::new(WishFacetKind::Doc, path)
     }
     pub fn capability(tag: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Capability, tag)

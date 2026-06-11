@@ -56,7 +56,8 @@ The loop is built from six load-bearing parts (the framing the dev log uses):
 
 1. **Target** — `Wish` (`kosmo-core/src/wish.rs:273`). A content-addressed set
    of `WishPredicate`s over `WishFacet`s (a crate exists, a module exists, a
-   symbol exists, a test passes, a program runs, a service responds).
+   symbol exists, a symbol is *documented*, a test passes, a program runs, a
+   service responds).
 2. **Ruler** — `assess_wish` (`kosmo-core/src/wish.rs:430`). Measures the
    `Q16` **distance** between an observed topology and the wish: the
    weighted fraction of unmet predicates. `ZERO` = realized, `ONE` = nothing met.
@@ -161,6 +162,17 @@ selected. Three properties keep this honest:
    to the full materialization gate. Under the default `ReportOnly` policy it is
    `SkippedByPolicy` — written nowhere. Energy and confidence *rank*; they never
    *gate* (CROSS-010).
+4. **Memory grounds, it does not gate.** With `--ledger <path>` each request is
+   grounded in the anchored Infinity-Ledger knowledge (Pfauenthron recall per
+   action; `kosmo_pse_bridge::MemoryRecall`): the top crystals ride along as a
+   clearly-delimited advisory prompt section, and the resulting patch **cites**
+   the crystal IDs it received (`grounding_crystal_ids`) — auditable provenance
+   from a generated patch back to certified knowledge. Each recalled entry
+   carries its **claims** (the bounded knowledge lines anchored at promotion
+   time: what was certified, which findings an ensemble carries, the evidence
+   provenance), so the prompt section is substance, not just scores. Recall
+   failures are loud (a memory explicitly attached must answer), and nothing
+   recalled ever enters a gate or a content-addressed identity.
 
 Swap the LLM for `FacetScaffolder` (`--scaffold`) or `MockSynthesizer` and the
 **entire** loop becomes deterministic and offline — the mode the 147-scenario
@@ -191,6 +203,14 @@ kosmo-run --wish "<prose>" --scaffold --apply .
 # Apply and land each accepted patch as its own git commit:
 kosmo-run --provider mock --apply --commit .
 
+# The substrate's findings are expressible as wishes: MissingDocFiber ⇒
+# "docs for route" — measured, deterministically scaffolded, converged:
+kosmo-run --wish "docs for route" --apply .
+
+# Ground synthesis in the anchored memory (see SUBSTRATE.md §5 — first
+# `kosmo-promote --ledger` learns, then this builds with what was learned):
+kosmo-run --provider claude --ledger ~/.kosmo/il --ground-top 5 .
+
 # Prüfstand — the built-in fidelity harness over a reference corpus:
 kosmo-run --pruefstand
 ```
@@ -198,6 +218,42 @@ kosmo-run --pruefstand
 `--apply` is the only flag that writes to disk, and it still runs every patch
 through the materialization validator (cargo check / test) before keeping it,
 rolling back on failure.
+
+### The wish landscape — the findings become the wish menu
+
+The substrate diagnoses; the wish language expresses; `--landscape` connects
+the two automatically, workspace-wide:
+
+```bash
+# Map every finding the wish vocabulary can express into a ranked landscape:
+kosmo-run --landscape .
+
+# Adopt the top-3 open proposals as ONE wish (printed, read-only) …
+kosmo-run --landscape --adopt 3 .
+
+# … and descend it (deterministic scaffolds; the only writing path):
+kosmo-run --landscape --adopt 3 --apply .
+```
+
+Every void the projection can express (`propose_wishes`, kosmo-pipeline)
+becomes a [`WishProposal`] — facet, severity (= ranking *and* the adopted
+predicate's weight), subject, and provenance (`MissingDocFiber @
+src/router.rs`). Each proposal is measured against the observed topology and
+rendered with an honest standing: **met** (already satisfied), **open**
+(observable and unmet — adoptable), **beyond observation** (the wish world
+cannot see the target, e.g. a non-Rust module or a crate root), or **beyond
+vocabulary** (findings no facet kind expresses yet — listed, counted, never
+silently dropped). An adopted wish is evidence-bound to the diagnosis: its
+`evidence_bundle_id` is the pipeline `report_id` that proposed it.
+
+The landscape is on every surface: the CLI above, `POST /api/landscape`
+(kosmo-server, read-only), the browser panel ("Map the landscape"), and the
+TUI (`l`). And an adopted descent carries the full armament: the
+deterministic scaffolder first, then — when `--provider` is chosen — the
+LLM fallback, memory-grounded under `--ledger`
+(`kosmo-run --landscape --adopt 3 --apply --provider claude --ledger
+~/.kosmo/il`): the system realizes its own proposals with its own anchored
+knowledge.
 
 ---
 

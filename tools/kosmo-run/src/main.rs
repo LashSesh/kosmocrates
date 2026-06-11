@@ -40,9 +40,16 @@ use kosmo_intent::{
     compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
     observe_workspace_validated, WishSession,
 };
-use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
-use kosmo_synthesizer::{ActionSynthesizer, FacetScaffolder, MockSynthesizer, SynthesisRequest};
+use kosmo_pipeline::{
+    measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem, ActionItemKind,
+    IntegrationRunOptions, LandscapeStanding, WishProposal,
+};
+use kosmo_pse_bridge::MemoryRecall;
+use kosmo_synthesizer::{
+    ActionSynthesizer, FacetScaffolder, GroundedSynthesizer, MockSynthesizer, SynthesisRequest,
+};
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
+use pse_adapter_kosmo::LedgerRecall;
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
@@ -75,6 +82,16 @@ struct Args {
     /// Run the empirical Prüfstand: descend a reference corpus of known-good
     /// (and deliberately broken) systems and report the fidelity.
     pruefstand: bool,
+    /// Path to an Infinity-Ledger store: synthesis is then grounded in the
+    /// anchored memory (Pfauenthron recall per action). Missing path = error.
+    ledger: Option<String>,
+    /// How many recalled crystals to attach per action (default 5).
+    ground_top: u32,
+    /// Landscape mode: map every substrate finding the wish vocabulary can
+    /// express into a ranked wish-proposal landscape (read-only).
+    landscape: bool,
+    /// Adopt the top-N open proposals as a wish (descends with --apply).
+    adopt: u32,
 }
 
 impl Default for Args {
@@ -97,6 +114,10 @@ impl Default for Args {
             provider_set: false,
             wish_session: None,
             pruefstand: false,
+            ledger: None,
+            ground_top: 5,
+            landscape: false,
+            adopt: 0,
         }
     }
 }
@@ -138,7 +159,24 @@ OPTIONS:\n\
     --pruefstand          descend a built-in reference corpus of known-good and\n\
                           deliberately broken systems; report fidelity and exit\n\
                           non-zero if any verdict is wrong (--validated runs the\n\
-                          behavioural scenarios' suites too)\n\n\
+                          behavioural scenarios' suites too)\n\
+\n\
+  LANDSCAPE MODE (the findings become the wish menu):\n\
+    --landscape           run the substrate pipeline and project every finding\n\
+                          the wish vocabulary can express into a ranked\n\
+                          wish-proposal landscape: met/open/beyond-vocabulary,\n\
+                          each with severity and provenance. Read-only.\n\
+    --adopt <n>           adopt the top-N open proposals as ONE wish (weighted\n\
+                          by severity). Without --apply: prints the wish.\n\
+                          With --apply: descends it (deterministic scaffolds).\n\
+\n\
+  MEMORY (anchored knowledge from the promotion ledger):\n\
+    --ledger <path>       ground every synthesis in the Infinity-Ledger memory:\n\
+                          per action, the top recalled crystals (Pfauenthron\n\
+                          D = \u{3c8}\u{b7}\u{3c1}\u{b7}\u{3c9}) ride along as advisory context and each\n\
+                          patch cites the crystals it received. Read-only; a\n\
+                          missing ledger is a hard error, never a silent skip.\n\
+    --ground-top <n>      recalled crystals per action (default: 5)\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -206,6 +244,24 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
             "--pruefstand" | "--testbench" => args.pruefstand = true,
+            "--landscape" => args.landscape = true,
+            "--adopt" => {
+                args.adopt = argv
+                    .next()
+                    .ok_or("--adopt needs a value")?
+                    .parse()
+                    .map_err(|_| "--adopt must be a number")?;
+            }
+            "--ledger" => {
+                args.ledger = Some(argv.next().ok_or("--ledger needs a value")?);
+            }
+            "--ground-top" => {
+                args.ground_top = argv
+                    .next()
+                    .ok_or("--ground-top needs a value")?
+                    .parse()
+                    .map_err(|_| "--ground-top must be a number")?;
+            }
             "--json" => args.json = true,
             "--no-color" => args.color = false,
             other if other.starts_with('-') => {
@@ -257,6 +313,63 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
         other => Err(format!(
             "unknown provider '{other}' (expected claude | cerebras | mock | env)"
         )),
+    }
+}
+
+/// Arm an optional LLM fallback with the anchored memory: with `--ledger`,
+/// every fallback request is grounded in recalled knowledge before the LLM
+/// sees it ([`GroundedSynthesizer`]). The deterministic scaffolder needs no
+/// memory — it builds exactly. Shared by wish mode and landscape adoption.
+fn arm_fallback(
+    args: &Args,
+    inner: Option<Arc<dyn ActionSynthesizer>>,
+) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
+    Ok(match (inner, open_recall(args)?) {
+        (Some(inner), Some(recall)) => Some(Arc::new(GroundedSynthesizer::new(
+            inner,
+            recall,
+            args.ground_top as usize,
+        ))),
+        (None, Some(recall)) => {
+            eprintln!(
+                "kosmo-run: --ledger {} attached but no LLM fallback is active \
+                 (add --provider); the deterministic scaffolder runs memory-free",
+                recall.source()
+            );
+            None
+        }
+        (inner, None) => inner,
+    })
+}
+
+/// The optional LLM fallback for facet realization: built only when a
+/// provider was explicitly chosen, then armed with memory via
+/// [`arm_fallback`]. Deterministic-only when `None`.
+fn wish_fallback(args: &Args) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
+    let inner = if args.provider_set {
+        match build_synthesizer(args) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("kosmo-run: LLM fallback disabled ({e}); deterministic only");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    arm_fallback(args, inner)
+}
+
+/// Open the anchored memory when `--ledger` was given. Hard error on a
+/// missing or unreadable store — memory explicitly asked for must exist
+/// (the read-only contract of `LedgerRecall::open`).
+fn open_recall(args: &Args) -> Result<Option<Arc<dyn MemoryRecall>>, String> {
+    match &args.ledger {
+        Some(p) => {
+            let recall = LedgerRecall::open(Path::new(p))?;
+            Ok(Some(Arc::new(recall)))
+        }
+        None => Ok(None),
     }
 }
 
@@ -373,6 +486,15 @@ fn render_text(report: &AgentRunReport, synth_name: &str, color: bool) {
         );
         println!("    action  {}", truncate(&step.action.description, 100));
         println!("    why     {}", truncate(&step.synthesis.rationale, 100));
+        if !step.synthesis.grounding_crystal_ids.is_empty() {
+            println!(
+                "    memory  {}grounded by {} anchored crystal(s): {}{}",
+                c(CYAN),
+                step.synthesis.grounding_crystal_ids.len(),
+                truncate(&step.synthesis.grounding_crystal_ids.join(", "), 80),
+                c(RESET)
+            );
+        }
         if let Some(hint) = &step.synthesis.test_hint {
             println!("    verify  {}{}{}", c(DIM), hint, c(RESET));
         }
@@ -460,6 +582,198 @@ fn wish_needs_service(wish: &Wish) -> bool {
 /// workspace, and report the distance to the wish (which facets are present,
 /// which are missing). With `--scaffold`, also print the changes that would
 /// close the gap. No LLM and no key required.
+/// Landscape mode: run the substrate pipeline, project its findings into the
+/// wish vocabulary ([`propose_wishes`]), measure every proposal against the
+/// observed topology, and render the ranked landscape. `--adopt <n>` turns
+/// the top open proposals into ONE severity-weighted wish — printed by
+/// default, descended under `--apply` (deterministic scaffolds only).
+fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
+    let policy = PolicyProfile::default_report_only();
+    let options = if args.all_layers {
+        IntegrationRunOptions::all_layers(args.capacity)
+    } else {
+        IntegrationRunOptions::report_only()
+    };
+    let report = run_workspace_pipeline(&args.path, &options, &policy)
+        .map_err(|e| format!("pipeline failed on {}: {e}", args.path))?;
+    let voids = &report.hyphae_result.host_cube.void_map.voids;
+    let landscape = propose_wishes(voids);
+
+    // Measure: which proposals are already met, which targets can the wish
+    // world even see? (A non-Rust module is honest residue, not a stalling
+    // wish.) Observation needs a cargo workspace — fail-soft to "unmeasured".
+    let observed = observe_workspace_deep(&args.path).ok();
+    let standing = measure_landscape(&landscape, observed.as_ref());
+
+    let met = standing
+        .iter()
+        .filter(|s| **s == LandscapeStanding::Met)
+        .count();
+    let open = standing
+        .iter()
+        .filter(|s| **s == LandscapeStanding::Open)
+        .count();
+    let invisible = standing
+        .iter()
+        .filter(|s| **s == LandscapeStanding::BeyondObservation)
+        .count();
+
+    if args.json {
+        let rows: Vec<serde_json::Value> = landscape
+            .proposals
+            .iter()
+            .zip(&standing)
+            .map(|(p, s)| {
+                serde_json::json!({
+                    "facet_kind": format!("{:?}", p.facet.kind),
+                    "facet_key": p.facet.key,
+                    "severity": format!("{:?}", p.severity),
+                    "subject": p.subject,
+                    "rationale": p.rationale,
+                    "standing": s.label(),
+                })
+            })
+            .collect();
+        let doc = serde_json::json!({
+            "path": args.path,
+            "report_id": report.report_id.to_hex(),
+            "proposals": rows,
+            "met": met,
+            "open": open,
+            "beyond_observation": invisible,
+            "beyond_vocabulary": landscape.unmapped.len(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates wish landscape{}  {}{}{}",
+            c(BOLD),
+            c(RESET),
+            c(DIM),
+            args.path,
+            c(RESET)
+        );
+        println!(
+            "  {} proposal(s) · {}{} met{} · {}{} open{} · {} beyond observation · {} beyond vocabulary",
+            landscape.proposals.len(),
+            c(GREEN),
+            met,
+            c(RESET),
+            c(YELLOW),
+            open,
+            c(RESET),
+            invisible,
+            landscape.unmapped.len()
+        );
+        for (p, s) in landscape.proposals.iter().zip(&standing) {
+            let (mark, color) = match s {
+                LandscapeStanding::Met => ("\u{2713}", GREEN),
+                LandscapeStanding::Open => ("\u{2717}", YELLOW),
+                LandscapeStanding::BeyondObservation => ("\u{2205}", DIM),
+                LandscapeStanding::Unmeasured => ("?", DIM),
+            };
+            println!(
+                "    {}{}{} sev={:>5} {:?} {}  {}\u{2190} {}{}",
+                c(color),
+                mark,
+                c(RESET),
+                format!("{:.2}", p.severity.to_f64()),
+                p.facet.kind,
+                p.facet.key,
+                c(DIM),
+                p.rationale,
+                c(RESET)
+            );
+        }
+        if !landscape.unmapped.is_empty() {
+            println!(
+                "  {}beyond the wish vocabulary today ({} finding(s)):{}",
+                c(DIM),
+                landscape.unmapped.len(),
+                c(RESET)
+            );
+            for u in landscape.unmapped.iter().take(5) {
+                println!(
+                    "    {}\u{2014} {} @ {}{}",
+                    c(DIM),
+                    u.kind_label,
+                    u.location,
+                    c(RESET)
+                );
+            }
+        }
+    }
+
+    // ── Adoption: the top of the landscape becomes ONE wish ──────────────────
+    if args.adopt > 0 {
+        let adopted: Vec<&WishProposal> = landscape
+            .proposals
+            .iter()
+            .zip(&standing)
+            .filter(|(_, s)| **s == LandscapeStanding::Open)
+            .map(|(p, _)| p)
+            .take(args.adopt as usize)
+            .collect();
+        if adopted.is_empty() {
+            println!("\nnothing open to adopt — the landscape is either met or beyond reach");
+            return Ok(ExitCode::SUCCESS);
+        }
+        let predicates = adopted
+            .iter()
+            .map(|p| kosmo_core::WishPredicate::weighted(p.facet.clone(), p.severity));
+        // Evidence: the wish is bound to the diagnosis that proposed it.
+        let wish = Wish::new(
+            format!("landscape: top {} of {}", adopted.len(), args.path),
+            predicates,
+            Digest::ZERO,
+            report.report_id,
+        );
+        println!("\n{} adopted as one wish:", adopted.len());
+        for p in &adopted {
+            println!(
+                "    {:?} {}  (weight {:.2})",
+                p.facet.kind,
+                p.facet.key,
+                p.severity.to_f64()
+            );
+        }
+        if !args.apply {
+            println!("  (read-only — add --apply to descend the adopted wish)");
+            return Ok(ExitCode::SUCCESS);
+        }
+        // Adopted wishes descend with the same armament as wish mode: the
+        // deterministic scaffolder first, then — when a provider is chosen —
+        // the LLM fallback, memory-grounded under --ledger. Landscape meets
+        // tank: the system realizes its own proposals with its own knowledge.
+        let fallback = wish_fallback(args)?;
+        let session = descend_to_wish(
+            &args.path,
+            &wish,
+            report.report_id,
+            false,
+            8,
+            fallback.as_deref(),
+            None,
+        )?;
+        print!("{}", descent_report(&session, args.color));
+        let realized = session
+            .latest()
+            .map(|a| matches!(a.status, WishClosureStatus::Realized))
+            .unwrap_or(false);
+        return Ok(if realized {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(4)
+        });
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
 fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let prose = args.wish.as_deref().unwrap_or("");
     // Bind the wish's identity to its prose — content-addressed, deterministic.
@@ -475,18 +789,8 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     // re-observe, until the wish is realized. This WRITES to the workspace.
     if args.apply {
         // LLM fallback for facets the deterministic scaffolder can't build —
-        // only when a provider was explicitly chosen (else: deterministic only).
-        let fallback = if args.provider_set {
-            match build_synthesizer(args) {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    eprintln!("kosmo-run: LLM fallback disabled ({e}); deterministic only");
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        // provider-gated, memory-armed under --ledger (see wish_fallback).
+        let fallback = wish_fallback(args)?;
         let prior = args
             .wish_session
             .as_deref()
@@ -836,6 +1140,13 @@ fn run() -> Result<ExitCode, String> {
         });
     }
 
+    // Landscape mode: the substrate's findings, projected into the wish
+    // vocabulary as a ranked proposal landscape. Read-only unless --adopt
+    // (+ --apply) turns the top of the landscape into a descent.
+    if args.landscape {
+        return run_landscape_mode(&args);
+    }
+
     // Wish mode is deterministic and offline (no LLM, no key): compile the
     // prose, observe the workspace, and report the distance to the wish.
     if args.wish.is_some() {
@@ -859,6 +1170,7 @@ fn run() -> Result<ExitCode, String> {
         dry_run: !args.apply,
         pipeline_options,
         commit_to_git: args.commit && args.apply,
+        grounding_top: args.ground_top,
     };
     // --apply escalates to OperatorApproved (host writes permitted, gated by
     // per-patch cargo validation + rollback). Default stays report-only.
@@ -871,6 +1183,16 @@ fn run() -> Result<ExitCode, String> {
     let mut session = AgentSession::new(options, policy, synthesizer);
     if args.apply {
         session = session.with_validator(Arc::new(CargoFoundryValidator::new()));
+    }
+    if let Some(recall) = open_recall(&args)? {
+        if !args.json {
+            println!(
+                "memory  {} (top {} recalled crystal(s) per action)",
+                recall.source(),
+                args.ground_top
+            );
+        }
+        session = session.with_recall(recall);
     }
     let report = session.run(&args.path).map_err(|e| e.to_string())?;
 
@@ -996,6 +1318,66 @@ mod tests {
             Err(e) => eprintln!("observe unavailable, skipping: {e}"),
         }
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descend_realizes_doc_wish() {
+        let _guard = heavy();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-doc-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        // The function exists but is undocumented — the substrate's
+        // MissingDocFiber finding, expressed as a wish.
+        fs::write(root.join("src/lib.rs"), "pub fn helper() -> u32 { 1 }\n").unwrap();
+
+        let prose = "docs for helper";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "doc descent should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                assert!(session.iterations() >= 2, "unmet → scaffold → met");
+                let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+                assert!(
+                    lib.lines().next().unwrap().starts_with("/// `helper`"),
+                    "the doc stub landed above the item: {lib}"
+                );
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn doc_wish_on_documented_item_is_realized_without_writing() {
+        let (w, a) = assess_against("docs of helper", &[WishFacet::doc("helper")]);
+        let out = wish_report(&w, &a, false);
+        assert!(out.contains("REALIZED"), "got: {out}");
+        assert!(matches!(a.status, WishClosureStatus::Realized));
     }
 
     #[test]

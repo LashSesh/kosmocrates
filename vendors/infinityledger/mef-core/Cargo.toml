@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-ndarray = "0.15"
+ndarray = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
@@ -19,18 +19,22 @@ chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3.8"
-mef-spiral = { path = "../mef-spiral" }
+mef-spiral = { path = "../mef-spiral", version = "0.1.0" }
 
 # Pipeline dependencies (promoted from dev to main for MEFCore::process())
 [dependencies.mef-ingestion]
 path = "../mef-ingestion"
+version = "0.1.0"
 
 [dependencies.mef-solvecoagula]
 path = "../mef-solvecoagula"
+version = "0.1.0"
 
 [dependencies.mef-tic]
 path = "../mef-tic"
+version = "0.1.0"
 
 [dependencies.mef-ledger]
 path = "../mef-ledger"
+version = "0.1.0"
 
