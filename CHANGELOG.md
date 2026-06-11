@@ -15,6 +15,64 @@ note explicitly says so.
 
 ### Added
 
+* **Full QTIC — the Infinity-Ledger lift (Q5 for promoted substrate knowledge)**
+
+  The meeting point `docs/CONVERGENCE.md` §5 named is live: the two HDAGs meet
+  *through the crystal*. `kosmo-promote --ledger <path>` anchors every accepted
+  crystal via the canonical `pse_adapter_il::ILStore::commit_with_feedback`
+  path — a ledger block (the canonical trace anchor), an IL-HDAG node (the 5D
+  resonance tensor the code-born structure acquires), and the path-invariance
+  check — and the returned certificate supersedes the promotion path's Q3
+  ceiling. Live on a seven-language workspace, accepted crystals report
+  **`QTIC Q5 — Path-invariant QTIC — full QTIC (PathInv = 1)`** with their
+  block hash: the same conformance class the cognition system awards its own
+  best memory. Anchoring is deduplicated per unique crystal, **idempotent**
+  (an identical crystal re-anchors to the same block; the ledger does not
+  grow — pinned by test), and a host write, so the flag is the operator's
+  authorization and nothing acts outside `--offer` mode.
+
+* **Resonance — substrate knowledge crystallizes in the cognition engine**
+
+  The calibration finding, fixed end to end, with each blocker made visible
+  before each fix. New gate diagnostics print the eight Kairos metrics against
+  the effective thresholds plus the engine state, so *why deferred* is always
+  answerable. They exposed two structural blockers in sequence: (1) the engine
+  forms graph edges *pairwise within a batch* and the adapter mapped every
+  candidate to the **same** vertex, so the connectivity metric `j` was pinned
+  at zero — fixed by per-candidate vertex identity
+  (`observation_source_id`) and `offer_batch`, which co-observes the
+  candidates as one ensemble (`j` 0.000 → 0.935 live) while attribution stays
+  per-candidate and honest via `crystal.region` membership; (2)
+  `engine: Rejected("consensus failed")` — the carrier physics is sensor-
+  tuned — addressed by `--calibration substrate`, which follows the
+  `preset_anomaly_detection` rationale verbatim (the fully-armed 8-fold
+  conjunctive Kairos gate is the discriminant; the cascade consensus stands
+  down). Result, live on a 7-language workspace: **30/30 ACCEPTED**, real
+  `SemanticCrystal`s (stability 0.76, region = the full 30-vertex ensemble),
+  archived and warm-starting the next session. Every relaxation is an explicit
+  operator choice (`--batch`, `--ticks`, `--calibration`); the conservative
+  default calibration stays fail-closed and commits nothing — pinned by test.
+
+* **QTIC certificates, the memory→action loop, and the convergence map**
+
+  Three pieces rounding the unification into an operable whole. (1) Every
+  crystal committed through the promotion path receives a **QTIC conformance
+  certificate** (`pse_adapter_kosmo::qtic_for_promoted`): classes are earned,
+  never granted — unanchored promotions honestly cap at Q3 with
+  `trace_ready`/`path_inv` naming exactly what an IL commit adds. (2)
+  `kosmo-promote --feedback <path>` closes the loop in the other direction:
+  engine verdicts persist as `PromotionFeedback` (`Accepted` → full fitness,
+  `Deferred` → ¼, `Rejected`/`Skipped` → zero) and load into the next run's
+  `prior_feedback`, where pipeline Step 5c folds them into
+  `NormFitnessTrace`s — memory shapes the next run's ranking. (3)
+  [`docs/CONVERGENCE.md`](docs/CONVERGENCE.md) maps every echo structure
+  between the layers (energy, crystals, gates, Metatron², HDAG², stores) with
+  per-pair verdicts and the **never-converge list** (dependency direction,
+  arithmetic split, decision split, fail-closed defaults). Plus: the README
+  two-layer notice now reflects the validated, connected state, and an MSRV
+  violation in `pse-adapter-il` (`is_multiple_of`, 1.87+) that would have
+  broken the 1.82 CI job is fixed.
+
 * **Promotion memory — cross-session engine state and the CAD library as a source**
 
   The promotion path learns. `kosmo-promote --state <path>` persists the PSE

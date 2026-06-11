@@ -1,13 +1,14 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅ → RunFacet ✅ → RuntimeCapstone ✅ → ServiceFacet ✅ → XLangTopology ✅ → XLangResonance ✅ → WishDocs ✅ → CiGatesGreen ✅ → CertifiedCrystalOffer ✅ → PseAdapterKosmo ✅ → PromoteCLI ✅ → EngineMemory ✅ → StoreSource ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅ → RunFacet ✅ → RuntimeCapstone ✅ → ServiceFacet ✅ → XLangTopology ✅ → XLangResonance ✅ → WishDocs ✅ → CiGatesGreen ✅ → CertifiedCrystalOffer ✅ → PseAdapterKosmo ✅ → PromoteCLI ✅ → EngineMemory ✅ → StoreSource ✅ → FeedbackLoop ✅ → QticCertificates ✅ → ConvergenceMap ✅ → EnsembleResonance ✅ → SubstrateCalibration ✅ → IlAnchorQ5 ✅  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
-- **1162 substrate-layer tests** (kosmo-core 384, kosmo-hyphae 231, kosmo-pse-bridge 36, kosmo-kcube 25, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 23, kosmo-store 14, kosmo-pipeline 125, kosmo-synthesizer 37, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 72, kosmo-llm 14, kosmo-intent-llm 9, kosmo-sandbox 13, kosmo-run 22, kosmo-foundry 13, pse-adapter-kosmo 9, kosmo-promote 7) — 0 failures. `--pruefstand --validated`: 13/13 corpus scenarios faithful (keystone at unit, process, and service boundaries)
+- **1174 substrate-layer tests** (kosmo-core 384, kosmo-hyphae 231, kosmo-pse-bridge 36, kosmo-kcube 25, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 23, kosmo-store 14, kosmo-pipeline 125, kosmo-synthesizer 37, kosmo-synthesizer-llm 14, kosmo-agent 24, kosmo-materialize 11, kosmo-intent 72, kosmo-llm 14, kosmo-intent-llm 9, kosmo-sandbox 13, kosmo-run 22, kosmo-foundry 13, pse-adapter-kosmo 13, kosmo-promote 15) — 0 failures. `--pruefstand --validated`: 13/13 corpus scenarios faithful (keystone at unit, process, and service boundaries)
 - **147/147 eval scenarios** pass (kosmo-eval KOSMO-OPS-01 full benchmark)
 - **CI gates green for the whole kosmo layer**: `fmt --check`, `clippy --all-targets`, `test --all-targets`, `test --doc`, `doc --no-deps` — all under `-D warnings` ✅
-- **Substrate→core unification end to end**: `CertifiedCrystal` offer (`crystal_to_pse_candidate`) → `pse-adapter-kosmo` → `pse_core::macro_step`; `kosmo-promote` operator CLI with cross-session engine memory (`--state`) and the CAD library as source (`--store`) ✅
+- **Substrate→core unification end to end**: `CertifiedCrystal` offer (`crystal_to_pse_candidate`) → `pse-adapter-kosmo` → `pse_core::macro_step`; `kosmo-promote` operator CLI with cross-session engine memory (`--state`), the CAD library as source (`--store`), the verdict→fitness loop (`--feedback`), and the Infinity-Ledger anchor (`--ledger`) ✅
+- **Substrate knowledge crystallizes at full QTIC (Q5)**: ensemble resonance (`--batch`, per-candidate vertex identity, `crystal.region` attribution) + substrate calibration → real `SemanticCrystal`s; `--ledger` anchors them (block + IL-HDAG node + path invariance) — the two HDAGs meet through the crystal ✅
 - **Cross-language topology (7 languages)**: `kosmo-hyphae::xlang` + `CrossLanguageFingerprint`; `cross_language_resonance` SourceCube dimension; fingerprint travels into `StructuralCrystalRecord` (now directly evidence-bound, CROSS-006) ✅
 - **Every Q16-score substrate type in kosmo-hyphae has `energy_assessment`** ✅
 - **`BlueprintUnit::energy_assessment` wired in kosmo-systemcube (Step 5e)** ✅
@@ -22,6 +23,30 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Full QTIC — the Infinity-Ledger lift (2026-06-11)
+
+The meeting point `docs/CONVERGENCE.md` §5 named is live: the two HDAGs meet **through the crystal**.
+
+- `kosmo-promote --ledger <path>` anchors every accepted crystal via the canonical `ILStore::commit_with_feedback` path: ledger block (canonical trace anchor) + IL-HDAG node (the 5D resonance tensor the code-born structure acquires) + path-invariance check. The returned certificate supersedes the promotion path's Q3 ceiling — live on a 7-language workspace: **`QTIC Q5 — full QTIC (PathInv = 1)`** with block hash, the same class the cognition system awards its own best memory.
+- Deduplicated per unique crystal, **idempotent** (identical crystal → same block; the ledger does not grow — pinned by test), host write only under the explicit flag and `--offer` mode.
+- +2 binary tests (Q5 exactly, real ledger/hdag/index files, idempotent re-anchor; `--ledger` without `--offer` creates nothing). kosmo-promote 15.
+
+### Ensemble resonance + substrate calibration — crystals actually form (2026-06-11)
+
+The gate diagnostics made each blocker visible before each fix; every relaxation is an explicit operator choice; the conservative default stays fail-closed (pinned by test).
+
+- **Diagnostics**: `gate (last step): d … j … → kairos | engine` — the eight Kairos metrics against the effective thresholds plus the engine state, text and `--json`. "Why deferred" is always answerable.
+- **Blocker 1, structural**: the engine forms edges *pairwise within a batch*, and the adapter mapped every candidate to the **same** vertex → `j` pinned at 0, the conjunctive gate could never fire. Fix: per-candidate vertex identity (`observation_source_id`) + `offer_batch` (one ensemble step; `j` 0.000→0.935 live; attribution per-candidate via `crystal.region`; policy gating per-candidate and pre-engine). `--ticks <n>` re-observes (crystallization is temporal).
+- **Blocker 2, calibration**: `engine: Rejected("consensus failed")` — sensor-tuned carrier physics. Fix: `--calibration substrate`, the `preset_anomaly_detection` rationale verbatim (fully-armed 8-fold Kairos gate as discriminant; cascade consensus stands down). Modes: `default | planning | adaptive | substrate`.
+- **Result, live**: 30/30 ACCEPTED on the 7-language workspace, real `SemanticCrystal`s (stability 0.76, region = full 30-vertex ensemble), archived, session 2 warm-starts `PatternMemory`. +4 adapter tests (batch co-observation, identity), +3 binary resonance tests.
+
+### QTIC certificates, the memory→action loop, the convergence map (2026-06-11)
+
+- **`qtic_for_promoted`** (pse-adapter-kosmo): every committed crystal gets a QTIC certificate; classes earned, never granted — unanchored promotions cap at Q3, `trace_ready`/`path_inv` naming exactly what the IL adds.
+- **`kosmo-promote --feedback`**: engine verdicts persist as `PromotionFeedback` (Accepted→full, Deferred→¼, Rejected/Skipped→0) and load into the next run's `prior_feedback` → `NormFitnessTrace`s (pipeline Step 5c) — memory shapes ranking. Idempotent merge; report-only never writes; corruption is a hard error. +3 binary tests.
+- **`docs/CONVERGENCE.md`**: every echo structure mapped (energy, crystals, gates, Metatron², HDAG², stores) with per-pair verdicts and the never-converge list (dependency direction, arithmetic split, decision split, fail-closed defaults).
+- Also: README two-layer notice now reflects the validated, connected state; MSRV violation in `pse-adapter-il` fixed (`is_multiple_of` is 1.87+, MSRV is 1.82 — the 1.82 CI job would not compile).
 
 ### Promotion memory — engine state across sessions, CAD library as source (2026-06-10)
 
