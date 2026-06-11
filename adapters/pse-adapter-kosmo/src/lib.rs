@@ -76,6 +76,20 @@ impl KosmoBridgeAdapter {
         self
     }
 
+    /// The per-candidate observation source id.
+    ///
+    /// The engine derives its graph vertex from `Observation.source_id`
+    /// (`pse_graph::derive_vertex_id`), so identity here decides topology
+    /// there: a shared id would collapse every candidate onto one vertex and
+    /// no ensemble structure could ever form. Each candidate is its own
+    /// stream — `<adapter-source>#<candidate-id-prefix>` — which gives a
+    /// batch of N candidates N vertices, pairwise edges, and a live
+    /// connectivity (`j`) metric, and lets [`offer_batch`] attribute a
+    /// committed crystal precisely via `crystal.region`.
+    pub fn observation_source_id(&self, candidate: &PseBridgeCandidate) -> String {
+        format!("{}#{}", self.source, &candidate.id.to_hex()[..12])
+    }
+
     /// Parse and gate a raw payload into a verified candidate (fail-closed).
     fn parse_candidate(&self, raw: &[u8]) -> Result<PseBridgeCandidate, ObserveError> {
         let candidate: PseBridgeCandidate = serde_json::from_slice(raw)
@@ -136,7 +150,7 @@ impl ObservationAdapter for KosmoBridgeAdapter {
         let digest: Hash256 = content_address_raw(&payload);
         Ok(Observation {
             timestamp: 0.0,
-            source_id: self.source.clone(),
+            source_id: self.observation_source_id(&candidate),
             provenance: ProvenanceEnvelope {
                 origin: self.source.clone(),
                 chain: Vec::new(),
@@ -294,6 +308,99 @@ pub fn offer_candidates(
         .collect()
 }
 
+/// Offer all candidates as **one ensemble** in a single engine step.
+///
+/// Per-candidate steps deny resonance by construction: the engine forms graph
+/// edges *pairwise within a batch*, so singleton batches keep the connectivity
+/// metric `j` at zero and the conjunctive Kairos gate can structurally never
+/// fire. Batch mode co-observes the candidates — N distinct vertices (see
+/// [`KosmoBridgeAdapter::observation_source_id`]), pairwise edges, a live `j` —
+/// which is what crystallization over substrate output actually requires.
+///
+/// Attribution stays per-candidate and honest: when the engine commits a
+/// crystal, exactly the candidates whose vertex
+/// (`pse_graph::derive_vertex_id(source_id)`) lies in `crystal.region` are
+/// `Accepted`; co-batched candidates outside the region are `Deferred`. With
+/// no commit the whole batch is `Deferred`; an engine error rejects the whole
+/// batch (one step, one cause). Policy gating is unchanged and per-candidate:
+/// candidates failing [`validate_candidate`] are skipped *before* the step and
+/// never reach the engine.
+pub fn offer_batch(
+    state: &mut GlobalState,
+    config: &Config,
+    profile: &PolicyProfile,
+    bridge_policy: &PseBridgePolicy,
+    candidates: &[PseBridgeCandidate],
+    adapter: &KosmoBridgeAdapter,
+) -> Vec<CrystalOffer> {
+    // Pre-gate every candidate; only policy-passed ones enter the batch.
+    let mut offers: Vec<CrystalOffer> = Vec::with_capacity(candidates.len());
+    let mut batch: Vec<(usize, Vec<u8>)> = Vec::with_capacity(candidates.len());
+    for (idx, candidate) in candidates.iter().enumerate() {
+        if let Err(outcome) = validate_candidate(candidate, bridge_policy, profile) {
+            offers.push(CrystalOffer {
+                candidate_id: candidate.id,
+                outcome,
+                crystal: None,
+                qtic: None,
+            });
+            continue;
+        }
+        match serde_json::to_vec(candidate) {
+            Ok(payload) => {
+                offers.push(CrystalOffer {
+                    candidate_id: candidate.id,
+                    outcome: PromotionOutcome::Deferred, // provisional; settled below
+                    crystal: None,
+                    qtic: None,
+                });
+                batch.push((idx, payload));
+            }
+            Err(e) => offers.push(CrystalOffer {
+                candidate_id: candidate.id,
+                outcome: PromotionOutcome::Rejected {
+                    reason: format!("serialization failed: {e}"),
+                },
+                crystal: None,
+                qtic: None,
+            }),
+        }
+    }
+    if batch.is_empty() {
+        return offers;
+    }
+
+    let payloads: Vec<Vec<u8>> = batch.iter().map(|(_, p)| p.clone()).collect();
+    match pse_core::macro_step(state, &payloads, config, adapter) {
+        Ok(Some(crystal)) => {
+            let qtic = qtic_for_promoted(&crystal, state.commit_index);
+            for (idx, _) in &batch {
+                let vid =
+                    pse_graph::derive_vertex_id(&adapter.observation_source_id(&candidates[*idx]));
+                if crystal.region.contains(&vid) {
+                    offers[*idx].outcome = PromotionOutcome::Accepted;
+                    offers[*idx].crystal = Some(crystal.clone());
+                    offers[*idx].qtic = Some(qtic.clone());
+                }
+                // else: provisional Deferred stands — co-batched but outside
+                // the committed region.
+            }
+        }
+        Ok(None) => {
+            // Provisional Deferred stands for every batched candidate.
+        }
+        Err(e) => {
+            let reason = e.to_string();
+            for (idx, _) in &batch {
+                offers[*idx].outcome = PromotionOutcome::Rejected {
+                    reason: reason.clone(),
+                };
+            }
+        }
+    }
+    offers
+}
+
 /// Describe a committed crystal in substrate context.
 pub fn describe_crystal(crystal: &SemanticCrystal, candidate: &PseBridgeCandidate) -> String {
     format!(
@@ -353,7 +460,25 @@ mod tests {
         let obs = adapter
             .canonicalize(&raw, &MeasurementContext::default())
             .expect("valid candidate must canonicalize");
-        assert_eq!(obs.source_id, "kosmo-bridge:test");
+        // Per-candidate identity: the source id carries the candidate's id so
+        // each candidate becomes its own engine-graph vertex.
+        assert_eq!(obs.source_id, adapter.observation_source_id(&candidate));
+        assert!(obs.source_id.starts_with("kosmo-bridge:test#"));
+        // Two distinct candidates must never collapse onto one vertex.
+        let other = PseBridgeCandidate::new(
+            PseBridgeCandidateKind::CertifiedCrystal,
+            d(b"other-record"),
+            "crystal:rust:fff",
+            Q16::HALF,
+            d(b"run"),
+            d(b"evidence"),
+            d(b"policy"),
+        );
+        assert_ne!(
+            adapter.observation_source_id(&candidate),
+            adapter.observation_source_id(&other),
+            "distinct candidates → distinct vertices"
+        );
         assert_eq!(
             obs.digest,
             content_address_raw(&raw),
@@ -624,6 +749,80 @@ mod tests {
             QticClass::Q1,
             "unstable phase caps at Q1"
         );
+    }
+
+    #[test]
+    fn batch_offer_coobserves_and_attributes_per_candidate() {
+        // The ensemble path: many distinct candidates in ONE engine step form
+        // pairwise graph edges (per-candidate vertices), which is what the
+        // connectivity metric j needs. Verdicts stay per-candidate: Accepted
+        // exactly for region members, with crystal+qtic attached; skips happen
+        // before the engine.
+        let config = Config::default();
+        let mut state = GlobalState::new(&config);
+        let adapter = KosmoBridgeAdapter::new("batch");
+        let bridge_policy = allowing_bridge_policy();
+        let profile = execution_profile();
+
+        let mut candidates: Vec<PseBridgeCandidate> = (0..20u32)
+            .map(|i| {
+                PseBridgeCandidate::new(
+                    PseBridgeCandidateKind::CertifiedCrystal,
+                    d(format!("rec-{i}").as_bytes()),
+                    format!("crystal:go:{i:012}"),
+                    Q16::ratio(60 + u64::from(i % 5), 100).unwrap(),
+                    d(b"run"),
+                    d(b"evidence"),
+                    d(b"policy"),
+                )
+            })
+            .collect();
+        // One zero-evidence candidate: must be skipped before the engine.
+        candidates.push(PseBridgeCandidate::new(
+            PseBridgeCandidateKind::CertifiedCrystal,
+            d(b"bad"),
+            "crystal:-:bad",
+            Q16::HALF,
+            d(b"run"),
+            Digest::ZERO,
+            d(b"policy"),
+        ));
+
+        let offers = offer_batch(
+            &mut state,
+            &config,
+            &profile,
+            &bridge_policy,
+            &candidates,
+            &adapter,
+        );
+
+        assert_eq!(offers.len(), candidates.len(), "one verdict per candidate");
+        assert_eq!(state.commit_index, 1, "one engine step for the whole batch");
+        // The zero-evidence candidate never reached the engine.
+        assert!(
+            matches!(
+                offers.last().unwrap().outcome,
+                PromotionOutcome::Rejected { .. }
+            ),
+            "zero evidence is rejected pre-engine, got {:?}",
+            offers.last().unwrap().outcome
+        );
+        // Co-observation is real: N distinct vertices and pairwise edges → j > 0.
+        assert_eq!(
+            state.graph.graph.node_count(),
+            20,
+            "one vertex per candidate"
+        );
+        assert!(
+            state.graph.graph.edge_count() > 0,
+            "batch co-observation must form edges (j-metric input)"
+        );
+        // Attribution invariant for every batched candidate.
+        for offer in &offers[..20] {
+            assert_eq!(offer.outcome.is_accepted(), offer.crystal.is_some());
+            assert_eq!(offer.qtic.is_some(), offer.crystal.is_some());
+        }
     }
 
     #[test]

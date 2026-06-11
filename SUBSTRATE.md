@@ -167,6 +167,12 @@ kosmo-promote . --offer --store ~/.kosmo/cadlib.jsonl
 
 # Close the memory→action loop: engine verdicts feed the next run's pipeline
 kosmo-promote . --offer --feedback ~/.kosmo/feedback.json
+
+# Resonance: co-observe the candidates as ONE ensemble under the substrate
+# calibration — this is the configuration in which substrate knowledge
+# actually crystallizes (real SemanticCrystals, QTIC Q3):
+kosmo-promote . --all-kinds --offer --batch --calibration substrate \
+    --state ~/.kosmo/pse-archive.json
 ```
 
 Runs the full pipeline, filters its `pse_candidates` (default:
@@ -197,6 +203,24 @@ into `NormFitnessTrace`s. Norm-derived candidates key their feedback to the
 originating `NormGeneCandidate`; the merge is idempotent by feedback id.
 Same authorization discipline as `--state`: report-only never writes,
 corruption is a hard error.
+
+**Resonance — how substrate knowledge actually crystallizes.** The engine
+forms graph edges *pairwise within a batch*, and each candidate is its own
+engine vertex (`KosmoBridgeAdapter::observation_source_id`), so single-step
+offers structurally cap the connectivity metric `j` at zero and the 8-fold
+conjunctive Kairos gate can never fire. `--batch` (`offer_batch`) co-observes
+the candidates as one ensemble — N vertices, pairwise edges, live `j` — with
+attribution staying per-candidate and honest: exactly the candidates whose
+vertex lies in `crystal.region` are `Accepted`. `--calibration substrate`
+(an explicit operator choice, like every threshold change) composes the
+planning preset with the `preset_anomaly_detection` rationale: the carrier-
+physics consensus stands down and the fully-armed Kairos gate is the
+discriminant. `--ticks n` re-observes the ensemble (crystallization is
+temporal). The gate diagnostics (`gate (last step): d … j … → kairos | engine`)
+show per-metric values against the effective thresholds, so "why deferred" is
+always visible. Under `--batch --calibration substrate` a polyglot workspace's
+certified structure commits real `SemanticCrystal`s; the conservative default
+calibration remains fail-closed and commits nothing.
 
 Every crystal the engine commits receives a **QTIC conformance certificate**
 (Q0–Q5, `pse-adapter-il::qtic`) via `pse_adapter_kosmo::qtic_for_promoted`.

@@ -44,7 +44,7 @@ use kosmo_pse_bridge::{
     PseBridgePolicy, PseBridgeRateLimit,
 };
 use kosmo_store::CrystalRecordStore;
-use pse_adapter_kosmo::{describe_crystal, offer_candidates, KosmoBridgeAdapter};
+use pse_adapter_kosmo::{describe_crystal, offer_batch, offer_candidates, KosmoBridgeAdapter};
 use pse_core::{load_memory_from_crystals, GlobalState};
 use pse_types::{Config, SemanticCrystal};
 
@@ -56,6 +56,61 @@ struct Args {
     state: Option<PathBuf>,
     store: Option<PathBuf>,
     feedback: Option<PathBuf>,
+    calibration: Calibration,
+    batch: bool,
+    ticks: u32,
+}
+
+/// Engine threshold calibration mode — an explicit operator choice because it
+/// changes what may become memory (never a silent default).
+#[derive(Clone, Copy, PartialEq)]
+enum Calibration {
+    /// Static sensor-tuned thresholds (`Config::default()`); deterministic.
+    Default,
+    /// Static thresholds tuned for structured, low-entropy planning artifacts
+    /// (`Config::preset_planning()`); deterministic. The documented fit for
+    /// substrate candidates.
+    Planning,
+    /// Rolling-quantile thresholds (`Config::preset_streaming()`): the gate
+    /// fires on the top 5% of recent ticks. Trades cross-session determinism
+    /// for out-of-the-box deployability on uncalibrated streams.
+    Adaptive,
+    /// Planning thresholds + the kairos gate as the sole discriminant —
+    /// `consensus_threshold`/`mirror_consistency_eta` at 0, following the
+    /// `preset_anomaly_detection` rationale verbatim: the cascade PI operator
+    /// zeros `primal_score` after DK+SW mutate the carrier phase, so for
+    /// workloads the carrier physics wasn't pre-tuned for, the 8-fold
+    /// conjunctive kairos gate is the real fail-closed discriminant.
+    /// Deterministic.
+    Substrate,
+}
+
+impl Calibration {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Planning => "planning",
+            Self::Adaptive => "adaptive",
+            Self::Substrate => "substrate",
+        }
+    }
+
+    fn engine_config(self) -> Config {
+        match self {
+            Self::Default => Config::default(),
+            Self::Planning => Config::preset_planning(),
+            Self::Adaptive => Config::preset_streaming(),
+            Self::Substrate => {
+                let mut c = Config::preset_planning();
+                // Kairos as the discriminant (the preset_anomaly_detection
+                // rationale): consensus 0 lets any non-negative cascade score
+                // through; the 8-fold conjunctive gate remains fully armed.
+                c.consensus.consensus_threshold = 0.0;
+                c.consensus.mirror_consistency_eta = 0.0;
+                c
+            }
+        }
+    }
 }
 
 const HELP: &str = "kosmo-promote — substrate→core promotion (PSE decides crystallization)\n\
@@ -79,6 +134,25 @@ OPTIONS:\n\
                     written as PromotionFeedback (JSON) and fed into the\n\
                     NEXT run's pipeline (prior_feedback → norm fitness).\n\
                     Loaded on start; written only in --offer mode.\n\
+    --batch         Offer all candidates as ONE ensemble step instead of one\n\
+                    step each. Co-observation forms the graph edges the\n\
+                    connectivity metric (j) needs — required for substrate\n\
+                    output to resonate. Attribution stays per-candidate via\n\
+                    crystal.region membership.\n\
+    --ticks <n>     Re-observe the (batch) ensemble n times (default 1).\n\
+                    Crystallization is temporal: a pattern commits when it\n\
+                    holds across ticks, so a stable workspace observed over\n\
+                    n ticks is exactly the stability the engine certifies.\n\
+    --calibration <mode>\n\
+                    Engine threshold calibration — an explicit operator\n\
+                    choice because it changes what may become memory:\n\
+                      default   static sensor-tuned thresholds (deterministic)\n\
+                      planning  static thresholds tuned for structured,\n\
+                                low-entropy planning artifacts (deterministic;\n\
+                                the documented fit for substrate candidates)\n\
+                      adaptive  rolling-quantile thresholds (top 5% of recent\n\
+                                ticks fire; trades cross-session determinism\n\
+                                for out-of-the-box deployability)\n\
     --json          Machine-readable output.\n\
     -h, --help      This help.\n";
 
@@ -92,6 +166,9 @@ fn parse_args() -> Result<Args, String> {
         state: None,
         store: None,
         feedback: None,
+        calibration: Calibration::Default,
+        batch: false,
+        ticks: 1,
     };
     let mut i = 0;
     while i < raw.len() {
@@ -102,6 +179,18 @@ fn parse_args() -> Result<Args, String> {
             }
             "--offer" => args.offer = true,
             "--all-kinds" => args.all_kinds = true,
+            "--batch" => args.batch = true,
+            "--ticks" => {
+                i += 1;
+                args.ticks = raw
+                    .get(i)
+                    .ok_or("--ticks requires a number")?
+                    .parse()
+                    .map_err(|_| "--ticks must be a positive number".to_string())?;
+                if args.ticks == 0 {
+                    return Err("--ticks must be at least 1".into());
+                }
+            }
             "--json" => args.json = true,
             "--state" => {
                 i += 1;
@@ -124,6 +213,21 @@ fn parse_args() -> Result<Args, String> {
                 }
                 args.feedback = Some(PathBuf::from(&raw[i]));
             }
+            "--calibration" => {
+                i += 1;
+                args.calibration = match raw.get(i).map(String::as_str) {
+                    Some("default") => Calibration::Default,
+                    Some("planning") => Calibration::Planning,
+                    Some("adaptive") => Calibration::Adaptive,
+                    Some("substrate") => Calibration::Substrate,
+                    Some(other) => {
+                        return Err(format!(
+                            "unknown calibration '{other}' (default|planning|adaptive|substrate)"
+                        ));
+                    }
+                    None => return Err("--calibration requires a mode".into()),
+                };
+            }
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown flag '{flag}'; run --help for usage"));
             }
@@ -132,6 +236,16 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
     Ok(args)
+}
+
+/// The thresholds the Kairos gate actually applied on the last step: the
+/// adaptive calibrator's quantile-derived values when active, the static
+/// config thresholds otherwise.
+fn effective_thresholds(state: &GlobalState, config: &Config) -> pse_types::ThresholdConfig {
+    match &state.adaptive {
+        Some(c) => c.calibrate(&config.thresholds),
+        None => config.thresholds.clone(),
+    }
 }
 
 /// Load the persisted crystal archive, or an empty one when the file does not
@@ -279,7 +393,7 @@ fn main() {
 
     // 4. Engine state — warm-start pattern memory from a prior session when an
     //    archive is provided (pse-core cross-session mechanism).
-    let config = Config::default();
+    let config = args.calibration.engine_config();
     let mut state = GlobalState::new(&config);
     let prior_crystals: Vec<SemanticCrystal> = match &args.state {
         Some(path) => match load_state(path) {
@@ -293,15 +407,43 @@ fn main() {
     };
     let memory_loaded = load_memory_from_crystals(&mut state, &prior_crystals);
 
-    // 5. Offer — one engine step per candidate, per-candidate verdicts.
-    let offers = offer_candidates(
-        &mut state,
-        &config,
-        &profile,
-        &bridge_policy,
-        &candidates,
-        &adapter,
-    );
+    // 5. Offer. Singles: one engine step per candidate. Batch: one ensemble
+    //    step — co-observation forms the edges the connectivity metric needs;
+    //    attribution stays per-candidate via crystal.region membership.
+    //    With --ticks > 1 the ensemble is re-observed: crystallization is
+    //    temporal, so a stable workspace held across ticks is exactly the
+    //    stability the engine certifies. An acceptance from any tick stands.
+    let mut offers: Vec<pse_adapter_kosmo::CrystalOffer> = Vec::new();
+    for tick in 0..args.ticks {
+        let tick_offers = if args.batch {
+            offer_batch(
+                &mut state,
+                &config,
+                &profile,
+                &bridge_policy,
+                &candidates,
+                &adapter,
+            )
+        } else {
+            offer_candidates(
+                &mut state,
+                &config,
+                &profile,
+                &bridge_policy,
+                &candidates,
+                &adapter,
+            )
+        };
+        if tick == 0 {
+            offers = tick_offers;
+        } else {
+            for (acc, new) in offers.iter_mut().zip(tick_offers) {
+                if !acc.outcome.is_accepted() {
+                    *acc = new;
+                }
+            }
+        }
+    }
 
     // 6. Persist the merged archive — only in --offer mode and only when the
     //    operator authorized the write with an explicit --state path.
@@ -381,7 +523,25 @@ fn main() {
             "report_id": report.report_id.to_hex(),
             "offered": candidates.len(),
             "engine_commit_index": state.commit_index,
+            "engine_state": format!("{:?}", state.engine_state),
+            "last_gate": state.last_gate.as_ref().map(|g| {
+                let th = effective_thresholds(&state, &config);
+                serde_json::json!({
+                    "kairos": g.kairos,
+                    "metrics": {
+                        "d": { "value": g.d, "threshold": th.d, "pass": g.d >= th.d },
+                        "q": { "value": g.q, "threshold": th.q, "pass": g.q >= th.q },
+                        "r": { "value": g.r, "threshold": th.r, "pass": g.r >= th.r },
+                        "g": { "value": g.g, "threshold": th.g, "pass": g.g >= th.g },
+                        "j": { "value": g.j, "threshold": th.j, "pass": g.j >= th.j },
+                        "p": { "value": g.p, "threshold": th.p, "pass": g.p >= th.p },
+                        "n": { "value": g.n, "threshold": th.n, "pass": g.n >= th.n },
+                        "k": { "value": g.k, "threshold": th.k, "pass": g.k >= th.k },
+                    },
+                })
+            }),
             "mode": if args.offer { "offer" } else { "report-only" },
+            "calibration": args.calibration.as_str(),
             "store_loaded": store_loaded,
             "feedback_loaded": feedback_loaded,
             "feedback_written": feedback_written,
@@ -403,12 +563,13 @@ fn main() {
             candidates.len()
         );
         println!(
-            "  mode: {}",
+            "  mode: {} | calibration: {}",
             if args.offer {
                 "OFFER (DryRun profile — engine runs in-memory)"
             } else {
                 "report-only (engine untouched; use --offer to feed PSE)"
-            }
+            },
+            args.calibration.as_str()
         );
         let mut accepted = 0usize;
         let mut deferred = 0usize;
@@ -450,6 +611,29 @@ fn main() {
             "  outcomes: {accepted} accepted | {deferred} deferred | {rejected} rejected | {skipped} skipped"
         );
         println!("  engine commit_index: {}", state.commit_index);
+        // Why deferred? Show the last gate snapshot against the effective
+        // thresholds — the conjunctive Kairos gate needs every metric to pass.
+        if args.offer {
+            if let Some(g) = &state.last_gate {
+                let th = effective_thresholds(&state, &config);
+                let m = |name: &str, v: f64, t: f64| {
+                    format!("{name} {v:.3}/{t:.2}{}", if v >= t { "✓" } else { "✗" })
+                };
+                println!(
+                    "  gate (last step): {} {} {} {} {} {} {} {} → kairos: {} | engine: {:?}",
+                    m("d", g.d, th.d),
+                    m("q", g.q, th.q),
+                    m("r", g.r, th.r),
+                    m("g", g.g, th.g),
+                    m("j", g.j, th.j),
+                    m("p", g.p, th.p),
+                    m("n", g.n, th.n),
+                    m("k", g.k, th.k),
+                    g.kairos,
+                    state.engine_state
+                );
+            }
+        }
         if let Some(path) = &args.feedback {
             println!(
                 "  feedback: {} loaded → {} fitness traces this run{}",
