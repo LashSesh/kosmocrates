@@ -37,10 +37,11 @@
 use std::path::PathBuf;
 use std::process;
 
-use kosmo_core::{ImplementationMode, PolicyProfile};
+use kosmo_core::{Digest, ImplementationMode, PolicyProfile, PromotionFeedback};
 use kosmo_pipeline::{crystal_to_pse_candidate, run_workspace_pipeline, IntegrationRunOptions};
 use kosmo_pse_bridge::{
-    PseBridgeCandidate, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
+    build_promotion_feedback, PromotionRequestRecord, PseBridgeCandidate, PseBridgeCandidateKind,
+    PseBridgePolicy, PseBridgeRateLimit,
 };
 use kosmo_store::CrystalRecordStore;
 use pse_adapter_kosmo::{describe_crystal, offer_candidates, KosmoBridgeAdapter};
@@ -54,6 +55,7 @@ struct Args {
     json: bool,
     state: Option<PathBuf>,
     store: Option<PathBuf>,
+    feedback: Option<PathBuf>,
 }
 
 const HELP: &str = "kosmo-promote — substrate→core promotion (PSE decides crystallization)\n\
@@ -73,6 +75,10 @@ OPTIONS:\n\
     --state <path>  Persist the crystal archive across sessions (JSON).\n\
                     Loaded on start when present; written back only in\n\
                     --offer mode. The flag is the write authorization.\n\
+    --feedback <p>  Close the memory→action loop: engine verdicts are\n\
+                    written as PromotionFeedback (JSON) and fed into the\n\
+                    NEXT run's pipeline (prior_feedback → norm fitness).\n\
+                    Loaded on start; written only in --offer mode.\n\
     --json          Machine-readable output.\n\
     -h, --help      This help.\n";
 
@@ -85,6 +91,7 @@ fn parse_args() -> Result<Args, String> {
         json: false,
         state: None,
         store: None,
+        feedback: None,
     };
     let mut i = 0;
     while i < raw.len() {
@@ -110,6 +117,13 @@ fn parse_args() -> Result<Args, String> {
                 }
                 args.store = Some(PathBuf::from(&raw[i]));
             }
+            "--feedback" => {
+                i += 1;
+                if i >= raw.len() {
+                    return Err("--feedback requires a file path".into());
+                }
+                args.feedback = Some(PathBuf::from(&raw[i]));
+            }
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown flag '{flag}'; run --help for usage"));
             }
@@ -129,6 +143,29 @@ fn load_state(path: &PathBuf) -> Result<Vec<SemanticCrystal>, String> {
     }
     let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     serde_json::from_slice(&bytes).map_err(|e| format!("corrupt state {}: {e}", path.display()))
+}
+
+/// Load persisted promotion feedback, or empty when the file does not exist
+/// yet. A present-but-unreadable file is a hard error (fail-closed).
+fn load_feedback(path: &PathBuf) -> Result<Vec<PromotionFeedback>, String> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    serde_json::from_slice(&bytes).map_err(|e| format!("corrupt feedback {}: {e}", path.display()))
+}
+
+/// Persist the merged feedback pool. Only called in `--offer` mode with an
+/// explicit `--feedback` path — the flag is the operator's write authorization.
+fn save_feedback(path: &PathBuf, feedback: &[PromotionFeedback]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+        }
+    }
+    let json = serde_json::to_vec(feedback).map_err(|e| format!("serialize feedback: {e}"))?;
+    std::fs::write(path, json).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
 /// Persist the merged crystal archive. Only called in `--offer` mode with an
@@ -153,9 +190,24 @@ fn main() {
         }
     };
 
+    // 0. Memory→action: prior engine verdicts feed THIS run's pipeline.
+    //    (PromotionFeedback → prior_feedback → norm fitness, pipeline Step 5c.)
+    let prior_feedback: Vec<PromotionFeedback> = match &args.feedback {
+        Some(path) => match load_feedback(path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("error: {e}");
+                process::exit(1);
+            }
+        },
+        None => Vec::new(),
+    };
+    let feedback_loaded = prior_feedback.len();
+
     // 1. Substrate pipeline — always a passive, report-only scan.
     let pipeline_policy = PolicyProfile::default_report_only();
-    let options = IntegrationRunOptions::all_layers(8);
+    let mut options = IntegrationRunOptions::all_layers(8);
+    options.prior_feedback = prior_feedback.clone();
     let report = match run_workspace_pipeline(&args.path, &options, &pipeline_policy) {
         Ok(r) => r,
         Err(e) => {
@@ -269,6 +321,44 @@ fn main() {
         _ => false,
     };
 
+    // 6b. Action→memory: persist this run's engine verdicts as
+    //     PromotionFeedback for the NEXT run's pipeline. Norm-derived
+    //     candidates (label `norm:…`) key their feedback to the
+    //     NormGeneCandidate id they observe (= observation_digest), so the
+    //     fitness loop closes; all other kinds carry ZERO (no norm
+    //     association, per the PromotionFeedback contract). Merged by id —
+    //     re-offering the same candidate with the same verdict is idempotent.
+    let feedback_written = match (&args.feedback, args.offer) {
+        (Some(path), true) => {
+            let mut merged = prior_feedback.clone();
+            for (offer, candidate) in offers.iter().zip(candidates.iter()) {
+                let record = PromotionRequestRecord::new(
+                    candidate.id,
+                    offer.outcome.clone(),
+                    candidate.evidence_bundle_id,
+                    0,
+                );
+                let norm_id = if candidate.label.starts_with("norm:") {
+                    candidate.observation_digest
+                } else {
+                    Digest::ZERO
+                };
+                let fb = build_promotion_feedback(&record, candidate, norm_id, pipeline_policy.id);
+                if !merged.iter().any(|f| f.id == fb.id) {
+                    merged.push(fb);
+                }
+            }
+            match save_feedback(path, &merged) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    process::exit(1);
+                }
+            }
+        }
+        _ => false,
+    };
+
     // 7. Report.
     if args.json {
         let rows: Vec<serde_json::Value> = offers
@@ -292,6 +382,9 @@ fn main() {
             "engine_commit_index": state.commit_index,
             "mode": if args.offer { "offer" } else { "report-only" },
             "store_loaded": store_loaded,
+            "feedback_loaded": feedback_loaded,
+            "feedback_written": feedback_written,
+            "fitness_traces": report.norm_fitness_traces.len(),
             "memory_loaded": memory_loaded,
             "pattern_hits": state.pattern_hits,
             "new_crystals": session_crystals.len(),
@@ -349,6 +442,18 @@ fn main() {
             "  outcomes: {accepted} accepted | {deferred} deferred | {rejected} rejected | {skipped} skipped"
         );
         println!("  engine commit_index: {}", state.commit_index);
+        if let Some(path) = &args.feedback {
+            println!(
+                "  feedback: {} loaded → {} fitness traces this run{}",
+                feedback_loaded,
+                report.norm_fitness_traces.len(),
+                if feedback_written {
+                    format!(" | verdicts → {}", path.display())
+                } else {
+                    " | not written (report-only)".to_string()
+                }
+            );
+        }
         if let Some(path) = &args.state {
             println!(
                 "  memory: {} crystals loaded | {} pattern hits | {} new this session{}",

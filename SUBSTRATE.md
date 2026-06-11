@@ -164,6 +164,9 @@ kosmo-promote . --offer --state ~/.kosmo/pse-archive.json
 
 # Offer the CAD library (kosmo-substrate --store) to the engine, read-only:
 kosmo-promote . --offer --store ~/.kosmo/cadlib.jsonl
+
+# Close the memory→action loop: engine verdicts feed the next run's pipeline
+kosmo-promote . --offer --feedback ~/.kosmo/feedback.json
 ```
 
 Runs the full pipeline, filters its `pse_candidates` (default:
@@ -184,6 +187,16 @@ certifying candidate's `evidence_bundle_id` — CROSS-006 as a first-class
 field), so store-loaded crystals wrap into bridge candidates without
 resolving their candidates. The store is integrity-checked before any record
 is offered; a tampered record is a hard error.
+
+With `--feedback`, the loop closes in the other direction — **memory shapes
+action**: the engine's verdicts are persisted as `PromotionFeedback`
+(`Accepted` → full fitness, `Deferred` → ¼, `Rejected`/`Skipped` → zero;
+CROSS-010 analogue) and loaded into the *next* run's
+`IntegrationRunOptions::prior_feedback`, where pipeline Step 5c folds them
+into `NormFitnessTrace`s. Norm-derived candidates key their feedback to the
+originating `NormGeneCandidate`; the merge is idempotent by feedback id.
+Same authorization discipline as `--state`: report-only never writes,
+corruption is a hard error.
 
 ---
 
