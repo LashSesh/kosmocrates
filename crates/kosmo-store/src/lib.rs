@@ -218,8 +218,7 @@ impl CorpusCartographyStore for JsonlCartographyStore {
             ));
         }
 
-        let mut expected_seq: u64 = 1;
-        for entry in entries {
+        for (expected_seq, entry) in (1_u64..).zip(entries.iter()) {
             if !entry.verify_id() {
                 return Ok(CartographyIntegrityReport::new(
                     self.manifest.id,
@@ -241,7 +240,6 @@ impl CorpusCartographyStore for JsonlCartographyStore {
                     evidence_bundle_id,
                 ));
             }
-            expected_seq += 1;
         }
 
         Ok(CartographyIntegrityReport::new(

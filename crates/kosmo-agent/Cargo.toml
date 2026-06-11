@@ -14,10 +14,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-kosmo-core        = { path = "../kosmo-core" }
-kosmo-pipeline    = { path = "../kosmo-pipeline" }
-kosmo-synthesizer = { path = "../kosmo-synthesizer" }
-kosmo-materialize = { path = "../kosmo-materialize" }
-kosmo-intent      = { path = "../kosmo-intent" }
+kosmo-core        = { path = "../kosmo-core", version = "0.1.0" }
+kosmo-pipeline    = { path = "../kosmo-pipeline", version = "0.1.0" }
+kosmo-synthesizer = { path = "../kosmo-synthesizer", version = "0.1.0" }
+kosmo-materialize = { path = "../kosmo-materialize", version = "0.1.0" }
+kosmo-intent      = { path = "../kosmo-intent", version = "0.1.0" }
 serde             = { workspace = true }
 serde_json        = { workspace = true }

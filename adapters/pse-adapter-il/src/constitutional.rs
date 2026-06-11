@@ -42,8 +42,8 @@
 //!
 //! ## Integration
 //!
-//! Use [`ILStore::commit_constitutional`] to commit with compliance gating and
-//! [`ILStore::constitutional_audit`] to verify the entire store is
+//! Use [`ILStore::commit_constitutional`](crate::ILStore::commit_constitutional) to commit with compliance gating and
+//! [`ILStore::constitutional_audit`](crate::ILStore::constitutional_audit) to verify the entire store is
 //! constitutionally closed.
 
 use crate::qtic::{QticCertificate, QticClass};
@@ -521,7 +521,7 @@ impl Constitution {
 
 // ─── ConstitutionalFeedback (returned by ILStore::commit_constitutional) ──────
 
-/// Result of [`ILStore::commit_constitutional`].
+/// Result of [`ILStore::commit_constitutional`](crate::ILStore::commit_constitutional).
 #[derive(Debug)]
 pub struct ConstitutionalFeedback {
     /// Full IL validation feedback (QTIC certificate, convergence, etc.).

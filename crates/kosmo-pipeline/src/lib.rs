@@ -1617,7 +1617,7 @@ impl IntegrationRunReport {
         }
 
         // Sort by priority_score descending (highest first).
-        items.sort_by(|a, b| b.priority_score.raw().cmp(&a.priority_score.raw()));
+        items.sort_by_key(|it| std::cmp::Reverse(it.priority_score.raw()));
         items
     }
 }

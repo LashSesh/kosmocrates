@@ -1,7 +1,7 @@
 //! Multi-agent crystal attribution and cross-agent causal analysis.
 //!
-//! Each crystal committed via [`ILStore::commit_as`] carries an `agent_id`
-//! tag in the index.  [`ILStore::build_agent_causal_graph`] then lifts the
+//! Each crystal committed via [`ILStore::commit_as`](crate::ILStore::commit_as) carries an `agent_id`
+//! tag in the index.  [`ILStore::build_agent_causal_graph`](crate::ILStore::build_agent_causal_graph) then lifts the
 //! raw causal graph into an annotated [`AgentCausalGraph`] that reveals:
 //!
 //! - Which agent produced each crystal.
@@ -47,7 +47,7 @@ impl AgentLink {
 
 /// Causal graph annotated with per-crystal agent attribution.
 ///
-/// Built by [`ILStore::build_agent_causal_graph`].
+/// Built by [`ILStore::build_agent_causal_graph`](crate::ILStore::build_agent_causal_graph).
 #[derive(Debug, Clone, Default)]
 pub struct AgentCausalGraph {
     /// All causal links, each annotated with agent IDs.

@@ -40,7 +40,7 @@
 
 use crate::context::{ContextBudget, CrystalSummary};
 
-/// Configuration for [`ILStore::build_grounded_prompt`].
+/// Configuration for [`ILStore::build_grounded_prompt`](crate::ILStore::build_grounded_prompt).
 #[derive(Debug, Clone, Default)]
 pub struct PromptConfig {
     /// Crystal selection budget (QTIC filter + token cap + top_k).

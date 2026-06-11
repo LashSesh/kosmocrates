@@ -556,8 +556,8 @@ impl ILStore {
     ///
     /// Implements the Timeless Monolith tripolar formula D = ψ · ρ · ω:
     ///   ψ — IL semantic alignment: cosine(query_vec, crystal.vector8)
-    ///   ρ — PSE structural coherence: crystal stability_score ∈ [0,1]
-    ///   ω — HDAG temporal readiness: normalised coherence potential ∈ [0,1]
+    ///   ρ — PSE structural coherence: crystal stability_score ∈ `[0,1]`
+    ///   ω — HDAG temporal readiness: normalised coherence potential ∈ `[0,1]`
     ///
     /// Multiplicative form acts as a Gabriel4D Funnel: a crystal must score
     /// non-trivially on all three axes to reach the retrieval core.
@@ -884,7 +884,7 @@ impl ILStore {
     /// Aggregates per-crystal metrics into a [`MemoryHealthReport`] that
     /// reflects the current epistemic quality of the crystal store.
     ///
-    /// Call [`MemoryHealthReport::is_healthy`] to check whether the store
+    /// Call [`MemoryHealthReport::is_healthy`](crate::MemoryHealthReport::is_healthy) to check whether the store
     /// meets the baseline health criteria (≥ 80 % Q4+, mean uncertainty ≤ 0.30).
     ///
     /// [`MemoryHealthReport`]: crate::health::MemoryHealthReport
@@ -1015,10 +1015,10 @@ impl ILStore {
     /// 1. Embeds the query via [`text_to_vector8`].
     /// 2. Selects crystals via Pfauenthron++ + the `PromptConfig` budget.
     /// 3. Optionally appends the causal explanation of the top-ranked crystal.
-    /// 4. Returns a [`GroundedPrompt`] with a structured system message and
+    /// 4. Returns a [`GroundedPrompt`](crate::GroundedPrompt) with a structured system message and
     ///    the unchanged user query.
     ///
-    /// Pass [`GroundedPrompt::system_message`] and [`GroundedPrompt::user_message`]
+    /// Pass [`GroundedPrompt::system_message`](crate::GroundedPrompt::system_message) and [`GroundedPrompt::user_message`](crate::GroundedPrompt::user_message)
     /// to any OpenAI-compatible SDK.
     ///
     /// [`text_to_vector8`]: crate::adapter::text_to_vector8
@@ -1873,7 +1873,7 @@ impl ILStore {
                 }
             })
             .collect();
-        bridge_crystals.sort_by(|a, b| b.cross_cluster_degree.cmp(&a.cross_cluster_degree));
+        bridge_crystals.sort_by_key(|c| std::cmp::Reverse(c.cross_cluster_degree));
 
         let clustered = n - singletons.len();
         let clustered_fraction = clustered as f64 / n as f64;
@@ -1903,7 +1903,7 @@ impl ILStore {
     /// The result carries [`CausalRole`] annotations so the LLM can
     /// distinguish seeds from causal context.
     ///
-    /// Use [`CausalRetrievalResult::to_annotated_context_block`] to build
+    /// Use [`CausalRetrievalResult::to_annotated_context_block`](crate::CausalRetrievalResult::to_annotated_context_block) to build
     /// the system message fragment, or pass each entry to a custom renderer.
     ///
     /// [`text_to_vector8`]: crate::adapter::text_to_vector8

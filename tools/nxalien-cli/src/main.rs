@@ -1,6 +1,8 @@
 //! nxalien — PSE agent-context exoskeleton CLI.
 //!
 //! Subcommands:
+//!
+//! ```text
 //!   init      Create .nxalien/ with default policy
 //!   inspect   Print detected project substrate
 //!   compile   Full pipeline → nxalien.manifest.json + context artifacts
@@ -11,6 +13,7 @@
 //!   replay    Recompute hashes and compare to manifest
 //!   verify    Run gates + replay + canon verification
 //!   export    Generate CLAUDE.md / AGENTS.md / .rules
+//! ```
 
 use anyhow::{bail, Context, Result};
 use pse_exploratory::{ExploratoryLedger, DEFAULT_DECAY_AFTER_RUNS, EXPLORATORY_PSI_THRESHOLD};

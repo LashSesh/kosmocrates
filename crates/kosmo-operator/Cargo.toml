@@ -13,9 +13,9 @@ categories.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-kosmo-core      = { path = "../kosmo-core" }
-kosmo-foundry   = { path = "../kosmo-foundry" }
-kosmo-parseback = { path = "../kosmo-parseback" }
-kosmo-store     = { path = "../kosmo-store" }
+kosmo-core      = { path = "../kosmo-core", version = "0.1.0" }
+kosmo-foundry   = { path = "../kosmo-foundry", version = "0.1.0" }
+kosmo-parseback = { path = "../kosmo-parseback", version = "0.1.0" }
+kosmo-store     = { path = "../kosmo-store", version = "0.1.0" }
 serde      = { workspace = true }
 serde_json = { workspace = true }

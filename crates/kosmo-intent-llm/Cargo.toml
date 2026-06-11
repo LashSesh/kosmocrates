@@ -14,8 +14,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-kosmo-core   = { path = "../kosmo-core" }
-kosmo-intent = { path = "../kosmo-intent" }
-kosmo-llm    = { path = "../kosmo-llm" }
+kosmo-core   = { path = "../kosmo-core", version = "0.1.0" }
+kosmo-intent = { path = "../kosmo-intent", version = "0.1.0" }
+kosmo-llm    = { path = "../kosmo-llm", version = "0.1.0" }
 serde        = { workspace = true }
 serde_json   = { workspace = true }

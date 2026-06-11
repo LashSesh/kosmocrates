@@ -1945,7 +1945,7 @@ dependencies = [
  "mef-solvecoagula",
  "mef-spiral",
  "mef-tic",
- "ndarray 0.15.6",
+ "ndarray",
  "num-complex",
  "rand 0.8.6",
  "rustfft",
@@ -1985,7 +1985,7 @@ name = "mef-solvecoagula"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "ndarray 0.15.6",
+ "ndarray",
  "rand 0.9.4",
  "rand_distr",
  "serde",
@@ -2000,7 +2000,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "nalgebra 0.33.3",
- "ndarray 0.17.2",
+ "ndarray",
  "num-complex",
  "proptest",
  "rustfft",
@@ -2017,7 +2017,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "ndarray 0.17.2",
+ "ndarray",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2138,19 +2138,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "ndarray"
-version = "0.15.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb12d4e967ec485a5f71c6311fe28158e9d6f4bc4a447b474184d0f91a8fa32"
-dependencies = [
- "matrixmultiply",
- "num-complex",
- "num-integer",
- "num-traits",
- "rawpointer",
 ]
 
 [[package]]
@@ -3637,16 +3624,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
-dependencies = [
- "getrandom 0.4.2",
- "rand_core 0.10.1",
-]
-
-[[package]]
 name = "rand_chacha"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3686,19 +3663,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_core"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
-
-[[package]]
 name = "rand_distr"
-version = "0.6.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d431c2703ccf129de4d45253c03f49ebb22b97d6ad79ee3ecfc7e3f4862c1d8"
+checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
 dependencies = [
  "num-traits",
- "rand 0.10.1",
+ "rand 0.9.4",
 ]
 
 [[package]]
@@ -4500,7 +4471,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

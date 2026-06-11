@@ -4,7 +4,10 @@
 //! the full HYPHAE → Metatron → SystemCube → Crystal → PSE pipeline.
 //!
 //! USAGE:
+//!
+//! ```text
 //!     kosmo-substrate [OPTIONS] [PATH]
+//! ```
 //!
 //! Run `kosmo-substrate --help` for the full option list.
 

@@ -6,9 +6,9 @@
 //!
 //! ## Workflow
 //! 1. Embed the current query with [`crate::adapter::text_to_vector8`].
-//! 2. Call [`ILStore::build_context_entries`] to score all committed crystals.
+//! 2. Call [`ILStore::build_context_entries`](crate::ILStore::build_context_entries) to score all committed crystals.
 //! 3. Pass the result to [`ContextBudget::select`] (or call the convenience
-//!    wrapper [`ILStore::context_for_query`]).
+//!    wrapper [`ILStore::context_for_query`](crate::ILStore::context_for_query)).
 //! 4. Prepend the returned `[PSE-CONTEXT]` block to your LLM prompt.
 //!
 //! ## Default policy
@@ -18,7 +18,7 @@
 
 /// Compact, LLM-readable summary of one committed crystal.
 ///
-/// Built by [`ILStore::build_context_entries`]; use [`to_compact_text`] to
+/// Built by [`ILStore::build_context_entries`](crate::ILStore::build_context_entries); use [`to_compact_text`] to
 /// obtain the two-line injection string.
 ///
 /// [`to_compact_text`]: CrystalSummary::to_compact_text
@@ -83,7 +83,7 @@ impl CrystalSummary {
 /// Parameters controlling which crystals enter the LLM context window.
 ///
 /// Apply via [`ContextBudget::select`] or the convenience wrapper
-/// [`ILStore::context_for_query`].
+/// [`ILStore::context_for_query`](crate::ILStore::context_for_query).
 #[derive(Debug, Clone)]
 pub struct ContextBudget {
     /// Maximum estimated token count for the entire context block (header +
@@ -110,7 +110,7 @@ impl ContextBudget {
     /// Filter and select crystals within this budget.
     ///
     /// `summaries` must be pre-sorted by **descending** `tripolar_score`
-    /// (as produced by [`ILStore::build_context_entries`]).
+    /// (as produced by [`ILStore::build_context_entries`](crate::ILStore::build_context_entries)).
     ///
     /// Selection stops at the first crystal that would push usage past
     /// `max_tokens` or when `top_k` is reached.  Crystals below

@@ -13,6 +13,61 @@ note explicitly says so.
 
 ## [Unreleased]
 
+### Fixed
+
+* **Workspace builds on current stable (CI green again)** — two latent
+  breakages surfaced by the floating `stable` toolchain (CI: 1.96):
+
+  The six vendored Infinity-Ledger crates (`vendors/infinityledger/mef-*`)
+  are **auto-adopted into the root workspace** — cargo pulls path
+  dependencies living inside the repository into the enclosing workspace,
+  nested workspace manifest or not — so their `*.workspace = true` keys
+  resolve against the *root* `[workspace.dependencies]`. Two root-level
+  bumps therefore reached code that was never compiled against them:
+  `rand_distr` 0.6 (built on rand 0.10) met workspace `rand` 0.9 and broke
+  `mef-solvecoagula` (E0277), and the split ndarray lines (literal `0.15`
+  in mef-core/mef-solvecoagula vs workspace `0.17` in mef-tic/mef-spiral)
+  broke `mef-core`'s pipeline with cross-version `ArrayBase` types (E0308).
+  Fix: `rand_distr` pinned back to the 0.5 line with a comment documenting
+  the rand-pairing constraint, and all mef crates unified on workspace
+  ndarray. The lockfile shrank: `rand 0.10.1`, `rand_core 0.10.1`, and
+  `ndarray 0.15.6` left the graph.
+
+* **clippy 1.96** — `explicit_counter_loop` in the twin
+  `verify_integrity` loops (`kosmo-core/src/cartography.rs`,
+  `kosmo-store/src/lib.rs`) rewritten with the `(1_u64..).zip(…)` idiom;
+  two `unnecessary_sort_by` descending sorts (`kosmo-pipeline`,
+  `pse-adapter-il`) now use `sort_by_key(Reverse(…))`.
+
+* **rustdoc 1.96 under `-D warnings`** — stricter intra-doc-link scoping
+  surfaced 32 latent findings once the vendored crates compiled again:
+  cross-module links like `` [`ILStore::commit_as`] `` in `pse-adapter-il`
+  module docs now carry explicit `(crate::…)` targets, literal brackets in
+  prose (`∈ [0,1]`, tensor indices `T[1] − T[4]`, mef-spiral's PoR
+  formula) are code-spanned, and the unfenced USAGE blocks in
+  `nxalien-cli` / `kosmo-substrate` got the same ```text fences as the
+  other tools. `RUSTDOCFLAGS="-D warnings" cargo doc --workspace` is
+  clean again.
+
+### Changed
+
+* **Supply-chain gates are now enforceable** (`cargo deny check` clean on
+  all four invariants):
+
+  * Every internal path dependency carries `version = "0.1.0"` (87
+    insertions across kosmo-*, the adapters, and mef-core). cargo-deny's
+    `wildcards = "deny"` counts versionless path dependencies as wildcard
+    requirements — the pse-* crates already followed the path+version
+    convention; the rest of the workspace now matches.
+  * `kosmo-promote` is `publish = false` like every other `tools/` binary.
+  * `deny.toml`: RUSTSEC-2024-0436 (paste — unmaintained, compile-time
+    proc-macro via simba ← nalgebra) documented-ignored;
+    `CDLA-Permissive-2.0` allowed (webpki-root-certs CA-bundle data via
+    rustls-platform-verifier ← reqwest).
+  * `security.yml`: the comment now states the actual behaviour — the
+    cargo-deny action checks the `--all-features` graph (its input
+    default), which is deliberately broader than what ships by default.
+
 ### Added
 
 * **Recall — the anchored memory is queryable**
