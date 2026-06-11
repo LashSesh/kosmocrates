@@ -8,19 +8,23 @@
 [![Rust 1.82+](https://img.shields.io/badge/rust-1.82+-orange.svg)](Cargo.toml)
 
 > **Two-layer architecture notice.**
-> This repository contains two distinct layers that are documented
-> separately until the production substrate has been empirically validated.
+> This repository contains two layers of the same post-symbolic paradigm,
+> pointed at two different streams — and, since the empirical validation
+> gate passed (147/147 eval scenarios), **connected**:
 >
-> | Layer | Crates | Documentation |
-> |---|---|---|
-> | **PSE base system** | `pse-*` | This file + [`docs/OVERVIEW.md`](docs/OVERVIEW.md) |
-> | **Kosmocrates production substrate** | `kosmo-*` | [`SUBSTRATE.md`](SUBSTRATE.md) |
+> | Layer | Crates | Stream | Documentation |
+> |---|---|---|---|
+> | **PSE cognition system** | `pse-*` | world data (sensors, logs, markets, text) → epistemic memory | This file + [`docs/OVERVIEW.md`](docs/OVERVIEW.md) |
+> | **Kosmocrates production substrate** | `kosmo-*` | software itself (workspaces, topology, intent) → structural memory + governed action | [`SUBSTRATE.md`](SUBSTRATE.md), [`docs/WISH_TO_SYSTEM.md`](docs/WISH_TO_SYSTEM.md) |
 >
-> The `kosmo-*` crates (HYPHAE, Metatron, LPCM, SystemCube, Pipeline)
-> implement the policy-governed topology assimilation layer described
-> in `specs/kosmocrates_spec_corpus_implementation_handoff.md`.
-> They have no compile-time dependency on the `pse-*` crates and are
-> tested independently (278 tests, 0 failures as of 2026-05-30).
+> The dependency direction is strict: no `kosmo-*` crate imports `pse-*`.
+> The single sanctioned crossing is `kosmo-pse-bridge` →
+> [`adapters/pse-adapter-kosmo`](adapters/pse-adapter-kosmo) → the PSE
+> engine, which alone decides crystallization. Certified structural
+> crystals from the substrate are *offered* to the cognition system via
+> the `kosmo-promote` CLI — fail-closed, evidence-bound, policy-gated.
+> The substrate layer is tested independently (1162 tests, 0 failures;
+> 147/147 eval scenarios as of 2026-06-10).
 
 Kosmocrates turns stateless LLM and agent interactions into persistent,
 verifiable, topology-aware knowledge structures: content-addressed
