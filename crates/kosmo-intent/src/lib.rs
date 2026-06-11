@@ -340,6 +340,7 @@ fn item_facets(line: &str) -> Vec<WishFacet> {
 pub fn facets_from_source(source: &str) -> BTreeSet<WishFacet> {
     let mut facets = BTreeSet::new();
     let mut pending_test = false;
+    let mut pending_doc = false;
     for line in source.lines() {
         let trimmed = line.trim();
         if is_test_attr(trimmed) {
@@ -353,9 +354,36 @@ pub fn facets_from_source(source: &str) -> BTreeSet<WishFacet> {
                 pending_test = false; // not a test fn after all
             }
         }
-        facets.extend(item_facets(line));
+        let item = item_facets(line);
+        // A documented public item: a doc comment (`///` / `#[doc…]`)
+        // immediately above the definition (attribute lines in between are
+        // fine — docs lexically precede attributes). Mirrors the substrate's
+        // MissingDocFiber finding as a *measurable* facet.
+        if is_doc_line(trimmed) {
+            pending_doc = true;
+        } else if pending_doc {
+            let symbols: Vec<String> = item
+                .iter()
+                .filter(|f| f.kind == WishFacetKind::Symbol)
+                .map(|f| f.key.clone())
+                .collect();
+            if !symbols.is_empty() {
+                for name in symbols {
+                    facets.insert(WishFacet::doc(name));
+                }
+                pending_doc = false;
+            } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                pending_doc = false; // doc block ended on a non-item line
+            }
+        }
+        facets.extend(item);
     }
     facets
+}
+
+/// A doc-comment line: `///`, `//!`, or a `#[doc = …]` attribute.
+fn is_doc_line(trimmed: &str) -> bool {
+    trimmed.starts_with("///") || trimmed.starts_with("//!") || trimmed.starts_with("#[doc")
 }
 
 /// A test attribute line: `#[test]`, `#[tokio::test]`, `#[async_std::test]`, …
@@ -1024,12 +1052,15 @@ fn trigger_kind(word: &str) -> Option<WishFacetKind> {
         "service" | "endpoint" => Some(WishFacetKind::Service),
         "capability" | "capabilities" | "feature" | "features" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
+        "doc" | "docs" | "documented" | "documentation" | "docstring" => Some(WishFacetKind::Doc),
         _ => None,
     }
 }
 
 /// Words that may sit between a trigger and the name it introduces.
-const FILLERS: &[&str] = &["a", "an", "the", "called", "named", "name", "on", "of"];
+const FILLERS: &[&str] = &[
+    "a", "an", "the", "called", "named", "name", "on", "of", "for",
+];
 
 /// Clean a candidate name token: strip surrounding markup/punctuation, keeping
 /// identifier characters (and `-` for crate names). `None` if nothing is left.
@@ -2238,5 +2269,65 @@ mod tests {
             _ => eprintln!("cargo test unavailable, skipping"),
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Doc facets: documented items are observable ─────────────────────────
+
+    #[test]
+    fn facets_from_source_extracts_documented_items() {
+        let src = "/// Adds two numbers.
+pub fn add(a: u32, b: u32) -> u32 { a + b }
+
+pub fn bare() {}
+
+/// A documented type…
+#[derive(Debug)]
+pub struct Routed;
+
+#[doc = \"attr-style docs\"]
+pub fn attr_documented() {}
+
+/// docs on a private item observe nothing
+fn private_helper() {}
+";
+        let f = facets_from_source(src);
+        assert!(f.contains(&WishFacet::doc("add")), "/// above pub fn");
+        assert!(
+            f.contains(&WishFacet::doc("Routed")),
+            "attributes between doc and item are fine"
+        );
+        assert!(
+            f.contains(&WishFacet::doc("attr_documented")),
+            "#[doc = …] counts"
+        );
+        assert!(
+            !f.contains(&WishFacet::doc("bare")),
+            "undocumented pub item has no Doc facet"
+        );
+        assert!(
+            !f.contains(&WishFacet::doc("private_helper")),
+            "private items observe no Doc facet"
+        );
+        // The Symbol facets remain untouched alongside.
+        assert!(f.contains(&WishFacet::symbol("bare")));
+    }
+
+    #[test]
+    fn compile_wish_extracts_doc_facets() {
+        for prose in [
+            "docs of helper",
+            "docs for helper",
+            "documented helper",
+            "documentation for helper",
+        ] {
+            let w = compile_wish(prose, d(b"policy"), d(b"bundle"));
+            assert!(
+                w.predicates
+                    .iter()
+                    .any(|p| p.facet == WishFacet::doc("helper")),
+                "{prose:?} must compile to a Doc facet, got {:?}",
+                w.predicates
+            );
+        }
     }
 }

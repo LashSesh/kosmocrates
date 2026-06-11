@@ -1081,6 +1081,66 @@ mod tests {
     }
 
     #[test]
+    fn descend_realizes_doc_wish() {
+        let _guard = heavy();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-doc-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        // The function exists but is undocumented — the substrate's
+        // MissingDocFiber finding, expressed as a wish.
+        fs::write(root.join("src/lib.rs"), "pub fn helper() -> u32 { 1 }\n").unwrap();
+
+        let prose = "docs for helper";
+        let evidence = Digest::of_bytes(prose.as_bytes());
+        let wish = compile_wish(prose, Digest::ZERO, evidence);
+
+        match descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            None,
+            None,
+        ) {
+            Ok(session) => {
+                let last = session.latest().expect("at least one observation");
+                assert!(
+                    matches!(last.status, WishClosureStatus::Realized),
+                    "doc descent should converge, got {:?} ({}/{})",
+                    last.status,
+                    last.met_count,
+                    last.total_count
+                );
+                assert!(session.iterations() >= 2, "unmet → scaffold → met");
+                let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+                assert!(
+                    lib.lines().next().unwrap().starts_with("/// `helper`"),
+                    "the doc stub landed above the item: {lib}"
+                );
+            }
+            Err(e) => eprintln!("observe unavailable, skipping: {e}"),
+        }
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn doc_wish_on_documented_item_is_realized_without_writing() {
+        let (w, a) = assess_against("docs of helper", &[WishFacet::doc("helper")]);
+        let out = wish_report(&w, &a, false);
+        assert!(out.contains("REALIZED"), "got: {out}");
+        assert!(matches!(a.status, WishClosureStatus::Realized));
+    }
+
+    #[test]
     fn apply_synthesis_routes_unscaffoldable_facet_to_fallback() {
         use kosmo_synthesizer::FileChange;
         let nanos = std::time::SystemTime::now()

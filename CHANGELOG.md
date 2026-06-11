@@ -15,6 +15,38 @@ note explicitly says so.
 
 ### Added
 
+* **The Doc facet — the wish language learns the language of the findings**
+
+  Stage 2 begins where the substrate's diagnosis is loudest: its two most
+  common findings are missing tests and missing docs, and while tests were
+  already expressible, *"documented"* was not a wish the system could
+  measure. Now it is, end to end:
+
+  * `WishFacetKind::Doc` (keyed like `Symbol`, `name` or `name@crate`):
+    a public item carrying a doc comment immediately above its definition.
+  * **Observation** (`kosmo-intent::facets_from_source`): `///`, `//!` and
+    `#[doc = …]` lines are tracked through attribute blocks; documented
+    public items yield `Doc` facets, private or undocumented items honestly
+    do not.
+  * **Prose** (`compile_wish`): `docs of helper`, `docs for helper`,
+    `documented helper`, `documentation for helper` (`for` joins the
+    filler words, which also reads better for `a test for …`).
+  * **Deterministic scaffold** (`FacetScaffolder::scaffold_doc`): finds the
+    public item across the crate's sources, inserts a doc-stub line above
+    its attribute block (docs precede attrs), and stays an honest no-op
+    when the item is already documented or does not exist. The stub names
+    itself a stub — structurally present, honestly minimal, exactly the
+    contract `todo!()` scaffolds follow.
+  * **Convergence**, proven live and by test: `kosmo-run --wish "docs for
+    route" --apply` descends `UNSTARTED (0/1) → REALIZED (1/1)` with the
+    stub landing above the item; an already-documented item realizes
+    without writing; scaffold → observe round-trips (the second scaffold
+    is empty).
+
+  The loop this closes: the substrate *finds* `MissingDocFiber`, the
+  memory *anchors* it as claims, and the wish language can now *target*
+  it — diagnosis, memory, and intent finally speak one vocabulary.
+
 * **The memory tank — anchored knowledge carries content, and the
   embedding becomes a versioned socket**
 

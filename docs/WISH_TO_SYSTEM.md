@@ -56,7 +56,8 @@ The loop is built from six load-bearing parts (the framing the dev log uses):
 
 1. **Target** — `Wish` (`kosmo-core/src/wish.rs:273`). A content-addressed set
    of `WishPredicate`s over `WishFacet`s (a crate exists, a module exists, a
-   symbol exists, a test passes, a program runs, a service responds).
+   symbol exists, a symbol is *documented*, a test passes, a program runs, a
+   service responds).
 2. **Ruler** — `assess_wish` (`kosmo-core/src/wish.rs:430`). Measures the
    `Q16` **distance** between an observed topology and the wish: the
    weighted fraction of unmet predicates. `ZERO` = realized, `ONE` = nothing met.
@@ -201,6 +202,10 @@ kosmo-run --wish "<prose>" --scaffold --apply .
 
 # Apply and land each accepted patch as its own git commit:
 kosmo-run --provider mock --apply --commit .
+
+# The substrate's findings are expressible as wishes: MissingDocFiber ⇒
+# "docs for route" — measured, deterministically scaffolded, converged:
+kosmo-run --wish "docs for route" --apply .
 
 # Ground synthesis in the anchored memory (see SUBSTRATE.md §5 — first
 # `kosmo-promote --ledger` learns, then this builds with what was learned):

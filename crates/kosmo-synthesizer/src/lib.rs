@@ -492,6 +492,7 @@ impl FacetScaffolder {
     fn scaffold_kind(ws: &Path, kind: &WishFacetKind, key: &str) -> Vec<FileChange> {
         match kind {
             WishFacetKind::Symbol => Self::scaffold_symbol(ws, key),
+            WishFacetKind::Doc => Self::scaffold_doc(ws, key),
             WishFacetKind::Signature => Self::scaffold_signature(ws, key),
             WishFacetKind::Contract => Self::scaffold_contract(ws, key),
             WishFacetKind::Module => Self::scaffold_module(ws, key),
@@ -516,6 +517,7 @@ impl FacetScaffolder {
         matches!(
             kind,
             WishFacetKind::Symbol
+                | WishFacetKind::Doc
                 | WishFacetKind::Signature
                 | WishFacetKind::Contract
                 | WishFacetKind::Module
@@ -641,6 +643,59 @@ impl FacetScaffolder {
             &format!("fn {name}"),
             &format!("pub fn {name}({param_list}){arrow} {{ todo!(\"kosmo: implement {name}\") }}"),
         )
+    }
+
+    /// Scaffold a [`WishFacetKind::Doc`] facet: find the public item named
+    /// `key` in the crate's sources and insert a doc-comment stub line
+    /// directly above its definition. The dual of `kosmo-intent`'s doc
+    /// observation, so scaffold → observe round-trips and the descent
+    /// converges. Honest no-ops: item not found, or already documented.
+    /// Like every scaffold the stub is structurally present and honestly
+    /// minimal — it names itself a stub to refine, never fakes prose.
+    fn scaffold_doc(ws: &Path, key: &str) -> Vec<FileChange> {
+        let src = ws.join("src");
+        let mut files: Vec<PathBuf> = walk_rs_files(&src);
+        files.sort();
+        for path in files {
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let lines: Vec<&str> = content.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if !line_declares_pub_item(line, key) {
+                    continue;
+                }
+                // Already documented? Walk upward over attribute lines.
+                let mut j = i;
+                while j > 0 {
+                    let prev = lines[j - 1].trim();
+                    if prev.starts_with("#[") && !prev.starts_with("#[doc") {
+                        j -= 1;
+                        continue;
+                    }
+                    break;
+                }
+                if j > 0 {
+                    let prev = lines[j - 1].trim();
+                    if prev.starts_with("///") || prev.starts_with("#[doc") {
+                        return vec![]; // already documented — honest no-op
+                    }
+                }
+                // Insert the stub above the attribute block (docs precede attrs).
+                let indent: String = line.chars().take_while(|c| *c == ' ').collect();
+                let stub =
+                    format!("{indent}/// `{key}` — doc stub scaffolded by kosmo; refine me.");
+                let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+                out.insert(j, stub);
+                let rel = path.strip_prefix(ws).unwrap_or(&path).to_path_buf();
+                let mut body = out.join("\n");
+                if content.ends_with('\n') {
+                    body.push('\n');
+                }
+                return vec![FileChange::modify(rel, body)];
+            }
+        }
+        vec![] // item not found — honest no-op
     }
 
     /// Append several `(marker, snippet)` items to the crate's lib in a
@@ -1085,6 +1140,80 @@ fn register_member(toml: &str, name: &str) -> Option<String> {
     out.push_str(&format!("\n    \"{name}\","));
     out.push_str(&toml[bracket + 1..]);
     Some(out)
+}
+
+/// Walk `root` for `.rs` files. Skips `target` and dotted directories.
+/// Deterministic once sorted by the caller.
+fn walk_rs_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == "target" || name.starts_with('.') {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// Does this source line declare a **public** item named `name`?
+/// The lexical mirror of `kosmo-intent`'s item observation: `pub` visibility,
+/// optional `async`/`unsafe`/`default` modifiers, then an item keyword
+/// (`fn`/`struct`/`enum`/`trait`/`type`/`union`/`const`/`static`) and the
+/// identifier. Reads the opening line only — deterministic.
+fn line_declares_pub_item(line: &str, name: &str) -> bool {
+    let trimmed = line.trim();
+    if !(trimmed.starts_with("pub ") || trimmed.starts_with("pub(")) {
+        return false;
+    }
+    let body = match trimmed.find(' ') {
+        Some(i) => trimmed[i + 1..].trim_start(),
+        None => return false,
+    };
+    let mut tokens = body.split_whitespace().peekable();
+    while matches!(
+        tokens.peek(),
+        Some(&"async") | Some(&"unsafe") | Some(&"default") | Some(&"const") | Some(&"static")
+    ) {
+        tokens.next();
+    }
+    let Some(kw) = tokens.next() else {
+        return false;
+    };
+    if !matches!(
+        kw,
+        "fn" | "struct" | "enum" | "trait" | "type" | "union" | "const" | "static"
+    ) {
+        // `pub(crate) fn …` — the visibility token itself was consumed above;
+        // `pub(...)` keys keep their keyword in `body`, handled by the loop.
+        return false;
+    }
+    tokens
+        .next()
+        .and_then(|tok| {
+            let ident: String = tok
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if ident.is_empty() {
+                None
+            } else {
+                Some(ident)
+            }
+        })
+        .is_some_and(|ident| ident == name)
 }
 
 /// Walk `ws` for `Cargo.toml` files and return `(package_name, manifest_path)`
@@ -1763,6 +1892,73 @@ mod tests {
         let res = FacetScaffolder.synthesize(&req).unwrap();
         assert!(res.patch.is_empty(), "unknown crate → honest no-op");
         std::fs::remove_dir_all(&ws).ok();
+    }
+
+    // ─── Doc scaffold: the documented-item facet round-trips ─────────────────
+
+    #[test]
+    fn scaffold_doc_inserts_stub_above_item() {
+        let dir = temp_ws("pub fn helper() -> u32 { 1 }\n");
+        let req = wish_request(&dir, WishFacet::doc("helper"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        assert_eq!(res.patch.file_changes.len(), 1);
+        let fc = &res.patch.file_changes[0];
+        assert_eq!(fc.kind, FileChangeKind::Modify);
+        let lines: Vec<&str> = fc.content.lines().collect();
+        assert!(
+            lines[0].starts_with("/// `helper`"),
+            "stub above the item: {}",
+            lines[0]
+        );
+        assert!(lines[1].starts_with("pub fn helper"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_doc_goes_above_attribute_block() {
+        let dir = temp_ws("#[derive(Debug)]\npub struct Routed;\n");
+        let req = wish_request(&dir, WishFacet::doc("Routed"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let c = &res.patch.file_changes[0].content;
+        let lines: Vec<&str> = c.lines().collect();
+        assert!(lines[0].starts_with("/// `Routed`"), "docs precede attrs");
+        assert_eq!(lines[1], "#[derive(Debug)]");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_doc_is_an_honest_noop_when_documented_or_missing() {
+        let dir = temp_ws("/// Already documented.\npub fn helper() {}\n");
+        let req = wish_request(&dir, WishFacet::doc("helper"));
+        assert!(
+            FacetScaffolder.synthesize(&req).unwrap().patch.is_empty(),
+            "already documented → no-op"
+        );
+        let req = wish_request(&dir, WishFacet::doc("ghost"));
+        assert!(
+            FacetScaffolder.synthesize(&req).unwrap().patch.is_empty(),
+            "unknown item → no-op, never a lie"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scaffold_doc_observe_roundtrip_converges() {
+        // scaffold → apply → the facet observation logic must see it as met
+        // (the convergence contract between scaffolder and observer).
+        let dir = temp_ws("pub fn helper() -> u32 { 1 }\n");
+        let req = wish_request(&dir, WishFacet::doc("helper"));
+        let res = FacetScaffolder.synthesize(&req).unwrap();
+        let fc = &res.patch.file_changes[0];
+        std::fs::write(dir.join(&fc.path), &fc.content).unwrap();
+        let second = FacetScaffolder
+            .synthesize(&wish_request(&dir, WishFacet::doc("helper")))
+            .unwrap();
+        assert!(
+            second.patch.is_empty(),
+            "after applying the stub, the same wish scaffolds nothing"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // ─── Memory grounding ────────────────────────────────────────────────────
