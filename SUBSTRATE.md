@@ -170,9 +170,14 @@ kosmo-promote . --offer --feedback ~/.kosmo/feedback.json
 
 # Resonance: co-observe the candidates as ONE ensemble under the substrate
 # calibration — this is the configuration in which substrate knowledge
-# actually crystallizes (real SemanticCrystals, QTIC Q3):
+# actually crystallizes (real SemanticCrystals):
 kosmo-promote . --all-kinds --offer --batch --calibration substrate \
     --state ~/.kosmo/pse-archive.json
+
+# Full QTIC: anchor accepted crystals in the Infinity Ledger — ledger block,
+# IL-HDAG node, path invariance — lifting certificates from Q3 to Q5:
+kosmo-promote . --all-kinds --offer --batch --calibration substrate \
+    --ledger ~/.kosmo/il
 ```
 
 Runs the full pipeline, filters its `pse_candidates` (default:
@@ -223,13 +228,19 @@ certified structure commits real `SemanticCrystal`s; the conservative default
 calibration remains fail-closed and commits nothing.
 
 Every crystal the engine commits receives a **QTIC conformance certificate**
-(Q0–Q5, `pse-adapter-il::qtic`) via `pse_adapter_kosmo::qtic_for_promoted`.
-Classes are earned, never granted: the engine's commitment *is* gate-passed
-condensation (Q3), but the promotion path has no Infinity-Ledger trace anchor
-and no HDAG path invariance, so promoted crystals honestly **cap at Q3** —
-the certificate's `trace_ready`/`path_inv` fields show exactly what an IL
-commit would add (Q4 auditable, Q5 path-invariant). `kosmo-promote` reports
-the class per accepted crystal (`QTIC Q3 — …`; `qtic_class` in `--json`).
+(Q0–Q5, `pse-adapter-il::qtic`). Classes are earned, never granted: the
+engine's commitment *is* gate-passed condensation (Q3), and without anchors
+the certificate honestly **caps at Q3**, its `trace_ready`/`path_inv` fields
+showing exactly what is missing. With `--ledger <path>` every accepted
+crystal is **anchored in the Infinity Ledger** — a ledger block (the
+canonical trace anchor), an IL-HDAG node (the 5D resonance tensor), and a
+path-invariance check — and the certificate lifts to **Q5, full QTIC**: the
+same conformance class the cognition system awards its own best memory.
+Anchoring is idempotent (an identical crystal re-anchors to the same block;
+the ledger does not grow) and a host write, so the flag is the operator's
+authorization and nothing is written outside `--offer` mode. `kosmo-promote`
+reports class and block per accepted crystal (`QTIC Q5 — …`, `IL: block …`;
+`qtic_class`/`block_hash` in `--json`).
 
 ---
 

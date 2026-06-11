@@ -14,6 +14,7 @@ kosmo-pipeline = { path = "../../crates/kosmo-pipeline" }
 kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
 kosmo-store = { path = "../../crates/kosmo-store" }
 pse-adapter-kosmo = { path = "../../adapters/pse-adapter-kosmo" }
+pse-adapter-il = { path = "../../adapters/pse-adapter-il", version = "0.1.0" }
 pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
 pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
 serde_json = { workspace = true }

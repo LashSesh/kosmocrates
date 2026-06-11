@@ -103,18 +103,20 @@ conceivable but **unscheduled** — nothing currently needs it.
   lexical structure graph over source code (modules/imports/functions/types/
   tests), now polyglot via `xlang`.
 
-They are different formalisms for different objects and should stay so. But
-the unification names their meeting point precisely: a promoted crystal's
-QTIC certificate today reports `trace_ready = false, path_inv = false` —
-**exactly** the two fields an Infinity-Ledger commit would set. Lifting the
-promotion path into the IL (block hash + IL-HDAG node for each accepted
-crystal) raises promoted substrate knowledge from Q3 to Q4 (auditable) and Q5
-(path-invariant), and at that moment the code-born structure acquires a
-resonance-tensor anchor — the two HDAGs meet **through the crystal**, not
-through a type merge.
+They are different formalisms for different objects and should stay so. The
+unification gives them a precise meeting point — **through the crystal, not a
+type merge** — and that meeting point is **live**: `kosmo-promote --ledger
+<path>` anchors every accepted crystal in the Infinity Ledger (block hash =
+canonical trace anchor, IL-HDAG node = the resonance tensor the code-born
+structure acquires, plus the path-invariance check), lifting promoted
+substrate knowledge from Q3 to **Q5, full QTIC**. The anchor is idempotent
+(an identical crystal re-anchors to the same block) and operator-authorized
+(host write, `--offer` mode only). An unanchored promotion still reports
+`trace_ready = false, path_inv = false` — the seam stays visible in every
+Q3 certificate.
 
-**Convergence verdict: scheduled concept, unscheduled work.** The seam is
-visible in every Q3 certificate.
+**Convergence verdict: live.** A `CodeHDAG`-born structure can now hold a
+node in the IL-HDAG.
 
 ## 6. Stores — different durability contracts
 

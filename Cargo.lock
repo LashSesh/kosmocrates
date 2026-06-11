@@ -1668,6 +1668,7 @@ dependencies = [
  "kosmo-pipeline",
  "kosmo-pse-bridge",
  "kosmo-store",
+ "pse-adapter-il",
  "pse-adapter-kosmo",
  "pse-core",
  "pse-types",

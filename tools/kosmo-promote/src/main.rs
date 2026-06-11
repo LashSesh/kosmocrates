@@ -11,28 +11,36 @@
 //!     kosmo-promote [OPTIONS] [PATH]
 //!
 //! OPTIONS:
-//!     --offer         Actually feed the engine (DryRun profile; in-memory, no
-//!                     host writes). Default is report-only: candidates are
-//!                     listed and every outcome is SkippedByReportOnly.
-//!     --all-kinds     Offer all pipeline candidate kinds, not only
-//!                     CertifiedCrystal (adds Structural/Topology observations).
-//!     --state <path>  Persist the engine's crystal archive across sessions
-//!                     (JSON array of SemanticCrystal). Loaded on start when
-//!                     present; written back only in --offer mode. The explicit
-//!                     flag is the operator's write authorization — without it
-//!                     nothing touches the disk.
-//!     --json          Machine-readable output.
-//!     -h, --help      This help.
+//!     --offer              Feed the engine (DryRun profile). Default is
+//!                          report-only: the engine is never touched.
+//!     --all-kinds          Offer all pipeline candidate kinds, not only
+//!                          CertifiedCrystal.
+//!     --batch              ONE ensemble step instead of one step per
+//!                          candidate — co-observation forms the edges the
+//!                          connectivity metric needs; attribution stays
+//!                          per-candidate via crystal.region.
+//!     --ticks <n>          Re-observe the ensemble n times (temporal
+//!                          stability).
+//!     --calibration <m>    default | planning | adaptive | substrate —
+//!                          explicit operator choice (changes what may
+//!                          become memory).
+//!     --state <path>       Engine crystal archive across sessions (JSON).
+//!     --store <path>       CAD library (JSONL) as additional source.
+//!     --feedback <path>    Engine verdicts → next run's prior_feedback.
+//!     --ledger <path>      Anchor accepted crystals in the Infinity Ledger
+//!                          (block + IL-HDAG node + path invariance) —
+//!                          lifts QTIC from Q3 to Q5.
+//!     --json               Machine-readable output.
 //! ```
 //!
-//! Fail-closed defaults: without `--offer` the engine is never touched; the
-//! adapter allowlist starts at CertifiedCrystal only; without `--state`
-//! nothing is persisted.
+//! Fail-closed defaults: without `--offer` the engine is never touched and
+//! nothing is written; every path flag is the operator's explicit write
+//! authorization; the conservative default calibration commits nothing.
 //!
-//! With `--state`, repeated `--offer` runs accumulate engine pattern memory
-//! across sessions (the `pse-core` cross-session mechanism): prior crystals
-//! warm-start `PatternMemory`, so recurring substrate output can build the
-//! resonance that eventually flips `Deferred` into `Accepted`.
+//! The full loop: with `--batch --calibration substrate` a workspace's
+//! certified structure crystallizes; `--state` warm-starts `PatternMemory`
+//! next session; `--feedback` folds verdicts into the pipeline's norm
+//! fitness; `--ledger` lifts the crystals to full QTIC (Q5).
 
 use std::path::PathBuf;
 use std::process;
@@ -56,6 +64,7 @@ struct Args {
     state: Option<PathBuf>,
     store: Option<PathBuf>,
     feedback: Option<PathBuf>,
+    ledger: Option<PathBuf>,
     calibration: Calibration,
     batch: bool,
     ticks: u32,
@@ -143,6 +152,11 @@ OPTIONS:\n\
                     Crystallization is temporal: a pattern commits when it\n\
                     holds across ticks, so a stable workspace observed over\n\
                     n ticks is exactly the stability the engine certifies.\n\
+    --ledger <path> Anchor accepted crystals in the Infinity Ledger at\n\
+                    <path> (ledger block + IL-HDAG node + path invariance).\n\
+                    Lifts QTIC certificates beyond Q3 toward Q4 (auditable)\n\
+                    and Q5 (path-invariant). Host write — the flag is the\n\
+                    operator's authorization; only acts in --offer mode.\n\
     --calibration <mode>\n\
                     Engine threshold calibration — an explicit operator\n\
                     choice because it changes what may become memory:\n\
@@ -166,6 +180,7 @@ fn parse_args() -> Result<Args, String> {
         state: None,
         store: None,
         feedback: None,
+        ledger: None,
         calibration: Calibration::Default,
         batch: false,
         ticks: 1,
@@ -212,6 +227,13 @@ fn parse_args() -> Result<Args, String> {
                     return Err("--feedback requires a file path".into());
                 }
                 args.feedback = Some(PathBuf::from(&raw[i]));
+            }
+            "--ledger" => {
+                i += 1;
+                if i >= raw.len() {
+                    return Err("--ledger requires a directory path".into());
+                }
+                args.ledger = Some(PathBuf::from(&raw[i]));
             }
             "--calibration" => {
                 i += 1;
@@ -445,6 +467,67 @@ fn main() {
         }
     }
 
+    // 5b. Infinity-Ledger lift — anchor accepted crystals (operator-authorized
+    //     host write; the flag is the authorization, only acts in --offer mode).
+    //     Each unique crystal is committed once: ledger block + IL-HDAG node +
+    //     path-invariance check. The returned QTIC certificate supersedes the
+    //     promotion path's Q3 ceiling (toward Q4 auditable / Q5 path-invariant)
+    //     and is applied to every offer sharing that crystal.
+    let mut block_hashes: Vec<Option<String>> = vec![None; offers.len()];
+    let ledger_commits = match (&args.ledger, args.offer) {
+        (Some(path), true) => {
+            let mut il = match pse_adapter_il::ILStore::open(path, "kosmo-promote") {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("error: cannot open ledger {}: {e}", path.display());
+                    process::exit(1);
+                }
+            };
+            let question = format!("kosmo-promote:{}", args.path);
+            let mut anchored: std::collections::BTreeMap<
+                [u8; 32],
+                (String, Option<pse_adapter_il::qtic::QticCertificate>),
+            > = std::collections::BTreeMap::new();
+            for (i, offer) in offers.iter().enumerate() {
+                let Some(crystal) = &offer.crystal else {
+                    continue;
+                };
+                if anchored.contains_key(&crystal.crystal_id) {
+                    continue;
+                }
+                let chunks = vec![candidates[i].label.clone()];
+                match il.commit_with_feedback(
+                    crystal,
+                    &chunks,
+                    state.commit_index as usize,
+                    &question,
+                ) {
+                    Ok(fb) => {
+                        anchored.insert(crystal.crystal_id, (fb.block_hash, fb.qtic_certificate));
+                    }
+                    Err(e) => eprintln!(
+                        "warning: ledger commit failed for {}: {e}",
+                        candidates[i].label
+                    ),
+                }
+            }
+            let commits = anchored.len();
+            for (i, offer) in offers.iter_mut().enumerate() {
+                let Some(crystal) = &offer.crystal else {
+                    continue;
+                };
+                if let Some((hash, cert)) = anchored.get(&crystal.crystal_id) {
+                    block_hashes[i] = Some(hash.clone());
+                    if let Some(cert) = cert {
+                        offer.qtic = Some(cert.clone());
+                    }
+                }
+            }
+            commits
+        }
+        _ => 0,
+    };
+
     // 6. Persist the merged archive — only in --offer mode and only when the
     //    operator authorized the write with an explicit --state path.
     let session_crystals = state.archive.crystals().to_vec();
@@ -506,7 +589,8 @@ fn main() {
         let rows: Vec<serde_json::Value> = offers
             .iter()
             .zip(candidates.iter())
-            .map(|(o, c)| {
+            .zip(block_hashes.iter())
+            .map(|((o, c), bh)| {
                 serde_json::json!({
                     "candidate_id": c.id.to_hex(),
                     "kind": format!("{:?}", c.kind),
@@ -515,6 +599,7 @@ fn main() {
                     "outcome": o.outcome,
                     "crystal_committed": o.crystal.is_some(),
                     "qtic_class": o.qtic.as_ref().map(|q| q.class_u8()),
+                    "block_hash": bh,
                 })
             })
             .collect();
@@ -543,6 +628,7 @@ fn main() {
             "mode": if args.offer { "offer" } else { "report-only" },
             "calibration": args.calibration.as_str(),
             "store_loaded": store_loaded,
+            "ledger_commits": ledger_commits,
             "feedback_loaded": feedback_loaded,
             "feedback_written": feedback_written,
             "fitness_traces": report.norm_fitness_traces.len(),
@@ -575,7 +661,11 @@ fn main() {
         let mut deferred = 0usize;
         let mut rejected = 0usize;
         let mut skipped = 0usize;
-        for (offer, candidate) in offers.iter().zip(candidates.iter()) {
+        for ((offer, candidate), block_hash) in offers
+            .iter()
+            .zip(candidates.iter())
+            .zip(block_hashes.iter())
+        {
             use kosmo_pse_bridge::PromotionOutcome as O;
             let verdict = match &offer.outcome {
                 O::Accepted => {
@@ -604,6 +694,9 @@ fn main() {
                         qtic.class_u8(),
                         qtic.class_description
                     );
+                }
+                if let Some(hash) = block_hash {
+                    println!("      └─ IL: block {}", &hash[..hash.len().min(16)]);
                 }
             }
         }

@@ -202,11 +202,13 @@ pub struct CrystalOffer {
 ///   Ledger, so there is no trace anchor and no HDAG path invariance.
 ///   `il_stability` is 0.0 for the same reason (no IL feedback signal).
 ///
-/// Consequently a promoted crystal **caps at Q3** today; the certificate's
-/// `trace_ready`/`path_inv` fields make visible exactly what an IL commit
-/// would add (Q4: auditable, Q5: path-invariant). When the promotion path
-/// gains an IL anchor, the same classification lifts further without changing
-/// vocabulary.
+/// Consequently the *unanchored* promotion path **caps at Q3**; the
+/// certificate's `trace_ready`/`path_inv` fields make visible exactly what an
+/// IL commit adds (Q4: auditable, Q5: path-invariant). The lift exists:
+/// `kosmo-promote --ledger <path>` anchors accepted crystals via
+/// `pse_adapter_il::ILStore::commit_with_feedback` — ledger block, IL-HDAG
+/// node, path-invariance check — whose certificate (full QTIC up to Q5)
+/// supersedes this one.
 pub fn qtic_for_promoted(crystal: &SemanticCrystal, extrinsic_t: u64) -> QticCertificate {
     let psi = crystal.topology_signature.kuramoto_coherence - (1.0 - crystal.stability_score);
     classify(&QticInput {
