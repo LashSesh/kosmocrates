@@ -39,12 +39,18 @@ pub struct CrystalSummary {
     pub scale_tag: String,
     /// Question that prompted this crystal's formation (empty if unknown).
     pub question: String,
+    /// The textual knowledge the crystal is anchored over — the bounded
+    /// `source_chunks` recorded at commit time. Empty for pre-claims
+    /// commits. This is the *content* recall surfaces, not just metadata.
+    pub claims: Vec<String>,
 }
 
 impl CrystalSummary {
-    /// Rough token estimate (1 token ≈ 4 chars).
+    /// Rough token estimate (1 token ≈ 4 chars), including the claims a
+    /// renderer would inject alongside the compact text.
     pub fn token_estimate(&self) -> usize {
-        let len = self.to_compact_text().len();
+        let len =
+            self.to_compact_text().len() + self.claims.iter().map(|c| c.len() + 1).sum::<usize>();
         len.div_ceil(4)
     }
 
@@ -154,6 +160,7 @@ mod tests {
             commit_index: 1,
             scale_tag: "original".to_string(),
             question: question.to_string(),
+            claims: vec![],
         }
     }
 

@@ -228,6 +228,7 @@ mod tests {
             commit_index: 1,
             scale_tag: "test".to_string(),
             question: "test question".to_string(),
+            claims: vec![],
         }
     }
 

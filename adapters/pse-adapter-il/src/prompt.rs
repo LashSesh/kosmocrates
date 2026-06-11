@@ -170,6 +170,7 @@ mod tests {
             commit_index: 1,
             scale_tag: "original".to_string(),
             question: question.to_string(),
+            claims: vec![],
         }
     }
 

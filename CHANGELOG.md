@@ -15,6 +15,41 @@ note explicitly says so.
 
 ### Added
 
+* **The memory tank — anchored knowledge carries content, and the
+  embedding becomes a versioned socket**
+
+  Stage 1 of the road past the masterwork skeleton: recall now returns
+  *knowledge*, not just metadata. Every ledger commit persists bounded
+  **claim lines** (`ILStore` index `claims`, 8 × 200 chars, deterministic):
+  `kosmo-promote --ledger` anchors what was actually certified — an
+  ensemble crystal carries its deduplicated member findings with
+  multiplicity (`void_hyp:MissingTestFiber … ×3`), a single crystal its
+  label, kind and metadata, both with evidence/run provenance. The claims
+  surface everywhere the memory does: `--recall` prints them under each
+  hit (text + JSON), `CrystalSummary.claims` →
+  `MemoryGroundingEntry.claims` → the LLM prompt's *Anchored knowledge*
+  section renders them as content lines, and the budget estimator counts
+  them honestly.
+
+  Underneath, the text-embedding seam is now explicit and swappable:
+  `pse_adapter_il::TextEmbedder` (deterministic, named, fixed-dimension)
+  with `HashEmbedder8`/`hash8-v1` wrapping the original 4-gram projection
+  bit-for-bit. The store's index is **tagged with its embedder id**
+  (pre-seam ledgers normalise to `hash8-v1`); opening a populated store
+  with a different embedder refuses loudly — cosine across embedding
+  functions is noise, and the system prefers failing to lying.
+  `ILStore::open_with_embedder` + `embed_query` make a real embedding
+  model a drop-in: the dim-4 test embedder round-trips commit → recall at
+  its own dimension, pinned by test. All query paths
+  (`context_for_query`, `build_grounded_prompt`, `causal_retrieval`,
+  `LedgerRecall`) go through the store's embedder.
+
+  Compatibility pinned by tests: pre-claims/pre-seam indexes load
+  unchanged (serde defaults; claims honestly empty), the default
+  embedder's vectors are bit-identical to the legacy projection, and the
+  whole content chain — promote-anchor → recall claims → grounding
+  claims → prompt lines — is asserted end to end.
+
 * **Memory-grounded synthesis — the anchored knowledge works**
 
   The loop that closed at recall now drives the build: hand `kosmo-run` the

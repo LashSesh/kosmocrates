@@ -546,6 +546,12 @@ pub struct MemoryGroundingEntry {
     /// The question that prompted the crystal's formation — for promoted
     /// substrate knowledge this is the promotion scope (where it was learned).
     pub question: String,
+    /// The textual knowledge the crystal is anchored over (the bounded
+    /// claim lines recorded at anchor time). This is the *content* that
+    /// makes grounding substantive — what was certified, where, about what.
+    /// Empty for crystals anchored before claims existed.
+    #[serde(default)]
+    pub claims: Vec<String>,
 }
 
 impl MemoryGroundingEntry {
@@ -1021,6 +1027,7 @@ mod tests {
             commit_index: 3,
             scale_tag: "il-refined".into(),
             question: "kosmo-promote:/tmp/polyglot7".into(),
+            claims: vec!["motif MissingTestFiber @ lib/handlers.py".into()],
         }
     }
 

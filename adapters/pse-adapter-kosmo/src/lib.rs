@@ -427,6 +427,7 @@ pub fn summary_to_grounding(s: &pse_adapter_il::CrystalSummary) -> MemoryGroundi
         commit_index: s.commit_index,
         scale_tag: s.scale_tag.clone(),
         question: s.question.clone(),
+        claims: s.claims.clone(),
     }
 }
 
@@ -1011,6 +1012,12 @@ mod tests {
             assert!(!h.crystal_id.is_empty());
         }
         assert_eq!(hits[0].question, "kosmo-promote:/ws/alpha");
+        // The tank carries content: the committed chunks surface as claims.
+        assert_eq!(
+            hits[0].claims,
+            vec!["python module routing lacks test coverage".to_string()],
+            "recall must surface the anchored knowledge itself"
+        );
 
         // `top` truncates.
         let one = recall.recall("module", 1).unwrap();

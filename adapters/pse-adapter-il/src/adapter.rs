@@ -171,24 +171,64 @@ impl CrystalAdapter {
         session: usize,
         question: &str,
     ) -> Result<ILPayload, String> {
+        self.convert_with_provenance_using(
+            &crate::HashEmbedder8,
+            crystal,
+            source_chunks,
+            session,
+            question,
+        )
+    }
+
+    /// Like [`convert_with_provenance`](Self::convert_with_provenance), but
+    /// every text embedding goes through the given
+    /// [`TextEmbedder`](crate::TextEmbedder).
+    ///
+    /// With the default `hash8-v1` embedder the behaviour is bit-for-bit the
+    /// legacy one (topology vector, question blend at `SEMANTIC_WEIGHT`).
+    /// With any other embedder, the topology blend is skipped — its 8-dim
+    /// fixpoint lives in a different space than the embedder's vectors — and
+    /// the stored vector is the pure text embedding of `question` plus the
+    /// source chunks, guaranteeing query/store dimension consistency.
+    pub fn convert_with_provenance_using(
+        &self,
+        embedder: &dyn crate::TextEmbedder,
+        crystal: &SemanticCrystal,
+        source_chunks: &[String],
+        session: usize,
+        question: &str,
+    ) -> Result<ILPayload, String> {
         let mut payload = self.convert(crystal, source_chunks)?;
 
-        // Blend text semantics into the stored vector8 when the question is rich enough.
-        if question.chars().count() >= 4 {
-            let text_vec = text_to_vector8(question);
-            let topo_vec = &payload.vector8;
-            let mut blended: Vec<f64> = text_vec
-                .iter()
-                .zip(topo_vec.iter())
-                .map(|(t, p)| SEMANTIC_WEIGHT * t + (1.0 - SEMANTIC_WEIGHT) * p)
-                .collect();
-            let norm: f64 = blended.iter().map(|x| x * x).sum::<f64>().sqrt();
-            if norm > 1e-10 {
-                for x in &mut blended {
-                    *x /= norm;
+        if embedder.id() == crate::HASH8_EMBEDDER_ID {
+            // Legacy path, unchanged: blend text semantics into the stored
+            // vector8 when the question is rich enough.
+            if question.chars().count() >= 4 {
+                let text_vec = embedder.embed(question);
+                let topo_vec = &payload.vector8;
+                let mut blended: Vec<f64> = text_vec
+                    .iter()
+                    .zip(topo_vec.iter())
+                    .map(|(t, p)| SEMANTIC_WEIGHT * t + (1.0 - SEMANTIC_WEIGHT) * p)
+                    .collect();
+                let norm: f64 = blended.iter().map(|x| x * x).sum::<f64>().sqrt();
+                if norm > 1e-10 {
+                    for x in &mut blended {
+                        *x /= norm;
+                    }
+                    payload.vector8 = blended;
                 }
-                payload.vector8 = blended;
             }
+        } else {
+            // Custom embedder: the store's vectors must all carry the
+            // embedder's dimension, so embed the textual identity of this
+            // commit (question + chunks) directly.
+            let mut text = question.to_string();
+            for chunk in source_chunks {
+                text.push('\n');
+                text.push_str(chunk);
+            }
+            payload.vector8 = embedder.embed(&text);
         }
 
         if let Some(snap) = payload.snapshot_json.as_object_mut() {

@@ -105,6 +105,23 @@ fn recall_finds_anchored_knowledge() {
         top["question"].as_str().unwrap().contains("kosmo-promote:"),
         "provenance (the promotion scope) travels with the memory"
     );
+    // The tank carries content: recall surfaces the certified claim lines,
+    // not just metadata — label/kind, candidate metadata, evidence provenance.
+    let claims = top["claims"].as_array().expect("claims array present");
+    assert!(!claims.is_empty(), "anchored knowledge must carry claims");
+    let joined = claims
+        .iter()
+        .map(|c| c.as_str().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        joined.contains("certified") && joined.contains("candidate"),
+        "the first claim states what was certified: {joined}"
+    );
+    assert!(
+        joined.contains("evidence bundle"),
+        "claims carry evidence provenance: {joined}"
+    );
 
     std::fs::remove_dir_all(&root).ok();
 }

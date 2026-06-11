@@ -166,9 +166,12 @@ selected. Three properties keep this honest:
    action; `kosmo_pse_bridge::MemoryRecall`): the top crystals ride along as a
    clearly-delimited advisory prompt section, and the resulting patch **cites**
    the crystal IDs it received (`grounding_crystal_ids`) — auditable provenance
-   from a generated patch back to certified knowledge. Recall failures are loud
-   (a memory explicitly attached must answer), and nothing recalled ever enters
-   a gate or a content-addressed identity.
+   from a generated patch back to certified knowledge. Each recalled entry
+   carries its **claims** (the bounded knowledge lines anchored at promotion
+   time: what was certified, which findings an ensemble carries, the evidence
+   provenance), so the prompt section is substance, not just scores. Recall
+   failures are loud (a memory explicitly attached must answer), and nothing
+   recalled ever enters a gate or a content-addressed identity.
 
 Swap the LLM for `FacetScaffolder` (`--scaffold`) or `MockSynthesizer` and the
 **entire** loop becomes deterministic and offline — the mode the 147-scenario

@@ -276,6 +276,20 @@ stability, provenance (the promotion scope travels as the crystal's
 by contract: it never creates a ledger; a missing path is a hard error,
 never a silent empty store.
 
+Since the memory-tank arc the hits carry **content, not just metadata**:
+the claim lines anchored at promotion time (what was certified, the
+deduplicated member findings of an ensemble crystal, the evidence
+provenance) persist in the ledger index — bounded to 8 × 200 chars per
+crystal — and surface under every hit:
+
+```text
+ 1. D=0.1245 | Q5 | stability 0.78 | t=0 | 7deecadf4eaeb37e | kosmo-promote:/tmp/ws
+    · ensemble of 14 certified candidates from the substrate gate cascade @ /tmp/ws
+    · void_hyp:MissingTestFiber (TopologyObservation) ×3
+    · ambiguity:Boundary (TopologyObservation) ×6
+    · evidence bundle 143f4685f1b7 | source run a2e8b2b080a9
+```
+
 Finally, the anchored memory **works**: hand the same ledger to the agent
 runner and every synthesis request is grounded in what the system has
 already learned — and every patch cites the crystals it received:

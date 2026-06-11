@@ -32,6 +32,7 @@ pub mod causal;
 pub mod cluster;
 pub mod constitutional;
 pub mod context;
+pub mod embedder;
 pub mod feedback;
 pub mod hdag;
 pub mod health;
@@ -51,6 +52,7 @@ pub use constitutional::{
     ConstitutionalRule, RulePredicate, RuleVerdict, Severity,
 };
 pub use context::{ContextBudget, CrystalSummary};
+pub use embedder::{HashEmbedder8, TextEmbedder, HASH8_EMBEDDER_ID};
 pub use feedback::{refine_crystal, ValidationFeedback};
 pub use hdag::{crystal_to_tensor, HDAGEdge, PathInvarianceResult, ResonanceTensor, HDAG};
 pub use health::{crystal_uncertainty, CrystalHealthMetrics, MemoryHealthReport};

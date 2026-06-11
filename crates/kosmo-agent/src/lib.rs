@@ -1411,6 +1411,7 @@ mod tests {
                 commit_index: 3,
                 scale_tag: "il-refined".into(),
                 question: "kosmo-promote:/ws/alpha".into(),
+                claims: vec!["python module routing lacks test coverage".into()],
             }]
             .into_iter()
             .take(top)

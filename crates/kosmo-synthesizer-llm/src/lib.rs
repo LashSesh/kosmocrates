@@ -531,6 +531,9 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
         );
         for (rank, g) in request.memory_grounding.iter().enumerate() {
             s.push_str(&format!("\n{}. {}\n", rank + 1, g.compact_line()));
+            for claim in &g.claims {
+                s.push_str(&format!("   - {claim}\n"));
+            }
         }
     }
 
@@ -863,6 +866,10 @@ mod tests {
             commit_index: 3,
             scale_tag: "il-refined".into(),
             question: "kosmo-promote:/ws/alpha".into(),
+            claims: vec![
+                "motif MissingTestFiber @ lib/handlers.py (python)".into(),
+                "language: python".into(),
+            ],
         }])
     }
 
@@ -874,6 +881,9 @@ mod tests {
             "1. D=0.4668 | Q5 | stability 0.76 | t=3 | il-refined \
              | ab12cd34ef56ab12 | kosmo-promote:/ws/alpha"
         ));
+        // The claims render as content lines under the entry.
+        assert!(prompt.contains("   - motif MissingTestFiber @ lib/handlers.py (python)"));
+        assert!(prompt.contains("   - language: python"));
         // The section is advisory, the workspace stays authoritative.
         assert!(prompt.contains("always verify against the workspace"));
     }

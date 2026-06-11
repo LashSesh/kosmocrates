@@ -68,6 +68,13 @@ the crystal IDs it received (`SynthesisResult::grounding_crystal_ids`) —
 provenance from patch back to anchored knowledge. The grounding is advisory
 context only; it never gates.
 
+Since the memory-tank arc the return path carries *content*: every anchored
+entry persists bounded claim lines (`ILStore` index `claims`), recall and
+grounding surface them, and the text-embedding both sides share goes through
+one versioned seam (`TextEmbedder`, default `hash8-v1`; the store's index is
+tagged and a mismatched embedder refuses to open). A real embedding model is
+now a drop-in, not a surgery.
+
 **Convergence verdict: live, round-trip.** One crystal vocabulary per layer,
 one sanctioned promotion path between them — and the promoted knowledge now
 returns across the same bridge to ground the substrate's synthesis.
