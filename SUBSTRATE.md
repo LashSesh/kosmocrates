@@ -198,6 +198,15 @@ originating `NormGeneCandidate`; the merge is idempotent by feedback id.
 Same authorization discipline as `--state`: report-only never writes,
 corruption is a hard error.
 
+Every crystal the engine commits receives a **QTIC conformance certificate**
+(Q0–Q5, `pse-adapter-il::qtic`) via `pse_adapter_kosmo::qtic_for_promoted`.
+Classes are earned, never granted: the engine's commitment *is* gate-passed
+condensation (Q3), but the promotion path has no Infinity-Ledger trace anchor
+and no HDAG path invariance, so promoted crystals honestly **cap at Q3** —
+the certificate's `trace_ready`/`path_inv` fields show exactly what an IL
+commit would add (Q4 auditable, Q5 path-invariant). `kosmo-promote` reports
+the class per accepted crystal (`QTIC Q3 — …`; `qtic_class` in `--json`).
+
 ---
 
 

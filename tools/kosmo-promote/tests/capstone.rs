@@ -158,6 +158,14 @@ fn substrate_crystals_flow_into_the_pse_engine() {
             offer.outcome
         );
         assert_eq!(offer.outcome.is_accepted(), offer.crystal.is_some());
+        // QTIC: a conformance certificate exists exactly for committed
+        // crystals, and the promotion path can never exceed Q3 (no IL
+        // trace anchor, no HDAG path invariance — earned, not granted).
+        assert_eq!(offer.qtic.is_some(), offer.crystal.is_some());
+        if let Some(qtic) = &offer.qtic {
+            assert!(qtic.class_u8() <= 3, "promotion path caps at Q3");
+            assert!(!qtic.trace_ready, "no IL anchor in this path");
+        }
     }
 }
 

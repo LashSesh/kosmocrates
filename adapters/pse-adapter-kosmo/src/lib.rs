@@ -41,6 +41,7 @@ use kosmo_pse_bridge::{
     validate_candidate, PromotionOutcome, PseBridgeCandidate, PseBridgeCandidateKind,
     PseBridgePolicy,
 };
+use pse_adapter_il::qtic::{classify, QticCertificate, QticInput, MCI_THRESHOLD};
 use pse_core::GlobalState;
 use pse_graph::{ObservationAdapter, ObserveError};
 use pse_types::{
@@ -166,6 +167,45 @@ pub struct CrystalOffer {
     pub outcome: PromotionOutcome,
     /// The crystal PSE committed, when the engine's fail-closed gate fired.
     pub crystal: Option<SemanticCrystal>,
+    /// QTIC conformance certificate for the committed crystal (Q0–Q5).
+    /// `Some` exactly when `crystal` is `Some`. See [`qtic_for_promoted`] for
+    /// the honest ceiling in this path.
+    pub qtic: Option<QticCertificate>,
+}
+
+/// Classify a crystal committed through the promotion path into the QTIC
+/// conformance hierarchy (Q0–Q5).
+///
+/// Classes are **earned, never granted** — the input states only what this
+/// path can truthfully attest:
+///
+/// - `gate_passed = true`: `macro_step` returned the crystal, which means the
+///   engine's Kairos gate fired — that *is* gate-passed condensation (Q3).
+/// - `psi` is derived from the crystal itself
+///   (`kuramoto_coherence − (1 − stability_score)`).
+/// - `block_hash` and `hdag_node_id` are empty and `path_inv` is false: the
+///   promotion path commits to the in-memory engine, not to the Infinity
+///   Ledger, so there is no trace anchor and no HDAG path invariance.
+///   `il_stability` is 0.0 for the same reason (no IL feedback signal).
+///
+/// Consequently a promoted crystal **caps at Q3** today; the certificate's
+/// `trace_ready`/`path_inv` fields make visible exactly what an IL commit
+/// would add (Q4: auditable, Q5: path-invariant). When the promotion path
+/// gains an IL anchor, the same classification lifts further without changing
+/// vocabulary.
+pub fn qtic_for_promoted(crystal: &SemanticCrystal, extrinsic_t: u64) -> QticCertificate {
+    let psi = crystal.topology_signature.kuramoto_coherence - (1.0 - crystal.stability_score);
+    classify(&QticInput {
+        crystal,
+        block_hash: "",
+        hdag_node_id: "",
+        extrinsic_t,
+        gate_passed: true,
+        psi,
+        il_stability: 0.0,
+        path_inv: false,
+        mci_threshold: MCI_THRESHOLD,
+    })
 }
 
 /// Offer one candidate to the PSE engine under full policy gating.
@@ -193,6 +233,7 @@ pub fn offer_candidate(
             candidate_id: candidate.id,
             outcome,
             crystal: None,
+            qtic: None,
         };
     }
 
@@ -205,20 +246,26 @@ pub fn offer_candidate(
                     reason: format!("serialization failed: {e}"),
                 },
                 crystal: None,
+                qtic: None,
             }
         }
     };
 
     match pse_core::macro_step(state, &[payload], config, adapter) {
-        Ok(Some(crystal)) => CrystalOffer {
-            candidate_id: candidate.id,
-            outcome: PromotionOutcome::Accepted,
-            crystal: Some(crystal),
-        },
+        Ok(Some(crystal)) => {
+            let qtic = qtic_for_promoted(&crystal, state.commit_index);
+            CrystalOffer {
+                candidate_id: candidate.id,
+                outcome: PromotionOutcome::Accepted,
+                crystal: Some(crystal),
+                qtic: Some(qtic),
+            }
+        }
         Ok(None) => CrystalOffer {
             candidate_id: candidate.id,
             outcome: PromotionOutcome::Deferred,
             crystal: None,
+            qtic: None,
         },
         Err(e) => CrystalOffer {
             candidate_id: candidate.id,
@@ -226,6 +273,7 @@ pub fn offer_candidate(
                 reason: e.to_string(),
             },
             crystal: None,
+            qtic: None,
         },
     }
 }
@@ -513,5 +561,102 @@ mod tests {
             (close_a - close_b).abs() < (close_a - far).abs(),
             "nearby confidence must map to nearby phase"
         );
+    }
+
+    // ── QTIC classification of promoted crystals ─────────────────────────────
+
+    fn make_crystal(stability: f64, kuramoto: f64) -> SemanticCrystal {
+        let mut c = SemanticCrystal {
+            crystal_id: [7u8; 32],
+            region: vec![],
+            constraint_program: Default::default(),
+            stability_score: stability,
+            topology_signature: Default::default(),
+            betti_numbers: vec![],
+            evidence_chain: Default::default(),
+            commit_proof: Default::default(),
+            operator_versions: Default::default(),
+            created_at: 1,
+            free_energy: 0.0,
+            carrier_instance_idx: 0,
+            scale_tag: "test".to_string(),
+            universe_id: String::new(),
+            sub_crystal_ids: vec![],
+            parent_crystal_ids: vec![],
+            genesis_metadata: None,
+            metatron_signature: None,
+        };
+        c.topology_signature.kuramoto_coherence = kuramoto;
+        c
+    }
+
+    #[test]
+    fn promoted_crystal_classifies_q3_and_never_higher() {
+        use pse_adapter_il::qtic::QticClass;
+        // A strong committed crystal: stable, coherent — the engine's gate
+        // fired (that's what commitment means), so Q3 is earned. But the
+        // promotion path has no IL trace anchor and no HDAG path invariance,
+        // so Q4/Q5 must NOT be granted, and the certificate shows why.
+        let crystal = make_crystal(0.9, 0.8);
+        let cert = qtic_for_promoted(&crystal, 42);
+        assert_eq!(
+            cert.conformance_class,
+            QticClass::Q3,
+            "gate-passed condensation"
+        );
+        assert!(!cert.trace_ready, "no IL block hash → not trace-ready");
+        assert!(!cert.path_inv, "no HDAG → no path invariance");
+        assert!(cert.replay_ready, "non-zero crystal id is replay-ready");
+        assert!(cert.gate_passed);
+        assert_eq!(cert.extrinsic_t, 42);
+    }
+
+    #[test]
+    fn weak_promoted_crystal_classifies_below_q3() {
+        use pse_adapter_il::qtic::QticClass;
+        // ψ = kuramoto − (1 − stability) = 0.0 − 1.0 = −1.0 < −0.1: the
+        // intrinsic phase is not stable, so Q2 is not earned and the class
+        // honestly stays at Q1 despite the gate having fired.
+        let crystal = make_crystal(0.0, 0.0);
+        let cert = qtic_for_promoted(&crystal, 1);
+        assert_eq!(
+            cert.conformance_class,
+            QticClass::Q1,
+            "unstable phase caps at Q1"
+        );
+    }
+
+    #[test]
+    fn offer_carries_qtic_iff_crystal() {
+        // The structural invariant on the verdict: a certificate exists exactly
+        // when a crystal was committed — never for Deferred/Rejected/Skipped.
+        let config = Config::default();
+        let mut state = GlobalState::new(&config);
+        let adapter = KosmoBridgeAdapter::new("qtic");
+        let offers = offer_candidates(
+            &mut state,
+            &config,
+            &execution_profile(),
+            &allowing_bridge_policy(),
+            &[certified_candidate()],
+            &adapter,
+        );
+        for offer in &offers {
+            assert_eq!(
+                offer.qtic.is_some(),
+                offer.crystal.is_some(),
+                "QTIC certificate exactly when a crystal was committed"
+            );
+        }
+        // And the skip path never classifies:
+        let skipped = offer_candidate(
+            &mut state,
+            &config,
+            &PolicyProfile::default(), // ReportOnly
+            &allowing_bridge_policy(),
+            &certified_candidate(),
+            &adapter,
+        );
+        assert!(skipped.qtic.is_none());
     }
 }

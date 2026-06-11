@@ -16,6 +16,9 @@ rust-version.workspace = true
 pse-types = { path = "../../crates/pse-types", version = "0.1.0" }
 pse-core = { path = "../../crates/pse-core", version = "0.1.0" }
 pse-graph = { path = "../../crates/pse-graph", version = "0.1.0" }
+# QTIC conformance classification (Q0–Q5) for promoted crystals.
+# Default features only — the heavy IL pipeline stays off.
+pse-adapter-il = { path = "../pse-adapter-il", version = "0.1.0" }
 kosmo-core = { path = "../../crates/kosmo-core" }
 kosmo-pse-bridge = { path = "../../crates/kosmo-pse-bridge" }
 serde = { workspace = true }

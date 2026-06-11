@@ -372,6 +372,7 @@ fn main() {
                     "confidence_raw": c.confidence.raw(),
                     "outcome": o.outcome,
                     "crystal_committed": o.crystal.is_some(),
+                    "qtic_class": o.qtic.as_ref().map(|q| q.class_u8()),
                 })
             })
             .collect();
@@ -436,6 +437,13 @@ fn main() {
             println!("    {:<44} {}", candidate.label, verdict);
             if let Some(crystal) = &offer.crystal {
                 println!("      └─ {}", describe_crystal(crystal, candidate));
+                if let Some(qtic) = &offer.qtic {
+                    println!(
+                        "      └─ QTIC Q{} — {}",
+                        qtic.class_u8(),
+                        qtic.class_description
+                    );
+                }
             }
         }
         println!(
