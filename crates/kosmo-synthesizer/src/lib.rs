@@ -1380,8 +1380,11 @@ mod tests {
     fn make_request() -> SynthesisRequest {
         let policy = PolicyProfile::default_report_only();
         let options = IntegrationRunOptions::report_only();
-        // Use a temp dir — no .rs files so the workspace is minimal but valid.
-        let tmpdir = std::env::temp_dir();
+        // A stable, empty subdir — no .rs files, so the workspace is minimal
+        // but valid. Never the temp dir itself: CI runners keep root-owned
+        // entries in /tmp that fail the pipeline walk with EACCES.
+        let tmpdir = std::env::temp_dir().join("kosmo-synth-test-ws");
+        std::fs::create_dir_all(&tmpdir).unwrap();
         let tmpdir_str = tmpdir.to_string_lossy().to_string();
         let report = run_workspace_pipeline(&tmpdir_str, &options, &policy).unwrap();
         let items = report.action_items();

@@ -769,8 +769,15 @@ mod tests {
     use super::*;
     use kosmo_synthesizer::{FileChange, MockSynthesizer, Patch, SynthesisError};
 
+    /// A stable, empty scan root under the system temp dir. Never the temp
+    /// dir itself: on CI runners /tmp holds root-owned entries (e.g.
+    /// snap-private-tmp) that fail the pipeline walk with EACCES — the
+    /// fixture must be hermetic. Stable across calls so assertions like
+    /// `report.workspace_path == tmp()` hold.
     fn tmp() -> String {
-        std::env::temp_dir().to_string_lossy().to_string()
+        let dir = std::env::temp_dir().join("kosmo-agent-test-ws");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.to_string_lossy().to_string()
     }
 
     fn session(opts: AgentOptions, confident: bool) -> AgentSession {
@@ -1398,6 +1405,21 @@ mod tests {
 
     use kosmo_pse_bridge::MemoryGroundingEntry;
 
+    /// A seeded scratch workspace that yields at least one action item
+    /// (a source file without tests → a structural void). The memory tests
+    /// need real synthesis steps; an empty scan root would make them
+    /// vacuous.
+    fn seeded_ws(tag: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-agent-mem-{tag}-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn foo() -> u32 { 1 }\n").unwrap();
+        dir.to_string_lossy().to_string()
+    }
+
     /// Deterministic stand-in for `pse-adapter-kosmo::LedgerRecall`.
     struct ScriptedRecall;
     impl MemoryRecall for ScriptedRecall {
@@ -1438,7 +1460,8 @@ mod tests {
             .with_max_steps(3)
             .with_min_confidence(Q16::ZERO);
         let mut s = session(opts, true).with_recall(Arc::new(ScriptedRecall));
-        let report = s.run(&tmp()).unwrap();
+        let ws = seeded_ws("cites");
+        let report = s.run(&ws).unwrap();
         assert!(report.steps_synthesized >= 1, "need at least one step");
         for step in &report.steps {
             assert_eq!(
@@ -1447,6 +1470,7 @@ mod tests {
                 "every synthesis must cite the memory it received"
             );
         }
+        std::fs::remove_dir_all(&ws).ok();
     }
 
     #[test]
@@ -1455,10 +1479,13 @@ mod tests {
             .with_max_steps(2)
             .with_min_confidence(Q16::ZERO);
         let mut s = session(opts, true);
-        let report = s.run(&tmp()).unwrap();
+        let ws = seeded_ws("bare");
+        let report = s.run(&ws).unwrap();
+        assert!(report.steps_synthesized >= 1, "need at least one step");
         for step in &report.steps {
             assert!(step.synthesis.grounding_crystal_ids.is_empty());
         }
+        std::fs::remove_dir_all(&ws).ok();
     }
 
     #[test]
@@ -1467,9 +1494,11 @@ mod tests {
             .with_max_steps(2)
             .with_min_confidence(Q16::ZERO);
         let mut s = session(opts, true).with_recall(Arc::new(BrokenRecall));
-        match s.run(&tmp()) {
+        let ws = seeded_ws("broken");
+        match s.run(&ws) {
             Err(AgentError::Recall(msg)) => assert!(msg.contains("ledger unreadable")),
             other => panic!("expected AgentError::Recall, got {other:?}"),
         }
+        std::fs::remove_dir_all(&ws).ok();
     }
 }
