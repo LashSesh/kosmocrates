@@ -355,16 +355,18 @@ pub fn facets_from_source(source: &str) -> BTreeSet<WishFacet> {
             }
         }
         let item = item_facets(line);
-        // A documented public item: a doc comment (`///` / `#[doc…]`)
-        // immediately above the definition (attribute lines in between are
-        // fine — docs lexically precede attributes). Mirrors the substrate's
-        // MissingDocFiber finding as a *measurable* facet.
+        // A documented public item or module declaration: a doc comment
+        // (`///` / `#[doc…]`) immediately above the definition (attribute
+        // lines in between are fine — docs lexically precede attributes).
+        // Mirrors the substrate's MissingDocFiber finding as a *measurable*
+        // facet. Modules are keyed by their `mod` declaration — the same
+        // place the Module facet itself is observed.
         if is_doc_line(trimmed) {
             pending_doc = true;
         } else if pending_doc {
             let symbols: Vec<String> = item
                 .iter()
-                .filter(|f| f.kind == WishFacetKind::Symbol)
+                .filter(|f| f.kind == WishFacetKind::Symbol || f.kind == WishFacetKind::Module)
                 .map(|f| f.key.clone())
                 .collect();
             if !symbols.is_empty() {

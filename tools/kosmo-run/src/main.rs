@@ -40,7 +40,10 @@ use kosmo_intent::{
     compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
     observe_workspace_validated, WishSession,
 };
-use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions};
+use kosmo_pipeline::{
+    propose_wishes, run_workspace_pipeline, ActionItem, ActionItemKind, IntegrationRunOptions,
+    WishProposal,
+};
 use kosmo_pse_bridge::MemoryRecall;
 use kosmo_synthesizer::{
     ActionSynthesizer, FacetScaffolder, GroundedSynthesizer, MockSynthesizer, SynthesisRequest,
@@ -84,6 +87,11 @@ struct Args {
     ledger: Option<String>,
     /// How many recalled crystals to attach per action (default 5).
     ground_top: u32,
+    /// Landscape mode: map every substrate finding the wish vocabulary can
+    /// express into a ranked wish-proposal landscape (read-only).
+    landscape: bool,
+    /// Adopt the top-N open proposals as a wish (descends with --apply).
+    adopt: u32,
 }
 
 impl Default for Args {
@@ -108,6 +116,8 @@ impl Default for Args {
             pruefstand: false,
             ledger: None,
             ground_top: 5,
+            landscape: false,
+            adopt: 0,
         }
     }
 }
@@ -150,6 +160,15 @@ OPTIONS:\n\
                           deliberately broken systems; report fidelity and exit\n\
                           non-zero if any verdict is wrong (--validated runs the\n\
                           behavioural scenarios' suites too)\n\
+\n\
+  LANDSCAPE MODE (the findings become the wish menu):\n\
+    --landscape           run the substrate pipeline and project every finding\n\
+                          the wish vocabulary can express into a ranked\n\
+                          wish-proposal landscape: met/open/beyond-vocabulary,\n\
+                          each with severity and provenance. Read-only.\n\
+    --adopt <n>           adopt the top-N open proposals as ONE wish (weighted\n\
+                          by severity). Without --apply: prints the wish.\n\
+                          With --apply: descends it (deterministic scaffolds).\n\
 \n\
   MEMORY (anchored knowledge from the promotion ledger):\n\
     --ledger <path>       ground every synthesis in the Infinity-Ledger memory:\n\
@@ -225,6 +244,14 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
             "--pruefstand" | "--testbench" => args.pruefstand = true,
+            "--landscape" => args.landscape = true,
+            "--adopt" => {
+                args.adopt = argv
+                    .next()
+                    .ok_or("--adopt needs a value")?
+                    .parse()
+                    .map_err(|_| "--adopt must be a number")?;
+            }
             "--ledger" => {
                 args.ledger = Some(argv.next().ok_or("--ledger needs a value")?);
             }
@@ -511,6 +538,209 @@ fn wish_needs_service(wish: &Wish) -> bool {
 /// workspace, and report the distance to the wish (which facets are present,
 /// which are missing). With `--scaffold`, also print the changes that would
 /// close the gap. No LLM and no key required.
+/// Landscape mode: run the substrate pipeline, project its findings into the
+/// wish vocabulary ([`propose_wishes`]), measure every proposal against the
+/// observed topology, and render the ranked landscape. `--adopt <n>` turns
+/// the top open proposals into ONE severity-weighted wish — printed by
+/// default, descended under `--apply` (deterministic scaffolds only).
+fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
+    let policy = PolicyProfile::default_report_only();
+    let options = if args.all_layers {
+        IntegrationRunOptions::all_layers(args.capacity)
+    } else {
+        IntegrationRunOptions::report_only()
+    };
+    let report = run_workspace_pipeline(&args.path, &options, &policy)
+        .map_err(|e| format!("pipeline failed on {}: {e}", args.path))?;
+    let voids = &report.hyphae_result.host_cube.void_map.voids;
+    let landscape = propose_wishes(voids);
+
+    // Measure: which proposals are already met, which targets can the wish
+    // world even see? (A non-Rust module is honest residue, not a stalling
+    // wish.) Observation needs a cargo workspace — fail-soft to "unmeasured".
+    let observed = observe_workspace_deep(&args.path).ok();
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Standing {
+        Met,
+        Open,
+        Invisible,
+        Unmeasured,
+    }
+    let standing: Vec<Standing> = landscape
+        .proposals
+        .iter()
+        .map(|p| match &observed {
+            None => Standing::Unmeasured,
+            Some(obs) => {
+                if obs.contains(&p.facet) {
+                    Standing::Met
+                } else if obs.contains(&WishFacet::module(p.subject.clone()))
+                    || obs.contains(&WishFacet::symbol(p.subject.clone()))
+                {
+                    Standing::Open
+                } else {
+                    Standing::Invisible
+                }
+            }
+        })
+        .collect();
+
+    let met = standing.iter().filter(|s| **s == Standing::Met).count();
+    let open = standing.iter().filter(|s| **s == Standing::Open).count();
+    let invisible = standing
+        .iter()
+        .filter(|s| **s == Standing::Invisible)
+        .count();
+
+    if args.json {
+        let rows: Vec<serde_json::Value> = landscape
+            .proposals
+            .iter()
+            .zip(&standing)
+            .map(|(p, s)| {
+                serde_json::json!({
+                    "facet_kind": format!("{:?}", p.facet.kind),
+                    "facet_key": p.facet.key,
+                    "severity": format!("{:?}", p.severity),
+                    "subject": p.subject,
+                    "rationale": p.rationale,
+                    "standing": match s {
+                        Standing::Met => "met",
+                        Standing::Open => "open",
+                        Standing::Invisible => "beyond-observation",
+                        Standing::Unmeasured => "unmeasured",
+                    },
+                })
+            })
+            .collect();
+        let doc = serde_json::json!({
+            "path": args.path,
+            "report_id": report.report_id.to_hex(),
+            "proposals": rows,
+            "met": met,
+            "open": open,
+            "beyond_observation": invisible,
+            "beyond_vocabulary": landscape.unmapped.len(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates wish landscape{}  {}{}{}",
+            c(BOLD),
+            c(RESET),
+            c(DIM),
+            args.path,
+            c(RESET)
+        );
+        println!(
+            "  {} proposal(s) · {}{} met{} · {}{} open{} · {} beyond observation · {} beyond vocabulary",
+            landscape.proposals.len(),
+            c(GREEN),
+            met,
+            c(RESET),
+            c(YELLOW),
+            open,
+            c(RESET),
+            invisible,
+            landscape.unmapped.len()
+        );
+        for (p, s) in landscape.proposals.iter().zip(&standing) {
+            let (mark, color) = match s {
+                Standing::Met => ("\u{2713}", GREEN),
+                Standing::Open => ("\u{2717}", YELLOW),
+                Standing::Invisible => ("\u{2205}", DIM),
+                Standing::Unmeasured => ("?", DIM),
+            };
+            println!(
+                "    {}{}{} sev={:>5} {:?} {}  {}\u{2190} {}{}",
+                c(color),
+                mark,
+                c(RESET),
+                format!("{:.2}", p.severity.to_f64()),
+                p.facet.kind,
+                p.facet.key,
+                c(DIM),
+                p.rationale,
+                c(RESET)
+            );
+        }
+        if !landscape.unmapped.is_empty() {
+            println!(
+                "  {}beyond the wish vocabulary today ({} finding(s)):{}",
+                c(DIM),
+                landscape.unmapped.len(),
+                c(RESET)
+            );
+            for u in landscape.unmapped.iter().take(5) {
+                println!(
+                    "    {}\u{2014} {} @ {}{}",
+                    c(DIM),
+                    u.kind_label,
+                    u.location,
+                    c(RESET)
+                );
+            }
+        }
+    }
+
+    // ── Adoption: the top of the landscape becomes ONE wish ──────────────────
+    if args.adopt > 0 {
+        let adopted: Vec<&WishProposal> = landscape
+            .proposals
+            .iter()
+            .zip(&standing)
+            .filter(|(_, s)| **s == Standing::Open)
+            .map(|(p, _)| p)
+            .take(args.adopt as usize)
+            .collect();
+        if adopted.is_empty() {
+            println!("\nnothing open to adopt — the landscape is either met or beyond reach");
+            return Ok(ExitCode::SUCCESS);
+        }
+        let predicates = adopted
+            .iter()
+            .map(|p| kosmo_core::WishPredicate::weighted(p.facet.clone(), p.severity));
+        // Evidence: the wish is bound to the diagnosis that proposed it.
+        let wish = Wish::new(
+            format!("landscape: top {} of {}", adopted.len(), args.path),
+            predicates,
+            Digest::ZERO,
+            report.report_id,
+        );
+        println!("\n{} adopted as one wish:", adopted.len());
+        for p in &adopted {
+            println!(
+                "    {:?} {}  (weight {:.2})",
+                p.facet.kind,
+                p.facet.key,
+                p.severity.to_f64()
+            );
+        }
+        if !args.apply {
+            println!("  (read-only — add --apply to descend the adopted wish)");
+            return Ok(ExitCode::SUCCESS);
+        }
+        let session = descend_to_wish(&args.path, &wish, report.report_id, false, 8, None, None)?;
+        print!("{}", descent_report(&session, args.color));
+        let realized = session
+            .latest()
+            .map(|a| matches!(a.status, WishClosureStatus::Realized))
+            .unwrap_or(false);
+        return Ok(if realized {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(4)
+        });
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
 fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let prose = args.wish.as_deref().unwrap_or("");
     // Bind the wish's identity to its prose — content-addressed, deterministic.
@@ -905,6 +1135,13 @@ fn run() -> Result<ExitCode, String> {
         } else {
             ExitCode::from(3)
         });
+    }
+
+    // Landscape mode: the substrate's findings, projected into the wish
+    // vocabulary as a ranked proposal landscape. Read-only unless --adopt
+    // (+ --apply) turns the top of the landscape into a descent.
+    if args.landscape {
+        return run_landscape_mode(&args);
     }
 
     // Wish mode is deterministic and offline (no LLM, no key): compile the

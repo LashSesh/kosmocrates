@@ -219,6 +219,33 @@ kosmo-run --pruefstand
 through the materialization validator (cargo check / test) before keeping it,
 rolling back on failure.
 
+### The wish landscape — the findings become the wish menu
+
+The substrate diagnoses; the wish language expresses; `--landscape` connects
+the two automatically, workspace-wide:
+
+```bash
+# Map every finding the wish vocabulary can express into a ranked landscape:
+kosmo-run --landscape .
+
+# Adopt the top-3 open proposals as ONE wish (printed, read-only) …
+kosmo-run --landscape --adopt 3 .
+
+# … and descend it (deterministic scaffolds; the only writing path):
+kosmo-run --landscape --adopt 3 --apply .
+```
+
+Every void the projection can express (`propose_wishes`, kosmo-pipeline)
+becomes a [`WishProposal`] — facet, severity (= ranking *and* the adopted
+predicate's weight), subject, and provenance (`MissingDocFiber @
+src/router.rs`). Each proposal is measured against the observed topology and
+rendered with an honest standing: **met** (already satisfied), **open**
+(observable and unmet — adoptable), **beyond observation** (the wish world
+cannot see the target, e.g. a non-Rust module or a crate root), or **beyond
+vocabulary** (findings no facet kind expresses yet — listed, counted, never
+silently dropped). An adopted wish is evidence-bound to the diagnosis: its
+`evidence_bundle_id` is the pipeline `report_id` that proposed it.
+
 ---
 
 ## 7. Where this sits in the stack

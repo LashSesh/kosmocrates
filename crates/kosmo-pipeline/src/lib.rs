@@ -29,7 +29,9 @@ pub use persistence::persist_cartography_update;
 
 use kosmo_core::ReplayStatus;
 use kosmo_core::TaintLabel;
-use kosmo_core::{rank_by_energy, Digest, GateResult, PolicyProfile, PromotionFeedback, Q16};
+use kosmo_core::{
+    rank_by_energy, Digest, GateResult, PolicyProfile, PromotionFeedback, WishFacet, Q16,
+};
 use kosmo_hyphae::{
     diagnose_micrograph, lift_region, passive_run, passive_run_augmented, ComplementVoidHypothesis,
     CompositeSupportCube, CorpusCartography, CorpusCartographyUpdate, CorpusEntity,
@@ -558,6 +560,159 @@ fn best_cross_language_resonance(
 /// - `evidence_bundle_id` comes from the record itself — every certified record
 ///   is directly evidence-bound (CROSS-006), so store-loaded CAD-library
 ///   crystals are promotable without resolving their certifying candidate.
+// ─── Wish landscape: findings become wish proposals ──────────────────────────
+
+/// One point in the wish landscape: a substrate finding projected into the
+/// wish vocabulary. Content-addressed; `severity` is the originating void's
+/// severity and doubles as the proposal's rank **and** the predicate weight
+/// an adopted wish gives this facet (energy ranks — adoption is the
+/// operator's choice, never automatic).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WishProposal {
+    pub proposal_id: Digest,
+    /// The measurable target this finding projects to.
+    pub facet: WishFacet,
+    /// The originating void (provenance into the diagnosis world).
+    pub void_id: Digest,
+    /// The void's severity ∈ `[0, 1]` (Q16) — ranking and predicate weight.
+    pub severity: Q16,
+    /// The module the finding concerns — lets a consumer check whether the
+    /// wish world can even *see* the target (a non-Rust module is honest
+    /// residue at measurement time, not a stalling wish).
+    pub subject: String,
+    /// Operator-readable origin, e.g. `"MissingDocFiber @ src/router.rs"`.
+    pub rationale: String,
+}
+
+#[derive(Serialize)]
+struct WishProposalContent<'a> {
+    facet: &'a WishFacet,
+    void_id: &'a Digest,
+    severity_raw: i64,
+}
+
+impl WishProposal {
+    fn new(
+        facet: WishFacet,
+        void_id: Digest,
+        severity: Q16,
+        subject: String,
+        rationale: String,
+    ) -> Self {
+        let proposal_id = Digest::of(&WishProposalContent {
+            facet: &facet,
+            void_id: &void_id,
+            severity_raw: severity.raw(),
+        });
+        Self {
+            proposal_id,
+            facet,
+            void_id,
+            severity,
+            subject,
+            rationale,
+        }
+    }
+}
+
+/// A finding the wish vocabulary cannot express (yet) — the honest residue
+/// of the landscape. Listed, counted, never silently dropped.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UnmappedVoid {
+    pub void_id: Digest,
+    pub kind_label: String,
+    pub location: String,
+}
+
+/// The wish landscape of a workspace: every void the wish vocabulary can
+/// express, as a ranked [`WishProposal`] — plus the honest residue.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WishLandscape {
+    pub proposals: Vec<WishProposal>,
+    pub unmapped: Vec<UnmappedVoid>,
+}
+
+/// Project the substrate's findings into the wish vocabulary — pure and
+/// deterministic. The current projection:
+///
+/// - `MissingDocFiber { for_module }`  → `Doc(for_module)` (the module's
+///   declaration carries no doc comment)
+/// - `MissingTestFiber { for_module }` → `Test("<for_module>_smoke")` (the
+///   deterministic smoke-test name the scaffolder builds)
+/// - everything else → [`UnmappedVoid`] (honest residue; the vocabulary
+///   grows finding-class by finding-class)
+///
+/// Proposals are deduplicated per facet (highest severity wins) and sorted
+/// by severity descending, then facet key — deterministic landscape order.
+/// The bare module stem of a void target: `"src/router.rs"` → `"router"`,
+/// `"handlers.py"` → `"handlers"`. The wish world observes modules by their
+/// `mod` declaration name, so the projection must speak that name. The crate
+/// roots (`lib`, `main`) keep their stem and stay honest residue at
+/// measurement time — no `mod lib;` exists to observe or scaffold.
+fn module_stem(target: &str) -> String {
+    let last = target.rsplit('/').next().unwrap_or(target);
+    let stem = last.split('.').next().unwrap_or(last);
+    stem.to_string()
+}
+
+pub fn propose_wishes(voids: &[kosmo_hyphae::HostVoid]) -> WishLandscape {
+    use kosmo_hyphae::HostVoidKind;
+    let mut landscape = WishLandscape::default();
+    for v in voids {
+        let mapped = match &v.kind {
+            HostVoidKind::MissingDocFiber { for_module } if !for_module.is_empty() => {
+                let m = module_stem(for_module);
+                Some((
+                    WishFacet::doc(m.clone()),
+                    m,
+                    format!("MissingDocFiber @ {}", v.location),
+                ))
+            }
+            HostVoidKind::MissingTestFiber { for_module } if !for_module.is_empty() => {
+                let m = module_stem(for_module);
+                Some((
+                    WishFacet::test(format!("{m}_smoke")),
+                    m,
+                    format!("MissingTestFiber @ {}", v.location),
+                ))
+            }
+            _ => None,
+        };
+        match mapped {
+            Some((facet, subject, rationale)) => {
+                match landscape.proposals.iter_mut().find(|p| p.facet == facet) {
+                    Some(existing) if existing.severity >= v.severity => {}
+                    Some(existing) => {
+                        *existing =
+                            WishProposal::new(facet, v.void_id, v.severity, subject, rationale);
+                    }
+                    None => {
+                        landscape.proposals.push(WishProposal::new(
+                            facet, v.void_id, v.severity, subject, rationale,
+                        ));
+                    }
+                }
+            }
+            None => landscape.unmapped.push(UnmappedVoid {
+                void_id: v.void_id,
+                kind_label: format!("{:?}", v.kind),
+                location: v.location.clone(),
+            }),
+        }
+    }
+    landscape.proposals.sort_by(|a, b| {
+        b.severity
+            .cmp(&a.severity)
+            .then(a.facet.key.cmp(&b.facet.key))
+    });
+    landscape.unmapped.sort_by(|a, b| {
+        a.location
+            .cmp(&b.location)
+            .then(a.kind_label.cmp(&b.kind_label))
+    });
+    landscape
+}
+
 pub fn crystal_to_pse_candidate(
     record: &StructuralCrystalRecord,
     source_run_id: Digest,
@@ -3788,5 +3943,106 @@ mod tests {
             session.options().enable_crystal_candidates,
             opts.enable_crystal_candidates
         );
+    }
+
+    // ─── Wish landscape ──────────────────────────────────────────────────────
+
+    fn void(kind: kosmo_hyphae::HostVoidKind, sev_pct: u64, loc: &str) -> kosmo_hyphae::HostVoid {
+        kosmo_hyphae::HostVoid::new(kind, Q16::ratio(sev_pct, 100).unwrap(), loc.to_string())
+    }
+
+    #[test]
+    fn landscape_projects_doc_and_test_voids() {
+        use kosmo_hyphae::HostVoidKind;
+        let voids = vec![
+            void(
+                HostVoidKind::MissingDocFiber {
+                    for_module: "router".into(),
+                },
+                70,
+                "src/router.rs",
+            ),
+            void(
+                HostVoidKind::MissingTestFiber {
+                    for_module: "router".into(),
+                },
+                90,
+                "src/router.rs",
+            ),
+            void(
+                HostVoidKind::MissingErrorHandling {
+                    location: "src/io.rs:40".into(),
+                },
+                50,
+                "src/io.rs",
+            ),
+        ];
+        let l = propose_wishes(&voids);
+        assert_eq!(l.proposals.len(), 2);
+        // Sorted by severity descending: the test wish (0.90) first.
+        assert_eq!(l.proposals[0].facet, WishFacet::test("router_smoke"));
+        assert_eq!(l.proposals[1].facet, WishFacet::doc("router"));
+        assert!(l.proposals[1]
+            .rationale
+            .contains("MissingDocFiber @ src/router.rs"));
+        // The inexpressible finding is honest residue, never dropped.
+        assert_eq!(l.unmapped.len(), 1);
+        assert!(l.unmapped[0].kind_label.contains("MissingErrorHandling"));
+    }
+
+    #[test]
+    fn landscape_normalizes_path_targets_to_module_stems() {
+        use kosmo_hyphae::HostVoidKind;
+        let voids = vec![
+            void(
+                HostVoidKind::MissingDocFiber {
+                    for_module: "src/router.rs".into(),
+                },
+                40,
+                "src/router.rs",
+            ),
+            void(
+                HostVoidKind::MissingTestFiber {
+                    for_module: "lib/handlers.py".into(),
+                },
+                60,
+                "lib/handlers.py",
+            ),
+        ];
+        let l = propose_wishes(&voids);
+        assert_eq!(l.proposals[0].facet, WishFacet::test("handlers_smoke"));
+        assert_eq!(l.proposals[0].subject, "handlers");
+        assert_eq!(l.proposals[1].facet, WishFacet::doc("router"));
+        assert_eq!(l.proposals[1].subject, "router");
+        // Provenance keeps the full location.
+        assert!(l.proposals[1].rationale.contains("@ src/router.rs"));
+    }
+
+    #[test]
+    fn landscape_dedups_per_facet_keeping_max_severity() {
+        use kosmo_hyphae::HostVoidKind;
+        let voids = vec![
+            void(
+                HostVoidKind::MissingDocFiber {
+                    for_module: "router".into(),
+                },
+                30,
+                "src/a.rs",
+            ),
+            void(
+                HostVoidKind::MissingDocFiber {
+                    for_module: "router".into(),
+                },
+                80,
+                "src/b.rs",
+            ),
+        ];
+        let l = propose_wishes(&voids);
+        assert_eq!(l.proposals.len(), 1);
+        assert_eq!(l.proposals[0].severity, Q16::ratio(80, 100).unwrap());
+        assert!(l.proposals[0].rationale.contains("src/b.rs"));
+        // Content-addressed and verifiable: same inputs, same id.
+        let again = propose_wishes(&voids);
+        assert_eq!(l, again, "the landscape is deterministic");
     }
 }

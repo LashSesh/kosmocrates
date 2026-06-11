@@ -15,6 +15,45 @@ note explicitly says so.
 
 ### Added
 
+* **The wish landscape — the findings become the wish menu**
+
+  The operator's words made executable: *"damit ließe sich eine ganze
+  Wunschlandschaft mappen."* `kosmo-run --landscape` runs the substrate
+  pipeline and projects every finding the wish vocabulary can express into
+  a ranked **wish-proposal landscape** (`kosmo_pipeline::propose_wishes`,
+  pure and deterministic): `MissingDocFiber{m}` → `Doc(stem(m))`,
+  `MissingTestFiber{m}` → `Test("<stem>_smoke")` — content-addressed
+  proposals carrying the void's severity (ranking **and** the adopted
+  predicate's weight), the subject module, and full provenance. Path
+  targets normalise to module stems (`src/router.rs` → `router`), so the
+  projection speaks the name the wish world observes.
+
+  Every proposal is measured against the observed topology and rendered
+  with an honest standing: **met**, **open** (adoptable), **beyond
+  observation** (non-Rust modules, crate roots — the wish world cannot see
+  the target, so it is residue, not a stalling wish), **beyond vocabulary**
+  (finding kinds no facet expresses yet — listed and counted, never
+  dropped). Inexpressible findings remain first-class residue
+  (`UnmappedVoid`).
+
+  `--adopt <n>` turns the top open proposals into ONE wish: predicates
+  weighted by severity (`WishPredicate::weighted`), the wish
+  evidence-bound to the diagnosis itself (`evidence_bundle_id` = the
+  pipeline `report_id`). Read-only by default — it prints the wish and the
+  contract line; under `--apply` the existing descent takes over. Live on
+  a mixed workspace: 6 proposals (2 open, 4 beyond observation), top-2
+  adopted, `iter 0: 0/2 UNSTARTED → iter 1: 2/2 REALIZED` — the doc stub
+  above `pub mod router;`, the smoke test in the lib.
+
+  Supporting growth in the Doc facet: module declarations are now
+  docu-observable (`/// above mod x;` yields `Doc(x)` — the same place the
+  Module facet is observed) and docu-scaffoldable
+  (`line_declares_module`), so module-level findings round-trip.
+
+  Diagnosis → landscape → choice → wish → descent → reality: the system
+  now proposes its own goals; the operator chooses; nothing is adopted
+  automatically (energy ranks, never gates — applied to intent).
+
 * **The Doc facet — the wish language learns the language of the findings**
 
   Stage 2 begins where the substrate's diagnosis is loudest: its two most

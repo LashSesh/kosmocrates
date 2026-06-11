@@ -662,7 +662,7 @@ impl FacetScaffolder {
             };
             let lines: Vec<&str> = content.lines().collect();
             for (i, line) in lines.iter().enumerate() {
-                if !line_declares_pub_item(line, key) {
+                if !line_declares_pub_item(line, key) && !line_declares_module(line, key) {
                     continue;
                 }
                 // Already documented? Walk upward over attribute lines.
@@ -1166,6 +1166,31 @@ fn walk_rs_files(root: &Path) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// Does this source line declare the module `name` (`mod name;` /
+/// `pub mod name {`, any visibility)? The doc scaffold docks where the
+/// Module facet itself is observed — the declaration, not the file.
+fn line_declares_module(line: &str, name: &str) -> bool {
+    let trimmed = line.trim();
+    let body = trimmed
+        .strip_prefix("pub ")
+        .or_else(|| {
+            trimmed
+                .find(") ")
+                .filter(|_| trimmed.starts_with("pub("))
+                .map(|i| &trimmed[i + 2..])
+        })
+        .unwrap_or(trimmed);
+    let Some(rest) = body.strip_prefix("mod ") else {
+        return false;
+    };
+    let ident: String = rest
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    ident == name
 }
 
 /// Does this source line declare a **public** item named `name`?
