@@ -110,7 +110,8 @@ kosmo-tui .
 # With all layers enabled
 kosmo-tui . --all
 
-# Keybindings: q=quit  r=rerun  ↑↓/jk=navigate  PgUp/PgDn=page  g/G=top/bottom
+# Keybindings: q=quit  r=rerun  p=promote (in-memory engine offer)
+#              ↑↓/jk=navigate  PgUp/PgDn=page  g/G=top/bottom
 ```
 
 ### 3. Browser UI — `kosmo-server`

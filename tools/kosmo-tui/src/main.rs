@@ -2,10 +2,18 @@
 //!
 //! Three-pane layout: scrollable action queue │ detail view │ workspace stats.
 //!
+//! ```text
 //! USAGE:
 //!     kosmo-tui [OPTIONS] [PATH]
 //!
-//! Keybindings: q/Esc=quit  r=rerun  ↑↓/jk=navigate  PgUp/PgDn=page  g=top  G=bottom
+//! Keybindings: q/Esc=quit  r=rerun  p=promote  ↑↓/jk=navigate  PgUp/PgDn=page  g=top  G=bottom
+//! ```
+//!
+//! `p` offers the workspace's gated candidates to the PSE engine — ensemble
+//! batch under the substrate calibration, **in-memory only** (no ledger, no
+//! archive: the host-writing surfaces stay on `kosmo-promote`/HTTP where paths
+//! are explicit). The promotion line shows verdicts, engine state, and the
+//! QTIC class (capped at Q3 without an Infinity-Ledger anchor).
 
 use std::io;
 use std::path::PathBuf;
@@ -98,6 +106,9 @@ fn parse_args() -> Result<Args, String> {
                     "KEYBINDINGS:\n",
                     "    q / Esc          Quit\n",
                     "    r                Re-run analysis\n",
+                    "    p                Promote: offer the gated candidates to the\n",
+                    "                     PSE engine (ensemble batch, substrate\n",
+                    "                     calibration, in-memory — no host writes)\n",
                     "    ↑↓ / j k         Navigate action queue\n",
                     "    PgUp / PgDn      Page up / down\n",
                     "    g                Jump to top\n",
@@ -184,6 +195,99 @@ fn build_options(args: &Args) -> IntegrationRunOptions {
     opts
 }
 
+// ─── Promotion (substrate→core, in-memory) ───────────────────────────────────
+
+/// Outcome summary of one in-memory promotion run.
+#[derive(Debug)]
+struct PromotionSummary {
+    offered: usize,
+    accepted: usize,
+    deferred: usize,
+    rejected: usize,
+    engine_state: String,
+    kairos: Option<bool>,
+    /// QTIC class of the first accepted crystal (Q3 ceiling without IL anchor).
+    qtic_top: Option<u8>,
+}
+
+/// Offer the workspace's gated candidates to the PSE engine — ensemble batch
+/// under the substrate calibration, in-memory only (no host writes; the
+/// persisting surfaces stay on `kosmo-promote`/HTTP where paths are explicit).
+fn run_promotion(path: &str) -> Result<PromotionSummary, String> {
+    use kosmo_core::ImplementationMode;
+    use kosmo_pipeline::run_workspace_pipeline;
+    use kosmo_pse_bridge::{
+        PromotionOutcome, PseBridgeCandidateKind, PseBridgePolicy, PseBridgeRateLimit,
+    };
+    use pse_adapter_kosmo::{offer_batch, KosmoBridgeAdapter};
+
+    let pipeline_policy = PolicyProfile::default_report_only();
+    let options = IntegrationRunOptions::all_layers(8);
+    let report = run_workspace_pipeline(path, &options, &pipeline_policy)
+        .map_err(|e| format!("pipeline failed: {e}"))?;
+
+    let kinds = vec![
+        PseBridgeCandidateKind::CertifiedCrystal,
+        PseBridgeCandidateKind::StructuralObservation,
+        PseBridgeCandidateKind::TopologyObservation,
+    ];
+    let candidates: Vec<_> = report
+        .pse_candidates
+        .iter()
+        .filter(|c| kinds.contains(&c.kind))
+        .cloned()
+        .collect();
+
+    let profile = PolicyProfile {
+        mode: ImplementationMode::DryRun,
+        ..PolicyProfile::default()
+    };
+    let bridge_policy =
+        PseBridgePolicy::allow(pipeline_policy.id, kinds, PseBridgeRateLimit::strict());
+    let adapter = KosmoBridgeAdapter::new(path)
+        .with_allowed_kinds(bridge_policy.allowed_candidate_kinds.clone());
+
+    // The substrate calibration (see kosmo-promote::Calibration): kairos as
+    // the discriminant, the 8-fold conjunctive gate fully armed.
+    let mut config = pse_types::Config::preset_planning();
+    config.consensus.consensus_threshold = 0.0;
+    config.consensus.mirror_consistency_eta = 0.0;
+    let mut state = pse_core::GlobalState::new(&config);
+
+    let offers = offer_batch(
+        &mut state,
+        &config,
+        &profile,
+        &bridge_policy,
+        &candidates,
+        &adapter,
+    );
+
+    let mut summary = PromotionSummary {
+        offered: candidates.len(),
+        accepted: 0,
+        deferred: 0,
+        rejected: 0,
+        engine_state: format!("{:?}", state.engine_state),
+        kairos: state.last_gate.as_ref().map(|g| g.kairos),
+        qtic_top: None,
+    };
+    for offer in &offers {
+        match &offer.outcome {
+            PromotionOutcome::Accepted => {
+                summary.accepted += 1;
+                if summary.qtic_top.is_none() {
+                    summary.qtic_top = offer.qtic.as_ref().map(|q| q.class_u8());
+                }
+            }
+            PromotionOutcome::Deferred => summary.deferred += 1,
+            PromotionOutcome::Rejected { .. } => summary.rejected += 1,
+            PromotionOutcome::SkippedByPolicy | PromotionOutcome::SkippedByReportOnly => {}
+        }
+    }
+    Ok(summary)
+}
+
 // ─── App state ───────────────────────────────────────────────────────────────
 
 // Held as a single live value in the TUI's `App`; never stored in bulk, so the
@@ -204,6 +308,8 @@ struct App {
     phase: AppPhase,
     selected: usize,
     offset: usize,
+    /// Result of the last `p` promotion run (in-memory offer), if any.
+    promotion: Option<Result<PromotionSummary, String>>,
 }
 
 impl App {
@@ -214,7 +320,12 @@ impl App {
             phase: AppPhase::Analysing,
             selected: 0,
             offset: 0,
+            promotion: None,
         }
+    }
+
+    fn run_promotion(&mut self) {
+        self.promotion = Some(run_promotion(&self.path));
     }
 
     fn run_pipeline(&mut self) {
@@ -616,7 +727,74 @@ fn render_stats(f: &mut Frame, area: Rect, app: &App) {
             ));
         }
 
-        f.render_widget(Paragraph::new(Line::from(spans)), inner);
+        let mut lines = vec![Line::from(spans)];
+        if let Some(promotion) = &app.promotion {
+            lines.push(promotion_line(promotion));
+        }
+        f.render_widget(Paragraph::new(lines), inner);
+    }
+}
+
+/// One-line summary of the last `p` promotion run.
+fn promotion_line(promotion: &Result<PromotionSummary, String>) -> Line<'static> {
+    match promotion {
+        Ok(s) => {
+            let accepted_style = if s.accepted > 0 {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            let mut spans = vec![
+                Span::styled("promotion: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("{} offered", s.offered)),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{} accepted", s.accepted), accepted_style),
+                Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                Span::raw(format!("{} deferred", s.deferred)),
+            ];
+            if s.rejected > 0 {
+                spans.push(Span::styled("  │  ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    format!("{} rejected", s.rejected),
+                    Style::default().fg(Color::Red),
+                ));
+            }
+            if let Some(kairos) = s.kairos {
+                spans.push(Span::styled(
+                    "  │  kairos: ",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                spans.push(Span::styled(
+                    if kairos { "✓" } else { "✗" },
+                    if kairos {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::Yellow)
+                    },
+                ));
+            }
+            if let Some(q) = s.qtic_top {
+                spans.push(Span::styled(
+                    "  │  QTIC: ",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                spans.push(Span::styled(
+                    format!("Q{q}"),
+                    Style::default().fg(Color::Cyan),
+                ));
+            }
+            spans.push(Span::styled(
+                format!("  │  engine: {}", s.engine_state),
+                Style::default().fg(Color::DarkGray),
+            ));
+            Line::from(spans)
+        }
+        Err(e) => Line::from(vec![
+            Span::styled("promotion: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(e.clone(), Style::default().fg(Color::Red)),
+        ]),
     }
 }
 
@@ -636,6 +814,13 @@ fn render_status_bar(f: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(":rerun  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "p",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(":promote  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             "↑↓/jk",
             Style::default()
@@ -662,11 +847,13 @@ fn render_status_bar(f: &mut Frame, area: Rect) {
 }
 
 fn ui(f: &mut Frame, app: &App, list_height: usize) {
+    // The workspace pane grows by one line when a promotion summary exists.
+    let stats_height = if app.promotion.is_some() { 4 } else { 3 };
     let vertical = Layout::vertical([
-        Constraint::Length(3), // header
-        Constraint::Min(5),    // action list + detail
-        Constraint::Length(3), // workspace stats
-        Constraint::Length(1), // key hints
+        Constraint::Length(3),            // header
+        Constraint::Min(5),               // action list + detail
+        Constraint::Length(stats_height), // workspace stats (+ promotion line)
+        Constraint::Length(1),            // key hints
     ])
     .split(f.area());
 
@@ -717,6 +904,13 @@ fn run_tui(mut app: App) -> io::Result<()> {
                             ui(f, &app, h);
                         })?;
                         app.run_pipeline();
+                    }
+                    KeyCode::Char('p') => {
+                        terminal.draw(|f| {
+                            let h = f.area().height.saturating_sub(10) as usize;
+                            ui(f, &app, h);
+                        })?;
+                        app.run_promotion();
                     }
                     KeyCode::Down | KeyCode::Char('j') => app.scroll_down(list_height),
                     KeyCode::Up | KeyCode::Char('k') => app.scroll_up(),
@@ -769,5 +963,71 @@ fn main() {
     if let Err(e) = run_tui(app) {
         eprintln!("terminal error: {e}");
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The TUI's promotion core against a real polyglot workspace: in-memory
+    /// offer under the substrate calibration must crystallize, and without an
+    /// Infinity-Ledger anchor the QTIC class honestly caps at Q3.
+    #[test]
+    fn tui_promotion_core_crystallizes_in_memory() {
+        let root = std::env::temp_dir()
+            .join("kosmo-tui-tests")
+            .join("promotion");
+        std::fs::remove_dir_all(&root).ok();
+        let ws = root.join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        let files: [(&str, &str); 4] = [
+            (
+                "fib.py",
+                "import os\n\ndef a(x):\n    return x\n\ndef b(y):\n    return y\n",
+            ),
+            (
+                "fib.rs",
+                "use std::io;\npub fn a(x: u32) -> u32 { x }\npub fn b(y: u32) -> u32 { y }\n",
+            ),
+            (
+                "fib.go",
+                "package main\nimport \"fmt\"\nfunc a(n int) int { return n }\nfunc b(n int) int { return n }\n",
+            ),
+            (
+                "fib.js",
+                "function a(x) {\n  return x;\n}\nfunction b(y) {\n  return y;\n}\n",
+            ),
+        ];
+        for (name, content) in files {
+            std::fs::write(ws.join(name), content).unwrap();
+        }
+
+        let summary = run_promotion(&ws.to_string_lossy()).expect("promotion must run");
+        assert!(summary.offered > 0, "candidates must be offered");
+        assert!(
+            summary.accepted > 0,
+            "the ensemble must crystallize (accepted {}, deferred {}, engine {})",
+            summary.accepted,
+            summary.deferred,
+            summary.engine_state
+        );
+        assert_eq!(summary.kairos, Some(true), "the conjunctive gate fired");
+        assert_eq!(
+            summary.qtic_top,
+            Some(3),
+            "in-memory promotion caps at Q3 (no IL anchor from the TUI)"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn tui_promotion_core_reports_pipeline_errors() {
+        let err = run_promotion("/definitely/not/a/workspace").unwrap_err();
+        assert!(
+            err.contains("pipeline failed"),
+            "must name the failure: {err}"
+        );
     }
 }

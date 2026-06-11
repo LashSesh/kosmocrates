@@ -1784,6 +1784,10 @@ dependencies = [
  "crossterm",
  "kosmo-core",
  "kosmo-pipeline",
+ "kosmo-pse-bridge",
+ "pse-adapter-kosmo",
+ "pse-core",
+ "pse-types",
  "ratatui",
 ]
 
