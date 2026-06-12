@@ -15,6 +15,35 @@ note explicitly says so.
 
 ### Added
 
+* **The interop pass — no new technology, everything thought together**
+
+  The UX premise made structural: the system's worth in practice is
+  decided by whether its organs compose, so every surface catches up
+  with every organ.
+
+  - **Adopted descents feed norm learning.** `--adopt`,
+    `--adopt-cluster` and chat-routed adoption now record
+    facet-bundle observations like a spoken wish does (previously the
+    system learned nothing from precisely the work it proposed
+    itself). Pinned: an adopted-cluster descent leaves exactly one
+    observation in the store.
+  - **The server catches up:** `POST /api/landscape` accepts
+    `geometry: true` (strictly additive — without it the response is
+    byte-identical, pinned) and returns the coherent clusters and
+    singular proposals; new `POST /api/norms` is a read-only window
+    onto a caller-pathed norm store (catalog, arming state, origin,
+    observation count — the server never appends or promotes). The
+    browser panel renders the geometry and the adopt-cluster hint.
+  - **The TUI catches up:** the `l` landscape pane renders the
+    spectral shape (cluster and singularity lines) under the peaks,
+    from the same standing definition as CLI and HTTP.
+  - **Status becomes a cockpit:** `--chat "status"` reports the armed
+    organs in one glance — norm catalog (known/armed/observations)
+    and memory source — before the measured landscape.
+  - **First contact is an invitation:** a keyless `kosmo-run .` now
+    answers with the offline doors (`--landscape`, `--wish`, `--chat`,
+    `--atelier`) instead of a bare missing-key error.
+
 * **The wish atelier — a wish is shaped over rounds before it is realized**
 
   The front door stops being one-shot: `kosmo-run --atelier <draft.json>`

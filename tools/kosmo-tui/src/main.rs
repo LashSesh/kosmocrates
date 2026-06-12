@@ -229,6 +229,9 @@ struct LandscapeSummary {
     beyond_vocabulary: usize,
     /// The highest peaks (top 3 by severity).
     top: Vec<LandscapeRow>,
+    /// The spectral shape of the open landscape, pre-rendered: one line per
+    /// coherent cluster, then one per singular proposal.
+    geometry: Vec<String>,
 }
 
 /// Map the workspace's findings into the wish landscape — read-only
@@ -264,6 +267,49 @@ fn run_landscape(path: &str) -> Result<LandscapeSummary, String> {
             rationale: p.rationale.clone(),
         })
         .collect();
+    // The spectral shape of the OPEN landscape — the same standing
+    // definition as the CLI and HTTP surfaces.
+    let open_proposals: Vec<kosmo_pipeline::WishProposal> = landscape
+        .proposals
+        .iter()
+        .zip(&standing)
+        .filter(|(_, s)| **s == LandscapeStanding::Open)
+        .map(|(p, _)| p.clone())
+        .collect();
+    let geo = kosmo_pipeline::landscape_geometry(&open_proposals, 6);
+    let mut geometry: Vec<String> = geo
+        .clusters
+        .iter()
+        .enumerate()
+        .map(|(i, cl)| {
+            let facets: Vec<String> = cl
+                .members
+                .iter()
+                .map(|&m| {
+                    format!(
+                        "{:?} {}",
+                        open_proposals[m].facet.kind, open_proposals[m].facet.key
+                    )
+                })
+                .collect();
+            format!(
+                "cluster {} [mass {:.2}] {} — {}",
+                i + 1,
+                cl.severity_mass.to_f64(),
+                cl.subjects.join(", "),
+                facets.join(", ")
+            )
+        })
+        .collect();
+    for sng in &geo.singular {
+        geometry.push(format!(
+            "singular: {:?} {} (coupling {:.2})",
+            open_proposals[sng.index].facet.kind,
+            open_proposals[sng.index].facet.key,
+            sng.coupling_mass.to_f64()
+        ));
+    }
+
     Ok(LandscapeSummary {
         proposals: landscape.proposals.len(),
         met: count(LandscapeStanding::Met),
@@ -271,6 +317,7 @@ fn run_landscape(path: &str) -> Result<LandscapeSummary, String> {
         beyond_observation: count(LandscapeStanding::BeyondObservation),
         beyond_vocabulary: landscape.unmapped.len(),
         top,
+        geometry,
     })
 }
 
@@ -1095,6 +1142,12 @@ fn landscape_lines_render(landscape: &Result<LandscapeSummary, String>) -> Vec<L
                     ),
                 ]));
             }
+            for line in &s.geometry {
+                lines.push(Line::from(vec![
+                    Span::styled("  ◆ ", Style::default().fg(Color::Cyan)),
+                    Span::raw(line.clone()),
+                ]));
+            }
             lines
         }
         Err(e) => vec![Line::from(vec![
@@ -1194,6 +1247,13 @@ mod tests {
         assert!(s.open >= 1, "the undocumented module is open");
         assert!(!s.top.is_empty(), "the peaks render");
         assert!(s.top[0].severity > 0.0);
+        // The spectral shape rides along: router's doc+test form one cluster.
+        assert!(!s.geometry.is_empty(), "geometry lines present");
+        assert!(
+            s.geometry[0].contains("router"),
+            "the router cluster leads: {:?}",
+            s.geometry
+        );
 
         // The render path stays total over both arms.
         assert!(!landscape_lines_render(&Ok(s)).is_empty());

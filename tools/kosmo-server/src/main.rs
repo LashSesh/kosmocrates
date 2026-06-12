@@ -14,6 +14,11 @@
 //!                             calibration/ledger — mirrors kosmo-promote)
 //!     POST /api/landscape     The wish landscape: findings projected into
 //!                             ranked wish proposals with measured standing
+//!                             (+ spectral geometry on request: coherent
+//!                             clusters and singular proposals)
+//!     POST /api/norms         The norm catalog of a caller-pathed store
+//!                             (read-only: learned/injected archetypes,
+//!                             armed triggers, observation count)
 //!     POST /api/recall        Pfauenthron++ retrieval over an Infinity
 //!                             Ledger (read-only; the ledger must exist)
 //! ```
@@ -318,6 +323,17 @@ struct LandscapeRequest {
     /// Enable all optional pipeline layers (heavier scan).
     #[serde(default)]
     all: bool,
+    /// Also compute the spectral geometry of the OPEN landscape (coherent
+    /// clusters + singular proposals). Strictly additive: without it the
+    /// response is unchanged.
+    #[serde(default)]
+    geometry: bool,
+}
+
+#[derive(Deserialize)]
+struct NormsRequest {
+    /// The norm store directory (caller-pathed, like every store).
+    dir: String,
 }
 
 #[derive(Deserialize)]
@@ -582,7 +598,7 @@ fn do_landscape(req: &LandscapeRequest) -> Result<serde_json::Value, String> {
             })
         })
         .collect();
-    Ok(serde_json::json!({
+    let mut doc = serde_json::json!({
         "path": req.path,
         "report_id": report.report_id.to_hex(),
         "proposals": rows,
@@ -595,11 +611,86 @@ fn do_landscape(req: &LandscapeRequest) -> Result<serde_json::Value, String> {
             .iter()
             .map(|u| serde_json::json!({"kind": u.kind_label, "location": u.location}))
             .collect::<Vec<_>>(),
+    });
+    // Spectral geometry on request — one standing definition with the CLI:
+    // couple the OPEN proposals, cluster, surface the singularities.
+    if req.geometry {
+        let open_proposals: Vec<kosmo_pipeline::WishProposal> = landscape
+            .proposals
+            .iter()
+            .zip(&standing)
+            .filter(|(_, s)| **s == kosmo_pipeline::LandscapeStanding::Open)
+            .map(|(p, _)| p.clone())
+            .collect();
+        let geo = kosmo_pipeline::landscape_geometry(&open_proposals, 6);
+        let facet_label = |i: usize| {
+            format!(
+                "{:?} {}",
+                open_proposals[i].facet.kind, open_proposals[i].facet.key
+            )
+        };
+        doc["geometry"] = serde_json::json!({
+            "clusters": geo.clusters.iter().map(|cl| serde_json::json!({
+                "facets": cl.members.iter().map(|&i| facet_label(i)).collect::<Vec<_>>(),
+                "subjects": cl.subjects,
+                "severity_mass": format!("{:.2}", cl.severity_mass.to_f64()),
+            })).collect::<Vec<_>>(),
+            "singular": geo.singular.iter().map(|s| serde_json::json!({
+                "facet": facet_label(s.index),
+                "coupling_mass": format!("{:.2}", s.coupling_mass.to_f64()),
+            })).collect::<Vec<_>>(),
+        });
+    }
+    Ok(doc)
+}
+
+/// Synchronous norm-catalog core — a read-only window onto a caller-pathed
+/// norm store: every learned/injected archetype, its arming state, and the
+/// observation count. The server never appends, promotes or injects (those
+/// are explicit operator acts on the CLI).
+fn do_norms(req: &NormsRequest) -> Result<serde_json::Value, String> {
+    let store = kosmo_store::NormStore::open(&req.dir).map_err(|e| e.to_string())?;
+    let norms: Vec<serde_json::Value> = store
+        .norms()
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "norm_id": n.norm_id.to_hex(),
+                "name": n.name,
+                "description": n.description,
+                "level": format!("{:?}", n.level),
+                "semantic_class": n.semantic_class,
+                "trigger": n.trigger,
+                "templates": n.template.len(),
+                "origin": match &n.origin {
+                    kosmo_hyphae::NormOrigin::Learned { observation_ids } =>
+                        format!("learned ({} observation(s))", observation_ids.len()),
+                    kosmo_hyphae::NormOrigin::OperatorInjected { source } =>
+                        format!("injected ({source})"),
+                },
+            })
+        })
+        .collect();
+    let armed = store.norms().iter().filter(|n| n.trigger.is_some()).count();
+    Ok(serde_json::json!({
+        "dir": req.dir,
+        "norms": norms,
+        "known": store.norms().len(),
+        "armed": armed,
+        "observations": store.observations().len(),
     }))
 }
 
 async fn landscape(Json(req): Json<LandscapeRequest>) -> Result<Json<serde_json::Value>, ApiError> {
     tokio::task::spawn_blocking(move || do_landscape(&req))
+        .await
+        .map_err(|e| ApiError(e.to_string()))?
+        .map(Json)
+        .map_err(ApiError)
+}
+
+async fn norms(Json(req): Json<NormsRequest>) -> Result<Json<serde_json::Value>, ApiError> {
+    tokio::task::spawn_blocking(move || do_norms(&req))
         .await
         .map_err(|e| ApiError(e.to_string()))?
         .map(Json)
@@ -706,7 +797,8 @@ async fn main() {
         .route("/api/analyse", post(analyse))
         .route("/api/promote", post(promote))
         .route("/api/recall", post(recall))
-        .route("/api/landscape", post(landscape));
+        .route("/api/landscape", post(landscape))
+        .route("/api/norms", post(norms));
 
     let addr_str = format!("{}:{}", args.host, args.port);
     let addr: SocketAddr = addr_str.parse().unwrap_or_else(|_| {
@@ -883,8 +975,13 @@ mod tests {
         let doc = do_landscape(&LandscapeRequest {
             path: root.to_string_lossy().into_owned(),
             all: false,
+            geometry: false,
         })
         .expect("landscape must succeed");
+        assert!(
+            doc.get("geometry").is_none(),
+            "geometry is strictly opt-in — the plain response is unchanged"
+        );
         let proposals = doc["proposals"].as_array().unwrap();
         assert!(!proposals.is_empty(), "findings project to proposals");
         let router_doc = proposals
@@ -895,13 +992,97 @@ mod tests {
         assert!(doc["open"].as_u64().unwrap() >= 1);
         assert!(!doc["report_id"].as_str().unwrap().is_empty());
 
+        // With geometry: the open doc+test of `router` form ONE cluster —
+        // the same standing definition as the CLI surface.
+        let doc = do_landscape(&LandscapeRequest {
+            path: root.to_string_lossy().into_owned(),
+            all: false,
+            geometry: true,
+        })
+        .expect("landscape must succeed");
+        let clusters = doc["geometry"]["clusters"].as_array().unwrap();
+        assert_eq!(clusters.len(), 1, "{clusters:?}");
+        let facets: Vec<&str> = clusters[0]["facets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f.as_str().unwrap())
+            .collect();
+        assert!(facets.contains(&"Doc router"), "{facets:?}");
+        assert!(facets.contains(&"Test router_smoke"), "{facets:?}");
+
         // A nonexistent path is a hard error, not an empty landscape.
         assert!(do_landscape(&LandscapeRequest {
             path: "/nonexistent/kosmo-landscape-xyz".into(),
             all: false,
+            geometry: false,
         })
         .is_err());
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn norms_endpoint_is_a_read_only_window() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-server-norms-{nanos}"));
+
+        // An empty (even nonexistent) store reads as the empty catalog —
+        // the structural Wonderlamp rejection, visible over HTTP.
+        let doc = do_norms(&NormsRequest {
+            dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("an empty store is readable");
+        assert_eq!(doc["known"], 0);
+        assert_eq!(doc["armed"], 0);
+        assert_eq!(doc["observations"], 0);
+        assert!(!dir.exists(), "reading must not create anything");
+
+        // Seed one armed norm via the store's own discipline, then read it.
+        let norm = kosmo_hyphae::Norm::new(
+            "loader",
+            "module plus loader fn",
+            kosmo_hyphae::NormLevel::Molecule,
+            "module+symbol",
+            [
+                kosmo_hyphae::NormFacetTemplate::new(kosmo_core::WishFacetKind::Module, "{name}"),
+                kosmo_hyphae::NormFacetTemplate::new(
+                    kosmo_core::WishFacetKind::Symbol,
+                    "{name}_load",
+                ),
+            ],
+            [],
+            [],
+            Digest::of_bytes(b"cand"),
+            Digest::of_bytes(b"ev"),
+            Digest::of_bytes(b"pol"),
+            kosmo_hyphae::NormOrigin::OperatorInjected {
+                source: "test".into(),
+            },
+        );
+        let mut store = kosmo_store::NormStore::open(&dir).unwrap();
+        store
+            .append_norm(&norm, &PolicyProfile::operator_approved())
+            .unwrap();
+        store
+            .promote(norm.norm_id, "loader", &PolicyProfile::operator_approved())
+            .unwrap();
+
+        let doc = do_norms(&NormsRequest {
+            dir: dir.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        assert_eq!(doc["known"], 1);
+        assert_eq!(doc["armed"], 1);
+        let row = &doc["norms"].as_array().unwrap()[0];
+        assert_eq!(row["name"], "loader");
+        assert_eq!(row["trigger"], "loader");
+        assert_eq!(row["templates"], 2);
+        assert!(row["origin"].as_str().unwrap().starts_with("injected"));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

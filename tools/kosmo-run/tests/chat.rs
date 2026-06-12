@@ -169,13 +169,41 @@ fn chat_adopt_cluster_rides_the_read_only_contract() {
 #[test]
 fn chat_status_and_governance_hints() {
     let root = fixture("status");
+    let norms = root.join("norms-store");
     let out = kosmo_run()
-        .args(["--chat", "status", "--no-color", root.to_str().unwrap()])
+        .args([
+            "--chat",
+            "status",
+            "--no-color",
+            "--norms",
+            norms.to_str().unwrap(),
+            root.to_str().unwrap(),
+        ])
         .output()
         .expect("spawn kosmo-run");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("chat[keyword] → status"), "{stdout}");
-    assert!(stdout.contains("the measured landscape"), "{stdout}");
+    assert!(stdout.contains("measured standing"), "{stdout}");
+    // The cockpit reports every armed organ — the empty catalog included.
+    assert!(stdout.contains("norms: 0 known (0 armed)"), "{stdout}");
+
+    // First contact without any key is an invitation, not a dead end.
+    let out = kosmo_run()
+        .arg(root.to_str().unwrap())
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("CEREBRAS_API_KEY")
+        .env_remove("KOSMO_LLM_API_KEY")
+        .env_remove("KOSMO_LLM_PROVIDER")
+        .env_remove("KOSMO_LLM_BASE_URL")
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("these run offline"),
+        "the keyless first contact must invite: {stderr}"
+    );
+    assert!(stderr.contains("--landscape"), "{stderr}");
 
     // InjectNorm routes to instructions — chat carries no spec files.
     let out = kosmo_run()

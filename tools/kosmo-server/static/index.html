@@ -350,7 +350,7 @@ async function runLandscape(){
     const resp=await fetch('/api/landscape',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({path,all:false})
+      body:JSON.stringify({path,all:false,geometry:true})
     });
     if(!resp.ok){
       let msg='Landscape failed';
@@ -374,6 +374,18 @@ async function runLandscape(){
       });
       html+=`</tbody></table>`;
       html+=`<div class="meta-list"><div>adopt the open peaks <span><code>kosmo-run --landscape --adopt N --apply ${esc(path)}</code></span></div></div>`;
+    }
+    if(d.geometry&&d.geometry.clusters.length){
+      html+=`<h2 style="margin-top:16px">Geometry <span class="count">${d.geometry.clusters.length} cluster(s)</span></h2>`;
+      d.geometry.clusters.forEach((cl,i)=>{
+        html+=`<div class="meta-list"><div>cluster ${i+1} · mass ${esc(cl.severity_mass)} · ${esc(cl.subjects.join(', '))}`+
+              `<span>${cl.facets.map(f=>`<code>${esc(f)}</code>`).join(' ')}</span></div></div>`;
+      });
+      (d.geometry.singular||[]).forEach(s9=>{
+        html+=`<div class="meta-list"><div>singular — removing it disconnects the landscape`+
+              `<span><code>${esc(s9.facet)}</code> coupling ${esc(s9.coupling_mass)}</span></div></div>`;
+      });
+      html+=`<div class="meta-list"><div>adopt one coherent cluster <span><code>kosmo-run --landscape --adopt-cluster i --apply ${esc(path)}</code></span></div></div>`;
     }
     html+=`</div>`;
     out.innerHTML=html;

@@ -455,7 +455,17 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
             ))
         }
         "env" | "auto" | "" => {
-            let synth = LlmSynthesizer::from_env().map_err(|e| e.to_string())?;
+            // First contact without a key is an invitation, not a dead end:
+            // most of the system runs offline.
+            let synth = LlmSynthesizer::from_env().map_err(|e| {
+                format!(
+                    "{e}\n\nno LLM provider is required to start — these run offline:\n\
+                     \x20 kosmo-run --landscape .            map what the workspace is missing\n\
+                     \x20 kosmo-run --wish \"a module x\" .    measure a wish (add --apply to build)\n\
+                     \x20 kosmo-run --chat \"status\" .        ask in plain words\n\
+                     \x20 kosmo-run --atelier wish.json --chat \"a module x\" .   shape a wish over rounds"
+                )
+            })?;
             Ok(swarmed(synth))
         }
         other => Err(format!(
@@ -1028,6 +1038,21 @@ fn adopt_and_descend(
         .latest()
         .map(|a| matches!(a.status, WishClosureStatus::Realized))
         .unwrap_or(false);
+    // The system's own proposals are sightings too: an adopted descent
+    // records a norm-learning observation like a spoken wish does.
+    if let Some(dir) = args.norms.as_deref() {
+        match NormStore::open(dir) {
+            Ok(mut store) => record_norm_observation(
+                &mut store,
+                &args.path,
+                &wish,
+                realized,
+                evidence,
+                &PolicyProfile::operator_approved(),
+            ),
+            Err(e) => eprintln!("norms: could not open store: {e}"),
+        }
+    }
     Ok(if realized {
         ExitCode::SUCCESS
     } else {
@@ -1138,7 +1163,26 @@ fn run_chat_mode(args: &Args) -> Result<ExitCode, String> {
             let mut sub = args.clone();
             sub.landscape = true;
             if !sub.json {
-                println!("status \u{2014} the measured landscape:");
+                println!("status \u{2014} the system's measured standing:");
+                // The cockpit lines: every armed organ reports in one glance.
+                if let Some(dir) = args.norms.as_deref() {
+                    match NormStore::open(dir) {
+                        Ok(store) => {
+                            let armed =
+                                store.norms().iter().filter(|n| n.trigger.is_some()).count();
+                            println!(
+                                "  norms: {} known ({} armed) \u{b7} {} observation(s)",
+                                store.norms().len(),
+                                armed,
+                                store.observations().len()
+                            );
+                        }
+                        Err(e) => println!("  norms: store unreadable ({e})"),
+                    }
+                }
+                if let Some(recall) = open_recall(args)? {
+                    println!("  memory: {}", recall.source());
+                }
             }
             run_landscape_mode(&sub)
         }
