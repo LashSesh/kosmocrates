@@ -37,7 +37,9 @@ use kosmo_intent::WishSession;
 use kosmo_materialize::{MaterializeOptions, MaterializeReport, Materializer, PatchValidator};
 use kosmo_pipeline::{ActionItem, ActionItemKind, IntegrationRunOptions, WorkspacePipelineSession};
 use kosmo_pse_bridge::MemoryRecall;
-use kosmo_synthesizer::{ActionSynthesizer, SynthesisRequest, SynthesisResult};
+use kosmo_synthesizer::{
+    ActionSynthesizer, ContextualSynthesizer, SynthesisRequest, SynthesisResult,
+};
 
 pub use kosmo_materialize::{AlwaysFail, AlwaysPass, CargoFoundryValidator};
 
@@ -614,6 +616,14 @@ impl AgentSession {
         let total_available = all_items.len();
 
         // ── 2. Synthesize top-N ──────────────────────────────────────────────
+        // One descent context per run: every action's prompt carries the
+        // symbols earlier actions created, and every patch passes the
+        // Mikro/Meso gates (a gate Reject arrives with ZERO confidence and
+        // is filtered below — fail-closed through the existing policy path).
+        let synthesizer: Arc<dyn ActionSynthesizer> = Arc::new(ContextualSynthesizer::new(
+            self.synthesizer.clone(),
+            workspace,
+        ));
         let mut steps: Vec<AgentStep> = Vec::new();
         let mut skipped_low_confidence = 0u32;
 
@@ -635,7 +645,7 @@ impl AgentSession {
                 request = request.with_grounding(hits);
             }
 
-            let synthesis = match self.synthesizer.synthesize(&request) {
+            let synthesis = match synthesizer.synthesize(&request) {
                 Ok(r) => r,
                 Err(e) => {
                     // Permanent synthesis failure: record as negative feedback, continue.

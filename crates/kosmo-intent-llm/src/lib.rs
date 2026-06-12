@@ -44,6 +44,11 @@ use kosmo_intent::{WishCompileError, WishCompiler};
 use kosmo_llm::{config_from_env, extract_json_object, truncate, LlmConfig, LlmError};
 use serde::Deserialize;
 
+pub mod intent_extract;
+pub use intent_extract::{
+    build_intent_prompt, intent_system_prompt, parse_intent_response, LlmIntentExtractor,
+};
+
 /// A [`WishCompiler`] that delegates prose→`Wish` translation to an LLM.
 pub struct LlmWishCompiler {
     config: LlmConfig,

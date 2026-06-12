@@ -11,6 +11,7 @@ members = [
     "crates/kosmo-hyphae",
     "crates/kosmo-systemcube",
     "crates/kosmo-pipeline",
+    "crates/kosmo-spectral",
     "crates/pse-types",
     "crates/pse-core",
     "crates/pse-graph",

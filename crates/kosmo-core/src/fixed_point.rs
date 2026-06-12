@@ -120,6 +120,59 @@ impl Q16 {
     pub fn at_least(self, threshold: Self) -> bool {
         self.0 >= threshold.0
     }
+
+    /// Integer geometric mean of values in `[ZERO, ONE]` — the n-th root of
+    /// the raw product, found by binary search on `i128`. Deterministic, no
+    /// floats (CROSS-007), bit-replayable.
+    ///
+    /// Domain discipline (fail-closed): an empty slice yields `ZERO`; any
+    /// member `≤ ZERO` yields `ZERO` (the geometric mean's soft-unanimity
+    /// property — one dead value silences the ensemble); members above `ONE`
+    /// are clamped to `ONE` (scores live on the unit interval).
+    ///
+    /// Derivation: for values vᵢ = rawᵢ/S (S = 2¹⁶), the geometric mean is
+    /// (∏ vᵢ)^(1/n) = (∏ rawᵢ)^(1/n) / S — so the result's raw value is
+    /// exactly the integer n-th root of the raw product. With rawᵢ ≤ 2¹⁶ the
+    /// product fits `i128` for n ≤ 7 ensembles and far beyond.
+    pub fn geomean(values: &[Q16]) -> Q16 {
+        if values.is_empty() {
+            return Q16::ZERO;
+        }
+        let mut product: i128 = 1;
+        for v in values {
+            if v.0 <= 0 {
+                return Q16::ZERO;
+            }
+            let raw = v.0.min(Q16_SCALE) as i128;
+            product = match product.checked_mul(raw) {
+                Some(p) => p,
+                None => return Q16::ONE, // unreachable for unit-interval inputs
+            };
+        }
+        let n = values.len() as u32;
+        // Largest r in [0, SCALE] with r^n ≤ product.
+        let (mut lo, mut hi) = (0i128, Q16_SCALE as i128);
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2;
+            let mut pow: i128 = 1;
+            let mut fits = true;
+            for _ in 0..n {
+                pow = match pow.checked_mul(mid) {
+                    Some(p) if p <= product => p,
+                    _ => {
+                        fits = false;
+                        break;
+                    }
+                };
+            }
+            if fits {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        Q16(lo as i64)
+    }
 }
 
 impl std::ops::Neg for Q16 {
@@ -247,5 +300,59 @@ mod tests {
         let sum_raw: i64 = (0..3).map(|_| half.raw()).sum();
         let avg = Q16::from_raw(sum_raw / 3);
         assert_eq!(avg, Q16::HALF);
+    }
+
+    // ─── geomean ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn geomean_identities() {
+        assert_eq!(Q16::geomean(&[]), Q16::ZERO, "empty is fail-closed");
+        assert_eq!(Q16::geomean(&[Q16::HALF]), Q16::HALF, "singleton is itself");
+        assert_eq!(Q16::geomean(&[Q16::ONE, Q16::ONE, Q16::ONE]), Q16::ONE);
+    }
+
+    #[test]
+    fn geomean_soft_unanimity() {
+        // One dead member silences the ensemble.
+        assert_eq!(Q16::geomean(&[Q16::ONE, Q16::ONE, Q16::ZERO]), Q16::ZERO);
+        assert_eq!(Q16::geomean(&[Q16::HALF, -Q16::HALF]), Q16::ZERO);
+    }
+
+    #[test]
+    fn geomean_known_values() {
+        // geomean(1, 1/4) = sqrt(1/4) = 1/2 — exact in raw arithmetic.
+        let quarter = Q16::ratio(1, 4).unwrap();
+        assert_eq!(Q16::geomean(&[Q16::ONE, quarter]), Q16::HALF);
+        // geomean(x, x) = x for any unit-interval value.
+        let v = Q16::ratio(7, 10).unwrap();
+        let g = Q16::geomean(&[v, v]);
+        assert!((g.raw() - v.raw()).abs() <= 1, "n-th root floor is tight");
+    }
+
+    #[test]
+    fn geomean_monotone_and_bounded() {
+        let lo = Q16::geomean(&[Q16::ratio(1, 4).unwrap(), Q16::HALF]);
+        let hi = Q16::geomean(&[Q16::HALF, Q16::HALF]);
+        assert!(lo < hi, "raising a member raises the mean");
+        // Above-ONE inputs clamp to the unit interval.
+        assert_eq!(Q16::geomean(&[Q16::from_i64(5), Q16::ONE]), Q16::ONE);
+        // Bounded by min and max members.
+        let g = Q16::geomean(&[Q16::ratio(1, 4).unwrap(), Q16::ONE]);
+        assert!(g >= Q16::ratio(1, 4).unwrap() && g <= Q16::ONE);
+    }
+
+    #[test]
+    fn geomean_is_deterministic_across_orderings_of_same_multiset() {
+        let a = [
+            Q16::ratio(3, 10).unwrap(),
+            Q16::ratio(9, 10).unwrap(),
+            Q16::HALF,
+        ];
+        let b = [
+            Q16::HALF,
+            Q16::ratio(3, 10).unwrap(),
+            Q16::ratio(9, 10).unwrap(),
+        ];
+        assert_eq!(Q16::geomean(&a), Q16::geomean(&b));
     }
 }

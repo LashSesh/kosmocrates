@@ -1578,6 +1578,7 @@ name = "kosmo-intent"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "kosmo-hyphae",
  "kosmo-parseback",
  "kosmo-sandbox",
  "serde",
@@ -1652,6 +1653,7 @@ dependencies = [
  "kosmo-core",
  "kosmo-hyphae",
  "kosmo-pse-bridge",
+ "kosmo-spectral",
  "kosmo-store",
  "kosmo-systemcube",
  "kosmo-workbench",
@@ -1693,9 +1695,13 @@ version = "0.1.0"
 dependencies = [
  "kosmo-agent",
  "kosmo-core",
+ "kosmo-hyphae",
  "kosmo-intent",
+ "kosmo-intent-llm",
+ "kosmo-llm",
  "kosmo-pipeline",
  "kosmo-pse-bridge",
+ "kosmo-store",
  "kosmo-synthesizer",
  "kosmo-synthesizer-llm",
  "pse-adapter-kosmo",
@@ -1729,6 +1735,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-spectral"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
+]
+
+[[package]]
 name = "kosmo-store"
 version = "0.1.0"
 dependencies = [
@@ -1753,6 +1766,7 @@ name = "kosmo-synthesizer"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "kosmo-hyphae",
  "kosmo-pipeline",
  "kosmo-pse-bridge",
  "serde",

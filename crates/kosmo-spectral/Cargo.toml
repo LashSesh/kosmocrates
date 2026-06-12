@@ -1,0 +1,12 @@
+[package]
+name = "kosmo-spectral"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Quarantined spectral mathematics for the kosmo-* substrate: Fiedler bisection, conductance-bounded spectral clustering, Kuramoto sync groups and articulation singularities over Q16-weighted coupling graphs. Floats live only inside; the public API is Q16/discrete."
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core", version = "0.1.0" }

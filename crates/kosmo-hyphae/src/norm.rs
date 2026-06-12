@@ -166,6 +166,34 @@ impl NormFitnessTrace {
         let sum_raw: i64 = self.observations.iter().map(|o| o.fitness.raw()).sum();
         Q16::from_raw(sum_raw / self.observations.len() as i64)
     }
+
+    /// Exponentially-smoothed fitness in pure `Q16` integer arithmetic
+    /// (CROSS-007). `alpha` is the retention weight of the running value:
+    /// `ema₀ = first observation`, `emaₜ = alpha·emaₜ₋₁ + (1−alpha)·obsₜ`.
+    /// Wonderlamp's `φ ← 0.9·φ + 0.1·r` update becomes
+    /// `smoothed_fitness(Q16::ratio(9, 10).unwrap())`. Out-of-range `alpha`
+    /// is clamped to `[ZERO, ONE]`; an empty trace yields `ZERO`.
+    pub fn smoothed_fitness(&self, alpha: Q16) -> Q16 {
+        let alpha = if alpha.is_negative() {
+            Q16::ZERO
+        } else if alpha.exceeds(Q16::ONE) {
+            Q16::ONE
+        } else {
+            alpha
+        };
+        let inv = Q16::ONE.saturating_sub(alpha);
+        let mut iter = self.observations.iter();
+        let Some(first) = iter.next() else {
+            return Q16::ZERO;
+        };
+        let mut ema = first.fitness;
+        for obs in iter {
+            let kept = alpha.checked_mul(ema).unwrap_or(Q16::ZERO);
+            let fresh = inv.checked_mul(obs.fitness).unwrap_or(Q16::ZERO);
+            ema = kept.saturating_add(fresh);
+        }
+        ema
+    }
 }
 
 #[cfg(test)]
@@ -281,6 +309,40 @@ mod tests {
         );
         let trace = NormFitnessTrace::empty(cid, pid).observe_from_feedback(&feedback);
         assert_eq!(trace.observations[0].evidence_ref, feedback.id);
+    }
+
+    #[test]
+    fn smoothed_fitness_is_zero_on_empty_and_exact_on_constant() {
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let ev = Digest::of_bytes(b"e");
+        let empty = NormFitnessTrace::empty(cid, pid);
+        assert_eq!(empty.smoothed_fitness(Q16::HALF), Q16::ZERO);
+
+        // HALF·HALF + HALF·HALF is exact in Q16: a constant signal stays put.
+        let constant = NormFitnessTrace::empty(cid, pid)
+            .observe(Q16::HALF, ev)
+            .observe(Q16::HALF, ev)
+            .observe(Q16::HALF, ev);
+        assert_eq!(constant.smoothed_fitness(Q16::HALF), Q16::HALF);
+    }
+
+    #[test]
+    fn smoothed_fitness_weights_recency_by_alpha() {
+        let pid = Digest::of_bytes(b"p");
+        let cid = Digest::of_bytes(b"c");
+        let ev = Digest::of_bytes(b"e");
+        let trace = NormFitnessTrace::empty(cid, pid)
+            .observe(Q16::ZERO, ev)
+            .observe(Q16::ONE, ev);
+        // Low retention: the fresh observation dominates (0.1·0 + 0.9·1).
+        let fast = trace.smoothed_fitness(Q16::ratio(1, 10).unwrap());
+        assert!(fast.exceeds(trace.average_fitness()));
+        // High retention: the past dominates (0.9·0 + 0.1·1).
+        let slow = trace.smoothed_fitness(Q16::ratio(9, 10).unwrap());
+        assert!(trace.average_fitness().exceeds(slow));
+        // Degenerate alphas clamp instead of misbehaving.
+        assert_eq!(trace.smoothed_fitness(Q16::from_i64(7)), Q16::ZERO);
     }
 
     #[test]

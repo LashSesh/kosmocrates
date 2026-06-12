@@ -30,6 +30,9 @@
 //! Reading and integrity-verifying a store never mutates the host and is
 //! therefore permitted in any mode.
 
+pub mod norm_store;
+pub use norm_store::{NormStore, NormStoreError};
+
 use kosmo_core::{
     CartographyIntegrityReport, CartographyIntegrityStatus, CartographyStorageManifest,
     CartographyStoreCommit, CartographyStoreError, CorpusCartographyStore, CorpusScope, Digest,

@@ -28,6 +28,10 @@ use kosmo_core::{Digest, WishFacet, WishFacetKind, Q16};
 use kosmo_pipeline::{ActionItem, ActionItemKind};
 use kosmo_pse_bridge::MemoryGroundingEntry;
 
+pub mod consensus;
+pub mod context;
+pub mod patch_gates;
+
 // ─── Source context ───────────────────────────────────────────────────────────
 
 /// A source file excerpt provided as context to the synthesizer.
@@ -65,6 +69,11 @@ pub struct SynthesisRequest {
     /// no memory was attached.
     #[serde(default)]
     pub memory_grounding: Vec<MemoryGroundingEntry>,
+    /// Symbols already created earlier in the same descent (rendered by
+    /// [`context::TypeContext`]). Advisory like the other context fields —
+    /// NOT part of `request_id`; empty outside multi-step descents.
+    #[serde(default)]
+    pub descent_context: Vec<String>,
 }
 
 impl SynthesisRequest {
@@ -82,6 +91,7 @@ impl SynthesisRequest {
             workspace_path,
             source_snippets: vec![],
             memory_grounding: vec![],
+            descent_context: vec![],
         }
     }
 
@@ -93,6 +103,12 @@ impl SynthesisRequest {
     /// Attach recalled, ledger-anchored knowledge as advisory context.
     pub fn with_grounding(mut self, grounding: Vec<MemoryGroundingEntry>) -> Self {
         self.memory_grounding = grounding;
+        self
+    }
+
+    /// Attach the symbols this descent already created (advisory).
+    pub fn with_descent_context(mut self, lines: Vec<String>) -> Self {
+        self.descent_context = lines;
         self
     }
 }
@@ -374,6 +390,89 @@ impl ActionSynthesizer for GroundedSynthesizer {
             })?;
         let grounded = request.clone().with_grounding(hits);
         self.inner.synthesize(&grounded)
+    }
+
+    fn name(&self) -> &str {
+        &self.label
+    }
+
+    fn token_budget(&self) -> u32 {
+        self.inner.token_budget()
+    }
+}
+
+// ─── ContextualSynthesizer ────────────────────────────────────────────────────
+
+/// Default prompt-line budget for the rendered descent context.
+pub const DESCENT_CONTEXT_BUDGET: usize = 64;
+
+/// A synthesizer with descent memory and patch gates: every request carries
+/// the symbols this descent already created
+/// ([`context::TypeContext::render`]), and every result passes the
+/// Mikro/Meso gates ([`patch_gates::gate_patch`]) before its symbols are
+/// absorbed.
+///
+/// Fail-closed delivery: a gate `Reject` keeps the result auditable but
+/// unmaterializable — `confidence = ZERO` and the rationale is prefixed
+/// `gate-reject: <reason>`, so the agent's existing `min_confidence`
+/// filter skips it and the feedback loop records the failure honestly.
+/// Rejected patches are NOT absorbed (their symbols never existed).
+pub struct ContextualSynthesizer {
+    inner: std::sync::Arc<dyn ActionSynthesizer>,
+    workspace: PathBuf,
+    context: std::sync::Mutex<context::TypeContext>,
+    label: String,
+}
+
+impl ContextualSynthesizer {
+    pub fn new(
+        inner: std::sync::Arc<dyn ActionSynthesizer>,
+        workspace: impl Into<PathBuf>,
+    ) -> Self {
+        let label = format!("{}+context", inner.name());
+        Self {
+            inner,
+            workspace: workspace.into(),
+            context: std::sync::Mutex::new(context::TypeContext::new()),
+            label,
+        }
+    }
+
+    /// The number of symbols the descent has accumulated (telemetry/tests).
+    pub fn symbols_known(&self) -> usize {
+        self.context.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+}
+
+impl ActionSynthesizer for ContextualSynthesizer {
+    fn synthesize(&self, request: &SynthesisRequest) -> Result<SynthesisResult, SynthesisError> {
+        let rendered = self
+            .context
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .render(DESCENT_CONTEXT_BUDGET);
+        let decorated = request.clone().with_descent_context(rendered);
+        let result = self.inner.synthesize(&decorated)?;
+
+        let mut ctx = self.context.lock().unwrap_or_else(|e| e.into_inner());
+        match patch_gates::gate_patch(&result.patch, &self.workspace, &ctx) {
+            kosmo_core::GateResult::Reject { reason } => {
+                let mut rejected = result;
+                rejected.confidence = Q16::ZERO;
+                rejected.rationale = format!("gate-reject: {reason} | {}", rejected.rationale);
+                Ok(rejected)
+            }
+            kosmo_core::GateResult::Warn { message } => {
+                ctx.absorb_patch(&result.patch);
+                let mut warned = result;
+                warned.rationale = format!("gate-warn: {message} | {}", warned.rationale);
+                Ok(warned)
+            }
+            _ => {
+                ctx.absorb_patch(&result.patch);
+                Ok(result)
+            }
+        }
     }
 
     fn name(&self) -> &str {
@@ -2069,6 +2168,120 @@ mod tests {
         let err = g.synthesize(&make_request()).unwrap_err();
         assert!(err.recoverable, "memory failure is transient, not skipped");
         assert!(err.message.contains("broken://test"));
+    }
+
+    // ─── Descent context + gates ─────────────────────────────────────────────
+
+    /// Probe synthesizer: records each request it sees and replies with a
+    /// scripted patch per call.
+    struct RecordingSynthesizer {
+        seen: std::sync::Mutex<Vec<SynthesisRequest>>,
+        patches: std::sync::Mutex<std::collections::VecDeque<Vec<FileChange>>>,
+    }
+    impl RecordingSynthesizer {
+        fn new(patches: Vec<Vec<FileChange>>) -> Self {
+            Self {
+                seen: std::sync::Mutex::new(vec![]),
+                patches: std::sync::Mutex::new(patches.into_iter().collect()),
+            }
+        }
+    }
+    impl ActionSynthesizer for RecordingSynthesizer {
+        fn synthesize(
+            &self,
+            request: &SynthesisRequest,
+        ) -> Result<SynthesisResult, SynthesisError> {
+            self.seen.lock().unwrap().push(request.clone());
+            let changes = self.patches.lock().unwrap().pop_front().unwrap_or_default();
+            let patch = Patch::new(request.request_id, changes, "recording");
+            Ok(SynthesisResult::new(patch, "recorded", Q16::ratio(9, 10).unwrap()).citing(request))
+        }
+        fn name(&self) -> &str {
+            "recording"
+        }
+    }
+
+    fn scratch_ws(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-ctx-{tag}-{nanos}"));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn descent_context_is_advisory_and_not_part_of_identity() {
+        let bare = make_request();
+        let decorated = make_request().with_descent_context(vec!["fn route/1".into()]);
+        assert_eq!(bare.request_id, decorated.request_id);
+        // Old serialized requests (no descent_context field) still parse.
+        let mut v = serde_json::to_value(&bare).unwrap();
+        v.as_object_mut().unwrap().remove("descent_context");
+        let back: SynthesisRequest = serde_json::from_value(v).unwrap();
+        assert!(back.descent_context.is_empty());
+    }
+
+    #[test]
+    fn second_facet_sees_what_the_first_created() {
+        let ws = scratch_ws("sees");
+        let inner = std::sync::Arc::new(RecordingSynthesizer::new(vec![
+            vec![FileChange::create(
+                "src/router.rs",
+                "pub fn route(p: &str) -> u32 { 1 }
+",
+            )],
+            vec![FileChange::create(
+                "src/uses.rs",
+                "pub fn go() {}
+",
+            )],
+        ]));
+        let ctx = ContextualSynthesizer::new(inner.clone(), &ws);
+
+        let r1 = ctx.synthesize(&make_request()).unwrap();
+        assert!(r1.confidence.is_positive());
+        let r2 = ctx.synthesize(&make_request()).unwrap();
+        assert!(r2.confidence.is_positive());
+
+        let seen = inner.seen.lock().unwrap();
+        assert!(
+            seen[0].descent_context.is_empty(),
+            "first call: amnesia is honest"
+        );
+        assert!(
+            seen[1]
+                .descent_context
+                .iter()
+                .any(|l| l.contains("fn route/1")),
+            "second call carries the first call's symbol: {:?}",
+            seen[1].descent_context
+        );
+        assert_eq!(ctx.symbols_known(), 4, "route fn+mod, go fn, uses mod");
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    #[test]
+    fn gate_reject_zeroes_confidence_and_skips_absorption() {
+        let ws = scratch_ws("reject");
+        std::fs::write(
+            ws.join("src/taken.rs"),
+            "pub fn here() {}
+",
+        )
+        .unwrap();
+        let inner = std::sync::Arc::new(RecordingSynthesizer::new(vec![vec![FileChange::create(
+            "src/taken.rs",
+            "pub fn clash() {}
+",
+        )]]));
+        let ctx = ContextualSynthesizer::new(inner, &ws);
+        let r = ctx.synthesize(&make_request()).unwrap();
+        assert_eq!(r.confidence, Q16::ZERO, "{}", r.rationale);
+        assert!(r.rationale.starts_with("gate-reject: create over existing"));
+        assert_eq!(ctx.symbols_known(), 0, "rejected symbols never existed");
+        std::fs::remove_dir_all(&ws).ok();
     }
 
     #[test]
