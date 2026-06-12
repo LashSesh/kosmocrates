@@ -298,6 +298,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "chacha20"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -897,6 +908,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi 6.0.0",
+ "rand_core 0.10.1",
  "wasip2",
  "wasip3",
 ]
@@ -1923,7 +1935,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ndarray",
- "rand 0.9.4",
+ "rand 0.10.1",
  "rand_distr",
  "serde",
  "serde_json",
@@ -3172,7 +3184,7 @@ dependencies = [
  "pse-nxalien-types",
  "pse-reasoning",
  "pse-types",
- "rand 0.9.4",
+ "rand 0.10.1",
  "serde",
  "serde_jcs",
  "serde_json",
@@ -3553,6 +3565,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
 dependencies = [
+ "chacha20",
  "getrandom 0.4.2",
  "rand_core 0.10.1",
 ]
