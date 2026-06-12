@@ -16,6 +16,7 @@
 
 pub mod assimilation;
 pub mod code_hdag;
+pub mod codematrix;
 pub mod collapse;
 pub mod corpus;
 pub mod crystal;
@@ -29,6 +30,9 @@ pub mod lpcm;
 pub mod metatron;
 pub mod motif;
 pub mod norm;
+pub mod norm_genome;
+pub mod norm_learning;
+pub mod norm_schema;
 pub mod run;
 pub mod structural_yield;
 pub mod surgery;
@@ -74,6 +78,18 @@ pub use metatron::{
 };
 pub use motif::MotifCandidate;
 pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
+pub use norm_genome::{
+    cluster_genes, compose, default_gene_threshold, relate, ComposeError, NormActivation, NormGene,
+    NormRelation,
+};
+pub use norm_learning::{
+    abstract_bundle, abstract_subject, promotable, FacetBundleObservation, NormLearningConfig,
+    NormProposal,
+};
+pub use norm_schema::{
+    Norm, NormFacetTemplate, NormInjectionSpec, NormLevel, NormOrigin, NormValidationError,
+    NAME_PLACEHOLDER,
+};
 pub use run::{passive_run, passive_run_augmented, HyphaeRunResult};
 pub use structural_yield::{StructuralYield, StructuralYieldKind};
 pub use surgery::{
@@ -82,4 +98,7 @@ pub use surgery::{
 };
 pub use swarm::{CompositeSupportCube, CubeMandorla, CubeSwarm, SourceCubeWorker, WorkerStatus};
 pub use void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
-pub use xlang::{is_test_path, CrossLanguageFingerprint, SourceLanguage};
+pub use xlang::{
+    is_test_path, symbol_sets, symbol_sets_auto, CrossLanguageFingerprint, SourceLanguage,
+    SymbolSets,
+};

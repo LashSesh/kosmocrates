@@ -1,7 +1,7 @@
 # Implementation Status
 
 ## Current Phase
-**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅ → RunFacet ✅ → RuntimeCapstone ✅ → ServiceFacet ✅ → XLangTopology ✅ → XLangResonance ✅ → WishDocs ✅ → CiGatesGreen ✅ → CertifiedCrystalOffer ✅ → PseAdapterKosmo ✅ → PromoteCLI ✅ → EngineMemory ✅ → StoreSource ✅ → FeedbackLoop ✅ → QticCertificates ✅ → ConvergenceMap ✅ → EnsembleResonance ✅ → SubstrateCalibration ✅ → IlAnchorQ5 ✅ → PfauenthronRecall ✅ → MemoryGroundedSynthesis ✅ → MemoryTank ✅ → EmbedderSocket ✅ → DocFacet ✅ → WishLandscape ✅ → LandscapeSurfaces ✅  
+**Vision chain COMPLETE** — Topology ✅ → Energy ✅ → Blueprint ✅ → Roundtrip ✅ → Feedback ✅ → CodeStructure ✅ → ResoniteCAD ✅ → CrystalBoost ✅ → CrystalPersist ✅ → CrystalAutoLoop ✅ → WorkspaceEntry ✅ → ActionItems ✅ → SubstrateCLI ✅ → TUI ✅ → WebUI ✅ → Synthesizer ✅ → Agent ✅ → LlmBackends ✅ → AgentRunner ✅ → Materialize ✅ → LoopClosed ✅ → GitCommit ✅ → PromotionFeedbackLoop ✅ → WishSpec ✅ → WishAttractor ✅ → WishObserver ✅ → WishGovernance ✅ → WishGeneration ✅ → WishGranularity ✅ → WishFrontDoor ✅ → WishLLM ✅ → WishScaffold ✅ → FacetSemantics ✅ → GreenTests ✅ → WishCLI ✅ → WishDescent ✅ → DescentLLM ✅ → DepScaffold ✅ → SessionPersist ✅ → ContractFacet ✅ → BehaviorFacet ✅ → ArchetypeFanout ✅ → CrateTargeting ✅ → Composition ✅ → Capstone ✅ → Pruefstand ✅ → FlowComposition ✅ → Sandbox ✅ → RunFacet ✅ → RuntimeCapstone ✅ → ServiceFacet ✅ → XLangTopology ✅ → XLangResonance ✅ → WishDocs ✅ → CiGatesGreen ✅ → CertifiedCrystalOffer ✅ → PseAdapterKosmo ✅ → PromoteCLI ✅ → EngineMemory ✅ → StoreSource ✅ → FeedbackLoop ✅ → QticCertificates ✅ → ConvergenceMap ✅ → EnsembleResonance ✅ → SubstrateCalibration ✅ → IlAnchorQ5 ✅ → PfauenthronRecall ✅ → MemoryGroundedSynthesis ✅ → MemoryTank ✅ → EmbedderSocket ✅ → DocFacet ✅ → WishLandscape ✅ → LandscapeSurfaces ✅ → AssimilationFoundations ✅ → SwarmSynthesizer ✅ → DescentContext ✅ → NormOrgan ✅ → LandscapeGeometry ✅ → ChatFrontDoor ✅ (Wonderlamp-Assimilation komplett)  
 "Echte Topologie rein, tripolare Energie darauf, Blueprint raus, Realitätstest drüber, Wissen zurück ins Substrat — CAD-Bibliothek treibt aktiv das Ranking, überlebt Sessions, wird vollautomatisch befüllt, läuft mit einem einzigen Aufruf auf echten Workspaces, produziert priorisierte Arbeitsanweisungen — navigierbar als TUI und erreichbar über den Browser, synthetisiert mit Claude oder Cerebras — schreibt validierte Patches policy-gegated zurück in den Workspace (cargo-geprüft, mit Rollback), committet jeden akzeptierten Patch als eigenen Git-Commit, und speist Execution-Feedback als PromotionFeedback zurück in die Pipeline. Der Kompressor läuft. Und der nächste Bogen hat begonnen: ein Wunsch ist jetzt ein content-adressiertes, messbares Ziel (`Wish` + `assess_wish`) — der Gradient, an dem derselbe Kompressor künftig zur Wunsch-zu-System-Maschine entlanglaufen kann."
 
 - **1194 substrate-layer tests** (kosmo-core 384, kosmo-hyphae 231, kosmo-pse-bridge 38, kosmo-kcube 25, kosmo-systemcube 54, kosmo-parseback 17, kosmo-operator 8, kosmo-workbench 23, kosmo-store 14, kosmo-pipeline 125, kosmo-synthesizer 42, kosmo-synthesizer-llm 16, kosmo-agent 27, kosmo-materialize 11, kosmo-intent 72, kosmo-llm 14, kosmo-intent-llm 9, kosmo-sandbox 13, kosmo-run 24, kosmo-foundry 13, pse-adapter-kosmo 16, kosmo-promote 18) — 0 failures. `--pruefstand --validated`: 13/13 corpus scenarios faithful (keystone at unit, process, and service boundaries)
@@ -23,6 +23,61 @@
 - **`StructuralCrystalCandidate` certification work queue wired as pipeline Step 5d** ✅
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
+
+### Wonderlamp assimilation, phase 6 — chat front door (2026-06-12) — ASSIMILATION COMPLETE
+
+One utterance, routed onto the organs — never past them.
+
+- `kosmo_intent::chat`: `ChatIntent{MakeWish|DescendWish|ShowLandscape{geometry}|AdoptLandscape{top}|AdoptCluster{index}|ShowStatus|InjectNorm}` — **type-systemically path/file/entity-free** (source-scan pin on the enum; Wonderlamp's `affected_files`/User-entity/REST intents stayed behind). `IntentExtractor` is **total**: `KeywordIntentExtractor` bottoms out in MakeWish — the unrecognized utterance flows to the measurable wish door, never to a template, never to an error.
+- `kosmo_intent_llm::LlmIntentExtractor`: model-first routing under a pinned classification-only contract ("never plan, never generate code, never name files"); ANY failure (transport/malformed/unknown) degrades to the keyword rules — proven without network. Routing is transient (no content addressing/evidence — the routed-to organs own that), so the fallback violates no replay contract.
+- `kosmo-run --chat "<utterance>"` (one-shot, no REPL): echoes the routing decision for audit, delegates to existing modes; `--apply/--provider/--ledger/--norms` compose orthogonally; chat never escalates past `--apply`; `--chat`+`--wish` refused; InjectNorm → governance-flag instructions (chat carries no spec files, by type).
+- +16 tests (6 router, 5 extractor incl. offline fallback, 5 binary). Prüfstand 13/13 (`--validated`).
+- **All six planned phases of the Wonderlamp assimilation are landed**; the rejection list in `docs/WONDERLAMP_ASSIMILATION.md` is permanent.
+
+### Wonderlamp assimilation, phase 5 — spectral kit + landscape geometry (2026-06-12)
+
+The hypercube's spectral mathematics, quarantined; the landscape gains shape.
+
+- **New crate `kosmo-spectral`** (deps: kosmo-core only; no nalgebra — pinned): `CouplingGraph` (Q16 weights, simple-graph fail-closed), `fiedler_bisect` (power iteration + deflation, seeded, fixed iterations), `spectral_clusters` (recursive bisection, **conductance ≤ ½ or the split is refused** — cluster counts emerge), `kuramoto_groups` (fixed horizon, in-crate Taylor sine — no libm, cross-platform deterministic), `singularities` (iterative integer Tarjan + Q16 coupling mass). **Public API Q16/discrete only**, pinned by a source-scan test.
+- `kosmo_pipeline::landscape_geometry`: coupling from `WishProposal` fields ONLY (subject 45 / kind 30 / severity-proximity 25, integer-percent exact; proximity alone never couples) — domain-registry relapse pinned by disease test. Clusters (severity-mass ranked) + articulation singularities over the open landscape.
+- CLI: `--landscape --geometry` (strictly opt-in; flag-off surfaces byte-identical, pinned) renders clusters + singular proposals (text + JSON); `--adopt-cluster <i>` adopts ONE coherent cluster as ONE wish through the existing descent (exclusive with `--adopt`).
+- +19 tests (10 spectral incl. barbell/emergence/quarantine pins, 6 geometry, 3 CLI). Prüfstand 13/13 (`--validated`).
+
+### Wonderlamp assimilation, phase 4 — the norm organ (2026-06-12)
+
+Learned archetypes that can only emit WishFacets; an empty catalog by law; arming as an explicit governance act.
+
+- `norm_schema.rs`: `Norm` (content-addressed **without** its `trigger` — promotion is governance over an existing artifact), `NormFacetTemplate` (`{name}`-placeholder patterns), `validate()` as the anti-disease gate (path-like/extension/foreign-placeholder/frozen-structural patterns rejected; `Signature` `name/arity` sanctioned; `Resolution`/`Dependency`/`Run`/`Service` not templatable), `NormInjectionSpec` (spec bytes = evidence). `NormLevel` Atom→Ecosystem, `NormOrigin` Learned|OperatorInjected.
+- `norm_learning.rs`: `FacetBundleObservation` (digest workspace tags, never paths) → boundary-aware subject abstraction → shape grouping → `promotable` at ≥3 realized / ≥2 workspaces / consistency ≥ ¾ (Q16) ⇒ unarmed `NormProposal` + linked `NormGeneCandidate` (existing fitness loop unchanged); `NormFitnessTrace::smoothed_fitness` = integer EMA. `norm_genome.rs`: co-activation genes (Q16 Jaccard single-link), `relate`, `compose` — advisory (CROSS-010).
+- `kosmo-store::NormStore`: JSONL pair, `allow_host_write`-gated, verify+validate on load **and** append (corruption/disease = hard error), promotion as append-only audit trail (latest occurrence wins).
+- `kosmo-intent`: `NormCatalog` (armed norms only; reserved/duplicate triggers refused; `is_reserved_wish_word`) + `compile_wish_with_norms` — empty catalog pinned **byte-identical** to the untouched `compile_wish`.
+- `kosmo-run`: `--norms <dir>` (trigger expansion + realized-descent observation recording + promotion scan), `--inject-norm`, `--promote-norm --trigger` (operator acts, self-authorizing). E2e binary test walks the whole lifecycle: learn → stored unarmed → promote → trigger expands; reserved words refused; diseased spec refused with nothing persisted.
+- +42 tests (12 schema, 9 learning, 6 genome, 3 fitness, 7 store, 5 catalog/compiler, 3 e2e binary). Prüfstand 13/13 (`--validated`).
+
+### Wonderlamp assimilation, phase 3 — descent context + patch gates (2026-06-12)
+
+The facet-to-facet amnesia healed; the informational gates made real.
+
+- `context::TypeContext` (absorb via xlang over patch file-changes; render with 3-stage capping + honest elision; deletes retract; crate roots aren't modules) + `SynthesisRequest.descent_context` (serde-default, not in `request_id`) + prompt section "Symbols already created in this descent".
+- `patch_gates::gate_patch` (worst-wins): filesystem-truth topology checks, duplicate definitions, use-after-delete of descent modules ⇒ Reject; origin shift / structureless source ⇒ Warn; non-code skipped. **Plan-free** — Wonderlamp's HDAG-plan import resolution was a template in disguise and stayed behind.
+- `ContextualSynthesizer`: inject → delegate → gate → absorb-if-accepted; Reject ⇒ `confidence=ZERO` + `gate-reject:` rationale (existing policy filter materializes nothing). Wired per `AgentSession::run` and per wish-descent fallback. Prüfstand 13/13 (`--validated`).
+- +14 tests (4 context, 6 gates, 3 wrapper incl. "second facet sees what the first created", 1 prompt).
+
+### Wonderlamp assimilation, phase 2 — fail-closed SwarmSynthesizer (2026-06-12)
+
+The non-deterministic boundary, disciplined: n lensed perspectives, integer consensus, honest delivery.
+
+- `ChatOracle` trait (+`LlmSynthesizer` impl over the existing backoff transport, `ScriptedOracle` for hermetic tests); `LENSES` pinned verbatim and stack-free; `SwarmSynthesizer impl ActionSynthesizer` — n×(`lens_prompt` + `build_user_prompt`) → `parse_synthesis_response` → `assess_candidates`.
+- **No graceful degradation:** `confidence = min(best.confidence, d_total)` → the existing `min_confidence` policy gate decides (CROSS-010); divergence-pin test (3 disjoint 90%-confident answers ⇒ < HALF). Coagula = bounded self-completion over the `repair_targets` quorum; all-unparseable ⇒ permanent error; transport failures tolerated within the ensemble; tokens summed; `.citing` provenance survives.
+- CLI `kosmo-run --swarm <n>` (2–6, real providers only — mock is consensus theater, refused). +10 swarm tests, +2 CLI tests.
+
+### Wonderlamp assimilation, phase 1 — deterministic foundations (2026-06-11)
+
+The predecessor's mathematics on this system's substrate; the predecessor's disease on the rejection list.
+
+- `Q16::geomean` (integer n-th root on i128, fail-closed, bit-replayable); `xlang::symbol_sets(_auto)` + `SymbolSets` (named, 7-language, `name/arity` keys); `codematrix::CodeMatrixFingerprint` (5D Q16, content-addressed, advisory-only resonance); `kosmo_synthesizer::consensus` (ψ/ρ/ω/D_k, d_total with ε floor, best_index, repair_targets; neutral band for structure-free patches; exact percent-weight arithmetic).
+- Doctrine + port map + permanent rejection list: `docs/WONDERLAMP_ASSIMILATION.md`. Disease test pins the sources free of stacks/templates/entities.
+- +18 tests (5 geomean, 5 codematrix, 8 consensus). Phase 2: the fail-closed SwarmSynthesizer over this core.
 
 ### Landscape surfaces + armed adoption (2026-06-11)
 

@@ -15,6 +15,234 @@ note explicitly says so.
 
 ### Added
 
+* **Wonderlamp assimilation, phase 6 — the chat front door (assimilation
+  complete)**
+
+  One utterance, routed onto the organs — never past them. `ChatIntent`
+  (kosmo-intent/src/chat.rs) is the predecessor's `isls-chat` with the
+  disease excised at the type level: where Wonderlamp's intents carried
+  `affected_files` lists, a forced User entity and REST assumptions, a
+  Kosmocrates intent is *type-systemically incapable* of naming a path,
+  file or entity (pinned by a source-scan test on the enum). The seven
+  variants map onto existing organs only: MakeWish, DescendWish,
+  ShowLandscape{geometry}, AdoptLandscape{top}, AdoptCluster{index},
+  ShowStatus, InjectNorm.
+
+  Routing is **total and transient**: `IntentExtractor::extract` cannot
+  fail — the deterministic `KeywordIntentExtractor` bottoms out in
+  MakeWish, so an utterance nobody understood flows to the *measurable*
+  wish door (where an unparseable wish is honestly vacuous), never to a
+  template generator and never to an error. And routing is not a durable
+  artifact (no content addressing, no evidence binding — the routed-to
+  organs own all of that), which is precisely why the LLM router
+  (`LlmIntentExtractor`, kosmo-intent-llm) may degrade to the keyword
+  rules on ANY failure — transport, malformed JSON, unknown intent —
+  proven without network in tests. Its prompt contract pins the model to
+  classification only ("never plan, never generate code, never name
+  files"); fields a model invents are never read.
+
+  CLI: `kosmo-run --chat "<utterance>"` (one-shot, no REPL) echoes the
+  routing decision for audit (`chat[keyword] → adopt cluster 1`) and
+  delegates to the existing modes; `--apply`/`--provider`/`--ledger`/
+  `--norms` compose orthogonally. Chat never escalates: a "build …"
+  utterance without `--apply` measures and says so. With a real
+  `--provider` the model routes first (mock routing would be theater —
+  keywords instead); `--chat` + `--wish` is refused. InjectNorm maps to
+  instructions for the explicit governance flags — chat carries no spec
+  files, by type. +16 tests (6 router, 5 extractor, 5 binary);
+  Prüfstand 13/13 `--validated`.
+
+  **This closes the Wonderlamp assimilation: all six planned phases are
+  landed** — integer consensus core, fail-closed SwarmSynthesizer,
+  descent context + patch gates, the norm organ, the spectral kit with
+  landscape geometry, and the chat front door. The rejection list in
+  `docs/WONDERLAMP_ASSIMILATION.md` is permanent.
+
+* **Wonderlamp assimilation, phase 5 — the spectral kit and the landscape's
+  geometry**
+
+  The one genuinely float-bearing mathematics gets its quarantine crate:
+  `kosmo-spectral` (deps: kosmo-core only — no nalgebra, pinned). Inside:
+  power-iteration Fiedler bisection with deflation, recursive spectral
+  clustering, Kuramoto synchronization at a fixed horizon, and iterative
+  integer Tarjan articulation points. Outside: a **Q16/discrete-only
+  public API** (`CouplingGraph` in, index partitions and Q16 masses out),
+  pinned by a source-scan test over every public signature. Determinism
+  without a determinism asterisk: fixed iteration counts, seeded inits,
+  and no libm — the one needed `sin` is an in-crate range-reduced Taylor
+  polynomial, so results reproduce across IEEE-754 platforms. The key
+  honesty move over the predecessor: a bisection is accepted only while
+  its conductance stays ≤ ½, so tight clusters refuse to shatter and the
+  cluster count *emerges* instead of being imposed (a K4 barbell yields
+  exactly its two cliques even when four clusters are allowed).
+
+  On top of it, `kosmo_pipeline::landscape_geometry`: wish proposals
+  couple into a graph whose edge weights come from **`WishProposal`
+  fields only** (the structural guard against Wonderlamp's domain
+  registries growing back, pinned by a disease test) — subject affinity
+  45, facet-kind affinity 30, severity proximity 25, integer-percent
+  arithmetic exact at the boundaries, and proximity alone never couples
+  (two unrelated findings of similar badness are not a cluster). The
+  geometry returns coherent clusters (heaviest severity mass first) and
+  the articulation singularities — the proposals whose removal
+  disconnects the landscape: the most consequential decisions first.
+
+  CLI: `kosmo-run --landscape --geometry` renders clusters and singular
+  proposals on both text and JSON surfaces — strictly opt-in, the
+  landscape without the flag is byte-identical (pinned). And adoption
+  graduates from blind top-k to coherent work: `--adopt-cluster <i>`
+  takes ONE cluster as ONE severity-weighted, evidence-bound wish through
+  the existing descent (mutually exclusive with `--adopt`; out-of-range
+  indices name the real count). +19 tests (10 spectral, 6 geometry, 3
+  CLI).
+
+* **Wonderlamp assimilation, phase 4 — the norm organ: learned archetypes**
+
+  The de-CRUD insight, made structural: a `Norm`
+  (kosmo-hyphae/src/norm_schema.rs) is a content-addressed bundle of
+  `NormFacetTemplate`s — facet kind + key pattern over the single
+  `{name}` placeholder — so a norm can only ever emit measurable
+  `WishFacet`s, never file trees, stacks or entity scaffolds.
+  `validate()` is the anti-disease gate (path separators, backslashes,
+  file extensions, foreign placeholders and frozen structural names are
+  rejected; `name/arity` of `Signature` is the one sanctioned `/`), and
+  it runs at every door: injection, learning, store append, store load,
+  catalog construction. Wonderlamp's 31-norm built-in catalog stays on
+  the rejection list: **the catalog starts empty, always** (pinned by
+  test), and norms exist only through observation or operator
+  injection.
+
+  Learning (norm_learning.rs): every realized `--apply` descent records
+  a content-addressed `FacetBundleObservation` (facets, digest
+  workspace tag — never a raw path — languages, realized flag).
+  `abstract_bundle` finds the bundle's subject (the dominant shared
+  lowercase subword, boundary-aware so `user` rewrites in `create_user`
+  but never inside `username`) and lifts the bundle to a shape;
+  `promotable` proposes a shape once it was realized ≥3× across ≥2
+  workspaces with consistency ≥ 3/4 (all Q16 integer arithmetic). A
+  proposal lands in the store **unarmed** (`trigger = None`) with its
+  linked `NormGeneCandidate`, so the existing promotion-feedback
+  fitness loop applies unchanged; `NormFitnessTrace::smoothed_fitness`
+  adds Wonderlamp's exponential φ-update as integer EMA.
+
+  Governance: the trigger word is *outside* the norm's content hash —
+  arming is governance over an existing artifact, not a new artifact.
+  `kosmo-store::NormStore` (norms.jsonl + observations.jsonl,
+  caller-pathed, `allow_host_write`-gated like every durable store,
+  corruption = hard error on open) encodes promotion as an append-only
+  audit trail: same `norm_id`, trigger set, loader takes the latest.
+  `kosmo-run --inject-norm <spec.json>` (the spec file's bytes are the
+  evidence; arrives unarmed) and `--promote-norm <id> --trigger <word>`
+  are explicit operator acts; reserved grammar words are refused
+  (`kosmo_intent::is_reserved_wish_word`).
+
+  Activation: `NormCatalog` indexes only armed norms (re-validated at
+  the door; reserved/duplicate triggers are hard errors) and
+  `compile_wish_with_norms` expands a promoted trigger exactly like a
+  built-in archetype — `compile_wish` itself is untouched and the empty
+  catalog is pinned byte-identical to it. Genome layer
+  (norm_genome.rs): co-activation Jaccard clustering into `NormGene`s
+  (single-link, Q16), `relate` (Dependent > Conflicting > Compatible >
+  Independent), `compose` (BFS over `requires`, conflict detection,
+  merged templates) — all advisory, CROSS-010.
+
+  End to end (binary test): three realized descents of one shape in two
+  scratch workspaces ⇒ the third run prints and stores the unarmed
+  norm ⇒ the would-be trigger still expands nothing ⇒
+  `--promote-norm --trigger loader` arms it ⇒ "a loader delta"
+  compiles to the learned shape — and without `--norms`, the same
+  prose stays vacuous. +42 tests across the organ.
+
+* **Wonderlamp assimilation, phase 3 — descent context and patch gates**
+
+  The facet-to-facet amnesia is healed: `TypeContext`
+  (kosmo-synthesizer) absorbs every accepted patch through the xlang
+  classifier (7 languages, never regex, never a path template) and
+  renders into each subsequent prompt as `# Symbols already created in
+  this descent` — Wonderlamp's decisive anti-hallucination trick,
+  language-agnostic. Advisory like memory grounding: the new
+  `SynthesisRequest.descent_context` is serde-defaulted and not part of
+  `request_id`. Three-stage capping degrades honestly (full → name+kind
+  → most-recent-N behind an elision marker); deletions retract an
+  origin's symbols.
+
+  Wonderlamp's informational gates become real ones:
+  `patch_gates::gate_patch` (worst-wins `GateResult`) judges filesystem
+  truth and descent knowledge — never an upfront plan. Create over an
+  existing path, modify of a missing one, duplicate definitions across
+  a patch, and use-after-delete of a descent-created module are
+  `Reject`s; origin shifts and structureless source files warn; non-code
+  is skipped (fail-closed, not over-closed). `ContextualSynthesizer`
+  delivers fail-closed: a rejected patch arrives with `confidence =
+  ZERO` and a `gate-reject:` rationale — auditable, unmaterializable
+  through the existing `min_confidence` filter — and its symbols are
+  never absorbed (they never existed).
+
+  Wired where multi-file generation lives: one context per
+  `AgentSession::run` and per wish-descent LLM fallback
+  (`Contextual(Grounded(...))`). Prüfstand stays 13/13.
+
+* **Wonderlamp assimilation, phase 2 — the fail-closed SwarmSynthesizer**
+
+  The one non-deterministic boundary gets the consensus discipline
+  everything else already has. `SwarmSynthesizer` (kosmo-synthesizer-llm)
+  fans one request into `n` perspectives — the four Chameleon lenses,
+  pinned verbatim and stack-free — parses n JSON patches through the
+  existing wire contract, and scores them with phase 1's integer
+  consensus core.
+
+  The transformation that matters: where Wonderlamp emitted the best
+  candidate even when consensus failed, the swarm answers honestly —
+  `confidence = min(best.confidence, d_total)`. A divergent ensemble
+  lands below the agent's existing `min_confidence` filter and is
+  skipped by policy, not emitted by charity (pinned by test: three
+  disjoint 90%-self-confident answers ⇒ confidence < HALF). Bounded
+  Coagula rounds let the best candidate complete itself with the
+  functions its peers agree on; an ensemble where nothing parses is a
+  permanent error. `ChatOracle` abstracts the transport
+  (`LlmSynthesizer` implements it; `ScriptedOracle` scripts hermetic
+  offline tests — failures, repairs, token accounting, provenance
+  citations all covered).
+
+  CLI: `kosmo-run --swarm <n>` (2–6) wraps any real provider;
+  `--swarm` + mock is refused as consensus theater.
+
+* **Wonderlamp assimilation, phase 1 — deterministic foundations for
+  swarm consensus**
+
+  `wonderlamp.zip` (ISLS, ~56K LOC) is the abandoned predecessor of this
+  system: same vision, no epistemic substrate, and a chronic collapse
+  into CRUD templates. The assimilation ports its valuable organs onto
+  the substrate it lacked — taxonomy and mathematics cross, the disease
+  does not (`docs/WONDERLAMP_ASSIMILATION.md` carries the full port map
+  and the permanent rejection list).
+
+  Phase 1 lands the deterministic foundations, integerized beyond the
+  original:
+
+  * `Q16::geomean` — the n-th root of the raw product via binary search
+    on `i128`: bit-replayable soft unanimity (empty/zero ⇒ ZERO),
+    replacing Wonderlamp's `ln`/`exp` float pipeline.
+  * `kosmo_hyphae::xlang::symbol_sets(_auto)` — the existing 7-language
+    classifier pass with names retained (`name/arity` function keys):
+    the language-agnostic substitute for ISLS's Rust-only regex readers.
+  * `kosmo_hyphae::codematrix::CodeMatrixFingerprint` — the 5D quality
+    fingerprint (richness / functions / types / structure / error
+    handling) as content-addressed Q16 with `verify_id`, language from
+    xlang instead of path guessing; `resonance` = geomean of axis
+    similarities. Strictly advisory (CROSS-010).
+  * `kosmo_synthesizer::consensus` — Ophanim/Konus re-expressed:
+    per-candidate `D_k = ψ·ρ·ω` (the house tripolar form; agreement via
+    percent-weighted Jaccard with exact boundary arithmetic, outlier
+    cutoff kept, **neutral band** ρ=ω=HALF for structure-free patches),
+    ensemble `d_total = geomean(max(D_k, ε)) ⊗ Ω`, `best_index`, and the
+    Coagula `repair_targets` menu. Pure, offline, deterministic — the
+    fail-closed *delivery* (confidence folding, repair rounds) is
+    phase 2's SwarmSynthesizer.
+
+  Every phase ships a disease test: the assimilated sources are pinned
+  free of stack names, file-tree templates, and entity scaffolds.
+
 * **Landscape surfaces — and adopted wishes carry the full armament**
 
   The wish landscape reaches every operator surface: `POST /api/landscape`

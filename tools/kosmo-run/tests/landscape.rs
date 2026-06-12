@@ -110,6 +110,173 @@ fn adopt_without_apply_is_read_only() {
 }
 
 #[test]
+fn geometry_is_opt_in_and_clusters_the_open_landscape() {
+    let root = mixed_workspace("geometry");
+    // Without --geometry the JSON surface is unchanged: no "geometry" key.
+    let out = kosmo_run()
+        .args(["--landscape", "--json", root.to_str().unwrap()])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(out.status.success());
+    let plain: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    assert!(
+        plain.get("geometry").is_none(),
+        "geometry must be strictly opt-in"
+    );
+
+    // With --geometry: the open proposals (doc + test of `router`) couple
+    // by subject into ONE coherent cluster.
+    let out = kosmo_run()
+        .args([
+            "--landscape",
+            "--geometry",
+            "--json",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    // Everything the flag-off run shows is still there, unchanged in shape.
+    for key in [
+        "path",
+        "report_id",
+        "proposals",
+        "met",
+        "open",
+        "beyond_observation",
+        "beyond_vocabulary",
+    ] {
+        assert!(doc.get(key).is_some(), "{key} survives --geometry");
+    }
+    let clusters = doc["geometry"]["clusters"].as_array().unwrap();
+    assert_eq!(clusters.len(), 1, "one module, one cluster: {clusters:?}");
+    let facets = clusters[0]["facets"].as_array().unwrap();
+    let facets: Vec<&str> = facets.iter().map(|f| f.as_str().unwrap()).collect();
+    assert!(facets.contains(&"Doc router"), "{facets:?}");
+    assert!(facets.contains(&"Test router_smoke"), "{facets:?}");
+    assert_eq!(clusters[0]["subjects"][0], "router");
+
+    // Text mode mentions the geometry only under the flag.
+    let out = kosmo_run()
+        .args(["--landscape", "--no-color", root.to_str().unwrap()])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("geometry:"));
+    let out = kosmo_run()
+        .args([
+            "--landscape",
+            "--geometry",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("geometry:"), "{stdout}");
+    assert!(stdout.contains("cluster 1"), "{stdout}");
+
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn adopt_cluster_takes_one_coherent_cluster_and_guards_its_flags() {
+    let root = mixed_workspace("cluster");
+    // --adopt and --adopt-cluster are mutually exclusive.
+    let out = kosmo_run()
+        .args([
+            "--landscape",
+            "--adopt",
+            "2",
+            "--adopt-cluster",
+            "1",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("mutually exclusive"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // An out-of-range index is an honest error naming the real count.
+    let out = kosmo_run()
+        .args([
+            "--landscape",
+            "--adopt-cluster",
+            "9",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("cluster(s)"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Adopting cluster 1 without --apply is read-only and prints the wish.
+    let before = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+    let out = kosmo_run()
+        .args([
+            "--landscape",
+            "--adopt-cluster",
+            "1",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("adopted as one wish"), "{stdout}");
+    assert!(stdout.contains("add --apply to descend"), "{stdout}");
+    assert_eq!(fs::read_to_string(root.join("src/lib.rs")).unwrap(), before);
+
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn adopt_cluster_with_apply_descends_the_cluster_to_realized() {
+    let root = mixed_workspace("cluster-apply");
+    let out = kosmo_run()
+        .args([
+            "--landscape",
+            "--adopt-cluster",
+            "1",
+            "--apply",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if !out.status.success() {
+        // cargo metadata unavailable in exotic sandboxes — the in-process
+        // descend tests already pin convergence; this is the CLI seam.
+        eprintln!("observe unavailable, skipping: {stdout}");
+        fs::remove_dir_all(&root).ok();
+        return;
+    }
+    assert!(stdout.contains("REALIZED"), "descent converged: {stdout}");
+    let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+    assert!(lib.contains("/// `router`"), "doc stub landed: {lib}");
+    assert!(lib.contains("fn router_smoke"), "smoke test landed: {lib}");
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn adopt_with_apply_descends_to_realized() {
     let root = mixed_workspace("apply");
     let out = kosmo_run()

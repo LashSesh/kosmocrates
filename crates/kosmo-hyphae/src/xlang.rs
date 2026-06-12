@@ -962,6 +962,74 @@ fn count_kinds(language: SourceLanguage, content: &str) -> KindCounts {
     counts
 }
 
+/// Named structural symbol sets of one source text — the same classifier
+/// pass the fingerprint counting runs, with the names retained.
+///
+/// This is the cross-language naming layer consensus and descent-context
+/// machinery build on: functions are keyed `name/arity` (overload-safe),
+/// types and imports by their bare identifier. Deterministic and pure.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SymbolSets {
+    /// Function keys in `name/arity` form.
+    pub functions: std::collections::BTreeSet<String>,
+    /// Type names.
+    pub types: std::collections::BTreeSet<String>,
+    /// Imported module names.
+    pub imports: std::collections::BTreeSet<String>,
+    /// Test definition names.
+    pub tests: std::collections::BTreeSet<String>,
+    /// Count of observed error-propagation mechanisms (`?`, try/except, …).
+    pub error_propagations: u32,
+    /// Total structural observations (all kinds above plus modules).
+    pub total: u32,
+}
+
+impl SymbolSets {
+    fn observe(&mut self, kind: &ObservationKind) {
+        self.total += 1;
+        match kind {
+            ObservationKind::FunctionDefinition { name, arity } => {
+                self.functions.insert(format!("{name}/{arity}"));
+            }
+            ObservationKind::TypeDefinition { name } => {
+                self.types.insert(name.clone());
+            }
+            ObservationKind::ImportStatement { module } => {
+                self.imports.insert(module.clone());
+            }
+            ObservationKind::TestDefinition { name } => {
+                self.tests.insert(name.clone());
+            }
+            ObservationKind::ErrorPropagation { .. } => self.error_propagations += 1,
+            _ => {}
+        }
+    }
+}
+
+/// Run a language's classifier over `content` and collect the named symbol
+/// sets. The naming sibling of the fingerprint counting pass.
+pub fn symbol_sets(language: SourceLanguage, content: &str) -> SymbolSets {
+    let classify = classifier_for(language);
+    let mut state = LexState::default();
+    let mut sets = SymbolSets::default();
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let LineOutcome::Emit(kind, _) = classify(line, &mut state) {
+            sets.observe(&kind);
+        }
+    }
+    sets
+}
+
+/// Detect the language from `location` and collect symbol sets, or `None`
+/// for an unrecognised extension (fail-closed, like [`CodeHDAG::extract_auto`]).
+pub fn symbol_sets_auto(location: &str, content: &str) -> Option<SymbolSets> {
+    SourceLanguage::from_path(location).map(|lang| symbol_sets(lang, content))
+}
+
 /// Serialize-only content for [`CrossLanguageFingerprint`] addressing.
 #[derive(Serialize)]
 struct FingerprintContent {

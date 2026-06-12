@@ -17,10 +17,14 @@
 //! - Default mode: `PolicyProfile::default_report_only()`.
 
 pub mod aggregator;
+pub mod landscape_geometry;
 pub mod materialization;
 pub mod persistence;
 
 pub use aggregator::{AggregatedGateResult, GateTraceAggregator, LayerGateSummary};
+pub use landscape_geometry::{
+    couple_proposals, landscape_geometry, LandscapeGeometry, ProposalCluster, SingularProposal,
+};
 pub use materialization::{
     simulate_foundry_check, MaterializationOutcome, MaterializationPlan, OperatorApprovalToken,
     ParseBackExpectation, WorkbenchMaterializationTask,

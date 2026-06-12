@@ -11,6 +11,7 @@ members = [
     "crates/kosmo-hyphae",
     "crates/kosmo-systemcube",
     "crates/kosmo-pipeline",
+    "crates/kosmo-spectral",
     "crates/pse-types",
     "crates/pse-core",
     "crates/pse-graph",
@@ -118,7 +119,7 @@ serde_jcs = "0.2"
 sha2 = "0.11"
 petgraph = "0.8"
 ordered-float = { version = "5", features = ["serde"] }
-nalgebra = "0.34"
+nalgebra = "0.35"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 thiserror = "2"
 tracing = "0.1"
@@ -142,7 +143,7 @@ rand     = "0.10"
 # rand_distr must stay on the line built against the workspace `rand`:
 # 0.5.x pairs with rand 0.9 (0.6.x is built on rand 0.10 and breaks every
 # consumer that feeds it a rand-0.9 RNG). Bump both together or not at all.
-rand_distr = "0.5"
+rand_distr = "0.6"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Release profile: tuned for the single-binary, single-thread-fast

@@ -14,6 +14,7 @@ kosmo-workbench = { path = "../kosmo-workbench", version = "0.1.0" }
 kosmo-hyphae = { path = "../kosmo-hyphae", version = "0.1.0" }
 kosmo-systemcube = { path = "../kosmo-systemcube", version = "0.1.0" }
 kosmo-store = { path = "../kosmo-store", version = "0.1.0" }
+kosmo-spectral = { path = "../kosmo-spectral", version = "0.1.0" }
 kosmo-pse-bridge = { path = "../kosmo-pse-bridge", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }

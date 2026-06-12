@@ -36,19 +36,26 @@ use kosmo_core::{
     assess_wish, Digest, GateResult, PolicyProfile, Wish, WishAssessment, WishClosureStatus,
     WishFacet, WishFacetKind, Q16,
 };
-use kosmo_intent::{
-    compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
-    observe_workspace_validated, WishSession,
+use kosmo_hyphae::{
+    promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
 };
+use kosmo_intent::{
+    compile_wish, compile_wish_with_norms, is_reserved_wish_word, observe_workspace_deep,
+    observe_workspace_runtime, observe_workspace_service, observe_workspace_validated, ChatIntent,
+    IntentExtractor, KeywordIntentExtractor, NormCatalog, WishSession,
+};
+use kosmo_intent_llm::LlmIntentExtractor;
 use kosmo_pipeline::{
-    measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem, ActionItemKind,
-    IntegrationRunOptions, LandscapeStanding, WishProposal,
+    landscape_geometry, measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem,
+    ActionItemKind, IntegrationRunOptions, LandscapeStanding, WishProposal,
 };
 use kosmo_pse_bridge::MemoryRecall;
+use kosmo_store::NormStore;
 use kosmo_synthesizer::{
-    ActionSynthesizer, FacetScaffolder, GroundedSynthesizer, MockSynthesizer, SynthesisRequest,
+    ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, GroundedSynthesizer,
+    MockSynthesizer, SynthesisRequest,
 };
-use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
+use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer, SwarmSynthesizer};
 use pse_adapter_kosmo::LedgerRecall;
 
 const RESET: &str = "\x1b[0m";
@@ -59,6 +66,7 @@ const GREEN: &str = "\x1b[32m";
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
 
+#[derive(Clone)]
 struct Args {
     path: String,
     provider: String,
@@ -87,11 +95,35 @@ struct Args {
     ledger: Option<String>,
     /// How many recalled crystals to attach per action (default 5).
     ground_top: u32,
+    /// Consensus ensemble size: n perspectives per action (0 = off).
+    swarm: u32,
     /// Landscape mode: map every substrate finding the wish vocabulary can
     /// express into a ranked wish-proposal landscape (read-only).
     landscape: bool,
     /// Adopt the top-N open proposals as a wish (descends with --apply).
     adopt: u32,
+    /// Also compute the landscape's spectral shape: coupled-proposal
+    /// clusters and articulation singularities (read-only, advisory).
+    geometry: bool,
+    /// Adopt cluster #i (1-based, from the geometry) as ONE wish
+    /// (descends with --apply). 0 = unset.
+    adopt_cluster: u32,
+    /// Directory of the norm store (`norms.jsonl` + `observations.jsonl`).
+    /// Arms promoted norms in the wish grammar and records realized descents
+    /// as learning observations. Always caller-pathed, never a home dir.
+    norms: Option<String>,
+    /// Operator governance: inject a norm from a JSON spec file (arrives
+    /// trigger-less; arm it with --promote-norm).
+    inject_norm: Option<String>,
+    /// Operator governance: arm a stored norm's prose trigger (hex norm id;
+    /// requires --trigger).
+    promote_norm: Option<String>,
+    /// The trigger word for --promote-norm.
+    trigger: Option<String>,
+    /// Chat mode: a one-shot utterance, routed to an existing mode by a
+    /// total intent extractor (keyword rules; LLM-first when a real
+    /// provider is chosen, falling back to keywords on any failure).
+    chat: Option<String>,
 }
 
 impl Default for Args {
@@ -116,8 +148,16 @@ impl Default for Args {
             pruefstand: false,
             ledger: None,
             ground_top: 5,
+            swarm: 0,
             landscape: false,
             adopt: 0,
+            geometry: false,
+            adopt_cluster: 0,
+            norms: None,
+            inject_norm: None,
+            promote_norm: None,
+            trigger: None,
+            chat: None,
         }
     }
 }
@@ -131,6 +171,11 @@ OPTIONS:\n\
     --model <m>           override the model slug\n\
     --max-steps <n>       synthesize at most N actions     (default: 5)\n\
     --min-confidence <p>  skip patches below P percent      (default: 50)\n\
+    --swarm <n>           consensus ensemble: n lensed perspectives per\n\
+                          action (2-6), scored by structural agreement; a\n\
+                          divergent ensemble lands below the confidence\n\
+                          gate instead of being emitted. Needs a real\n\
+                          provider (not mock).\n\
     --all                 enable all optional pipeline layers\n\
     --capacity <n>        SystemCube D-density denominator  (default: 100)\n\
     --apply               WRITE validated patches to the workspace (cargo\n\
@@ -169,6 +214,15 @@ OPTIONS:\n\
     --adopt <n>           adopt the top-N open proposals as ONE wish (weighted\n\
                           by severity). Without --apply: prints the wish.\n\
                           With --apply: descends it (deterministic scaffolds).\n\
+    --geometry            also compute the landscape's spectral shape:\n\
+                          conductance-bounded clusters of coupled proposals\n\
+                          (subject 45 / kind 30 / severity-proximity 25) and\n\
+                          the singular proposals whose removal disconnects\n\
+                          the landscape. Advisory; the landscape itself is\n\
+                          unchanged.\n\
+    --adopt-cluster <i>   adopt geometry cluster #i (1-based) as ONE coherent\n\
+                          wish instead of a blind top-k. Without --apply:\n\
+                          prints it. With --apply: descends it.\n\
 \n\
   MEMORY (anchored knowledge from the promotion ledger):\n\
     --ledger <path>       ground every synthesis in the Infinity-Ledger memory:\n\
@@ -176,7 +230,30 @@ OPTIONS:\n\
                           D = \u{3c8}\u{b7}\u{3c1}\u{b7}\u{3c9}) ride along as advisory context and each\n\
                           patch cites the crystals it received. Read-only; a\n\
                           missing ledger is a hard error, never a silent skip.\n\
-    --ground-top <n>      recalled crystals per action (default: 5)\n\n\
+    --ground-top <n>      recalled crystals per action (default: 5)\n\
+\n\
+  NORMS (learned archetypes — the catalog starts empty, always):\n\
+    --norms <dir>         norm store directory. In wish mode: promoted norm\n\
+                          triggers expand in the prose grammar, and every\n\
+                          realized descent (with --apply) is recorded as a\n\
+                          learning observation; a facet shape realized \u{2265}3x\n\
+                          across \u{2265}2 workspaces becomes a stored, UNARMED norm.\n\
+    --inject-norm <file>  operator governance: add a norm from a JSON spec\n\
+                          (facet templates over the {{name}} placeholder only —\n\
+                          path-like templates are rejected). Arrives unarmed.\n\
+    --promote-norm <id> --trigger <word>\n\
+                          operator governance: arm a stored norm's prose\n\
+                          trigger. Reserved grammar words are refused.\n\
+\n\
+  CHAT (one-shot front door — no REPL):\n\
+    --chat \"<utterance>\"  route a plain utterance to an existing mode:\n\
+                          wish / descend / landscape (+geometry) / adopt /\n\
+                          adopt-cluster / status / norm governance hints.\n\
+                          Routing is TOTAL: anything unrecognized becomes a\n\
+                          measurable wish, never a template. Deterministic\n\
+                          keyword rules by default; with a real --provider\n\
+                          the model routes first and falls back to keywords\n\
+                          on any failure. --apply/--ledger/--norms compose.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -244,6 +321,13 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
             "--pruefstand" | "--testbench" => args.pruefstand = true,
+            "--swarm" => {
+                args.swarm = argv
+                    .next()
+                    .ok_or("--swarm needs a value")?
+                    .parse()
+                    .map_err(|_| "--swarm must be a number (2-6)")?;
+            }
             "--landscape" => args.landscape = true,
             "--adopt" => {
                 args.adopt = argv
@@ -252,8 +336,34 @@ fn parse_args() -> Result<Option<Args>, String> {
                     .parse()
                     .map_err(|_| "--adopt must be a number")?;
             }
+            "--geometry" => args.geometry = true,
+            "--adopt-cluster" => {
+                args.adopt_cluster = argv
+                    .next()
+                    .ok_or("--adopt-cluster needs a value")?
+                    .parse()
+                    .map_err(|_| "--adopt-cluster must be a number")?;
+                if args.adopt_cluster == 0 {
+                    return Err("--adopt-cluster takes a 1-based cluster index".into());
+                }
+            }
             "--ledger" => {
                 args.ledger = Some(argv.next().ok_or("--ledger needs a value")?);
+            }
+            "--norms" => {
+                args.norms = Some(argv.next().ok_or("--norms needs a directory")?);
+            }
+            "--inject-norm" => {
+                args.inject_norm = Some(argv.next().ok_or("--inject-norm needs a JSON file")?);
+            }
+            "--promote-norm" => {
+                args.promote_norm = Some(argv.next().ok_or("--promote-norm needs a norm id")?);
+            }
+            "--trigger" => {
+                args.trigger = Some(argv.next().ok_or("--trigger needs a word")?);
+            }
+            "--chat" => {
+                args.chat = Some(argv.next().ok_or("--chat needs an utterance")?);
             }
             "--ground-top" => {
                 args.ground_top = argv
@@ -286,14 +396,31 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
         }
     };
 
+    let swarmed = |inner: LlmSynthesizer| -> Arc<dyn ActionSynthesizer> {
+        if args.swarm > 0 {
+            Arc::new(SwarmSynthesizer::new(Arc::new(inner), args.swarm as usize))
+        } else {
+            Arc::new(inner)
+        }
+    };
+
     match args.provider.as_str() {
-        "mock" => Ok(Arc::new(MockSynthesizer::confident())),
+        "mock" => {
+            if args.swarm > 0 {
+                return Err(
+                    "--swarm needs a real provider (claude | cerebras | env): the mock \
+                     synthesizer answers identically n times, which is consensus theater"
+                        .to_string(),
+                );
+            }
+            Ok(Arc::new(MockSynthesizer::confident()))
+        }
         "claude" | "anthropic" => {
             let key = env_key(&["ANTHROPIC_API_KEY", "KOSMO_LLM_API_KEY"]).ok_or_else(|| {
                 "provider=claude requires ANTHROPIC_API_KEY (or KOSMO_LLM_API_KEY)".to_string()
             })?;
             let cfg = apply_model(LlmConfig::claude(key));
-            Ok(Arc::new(
+            Ok(swarmed(
                 LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?,
             ))
         }
@@ -302,13 +429,13 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
                 "provider=cerebras requires CEREBRAS_API_KEY (or KOSMO_LLM_API_KEY)".to_string()
             })?;
             let cfg = apply_model(LlmConfig::cerebras(key));
-            Ok(Arc::new(
+            Ok(swarmed(
                 LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?,
             ))
         }
         "env" | "auto" | "" => {
             let synth = LlmSynthesizer::from_env().map_err(|e| e.to_string())?;
-            Ok(Arc::new(synth))
+            Ok(swarmed(synth))
         }
         other => Err(format!(
             "unknown provider '{other}' (expected claude | cerebras | mock | env)"
@@ -343,9 +470,19 @@ fn arm_fallback(
 }
 
 /// The optional LLM fallback for facet realization: built only when a
-/// provider was explicitly chosen, then armed with memory via
-/// [`arm_fallback`]. Deterministic-only when `None`.
+/// provider was explicitly chosen, armed with memory via [`arm_fallback`],
+/// and wrapped in a descent context (`ContextualSynthesizer`) so every
+/// facet's prompt carries the symbols earlier facets created and every
+/// patch passes the Mikro/Meso gates. Deterministic-only when `None`.
 fn wish_fallback(args: &Args) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
+    Ok(
+        bare_wish_fallback(args)?.map(|inner| -> Arc<dyn ActionSynthesizer> {
+            Arc::new(ContextualSynthesizer::new(inner, args.path.clone()))
+        }),
+    )
+}
+
+fn bare_wish_fallback(args: &Args) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
     let inner = if args.provider_set {
         match build_synthesizer(args) {
             Ok(s) => Some(s),
@@ -588,6 +725,9 @@ fn wish_needs_service(wish: &Wish) -> bool {
 /// the top open proposals into ONE severity-weighted wish — printed by
 /// default, descended under `--apply` (deterministic scaffolds only).
 fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.adopt > 0 && args.adopt_cluster > 0 {
+        return Err("--adopt and --adopt-cluster are mutually exclusive (one wish per run)".into());
+    }
     let policy = PolicyProfile::default_report_only();
     let options = if args.all_layers {
         IntegrationRunOptions::all_layers(args.capacity)
@@ -604,6 +744,19 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
     // wish.) Observation needs a cargo workspace — fail-soft to "unmeasured".
     let observed = observe_workspace_deep(&args.path).ok();
     let standing = measure_landscape(&landscape, observed.as_ref());
+
+    // Geometry (opt-in): the spectral shape of the OPEN landscape — coupled
+    // clusters and articulation singularities. Strictly additive: without
+    // --geometry / --adopt-cluster nothing below changes.
+    let open_proposals: Vec<WishProposal> = landscape
+        .proposals
+        .iter()
+        .zip(&standing)
+        .filter(|(_, s)| **s == LandscapeStanding::Open)
+        .map(|(p, _)| p.clone())
+        .collect();
+    let geometry = (args.geometry || args.adopt_cluster > 0)
+        .then(|| landscape_geometry(&open_proposals, GEOMETRY_MAX_CLUSTERS));
 
     let met = standing
         .iter()
@@ -634,7 +787,7 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
                 })
             })
             .collect();
-        let doc = serde_json::json!({
+        let mut doc = serde_json::json!({
             "path": args.path,
             "report_id": report.report_id.to_hex(),
             "proposals": rows,
@@ -643,6 +796,25 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
             "beyond_observation": invisible,
             "beyond_vocabulary": landscape.unmapped.len(),
         });
+        if let Some(geo) = &geometry {
+            let facet_label = |i: usize| {
+                format!(
+                    "{:?} {}",
+                    open_proposals[i].facet.kind, open_proposals[i].facet.key
+                )
+            };
+            doc["geometry"] = serde_json::json!({
+                "clusters": geo.clusters.iter().map(|cl| serde_json::json!({
+                    "facets": cl.members.iter().map(|&i| facet_label(i)).collect::<Vec<_>>(),
+                    "subjects": cl.subjects,
+                    "severity_mass": format!("{:.2}", cl.severity_mass.to_f64()),
+                })).collect::<Vec<_>>(),
+                "singular": geo.singular.iter().map(|s| serde_json::json!({
+                    "facet": facet_label(s.index),
+                    "coupling_mass": format!("{:.2}", s.coupling_mass.to_f64()),
+                })).collect::<Vec<_>>(),
+            });
+        }
         println!(
             "{}",
             serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?
@@ -706,9 +878,42 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
                 );
             }
         }
+        if let Some(geo) = &geometry {
+            println!(
+                "  {}geometry{}: {} coherent cluster(s) over {} open proposal(s)",
+                c(BOLD),
+                c(RESET),
+                geo.clusters.len(),
+                open_proposals.len()
+            );
+            for (idx, cl) in geo.clusters.iter().enumerate() {
+                println!(
+                    "    cluster {} [mass {:.2}]  {}",
+                    idx + 1,
+                    cl.severity_mass.to_f64(),
+                    cl.subjects.join(", ")
+                );
+                for &m in &cl.members {
+                    println!(
+                        "      {:?} {}",
+                        open_proposals[m].facet.kind, open_proposals[m].facet.key
+                    );
+                }
+            }
+            for s in &geo.singular {
+                println!(
+                    "    {}singular{}: {:?} {} (coupling {:.2}) — removing it disconnects the landscape",
+                    c(YELLOW),
+                    c(RESET),
+                    open_proposals[s.index].facet.kind,
+                    open_proposals[s.index].facet.key,
+                    s.coupling_mass.to_f64()
+                );
+            }
+        }
     }
 
-    // ── Adoption: the top of the landscape becomes ONE wish ──────────────────
+    // ── Adoption: a slice of the landscape becomes ONE wish ──────────────────
     if args.adopt > 0 {
         let adopted: Vec<&WishProposal> = landscape
             .proposals
@@ -718,67 +923,389 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
             .map(|(p, _)| p)
             .take(args.adopt as usize)
             .collect();
-        if adopted.is_empty() {
-            println!("\nnothing open to adopt — the landscape is either met or beyond reach");
-            return Ok(ExitCode::SUCCESS);
-        }
-        let predicates = adopted
+        let label = format!("landscape: top {} of {}", adopted.len(), args.path);
+        return adopt_and_descend(args, &adopted, label, report.report_id);
+    }
+    if args.adopt_cluster > 0 {
+        let geo = geometry
+            .as_ref()
+            .expect("adopt_cluster > 0 forces geometry computation");
+        let idx = (args.adopt_cluster - 1) as usize;
+        let Some(cluster) = geo.clusters.get(idx) else {
+            return Err(format!(
+                "--adopt-cluster {}: the open landscape has {} cluster(s)",
+                args.adopt_cluster,
+                geo.clusters.len()
+            ));
+        };
+        let adopted: Vec<&WishProposal> = cluster
+            .members
             .iter()
-            .map(|p| kosmo_core::WishPredicate::weighted(p.facet.clone(), p.severity));
-        // Evidence: the wish is bound to the diagnosis that proposed it.
-        let wish = Wish::new(
-            format!("landscape: top {} of {}", adopted.len(), args.path),
-            predicates,
-            Digest::ZERO,
-            report.report_id,
+            .map(|&i| &open_proposals[i])
+            .collect();
+        let label = format!(
+            "landscape cluster {} ({}) of {}",
+            args.adopt_cluster,
+            cluster.subjects.join("+"),
+            args.path
         );
-        println!("\n{} adopted as one wish:", adopted.len());
-        for p in &adopted {
-            println!(
-                "    {:?} {}  (weight {:.2})",
-                p.facet.kind,
-                p.facet.key,
-                p.severity.to_f64()
-            );
-        }
-        if !args.apply {
-            println!("  (read-only — add --apply to descend the adopted wish)");
-            return Ok(ExitCode::SUCCESS);
-        }
-        // Adopted wishes descend with the same armament as wish mode: the
-        // deterministic scaffolder first, then — when a provider is chosen —
-        // the LLM fallback, memory-grounded under --ledger. Landscape meets
-        // tank: the system realizes its own proposals with its own knowledge.
-        let fallback = wish_fallback(args)?;
-        let session = descend_to_wish(
-            &args.path,
-            &wish,
-            report.report_id,
-            false,
-            8,
-            fallback.as_deref(),
-            None,
-        )?;
-        print!("{}", descent_report(&session, args.color));
-        let realized = session
-            .latest()
-            .map(|a| matches!(a.status, WishClosureStatus::Realized))
-            .unwrap_or(false);
-        return Ok(if realized {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::from(4)
-        });
+        return adopt_and_descend(args, &adopted, label, report.report_id);
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// Maximum cluster count offered by `--geometry` — an operator-attention
+/// scale; the actual count *emerges* (tight clusters refuse to shatter).
+const GEOMETRY_MAX_CLUSTERS: usize = 6;
+
+/// Turn `adopted` proposals into ONE severity-weighted, evidence-bound wish:
+/// print it, and under `--apply` descend it with the same armament as wish
+/// mode (deterministic scaffolds first, provider-gated LLM fallback,
+/// memory-grounded under `--ledger`). Shared by `--adopt` and
+/// `--adopt-cluster`.
+fn adopt_and_descend(
+    args: &Args,
+    adopted: &[&WishProposal],
+    label: String,
+    evidence: Digest,
+) -> Result<ExitCode, String> {
+    if adopted.is_empty() {
+        println!("\nnothing open to adopt — the landscape is either met or beyond reach");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let predicates = adopted
+        .iter()
+        .map(|p| kosmo_core::WishPredicate::weighted(p.facet.clone(), p.severity));
+    // Evidence: the wish is bound to the diagnosis that proposed it.
+    let wish = Wish::new(label, predicates, Digest::ZERO, evidence);
+    println!("\n{} adopted as one wish:", adopted.len());
+    for p in adopted {
+        println!(
+            "    {:?} {}  (weight {:.2})",
+            p.facet.kind,
+            p.facet.key,
+            p.severity.to_f64()
+        );
+    }
+    if !args.apply {
+        println!("  (read-only — add --apply to descend the adopted wish)");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let fallback = wish_fallback(args)?;
+    let session = descend_to_wish(
+        &args.path,
+        &wish,
+        evidence,
+        false,
+        8,
+        fallback.as_deref(),
+        None,
+    )?;
+    print!("{}", descent_report(&session, args.color));
+    let realized = session
+        .latest()
+        .map(|a| matches!(a.status, WishClosureStatus::Realized))
+        .unwrap_or(false);
+    Ok(if realized {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(4)
+    })
+}
+
+// ─── Chat front door (one-shot utterance → existing modes) ──────────────────
+
+/// Compact audit label for the routing echo line.
+fn intent_label(intent: &ChatIntent) -> String {
+    match intent {
+        ChatIntent::MakeWish { .. } => "make-wish".into(),
+        ChatIntent::DescendWish { .. } => "descend-wish".into(),
+        ChatIntent::ShowLandscape { geometry } => {
+            format!(
+                "show-landscape{}",
+                if *geometry { " +geometry" } else { "" }
+            )
+        }
+        ChatIntent::AdoptLandscape { top } => format!("adopt top-{top}"),
+        ChatIntent::AdoptCluster { index } => format!("adopt cluster {index}"),
+        ChatIntent::ShowStatus => "status".into(),
+        ChatIntent::InjectNorm => "inject-norm".into(),
+    }
+}
+
+/// The router: deterministic keyword rules by default; when the operator
+/// explicitly chose a real provider, the model routes first — and the
+/// extractor itself falls back to the keyword rules on any failure, so
+/// routing stays total either way. The mock provider routes by keywords
+/// (mock routing would be theater).
+fn chat_extractor(args: &Args) -> Box<dyn IntentExtractor> {
+    if args.provider_set {
+        let config = match args.provider.as_str() {
+            "claude" => env_key(&["ANTHROPIC_API_KEY", "KOSMO_LLM_API_KEY"])
+                .map(kosmo_llm::LlmConfig::claude),
+            "cerebras" => env_key(&["CEREBRAS_API_KEY", "KOSMO_LLM_API_KEY"])
+                .map(kosmo_llm::LlmConfig::cerebras),
+            "env" => kosmo_llm::config_from_env().ok(),
+            _ => None,
+        };
+        if let Some(config) = config {
+            let config = match &args.model {
+                Some(m) => config.with_model(m.clone()),
+                None => config,
+            };
+            return Box::new(LlmIntentExtractor::new(config));
+        }
+    }
+    Box::new(KeywordIntentExtractor)
+}
+
+/// One-shot chat: extract the intent (total — the fallback is the wish
+/// door), echo the routing for auditability, and delegate to the existing
+/// mode. Chat never escalates: writes still require the explicit `--apply`.
+fn run_chat_mode(args: &Args) -> Result<ExitCode, String> {
+    let utterance = args.chat.as_deref().unwrap_or("");
+    let extractor = chat_extractor(args);
+    let intent = extractor.extract(utterance);
+    if !args.json {
+        println!(
+            "chat[{}] \u{2192} {}",
+            extractor.name(),
+            intent_label(&intent)
+        );
+    }
+    match intent {
+        ChatIntent::MakeWish { prose } => {
+            let mut sub = args.clone();
+            sub.wish = Some(prose);
+            run_wish_mode(&sub)
+        }
+        ChatIntent::DescendWish { prose } => {
+            let mut sub = args.clone();
+            sub.wish = Some(prose);
+            if !sub.apply && !sub.json {
+                println!("(the utterance asks to build — measuring only; add --apply to descend)");
+            }
+            run_wish_mode(&sub)
+        }
+        ChatIntent::ShowLandscape { geometry } => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            sub.geometry = sub.geometry || geometry;
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::AdoptLandscape { top } => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            sub.adopt = top.max(1);
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::AdoptCluster { index } => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            sub.adopt_cluster = index.max(1);
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::ShowStatus => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            if !sub.json {
+                println!("status \u{2014} the measured landscape:");
+            }
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::InjectNorm => {
+            println!("norm injection is an operator act with a spec file — chat carries no paths.");
+            println!("  use: kosmo-run --norms <dir> --inject-norm <spec.json>");
+            println!("  then: kosmo-run --norms <dir> --promote-norm <id> --trigger <word>");
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+// ─── Norm organ (learned archetypes) ────────────────────────────────────────
+
+/// Operator governance: `--inject-norm <file>` / `--promote-norm <id>
+/// --trigger <word>`. The explicit flag IS the operator's approval — these
+/// commands exist only as deliberate CLI invocations, never inside the agent
+/// loop — so the store append runs under `operator_approved` regardless of
+/// `--apply` (which governs *workspace* writes, not governance acts).
+fn run_norm_admin(args: &Args) -> Result<ExitCode, String> {
+    let dir = args
+        .norms
+        .as_deref()
+        .ok_or("--inject-norm / --promote-norm require --norms <dir>")?;
+    let mut store = NormStore::open(dir).map_err(|e| e.to_string())?;
+    let policy = PolicyProfile::operator_approved();
+
+    if let Some(ref file) = args.inject_norm {
+        // The spec file's bytes ARE the evidence for the injected norm.
+        let bytes = fs::read(file).map_err(|e| format!("read {file}: {e}"))?;
+        let evidence = Digest::of_bytes(&bytes);
+        let spec: NormInjectionSpec =
+            serde_json::from_slice(&bytes).map_err(|e| format!("parse {file}: {e}"))?;
+        let source = Path::new(file)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("injected")
+            .to_string();
+        let norm = spec
+            .into_norm(evidence, policy.id, source)
+            .map_err(|e| format!("invalid norm spec: {e}"))?;
+        store
+            .append_norm(&norm, &policy)
+            .map_err(|e| e.to_string())?;
+        println!(
+            "injected norm {} ({}, {} facet template(s))",
+            norm.norm_id.to_hex(),
+            norm.name,
+            norm.template.len()
+        );
+        println!(
+            "  unarmed — activate with: --norms {dir} --promote-norm {} --trigger <word>",
+            norm.norm_id.to_hex()
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let id_hex = args.promote_norm.as_deref().expect("dispatch checked");
+    let word = args
+        .trigger
+        .as_deref()
+        .ok_or("--promote-norm requires --trigger <word>")?;
+    // The wish grammar lives in kosmo-intent; the reserved-word check is ours.
+    if is_reserved_wish_word(word) {
+        return Err(format!(
+            "trigger '{word}' is reserved by the wish grammar — choose another word"
+        ));
+    }
+    let norm_id = Digest::from_hex(id_hex)
+        .ok_or_else(|| format!("--promote-norm: '{id_hex}' is not a norm id (hex digest)"))?;
+    let promoted = store
+        .promote(norm_id, word, &policy)
+        .map_err(|e| e.to_string())?;
+    println!(
+        "promoted norm {} — trigger '{}' now expands {} facet template(s) in wish prose",
+        promoted.norm_id.to_hex(),
+        promoted.trigger.as_deref().unwrap_or(word),
+        promoted.template.len()
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The workspace's identity tag for learning observations: a digest of its
+/// canonical path — no raw host path ever enters a durable artifact.
+fn workspace_tag(path: &str) -> Digest {
+    let canonical = fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string());
+    Digest::of_bytes(canonical.as_bytes())
+}
+
+/// Source languages present under `root` (recursive, bounded), via the
+/// fail-closed `SourceLanguage::from_path` detector. Vendor/VCS/build dirs
+/// are skipped.
+fn workspace_languages(root: &Path) -> Vec<String> {
+    const SKIP: &[&str] = &[".git", "target", "node_modules", ".hg", ".svn", "vendor"];
+    fn walk(dir: &Path, depth: u32, langs: &mut std::collections::BTreeSet<&'static str>) {
+        if depth > 8 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !SKIP.contains(&name.as_ref()) {
+                    walk(&path, depth + 1, langs);
+                }
+            } else if let Some(lang) = SourceLanguage::from_path(&path.to_string_lossy()) {
+                langs.insert(lang.as_str());
+            }
+        }
+    }
+    let mut langs = std::collections::BTreeSet::new();
+    walk(root, 0, &mut langs);
+    langs.into_iter().map(String::from).collect()
+}
+
+/// Record the finished descent as a learning observation and run the
+/// promotion scan. Only called under `--apply` (the store requires
+/// `allow_host_write`). Learning failures are reported, never fatal — the
+/// descent's own verdict stands either way.
+fn record_norm_observation(
+    store: &mut NormStore,
+    path: &str,
+    wish: &Wish,
+    realized: bool,
+    evidence: Digest,
+    policy: &PolicyProfile,
+) {
+    let facets: Vec<WishFacet> = wish.predicates.iter().map(|p| p.facet.clone()).collect();
+    if facets.is_empty() {
+        return; // a vacuous wish observes nothing
+    }
+    let obs = FacetBundleObservation::new(
+        workspace_tag(path),
+        facets,
+        workspace_languages(Path::new(path)),
+        realized,
+        evidence,
+        policy.id,
+    );
+    if let Err(e) = store.append_observation(&obs, policy) {
+        eprintln!("norms: could not record observation: {e}");
+        return;
+    }
+    // Every recording re-scans the corpus: shapes that crossed the
+    // thresholds become stored — but UNARMED — norms.
+    let proposals = promotable(
+        store.observations(),
+        &NormLearningConfig::default(),
+        policy.id,
+    );
+    for p in proposals {
+        if store.get(&p.norm.norm_id).is_some() {
+            continue; // already learned
+        }
+        match store.append_norm(&p.norm, policy) {
+            Ok(()) => {
+                println!(
+                    "norm learned: {} — {}",
+                    p.norm.norm_id.to_hex(),
+                    p.norm.description
+                );
+                println!(
+                    "  unarmed — activate with: --norms <dir> --promote-norm {} --trigger <word>",
+                    p.norm.norm_id.to_hex()
+                );
+            }
+            Err(e) => eprintln!("norms: could not store learned norm: {e}"),
+        }
+    }
 }
 
 fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let prose = args.wish.as_deref().unwrap_or("");
     // Bind the wish's identity to its prose — content-addressed, deterministic.
     let evidence = Digest::of_bytes(prose.as_bytes());
-    let wish = compile_wish(prose, Digest::ZERO, evidence);
+    // With a norm store, promoted triggers join the grammar; without one this
+    // is the untouched deterministic front door (and an empty catalog is
+    // pinned byte-identical to it).
+    let mut norm_store = match args.norms.as_deref() {
+        Some(dir) => Some(NormStore::open(dir).map_err(|e| e.to_string())?),
+        None => None,
+    };
+    let wish = match &norm_store {
+        Some(store) => {
+            let catalog = NormCatalog::from_norms(store.norms()).map_err(|e| e.to_string())?;
+            compile_wish_with_norms(prose, &catalog, Digest::ZERO, evidence)
+        }
+        None => compile_wish(prose, Digest::ZERO, evidence),
+    };
 
     // A behaviour facet is satisfiable only by a *passing* test, so any wish
     // that carries one forces validated observation (run the suite), whether or
@@ -820,6 +1347,18 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 WishClosureStatus::Realized | WishClosureStatus::Vacuous
             )
         });
+        // Learning: a finished --apply descent is one facet-bundle sighting.
+        // --apply maps to operator_approved, the policy the store requires.
+        if let Some(ref mut store) = norm_store {
+            record_norm_observation(
+                store,
+                &args.path,
+                &wish,
+                realized,
+                evidence,
+                &PolicyProfile::operator_approved(),
+            );
+        }
         return Ok(if realized {
             ExitCode::SUCCESS
         } else {
@@ -1138,6 +1677,21 @@ fn run() -> Result<ExitCode, String> {
         } else {
             ExitCode::from(3)
         });
+    }
+
+    // Norm governance commands are standalone operator acts: inject a spec,
+    // or arm a trigger. They run and exit before any other mode.
+    if args.inject_norm.is_some() || args.promote_norm.is_some() {
+        return run_norm_admin(&args);
+    }
+
+    // Chat: one utterance, routed onto an existing mode. Wins over the
+    // direct mode flags; combining it with --wish is ambiguous, so refused.
+    if args.chat.is_some() {
+        if args.wish.is_some() {
+            return Err("--chat and --wish are mutually exclusive".into());
+        }
+        return run_chat_mode(&args);
     }
 
     // Landscape mode: the substrate's findings, projected into the wish
