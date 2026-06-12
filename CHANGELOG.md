@@ -15,6 +15,35 @@ note explicitly says so.
 
 ### Added
 
+* **The reforge — external empiricism as a bench (Etappe IV)**
+
+  The system now proves itself against truth it did not author.
+  `kosmo-run --reforge` collects ground truth at runtime by probing
+  **external oracles** — `expr`, `factor`, `basename`, binaries this
+  repository did not write — and refuses to invent a single answer
+  (missing tool, non-zero exit, empty or ambiguous output ⇒ the target
+  is *skipped*, never faked). Each probed truth set becomes a wish of
+  budgeted `Run` facets (`args=>exit:0,out~answer,ms<60000`), evidence
+  content-addressed over `(tool, truths)`; a fresh scratch workspace
+  with an empty `main` is then **forged to that wish via the real
+  provider descent** — the same `descend_to_wish` loop, judged by the
+  same runtime observer that executes the program and matches its
+  output and exit code against the oracle's answers.
+
+  The honesty boundary is pinned offline: re-forging implements
+  behaviour, so `--reforge` without a provider refuses with a clear
+  error, and `--provider mock` is rejected as *forging theater* — the
+  mock cannot implement behaviour and the bench will not pretend it
+  can. The outcome is a content-addressed JSON report
+  (`--reforge-report <file>`; report_id = digest of the body) listing
+  per target the wish id, probes, iterations and realization; exit 0
+  only when no attempted target failed (exit 5 otherwise). The stranger
+  protocol — one command, no trust required — is documented in
+  `docs/REFORGE.md`. +6 tests (5 unit: target wellformedness, echo
+  oracle round-trip, missing/ambiguous oracles yield no truth, wish
+  format pinned byte-exact, report counts/json; 1 e2e: the
+  provider/mock refusals).
+
 * **Polyglot fabrication — Python joins the build loop (Etappe III)**
 
   The architecture's language-freedom claim becomes mechanism. A

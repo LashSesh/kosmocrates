@@ -77,3 +77,33 @@ fn runtime_budget_is_measured_failclosed() {
 
     fs::remove_dir_all(&root).ok();
 }
+
+#[test]
+fn reforge_refuses_to_run_without_a_real_provider() {
+    // The bench's honesty boundary, pinned offline: re-forging implements
+    // behaviour, so without the one sanctioned non-deterministic worker it
+    // refuses — it never pretends.
+    let out = kosmo_run()
+        .arg("--reforge")
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("CEREBRAS_API_KEY")
+        .env_remove("KOSMO_LLM_API_KEY")
+        .env_remove("KOSMO_LLM_PROVIDER")
+        .env_remove("KOSMO_LLM_BASE_URL")
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("provider"), "{stderr}");
+
+    let out = kosmo_run()
+        .args(["--reforge", "--provider", "mock"])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("forging theater"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

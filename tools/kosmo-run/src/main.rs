@@ -25,6 +25,7 @@
 //! ```
 
 mod pruefstand;
+mod reforge;
 
 use std::fs;
 use std::path::Path;
@@ -132,6 +133,11 @@ struct Args {
     /// Venture mode: a JSON spec of dependent wish stages, orchestrated as
     /// one whole-system fabrication (writes only with --apply).
     venture: Option<String>,
+    /// Reforge mode: the external-empiricism bench — re-forge known system
+    /// tools from oracle-collected wish specs (requires a real provider).
+    reforge: bool,
+    /// Write the reforge report (content-addressed JSON) to this file.
+    reforge_report: Option<String>,
     /// Durable venture progress (JSON): written after every stage, resumed
     /// on the next invocation. The venture identity must match.
     venture_session: Option<String>,
@@ -172,6 +178,8 @@ impl Default for Args {
             atelier: None,
             venture: None,
             venture_session: None,
+            reforge: false,
+            reforge_report: None,
         }
     }
 }
@@ -291,7 +299,16 @@ OPTIONS:\n\
                           failed stage blocks its dependents. Read-only\n\
                           preview without --apply.\n\
     --venture-session <f> durable progress: written after every stage,\n\
-                          resumed on the next run (identity-checked).\n\n\
+                          resumed on the next run (identity-checked).\n\
+\n\
+  REFORGE (external empiricism — requires a real provider):\n\
+    --reforge             re-forge known system tools (expr, factor,\n\
+                          basename) from wish specs whose expectations are\n\
+                          collected from the REAL binaries on this machine\n\
+                          at run time; the forged tool is executed and must\n\
+                          answer like the oracle, within a time budget.\n\
+                          One command, reproducible by anyone with a key.\n\
+    --reforge-report <f>  write the content-addressed JSON report to <f>.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -408,6 +425,11 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--venture" => {
                 args.venture = Some(argv.next().ok_or("--venture needs a spec file path")?);
+            }
+            "--reforge" => args.reforge = true,
+            "--reforge-report" => {
+                args.reforge_report =
+                    Some(argv.next().ok_or("--reforge-report needs a file path")?);
             }
             "--venture-session" => {
                 args.venture_session =
@@ -1741,6 +1763,42 @@ fn run_venture_mode(args: &Args) -> Result<ExitCode, String> {
     })
 }
 
+// ─── Reforge (the external-empiricism bench) ────────────────────────────────
+
+/// Run the reforge bench: oracle-collected wishes, re-forged with the
+/// provider-backed fallback, judged at execution. Refuses to run without a
+/// real provider — and refuses the mock outright (forging theater).
+fn run_reforge_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.provider == "mock" {
+        return Err(
+            "--reforge needs a real provider (claude | cerebras | env): the mock \
+             synthesizer cannot implement behaviour, and pretending otherwise \
+             would be forging theater"
+                .to_string(),
+        );
+    }
+    let synthesizer = build_synthesizer(args)?;
+    let fallback = arm_fallback(args, Some(synthesizer))?
+        .ok_or("--reforge needs a real provider (claude | cerebras | env)")?;
+    let report = reforge::run_reforge(fallback.as_ref(), &args.provider);
+    if args.json {
+        println!("{}", report.to_json());
+    } else {
+        print!("{}", report.render(args.color));
+    }
+    if let Some(path) = args.reforge_report.as_deref() {
+        fs::write(path, report.to_json()).map_err(|e| format!("write {path}: {e}"))?;
+        if !args.json {
+            println!("  report written to {path}");
+        }
+    }
+    Ok(if report.is_faithful() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(5)
+    })
+}
+
 // ─── Norm organ (learned archetypes) ────────────────────────────────────────
 
 /// Operator governance: `--inject-norm <file>` / `--promote-norm <id>
@@ -2295,6 +2353,13 @@ fn run() -> Result<ExitCode, String> {
         } else {
             ExitCode::from(3)
         });
+    }
+
+    // Reforge: the external-empiricism bench. Requires a real provider —
+    // re-forging implements behaviour, which the deterministic scaffolder
+    // cannot, and a mock would be theater.
+    if args.reforge {
+        return run_reforge_mode(&args);
     }
 
     // Norm governance commands are standalone operator acts: inject a spec,
