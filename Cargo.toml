@@ -119,7 +119,7 @@ serde_jcs = "0.2"
 sha2 = "0.11"
 petgraph = "0.8"
 ordered-float = { version = "5", features = ["serde"] }
-nalgebra = "0.34"
+nalgebra = "0.35"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 thiserror = "2"
 tracing = "0.1"
