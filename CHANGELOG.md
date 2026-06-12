@@ -15,6 +15,37 @@ note explicitly says so.
 
 ### Added
 
+* **The PSE layer joins the inventory — pse and pse-metatron
+  self-describe (Spreizung IV)**
+
+  The cognition layer's surfaces speak for themselves. `pse doors`
+  catalogs the PSE CLI's eighteen subcommand doors — including the
+  **live-world door** (`observe` over eight domain adapters: crypto
+  markets, energy grid, seismology, weather, air quality, IoT, syslog,
+  vitals) — pinned against the dispatch match in `main` by source scan,
+  **adapter vocabulary included**: an adapter the dispatch matches but
+  the catalog doesn't name (or vice versa) fails the build. The write
+  power is pinned honest: exactly one store-appender (`observe` grows
+  the crystal store), exactly one workspace-writer (`build-wasm`), and
+  the two stubs (`navigate`, `bench`) are cataloged *as* stubs — the
+  inventory tells the truth about placeholders too.
+
+  `pse-metatron doors` catalogs the Metatron closure CLI (inspect,
+  project-local, isomorphism, spectral-gap, close, replay, verify) with
+  the all-read-only pin: analyses observe artifacts, `--out` writes
+  only the file the operator names.
+
+  Both CLIs use the shared `kosmo_core::doors` vocabulary — kosmo-core
+  is dependency-free foundation, so the PSE→kosmo-core edge adds no
+  cycle and leaves CROSS-002 (kosmo never imports pse) untouched.
+  Federated live: **five surfaces, 70 doors, one catalog id**
+  (kosmo-run 18, pse 18, pse-server 17, pse-metatron 9, kosmo-server
+  8). Honest residue, named: the eight extraction operators
+  (Band/Ratio/Correlation/Granger/Spectral/Topological/Phase/
+  Contraction) stay library-captive — their door needs its own design
+  (graph-region inputs), a later Spreizung. +4 tests (two pins per
+  surface).
+
 * **Federation — the ecosystem inventory across three surfaces
   (Spreizung III)**
 

@@ -2818,6 +2818,7 @@ name = "pse-cli"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "kosmo-core",
  "pse-adapter-airquality",
  "pse-adapter-binance",
  "pse-adapter-entsoe",
@@ -3074,6 +3075,7 @@ dependencies = [
 name = "pse-metatron-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-metatron",
  "serde",
  "serde_json",
