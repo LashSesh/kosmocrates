@@ -45,8 +45,8 @@ use kosmo_intent::{
     WishSession,
 };
 use kosmo_pipeline::{
-    measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem, ActionItemKind,
-    IntegrationRunOptions, LandscapeStanding, WishProposal,
+    landscape_geometry, measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem,
+    ActionItemKind, IntegrationRunOptions, LandscapeStanding, WishProposal,
 };
 use kosmo_pse_bridge::MemoryRecall;
 use kosmo_store::NormStore;
@@ -100,6 +100,12 @@ struct Args {
     landscape: bool,
     /// Adopt the top-N open proposals as a wish (descends with --apply).
     adopt: u32,
+    /// Also compute the landscape's spectral shape: coupled-proposal
+    /// clusters and articulation singularities (read-only, advisory).
+    geometry: bool,
+    /// Adopt cluster #i (1-based, from the geometry) as ONE wish
+    /// (descends with --apply). 0 = unset.
+    adopt_cluster: u32,
     /// Directory of the norm store (`norms.jsonl` + `observations.jsonl`).
     /// Arms promoted norms in the wish grammar and records realized descents
     /// as learning observations. Always caller-pathed, never a home dir.
@@ -139,6 +145,8 @@ impl Default for Args {
             swarm: 0,
             landscape: false,
             adopt: 0,
+            geometry: false,
+            adopt_cluster: 0,
             norms: None,
             inject_norm: None,
             promote_norm: None,
@@ -199,6 +207,15 @@ OPTIONS:\n\
     --adopt <n>           adopt the top-N open proposals as ONE wish (weighted\n\
                           by severity). Without --apply: prints the wish.\n\
                           With --apply: descends it (deterministic scaffolds).\n\
+    --geometry            also compute the landscape's spectral shape:\n\
+                          conductance-bounded clusters of coupled proposals\n\
+                          (subject 45 / kind 30 / severity-proximity 25) and\n\
+                          the singular proposals whose removal disconnects\n\
+                          the landscape. Advisory; the landscape itself is\n\
+                          unchanged.\n\
+    --adopt-cluster <i>   adopt geometry cluster #i (1-based) as ONE coherent\n\
+                          wish instead of a blind top-k. Without --apply:\n\
+                          prints it. With --apply: descends it.\n\
 \n\
   MEMORY (anchored knowledge from the promotion ledger):\n\
     --ledger <path>       ground every synthesis in the Infinity-Ledger memory:\n\
@@ -301,6 +318,17 @@ fn parse_args() -> Result<Option<Args>, String> {
                     .ok_or("--adopt needs a value")?
                     .parse()
                     .map_err(|_| "--adopt must be a number")?;
+            }
+            "--geometry" => args.geometry = true,
+            "--adopt-cluster" => {
+                args.adopt_cluster = argv
+                    .next()
+                    .ok_or("--adopt-cluster needs a value")?
+                    .parse()
+                    .map_err(|_| "--adopt-cluster must be a number")?;
+                if args.adopt_cluster == 0 {
+                    return Err("--adopt-cluster takes a 1-based cluster index".into());
+                }
             }
             "--ledger" => {
                 args.ledger = Some(argv.next().ok_or("--ledger needs a value")?);
@@ -677,6 +705,9 @@ fn wish_needs_service(wish: &Wish) -> bool {
 /// the top open proposals into ONE severity-weighted wish — printed by
 /// default, descended under `--apply` (deterministic scaffolds only).
 fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.adopt > 0 && args.adopt_cluster > 0 {
+        return Err("--adopt and --adopt-cluster are mutually exclusive (one wish per run)".into());
+    }
     let policy = PolicyProfile::default_report_only();
     let options = if args.all_layers {
         IntegrationRunOptions::all_layers(args.capacity)
@@ -693,6 +724,19 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
     // wish.) Observation needs a cargo workspace — fail-soft to "unmeasured".
     let observed = observe_workspace_deep(&args.path).ok();
     let standing = measure_landscape(&landscape, observed.as_ref());
+
+    // Geometry (opt-in): the spectral shape of the OPEN landscape — coupled
+    // clusters and articulation singularities. Strictly additive: without
+    // --geometry / --adopt-cluster nothing below changes.
+    let open_proposals: Vec<WishProposal> = landscape
+        .proposals
+        .iter()
+        .zip(&standing)
+        .filter(|(_, s)| **s == LandscapeStanding::Open)
+        .map(|(p, _)| p.clone())
+        .collect();
+    let geometry = (args.geometry || args.adopt_cluster > 0)
+        .then(|| landscape_geometry(&open_proposals, GEOMETRY_MAX_CLUSTERS));
 
     let met = standing
         .iter()
@@ -723,7 +767,7 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
                 })
             })
             .collect();
-        let doc = serde_json::json!({
+        let mut doc = serde_json::json!({
             "path": args.path,
             "report_id": report.report_id.to_hex(),
             "proposals": rows,
@@ -732,6 +776,25 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
             "beyond_observation": invisible,
             "beyond_vocabulary": landscape.unmapped.len(),
         });
+        if let Some(geo) = &geometry {
+            let facet_label = |i: usize| {
+                format!(
+                    "{:?} {}",
+                    open_proposals[i].facet.kind, open_proposals[i].facet.key
+                )
+            };
+            doc["geometry"] = serde_json::json!({
+                "clusters": geo.clusters.iter().map(|cl| serde_json::json!({
+                    "facets": cl.members.iter().map(|&i| facet_label(i)).collect::<Vec<_>>(),
+                    "subjects": cl.subjects,
+                    "severity_mass": format!("{:.2}", cl.severity_mass.to_f64()),
+                })).collect::<Vec<_>>(),
+                "singular": geo.singular.iter().map(|s| serde_json::json!({
+                    "facet": facet_label(s.index),
+                    "coupling_mass": format!("{:.2}", s.coupling_mass.to_f64()),
+                })).collect::<Vec<_>>(),
+            });
+        }
         println!(
             "{}",
             serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?
@@ -795,9 +858,42 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
                 );
             }
         }
+        if let Some(geo) = &geometry {
+            println!(
+                "  {}geometry{}: {} coherent cluster(s) over {} open proposal(s)",
+                c(BOLD),
+                c(RESET),
+                geo.clusters.len(),
+                open_proposals.len()
+            );
+            for (idx, cl) in geo.clusters.iter().enumerate() {
+                println!(
+                    "    cluster {} [mass {:.2}]  {}",
+                    idx + 1,
+                    cl.severity_mass.to_f64(),
+                    cl.subjects.join(", ")
+                );
+                for &m in &cl.members {
+                    println!(
+                        "      {:?} {}",
+                        open_proposals[m].facet.kind, open_proposals[m].facet.key
+                    );
+                }
+            }
+            for s in &geo.singular {
+                println!(
+                    "    {}singular{}: {:?} {} (coupling {:.2}) — removing it disconnects the landscape",
+                    c(YELLOW),
+                    c(RESET),
+                    open_proposals[s.index].facet.kind,
+                    open_proposals[s.index].facet.key,
+                    s.coupling_mass.to_f64()
+                );
+            }
+        }
     }
 
-    // ── Adoption: the top of the landscape becomes ONE wish ──────────────────
+    // ── Adoption: a slice of the landscape becomes ONE wish ──────────────────
     if args.adopt > 0 {
         let adopted: Vec<&WishProposal> = landscape
             .proposals
@@ -807,60 +903,95 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
             .map(|(p, _)| p)
             .take(args.adopt as usize)
             .collect();
-        if adopted.is_empty() {
-            println!("\nnothing open to adopt — the landscape is either met or beyond reach");
-            return Ok(ExitCode::SUCCESS);
-        }
-        let predicates = adopted
+        let label = format!("landscape: top {} of {}", adopted.len(), args.path);
+        return adopt_and_descend(args, &adopted, label, report.report_id);
+    }
+    if args.adopt_cluster > 0 {
+        let geo = geometry
+            .as_ref()
+            .expect("adopt_cluster > 0 forces geometry computation");
+        let idx = (args.adopt_cluster - 1) as usize;
+        let Some(cluster) = geo.clusters.get(idx) else {
+            return Err(format!(
+                "--adopt-cluster {}: the open landscape has {} cluster(s)",
+                args.adopt_cluster,
+                geo.clusters.len()
+            ));
+        };
+        let adopted: Vec<&WishProposal> = cluster
+            .members
             .iter()
-            .map(|p| kosmo_core::WishPredicate::weighted(p.facet.clone(), p.severity));
-        // Evidence: the wish is bound to the diagnosis that proposed it.
-        let wish = Wish::new(
-            format!("landscape: top {} of {}", adopted.len(), args.path),
-            predicates,
-            Digest::ZERO,
-            report.report_id,
+            .map(|&i| &open_proposals[i])
+            .collect();
+        let label = format!(
+            "landscape cluster {} ({}) of {}",
+            args.adopt_cluster,
+            cluster.subjects.join("+"),
+            args.path
         );
-        println!("\n{} adopted as one wish:", adopted.len());
-        for p in &adopted {
-            println!(
-                "    {:?} {}  (weight {:.2})",
-                p.facet.kind,
-                p.facet.key,
-                p.severity.to_f64()
-            );
-        }
-        if !args.apply {
-            println!("  (read-only — add --apply to descend the adopted wish)");
-            return Ok(ExitCode::SUCCESS);
-        }
-        // Adopted wishes descend with the same armament as wish mode: the
-        // deterministic scaffolder first, then — when a provider is chosen —
-        // the LLM fallback, memory-grounded under --ledger. Landscape meets
-        // tank: the system realizes its own proposals with its own knowledge.
-        let fallback = wish_fallback(args)?;
-        let session = descend_to_wish(
-            &args.path,
-            &wish,
-            report.report_id,
-            false,
-            8,
-            fallback.as_deref(),
-            None,
-        )?;
-        print!("{}", descent_report(&session, args.color));
-        let realized = session
-            .latest()
-            .map(|a| matches!(a.status, WishClosureStatus::Realized))
-            .unwrap_or(false);
-        return Ok(if realized {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::from(4)
-        });
+        return adopt_and_descend(args, &adopted, label, report.report_id);
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// Maximum cluster count offered by `--geometry` — an operator-attention
+/// scale; the actual count *emerges* (tight clusters refuse to shatter).
+const GEOMETRY_MAX_CLUSTERS: usize = 6;
+
+/// Turn `adopted` proposals into ONE severity-weighted, evidence-bound wish:
+/// print it, and under `--apply` descend it with the same armament as wish
+/// mode (deterministic scaffolds first, provider-gated LLM fallback,
+/// memory-grounded under `--ledger`). Shared by `--adopt` and
+/// `--adopt-cluster`.
+fn adopt_and_descend(
+    args: &Args,
+    adopted: &[&WishProposal],
+    label: String,
+    evidence: Digest,
+) -> Result<ExitCode, String> {
+    if adopted.is_empty() {
+        println!("\nnothing open to adopt — the landscape is either met or beyond reach");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let predicates = adopted
+        .iter()
+        .map(|p| kosmo_core::WishPredicate::weighted(p.facet.clone(), p.severity));
+    // Evidence: the wish is bound to the diagnosis that proposed it.
+    let wish = Wish::new(label, predicates, Digest::ZERO, evidence);
+    println!("\n{} adopted as one wish:", adopted.len());
+    for p in adopted {
+        println!(
+            "    {:?} {}  (weight {:.2})",
+            p.facet.kind,
+            p.facet.key,
+            p.severity.to_f64()
+        );
+    }
+    if !args.apply {
+        println!("  (read-only — add --apply to descend the adopted wish)");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let fallback = wish_fallback(args)?;
+    let session = descend_to_wish(
+        &args.path,
+        &wish,
+        evidence,
+        false,
+        8,
+        fallback.as_deref(),
+        None,
+    )?;
+    print!("{}", descent_report(&session, args.color));
+    let realized = session
+        .latest()
+        .map(|a| matches!(a.status, WishClosureStatus::Realized))
+        .unwrap_or(false);
+    Ok(if realized {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(4)
+    })
 }
 
 // ─── Norm organ (learned archetypes) ────────────────────────────────────────

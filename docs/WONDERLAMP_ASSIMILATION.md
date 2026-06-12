@@ -104,3 +104,18 @@ three realized descents of one shape in two scratch workspaces ⇒ the
 third run stores the unarmed norm ⇒ its would-be trigger still expands
 nothing ⇒ promotion arms it ⇒ "a loader delta" compiles to the learned
 shape ⇒ and without `--norms` the same prose stays vacuous.
+
+## Phase 5 — Spectral kit + landscape geometry (landed)
+
+| Wonderlamp | Kosmocrates | Transformation |
+|---|---|---|
+| `isls-hypercube` spectral kit (`laplacian` / `fiedler_bisect` / `kuramoto_groups` / `singularities` over `Dimension` graphs) | **new crate `kosmo-spectral`** — `CouplingGraph` (Q16 weights, fail-closed simple graph), `fiedler_bisect`, `spectral_clusters`, `kuramoto_groups`, `singularities` | the graph is *abstract* (nodes are whatever the caller couples); the **float quarantine**: floats live only inside the crate, the public API is Q16/discrete-only (source-scan pin); deps = kosmo-core only, no nalgebra (manifest pin) |
+| eigen-decomposition with library floats, platform-dependent transcendentals | power iteration + constant-vector deflation, seeded deterministic init, fixed iteration counts; Kuramoto integrates with an **in-crate range-reduced Taylor sine** (no libm) | bit-reproducible across IEEE-754 platforms — determinism without an asterisk |
+| recursive bisection to a requested k | **conductance-bounded splitting**: a cut is kept only while `cut/min(vol) ≤ ½` — tight cliques refuse to shatter | the cluster count *emerges* (a K4 barbell yields its two cliques even when 4 are allowed); `max_clusters` is an upper bound, not a command |
+| singularities = spectral-gap probes over dimension registries | articulation nodes (iterative integer Tarjan) ranked by Q16 coupling mass | pure integer; "the most consequential decisions first" without re-running the spectrum per node |
+| AppSpec parser, domain registry (3 CRUD domains), rigid dimension categories | **rejected** — the consumer is `kosmo_pipeline::landscape_geometry` and its coupling features come from `WishProposal` fields ONLY: subject affinity 45, facet-kind affinity 30, severity proximity 25 (integer percent, exact at boundaries; **proximity alone never couples**) | CRUD-relapse guard #5 pinned by a disease test on the source; the population coupled is the caller's choice (kosmo-run couples the *open* proposals) |
+| (no adoption story) | `--landscape --geometry` (strictly opt-in — flag-off output byte-identical, pinned) + `--adopt-cluster <i>`: ONE coherent cluster becomes ONE severity-weighted, evidence-bound wish through the existing descent | adoption graduates from blind top-k to coherent work units; `--adopt`/`--adopt-cluster` mutually exclusive, out-of-range indices name the real count |
+
+Everything advisory (CROSS-010): geometry ranks and groups the
+already-measured landscape; it gates nothing and changes nothing it
+does not name.

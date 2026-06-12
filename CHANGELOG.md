@@ -15,6 +15,44 @@ note explicitly says so.
 
 ### Added
 
+* **Wonderlamp assimilation, phase 5 — the spectral kit and the landscape's
+  geometry**
+
+  The one genuinely float-bearing mathematics gets its quarantine crate:
+  `kosmo-spectral` (deps: kosmo-core only — no nalgebra, pinned). Inside:
+  power-iteration Fiedler bisection with deflation, recursive spectral
+  clustering, Kuramoto synchronization at a fixed horizon, and iterative
+  integer Tarjan articulation points. Outside: a **Q16/discrete-only
+  public API** (`CouplingGraph` in, index partitions and Q16 masses out),
+  pinned by a source-scan test over every public signature. Determinism
+  without a determinism asterisk: fixed iteration counts, seeded inits,
+  and no libm — the one needed `sin` is an in-crate range-reduced Taylor
+  polynomial, so results reproduce across IEEE-754 platforms. The key
+  honesty move over the predecessor: a bisection is accepted only while
+  its conductance stays ≤ ½, so tight clusters refuse to shatter and the
+  cluster count *emerges* instead of being imposed (a K4 barbell yields
+  exactly its two cliques even when four clusters are allowed).
+
+  On top of it, `kosmo_pipeline::landscape_geometry`: wish proposals
+  couple into a graph whose edge weights come from **`WishProposal`
+  fields only** (the structural guard against Wonderlamp's domain
+  registries growing back, pinned by a disease test) — subject affinity
+  45, facet-kind affinity 30, severity proximity 25, integer-percent
+  arithmetic exact at the boundaries, and proximity alone never couples
+  (two unrelated findings of similar badness are not a cluster). The
+  geometry returns coherent clusters (heaviest severity mass first) and
+  the articulation singularities — the proposals whose removal
+  disconnects the landscape: the most consequential decisions first.
+
+  CLI: `kosmo-run --landscape --geometry` renders clusters and singular
+  proposals on both text and JSON surfaces — strictly opt-in, the
+  landscape without the flag is byte-identical (pinned). And adoption
+  graduates from blind top-k to coherent work: `--adopt-cluster <i>`
+  takes ONE cluster as ONE severity-weighted, evidence-bound wish through
+  the existing descent (mutually exclusive with `--adopt`; out-of-range
+  indices name the real count). +19 tests (10 spectral, 6 geometry, 3
+  CLI).
+
 * **Wonderlamp assimilation, phase 4 — the norm organ: learned archetypes**
 
   The de-CRUD insight, made structural: a `Norm`

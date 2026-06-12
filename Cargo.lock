@@ -1653,6 +1653,7 @@ dependencies = [
  "kosmo-core",
  "kosmo-hyphae",
  "kosmo-pse-bridge",
+ "kosmo-spectral",
  "kosmo-store",
  "kosmo-systemcube",
  "kosmo-workbench",
@@ -1729,6 +1730,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "kosmo-spectral"
+version = "0.1.0"
+dependencies = [
+ "kosmo-core",
 ]
 
 [[package]]
