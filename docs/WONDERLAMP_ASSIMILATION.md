@@ -48,3 +48,17 @@ Not ported, by decision — the disease itself:
 report, bit for bit), soft unanimity, fail-closed empties, disease test
 (no Actix/SQLx/JWT/path-templates in the assimilated sources — judged on
 the shipped code, not the test's own forbidden list).
+
+## Phase 2 — SwarmSynthesizer, fail-closed (landed)
+
+| Wonderlamp | Kosmocrates | Transformation |
+|---|---|---|
+| `SwarmOracle` wrapping `Box<dyn Oracle>` | `SwarmSynthesizer` wrapping `Arc<dyn ChatOracle>` (kosmo-synthesizer-llm/src/swarm.rs); `LlmSynthesizer` implements `ChatOracle` by delegating to its existing backoff transport; `ScriptedOracle` for hermetic tests | the wrapper joins the house family (`Contextual(Grounded(Swarm(...)))` composition order) and reuses `build_user_prompt` / `parse_synthesis_response` — n JSON patches, content-addressed on arrival |
+| Chameleon lenses (Thronengel framing) | `LENSES` — four quality dimensions (correctness / completeness / robustness / consistency), cycling via `lens_prompt(k, n)` | wording pinned **verbatim** by test and pinned stack-free (no actix/jwt/crud/rest words) — lens drift toward architecture prescriptions is structurally caught |
+| Monolith "graceful degradation" (emit best despite failed consensus) | **`confidence = min(best.confidence, d_total)`** | the one transformation that matters: a divergent ensemble lands below the agent's existing `min_confidence` gate and is skipped by *policy*, not emitted by charity. No new gate, no float (CROSS-007/010 untouched). All-unparseable ⇒ `SynthesisError::permanent` |
+| Swarm-Coagula repair (≤2 rounds, then emit anyway) | bounded self-completion: repair prompt = own answer + the `repair_targets` quorum menu, re-assessed each round; a non-answer ends repair honestly | repair is framed as self-completion (never imports a peer's body); rounds bounded by `ConsensusConfig::max_repair_rounds`; telemetry (`coagula_rounds=…`) travels in the rationale |
+| n× cost accounting | `tokens_used` sums every served call | unchanged concept |
+
+CLI: `kosmo-run --swarm <n>` (clamped 2–6) wraps any real provider;
+`--swarm` with the mock provider is refused as *consensus theater* — the
+mock answers identically n times, which would manufacture agreement.

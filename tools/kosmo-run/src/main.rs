@@ -48,7 +48,7 @@ use kosmo_pse_bridge::MemoryRecall;
 use kosmo_synthesizer::{
     ActionSynthesizer, FacetScaffolder, GroundedSynthesizer, MockSynthesizer, SynthesisRequest,
 };
-use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer};
+use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer, SwarmSynthesizer};
 use pse_adapter_kosmo::LedgerRecall;
 
 const RESET: &str = "\x1b[0m";
@@ -87,6 +87,8 @@ struct Args {
     ledger: Option<String>,
     /// How many recalled crystals to attach per action (default 5).
     ground_top: u32,
+    /// Consensus ensemble size: n perspectives per action (0 = off).
+    swarm: u32,
     /// Landscape mode: map every substrate finding the wish vocabulary can
     /// express into a ranked wish-proposal landscape (read-only).
     landscape: bool,
@@ -116,6 +118,7 @@ impl Default for Args {
             pruefstand: false,
             ledger: None,
             ground_top: 5,
+            swarm: 0,
             landscape: false,
             adopt: 0,
         }
@@ -131,6 +134,11 @@ OPTIONS:\n\
     --model <m>           override the model slug\n\
     --max-steps <n>       synthesize at most N actions     (default: 5)\n\
     --min-confidence <p>  skip patches below P percent      (default: 50)\n\
+    --swarm <n>           consensus ensemble: n lensed perspectives per\n\
+                          action (2-6), scored by structural agreement; a\n\
+                          divergent ensemble lands below the confidence\n\
+                          gate instead of being emitted. Needs a real\n\
+                          provider (not mock).\n\
     --all                 enable all optional pipeline layers\n\
     --capacity <n>        SystemCube D-density denominator  (default: 100)\n\
     --apply               WRITE validated patches to the workspace (cargo\n\
@@ -244,6 +252,13 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
             "--pruefstand" | "--testbench" => args.pruefstand = true,
+            "--swarm" => {
+                args.swarm = argv
+                    .next()
+                    .ok_or("--swarm needs a value")?
+                    .parse()
+                    .map_err(|_| "--swarm must be a number (2-6)")?;
+            }
             "--landscape" => args.landscape = true,
             "--adopt" => {
                 args.adopt = argv
@@ -286,14 +301,31 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
         }
     };
 
+    let swarmed = |inner: LlmSynthesizer| -> Arc<dyn ActionSynthesizer> {
+        if args.swarm > 0 {
+            Arc::new(SwarmSynthesizer::new(Arc::new(inner), args.swarm as usize))
+        } else {
+            Arc::new(inner)
+        }
+    };
+
     match args.provider.as_str() {
-        "mock" => Ok(Arc::new(MockSynthesizer::confident())),
+        "mock" => {
+            if args.swarm > 0 {
+                return Err(
+                    "--swarm needs a real provider (claude | cerebras | env): the mock \
+                     synthesizer answers identically n times, which is consensus theater"
+                        .to_string(),
+                );
+            }
+            Ok(Arc::new(MockSynthesizer::confident()))
+        }
         "claude" | "anthropic" => {
             let key = env_key(&["ANTHROPIC_API_KEY", "KOSMO_LLM_API_KEY"]).ok_or_else(|| {
                 "provider=claude requires ANTHROPIC_API_KEY (or KOSMO_LLM_API_KEY)".to_string()
             })?;
             let cfg = apply_model(LlmConfig::claude(key));
-            Ok(Arc::new(
+            Ok(swarmed(
                 LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?,
             ))
         }
@@ -302,13 +334,13 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
                 "provider=cerebras requires CEREBRAS_API_KEY (or KOSMO_LLM_API_KEY)".to_string()
             })?;
             let cfg = apply_model(LlmConfig::cerebras(key));
-            Ok(Arc::new(
+            Ok(swarmed(
                 LlmSynthesizer::new(cfg).map_err(|e| e.to_string())?,
             ))
         }
         "env" | "auto" | "" => {
             let synth = LlmSynthesizer::from_env().map_err(|e| e.to_string())?;
-            Ok(Arc::new(synth))
+            Ok(swarmed(synth))
         }
         other => Err(format!(
             "unknown provider '{other}' (expected claude | cerebras | mock | env)"

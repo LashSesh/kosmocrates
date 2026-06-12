@@ -54,6 +54,9 @@ use kosmo_synthesizer::{
     ActionSynthesizer, FileChange, Patch, SynthesisError, SynthesisRequest, SynthesisResult,
 };
 
+pub mod swarm;
+pub use swarm::{ChatOracle, ScriptedOracle, SwarmSynthesizer};
+
 // ─── Provider / config ──────────────────────────────────────────────────────
 
 /// Wire protocol of the backing endpoint.
@@ -367,7 +370,7 @@ impl LlmSynthesizer {
 
     /// Send one chat turn, retrying transient rate-limit / server errors with
     /// exponential backoff. Returns `(assistant_text, output_tokens)`.
-    fn call(&self, system: &str, user: &str) -> Result<(String, u32), SynthesisError> {
+    pub(crate) fn call(&self, system: &str, user: &str) -> Result<(String, u32), SynthesisError> {
         let url = self.config.endpoint();
         let body = self.config.request_body(system, user);
         let retry_delays = [4u64, 8, 16];

@@ -15,6 +15,31 @@ note explicitly says so.
 
 ### Added
 
+* **Wonderlamp assimilation, phase 2 — the fail-closed SwarmSynthesizer**
+
+  The one non-deterministic boundary gets the consensus discipline
+  everything else already has. `SwarmSynthesizer` (kosmo-synthesizer-llm)
+  fans one request into `n` perspectives — the four Chameleon lenses,
+  pinned verbatim and stack-free — parses n JSON patches through the
+  existing wire contract, and scores them with phase 1's integer
+  consensus core.
+
+  The transformation that matters: where Wonderlamp emitted the best
+  candidate even when consensus failed, the swarm answers honestly —
+  `confidence = min(best.confidence, d_total)`. A divergent ensemble
+  lands below the agent's existing `min_confidence` filter and is
+  skipped by policy, not emitted by charity (pinned by test: three
+  disjoint 90%-self-confident answers ⇒ confidence < HALF). Bounded
+  Coagula rounds let the best candidate complete itself with the
+  functions its peers agree on; an ensemble where nothing parses is a
+  permanent error. `ChatOracle` abstracts the transport
+  (`LlmSynthesizer` implements it; `ScriptedOracle` scripts hermetic
+  offline tests — failures, repairs, token accounting, provenance
+  citations all covered).
+
+  CLI: `kosmo-run --swarm <n>` (2–6) wraps any real provider;
+  `--swarm` + mock is refused as consensus theater.
+
 * **Wonderlamp assimilation, phase 1 — deterministic foundations for
   swarm consensus**
 
