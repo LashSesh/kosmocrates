@@ -202,6 +202,8 @@ OPTIONS:\n\
     --wish \"<prose>\"      compile a plain-language wish and measure the\n\
                           workspace against it; prints met/missing facets\n\
     --validated           observe green tests too (runs the suite; heavier)\n\
+                          (run probes accept a tail budget: \"hi=>out~hi,ms<50\"\n\
+                          — the program must answer AND stay under 50ms)\n\
     --scaffold            also print the file changes that would close the gap\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\

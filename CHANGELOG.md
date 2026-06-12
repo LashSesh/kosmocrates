@@ -15,6 +15,26 @@ note explicitly says so.
 
 ### Added
 
+* **The quality axes — speed as a facet; the landscape grows to five
+  finding classes (Etappe II)**
+
+  The wish vocabulary crosses into quality: a `Run` probe's expectation
+  accepts a tail-anchored wall-clock budget — `"hi=>out~hi,ms<50"`
+  means *the program, executed, answers correctly AND stays under
+  50ms*, measured from the sandbox witness's duration and fail-closed
+  (a blown budget is a miss, never a warning; a malformed budget fails
+  the whole key). Pinned end to end: a fixture that sleeps 60ms
+  realizes a generous budget and measurably misses a 10ms one.
+
+  The landscape projection grows from two to **five** finding classes:
+  `MissingErrorHandling` → `Test("<stem>_handles_errors")` and
+  `IncompleteFunctionBody` → `Test("<stem>_complete")` (the fix is
+  *demonstrated* by a test, not declared), `MissingImplementation` →
+  `Capability("impl:<slug>")` (the free-form intent as a deterministic
+  capability slug, subject = the host module the standing measurement
+  can actually see). `MissingTypeAnnotation` and `Custom` stay honest
+  residue. +4 tests.
+
 * **The venture — whole-system fabrication from dependent wishes
   (Etappe I of the summit staircase)**
 

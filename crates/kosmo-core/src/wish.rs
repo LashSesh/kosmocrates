@@ -73,10 +73,12 @@ pub enum WishFacetKind {
     Composition,
     /// A *runtime* probe, keyed `"args=>expect"` (e.g. `"add,2,3=>out~5"`):
     /// the built artifact, **run** with `args`, exhibits `expect`
-    /// (`exit:<code>` and/or `out~<substr>`). The level-5 keystone — observed
-    /// not by reading source or running a unit test, but by *executing the
-    /// program* under the sandbox. Fail-closed: met only on a clean exit that
-    /// matches.
+    /// (`exit:<code>` and/or `out~<substr>`, optionally capped by a
+    /// tail-anchored wall-clock budget `ms<N` — speed as a measurable
+    /// facet). The level-5 keystone — observed not by reading source or
+    /// running a unit test, but by *executing the program* under the
+    /// sandbox. Fail-closed: met only on a clean exit that matches, within
+    /// budget.
     Run,
     /// A *service* probe, keyed `"method:path=>expect"`
     /// (e.g. `"GET:/health=>200"`): the built artifact, **started as a server**,
@@ -168,8 +170,9 @@ impl WishFacet {
             format!("{}>>{}>>{}", from.as_ref(), via.as_ref(), to.as_ref()),
         )
     }
-    /// A runtime probe facet, keyed `"args=>expect"` (e.g. `"add,2,3=>out~5"`):
-    /// the built artifact run with comma-separated `args` exhibits `expect`.
+    /// A runtime probe facet, keyed `"args=>expect"` (e.g. `"add,2,3=>out~5"`
+    /// or budgeted `"add,2,3=>out~5,ms<50"`): the built artifact run with
+    /// comma-separated `args` exhibits `expect` within the optional budget.
     pub fn run(probe: impl Into<String>) -> Self {
         Self::new(WishFacetKind::Run, probe)
     }

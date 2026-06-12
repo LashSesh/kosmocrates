@@ -765,16 +765,21 @@ pub fn observe_workspace_validated(
 
 // ─── Runtime observation (level 5 — execute and probe) ──────────────────────
 
-/// A runtime probe's expectation: an exit code and/or a stdout substring.
+/// A runtime probe's expectation: an exit code, a stdout substring, and/or
+/// a wall-clock budget in milliseconds — the first *quality axis*: speed as
+/// a measurable, fail-closed facet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RunExpect {
     exit: Option<i32>,
     stdout_contains: Option<String>,
+    /// The witness's duration must not exceed this many milliseconds.
+    max_ms: Option<u64>,
 }
 
 /// Parse a `Run` facet key `"args=>expect"` into `(args, expect)`. `args` is
-/// comma-separated (passed after `cargo run --`); `expect` is `exit:<n>` and/or
-/// `out~<substr>`. `None` if malformed.
+/// comma-separated (passed after `cargo run --`); `expect` is `exit:<n>`
+/// and/or `out~<substr>`, optionally capped by a tail-anchored `ms<N` budget
+/// (`"hi=>out~hi,ms<50"`). `None` if malformed.
 fn parse_run_key(key: &str) -> Option<(Vec<String>, RunExpect)> {
     let (args_str, expect_str) = key.split_once("=>")?;
     let args = args_str
@@ -787,6 +792,15 @@ fn parse_run_key(key: &str) -> Option<(Vec<String>, RunExpect)> {
 }
 
 fn parse_run_expect(s: &str) -> Option<RunExpect> {
+    // The budget atom anchors at the tail (so an `out~` substring may
+    // contain anything before it): "...,ms<N", or the lone "ms<N".
+    let (s, max_ms) = if let Some((head, n)) = s.rsplit_once(",ms<") {
+        (head, Some(n.parse::<u64>().ok()?))
+    } else if let Some(n) = s.strip_prefix("ms<") {
+        ("", Some(n.parse::<u64>().ok()?))
+    } else {
+        (s, None)
+    };
     let mut exit = None;
     let rest = if let Some(r) = s.strip_prefix("exit:") {
         let digits: String = r
@@ -800,17 +814,19 @@ fn parse_run_expect(s: &str) -> Option<RunExpect> {
         s
     };
     let stdout_contains = rest.strip_prefix("out~").map(|x| x.to_string());
-    if exit.is_none() && stdout_contains.is_none() {
+    if exit.is_none() && stdout_contains.is_none() && max_ms.is_none() {
         return None;
     }
     Some(RunExpect {
         exit,
         stdout_contains,
+        max_ms,
     })
 }
 
 /// A clean-exit witness that matches the expectation. Fail-closed: a timeout,
-/// crash, or spawn failure never matches, even if the substring was printed.
+/// crash, or spawn failure never matches, even if the substring was printed —
+/// and a blown budget is a miss, never a warning.
 fn run_matches(w: &kosmo_sandbox::RuntimeWitness, e: &RunExpect) -> bool {
     if w.verdict != kosmo_sandbox::RunVerdict::Exited {
         return false;
@@ -822,6 +838,11 @@ fn run_matches(w: &kosmo_sandbox::RuntimeWitness, e: &RunExpect) -> bool {
     }
     if let Some(sub) = &e.stdout_contains {
         if !w.stdout.contains(sub) {
+            return false;
+        }
+    }
+    if let Some(cap) = e.max_ms {
+        if w.duration.as_millis() > u128::from(cap) {
             return false;
         }
     }
@@ -2313,24 +2334,80 @@ mod tests {
             parse_run_expect("exit:0"),
             Some(RunExpect {
                 exit: Some(0),
-                stdout_contains: None
+                stdout_contains: None,
+                max_ms: None
             })
         );
         assert_eq!(
             parse_run_expect("out~hi"),
             Some(RunExpect {
                 exit: None,
-                stdout_contains: Some("hi".into())
+                stdout_contains: Some("hi".into()),
+                max_ms: None
             })
         );
         assert_eq!(
             parse_run_expect("exit:0,out~hi"),
             Some(RunExpect {
                 exit: Some(0),
-                stdout_contains: Some("hi".into())
+                stdout_contains: Some("hi".into()),
+                max_ms: None
             })
         );
         assert!(parse_run_expect("garbage").is_none());
+    }
+
+    #[test]
+    fn parse_run_expect_budget_atom_anchors_at_the_tail() {
+        // The first quality axis: speed as a measurable expectation.
+        assert_eq!(
+            parse_run_expect("out~hi,ms<50"),
+            Some(RunExpect {
+                exit: None,
+                stdout_contains: Some("hi".into()),
+                max_ms: Some(50)
+            })
+        );
+        assert_eq!(
+            parse_run_expect("exit:0,out~a,b,ms<200"),
+            Some(RunExpect {
+                exit: Some(0),
+                stdout_contains: Some("a,b".into()),
+                max_ms: Some(200)
+            }),
+            "the out~ substring keeps its commas; the budget anchors at the tail"
+        );
+        assert_eq!(
+            parse_run_expect("ms<10"),
+            Some(RunExpect {
+                exit: None,
+                stdout_contains: None,
+                max_ms: Some(10)
+            }),
+            "a lone budget is a valid expectation (clean exit within budget)"
+        );
+        // Malformed budgets fail the whole key — never silently ignored.
+        assert!(parse_run_expect("out~hi,ms<fast").is_none());
+    }
+
+    #[test]
+    fn run_matches_enforces_the_budget_failclosed() {
+        use kosmo_sandbox::{RunVerdict, RuntimeWitness};
+        let e = parse_run_expect("out~hi,ms<50").unwrap();
+        let witness = |ms: u64| RuntimeWitness {
+            verdict: RunVerdict::Exited,
+            exit_code: Some(0),
+            stdout: "hi".into(),
+            stderr: String::new(),
+            stdout_digest: Digest::ZERO,
+            duration: std::time::Duration::from_millis(ms),
+            truncated: false,
+        };
+        assert!(run_matches(&witness(10), &e), "within budget matches");
+        assert!(
+            !run_matches(&witness(80), &e),
+            "a blown budget is a miss, never a warning"
+        );
     }
 
     #[test]
@@ -2348,6 +2425,7 @@ mod tests {
         let e = RunExpect {
             exit: Some(0),
             stdout_contains: Some("5".into()),
+            max_ms: None,
         };
         // A timed-out run never matches — even with the right stdout printed.
         let timed = RuntimeWitness {
