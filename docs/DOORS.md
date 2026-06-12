@@ -26,13 +26,34 @@ surfaces merge.
 ## Surfaces describe themselves
 
 - `kosmo-run --doors` (add `--json` for the machine shape): the binary's
-  thirteen doors, spoken from inside the binary.
-- `GET /api/doors` on kosmo-server: the server's eight routes, spoken by
-  the server.
+  doors, spoken from inside the binary.
+- `GET /api/doors` on kosmo-server: the server's routes, spoken by the
+  server (and rendered by the browser panel's *Doors* card).
+- `GET /doors` on pse-server: the cognition server's routes — keyless
+  like every self-description (`/doors` is a probe path beside `/health`
+  and `/ready`; all other routes honor `PSE_SERVER_TOKEN`).
 
 A surface only ever catalogs **its own** doors. No binary claims truth
 about another binary's flags — that would be the hand-written inventory
 in disguise.
+
+## Federation: the ecosystem inventory
+
+Catalogs travel as content-addressed JSON artifacts and merge:
+
+```sh
+curl -s localhost:7777/api/doors > kosmo-server.json
+curl -s localhost:8765/doors     > pse-server.json
+kosmo-run --doors-merge kosmo-server.json,pse-server.json
+```
+
+`--doors-merge` unites the binary's own catalog with every named file
+into one deterministic, deduplicated, content-addressed inventory — the
+whole stack's docking surface in one artifact. Trust is mathematical and
+fail-closed: every door's identity and every catalog's identity must
+**recompute** from the visible content (`DoorCatalog::verify`); a
+tampered file is refused by name. No surface needs to reach another at
+runtime — federation is artifact-shaped, not network-shaped.
 
 ## The pin: the description cannot drift
 
@@ -52,7 +73,7 @@ pinned e2e), needs no workspace, no key, no network.
 ## Where this goes
 
 The remaining surfaces (kosmo-substrate, kosmo-promote, kosmo-tui, the
-pse and mef CLIs) join door by door in later Spreizungen; their catalogs
-merge into one ecosystem inventory. A GUI built after that point is
-generated *from* the catalog — the skin collapses out of the docking
+pse and mef CLIs) join door by door in later Spreizungen; their emitted
+catalogs federate into the same inventory. A GUI built after that point
+is generated *from* the catalog — the skin collapses out of the docking
 surface instead of being invented in front of it.

@@ -346,8 +346,14 @@ pub fn catalog() -> DoorCatalog {
             vec![],
             "this catalog: the binary's complete docking surface, spoken by the \
          binary itself — content-addressed, deterministic, pinned by test \
-         against the parser",
-            output_inputs(),
+         against the parser; --doors-merge federates other surfaces' emitted \
+         catalogs into one ecosystem inventory (each file verified by content \
+         address before it is trusted)",
+            [
+                vec![DoorInput::valued("--doors-merge", "<catalogs,comma>")],
+                output_inputs(),
+            ]
+            .concat(),
             DoorGovernance::ReadOnly,
             vec![],
         ),
@@ -376,19 +382,50 @@ fn need_label(need: &DoorNeed) -> &'static str {
     }
 }
 
+/// The surface's owner — the binary a door belongs to.
+fn surface_owner(surface: &DoorSurface) -> &str {
+    match surface {
+        DoorSurface::Cli { binary } => binary,
+        DoorSurface::Http { binary, .. } => binary,
+    }
+}
+
 /// The operator-shaped rendering of the catalog (the JSON form is the
-/// machine truth; this is its readable face).
+/// machine truth; this is its readable face). A single surface renders as
+/// that binary's doors; a federated catalog renders as the ecosystem
+/// inventory, each door prefixed with its owner.
 pub fn render(catalog: &DoorCatalog, color: bool) -> String {
     let (bold, dim, yellow, reset) = if color {
         ("\x1b[1m", "\x1b[2m", "\x1b[33m", "\x1b[0m")
     } else {
         ("", "", "", "")
     };
-    let mut out = format!("{bold}Kosmocrates doors — the docking surface of kosmo-run{reset}\n");
+    let owners: std::collections::BTreeSet<&str> = catalog
+        .doors
+        .iter()
+        .map(|d| surface_owner(&d.surface))
+        .collect();
+    let federated = owners.len() > 1;
+    let mut out = if federated {
+        format!("{bold}Kosmocrates doors — the federated docking surface{reset}\n")
+    } else {
+        format!(
+            "{bold}Kosmocrates doors — the docking surface of {}{reset}\n",
+            owners.iter().next().copied().unwrap_or("kosmo-run")
+        )
+    };
     out.push_str(&format!(
-        "  catalog {dim}{}…{reset} · {} door(s)\n",
+        "  catalog {dim}{}…{reset} · {} door(s){}\n",
         &catalog.catalog_id.to_hex()[..12],
-        catalog.len()
+        catalog.len(),
+        if federated {
+            format!(
+                " · surfaces: {}",
+                owners.iter().copied().collect::<Vec<_>>().join(", ")
+            )
+        } else {
+            String::new()
+        }
     ));
     for door in &catalog.doors {
         let aliases = if door.aliases.is_empty() {
@@ -396,9 +433,17 @@ pub fn render(catalog: &DoorCatalog, color: bool) -> String {
         } else {
             format!(" (alias {})", door.aliases.join(", "))
         };
+        let label = match &door.surface {
+            DoorSurface::Cli { .. } => door.name.clone(),
+            DoorSurface::Http { method, .. } => format!("{method} {}", door.name),
+        };
+        let owner = if federated {
+            format!("{dim}{}{reset} ", surface_owner(&door.surface))
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "\n  {bold}{}{reset}{aliases}  {yellow}[{}]{reset}\n",
-            door.name,
+            "\n  {owner}{bold}{label}{reset}{aliases}  {yellow}[{}]{reset}\n",
             door.governance.label()
         ));
         out.push_str(&format!("      {}\n", door.summary));

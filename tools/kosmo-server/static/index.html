@@ -190,10 +190,21 @@ td.desc{word-break:break-word}
     </div>
   </div>
 
+  <div class="card">
+    <div class="path-row">
+      <label for="doors-btn">Doors — the server's docking surface, spoken by the server itself</label>
+    </div>
+    <div class="actions-row">
+      <button id="doors-btn" onclick="runDoors()">Show the doors</button>
+      <span id="doors-status" class="status-msg"></span>
+    </div>
+  </div>
+
   <div id="error-box" class="error-card hidden"></div>
   <div id="promote-results"></div>
   <div id="recall-results"></div>
   <div id="landscape-results"></div>
+  <div id="doors-results"></div>
   <div id="results"></div>
 
 </main>
@@ -332,6 +343,47 @@ function renderPromote(d){
   }
   html+=`</div>`;
   out.innerHTML=html;
+}
+
+async function runDoors(){
+  const btn=document.getElementById('doors-btn');
+  const status=document.getElementById('doors-status');
+  const errBox=document.getElementById('error-box');
+  const out=document.getElementById('doors-results');
+
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Asking…';
+  status.textContent='';
+  errBox.classList.add('hidden');
+
+  try{
+    const resp=await fetch('/api/doors');
+    if(!resp.ok){
+      errBox.textContent='Doors failed';
+      errBox.classList.remove('hidden');
+      out.innerHTML='';
+      return;
+    }
+    const d=await resp.json();
+    status.textContent=`${d.doors.length} door(s) · catalog ${d.catalog_id.slice(0,12)}…`;
+    let html=`<div class="card"><h2>Doors <span class="count">${d.doors.length}</span></h2>`;
+    html+=`<table><thead><tr><th>door</th><th>power</th><th>inputs</th><th>summary</th></tr></thead><tbody>`;
+    for(const door of d.doors){
+      const method=door.surface&&door.surface.Http?door.surface.Http.method+' ':'';
+      const inputs=(door.inputs||[]).map(i=>i.name+(i.value?' '+i.value:'')+(i.required?'*':'')).join(' · ');
+      const gov=typeof door.governance==='string'?door.governance:JSON.stringify(door.governance);
+      html+=`<tr><td><code>${esc(method+door.name)}</code></td><td>${esc(gov)}</td>`+
+            `<td class="dim">${esc(inputs)}</td><td>${esc(door.summary)}</td></tr>`;
+    }
+    html+=`</tbody></table></div>`;
+    out.innerHTML=html;
+  }catch(e){
+    errBox.textContent='Doors failed: '+e;
+    errBox.classList.remove('hidden');
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Show the doors';
+  }
 }
 
 async function runLandscape(){

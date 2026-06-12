@@ -163,6 +163,21 @@ impl Door {
             needs,
         }
     }
+
+    /// Recompute the content address from the visible body — a federated
+    /// door is trusted only when its identity recomputes.
+    pub fn verify_id(&self) -> bool {
+        self.door_id
+            == Digest::of(&DoorBody {
+                surface: &self.surface,
+                name: &self.name,
+                aliases: &self.aliases,
+                summary: &self.summary,
+                inputs: &self.inputs,
+                governance: &self.governance,
+                needs: &self.needs,
+            })
+    }
 }
 
 /// A surface's complete door inventory, content-addressed over the doors it
@@ -187,6 +202,14 @@ impl DoorCatalog {
     /// Merge several surfaces' catalogs into one (deterministic, deduped).
     pub fn merge(catalogs: impl IntoIterator<Item = DoorCatalog>) -> Self {
         DoorCatalog::new(catalogs.into_iter().flat_map(|c| c.doors).collect())
+    }
+
+    /// A federated catalog is trusted only by its own mathematics: every
+    /// door's identity and the catalog's identity must recompute from the
+    /// visible content. Fail-closed for catalogs that arrived as files.
+    pub fn verify(&self) -> bool {
+        let ids: Vec<Digest> = self.doors.iter().map(|d| d.door_id).collect();
+        self.doors.iter().all(Door::verify_id) && self.catalog_id == Digest::of(&ids)
     }
 
     pub fn len(&self) -> usize {
@@ -275,5 +298,23 @@ mod tests {
         let json = serde_json::to_string(&catalog).unwrap();
         let back: DoorCatalog = serde_json::from_str(&json).unwrap();
         assert_eq!(back, catalog);
+    }
+
+    #[test]
+    fn verification_is_fail_closed_against_tampering() {
+        let catalog = DoorCatalog::new(vec![door("--a", "a"), door("--b", "b")]);
+        assert!(catalog.verify(), "an honest catalog recomputes");
+
+        // A reworded door no longer matches its identity.
+        let mut tampered = catalog.clone();
+        tampered.doors[0].summary = "a DIFFERENT promise".into();
+        assert!(!tampered.doors[0].verify_id());
+        assert!(!tampered.verify());
+
+        // A dropped door no longer matches the catalog identity.
+        let mut thinned = catalog.clone();
+        thinned.doors.pop();
+        assert!(thinned.doors.iter().all(Door::verify_id));
+        assert!(!thinned.verify(), "the catalog id covers the whole list");
     }
 }

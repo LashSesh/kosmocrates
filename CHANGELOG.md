@@ -15,6 +15,32 @@ note explicitly says so.
 
 ### Added
 
+* **Federation — the ecosystem inventory across three surfaces
+  (Spreizung III)**
+
+  The catalogs entangle. **pse-server learns self-description**:
+  `GET /doors` speaks its seventeen routes from inside the server —
+  request fields, write power, needs — pinned against the router by the
+  same source-scan technique, with the governance truth pinned too
+  (exactly two store-appending doors, `/ingest` and `/nxalien/bundle`;
+  nothing writes a workspace, nothing decrees). `/doors` joins
+  `/health` and `/ready` as a keyless probe path: self-description
+  needs no token on any surface.
+
+  Catalogs now **federate as artifacts**, not over the network:
+  `kosmo-run --doors-merge <files>` unites the binary's own catalog
+  with other surfaces' emitted JSON into one deterministic,
+  deduplicated, content-addressed ecosystem inventory. Trust is
+  mathematical and fail-closed: `Door::verify_id` and
+  `DoorCatalog::verify` recompute every identity from the visible
+  content, and a tampered catalog is refused by file name (pinned e2e —
+  one reworded summary breaks the merge). Demonstrated live: kosmo-run
+  + kosmo-server + pse-server harvest into **one 43-door inventory
+  under a single catalog id**. The federated rendering shows surfaces
+  and owners; the browser panel grows a *Doors* card rendering
+  `GET /api/doors`. +4 tests (tamper-evidence in the vocabulary,
+  federation e2e incl. refusal, the two pse-server pins).
+
 * **Organ doors — foundry, witness, parseback, kcube, codematrix
   (Spreizung II)**
 

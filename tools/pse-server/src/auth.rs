@@ -4,7 +4,8 @@
 //! (no `PSE_SERVER_TOKEN` env var present at startup → every request
 //! is forwarded). Set `PSE_SERVER_TOKEN` to a non-empty value to
 //! require an `Authorization: Bearer <token>` header on every route
-//! except the probe endpoints (`/health`, `/ready`).
+//! except the probe endpoints (`/health`, `/ready`) and the keyless
+//! self-description (`/doors`).
 //!
 //! This is the minimum auth surface — it is intentionally *not* a
 //! replacement for putting the server behind a reverse proxy with
@@ -27,8 +28,9 @@ static TOKEN: OnceLock<Option<String>> = OnceLock::new();
 
 /// Routes that must always succeed without auth, so liveness /
 /// readiness probes can verify the process from outside the trust
-/// boundary.
-const PROBE_PATHS: &[&str] = &["/health", "/ready"];
+/// boundary — and the self-description, which is keyless on every
+/// surface (`kosmo-run --doors` needs no key either).
+const PROBE_PATHS: &[&str] = &["/health", "/ready", "/doors"];
 
 pub async fn bearer_auth(req: Request, next: Next) -> Result<Response, StatusCode> {
     let path = req.uri().path();

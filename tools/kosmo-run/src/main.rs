@@ -151,6 +151,10 @@ struct Args {
     /// Doors mode: print this binary's complete docking surface — every
     /// door with inputs, governance and needs, content-addressed.
     doors: bool,
+    /// Federate: comma-separated catalog JSON files (emitted by other
+    /// surfaces' doors) merged into one ecosystem inventory. Each file is
+    /// verified by content address before it is trusted. Implies --doors.
+    doors_merge: Option<String>,
     /// Foundry door: run the loop's own allowlisted cargo checks (comma
     /// list: build,test,lint,typecheck) as a directed invocation.
     foundry: Option<String>,
@@ -221,6 +225,7 @@ impl Default for Args {
             reforge: false,
             reforge_report: None,
             doors: false,
+            doors_merge: None,
             foundry: None,
             witness: None,
             parseback: false,
@@ -380,6 +385,11 @@ OPTIONS:\n\
                           door with its inputs, write power and needs —\n\
                           content-addressed, deterministic, pinned by test\n\
                           against the parser (--json for the machine form).\n\
+    --doors-merge <files> federate: merge other surfaces' emitted catalogs\n\
+                          (comma-separated JSON files, e.g. from\n\
+                          GET /api/doors) into one ecosystem inventory; each\n\
+                          file is verified by content address — a catalog\n\
+                          that does not recompute is refused.\n\
 \n\
   ORGANS (directed doors over the substrate — one door per run):\n\
     --foundry <kinds>     run the loop's own gate executor alone: allowlisted\n\
@@ -525,6 +535,12 @@ fn parse_args() -> Result<Option<Args>, String> {
                     Some(argv.next().ok_or("--venture-session needs a file path")?);
             }
             "--doors" => args.doors = true,
+            "--doors-merge" => {
+                args.doors_merge = Some(
+                    argv.next()
+                        .ok_or("--doors-merge needs catalog files (comma-separated)")?,
+                );
+            }
             "--foundry" => {
                 args.foundry = Some(
                     argv.next()
@@ -3092,9 +3108,27 @@ fn run() -> Result<ExitCode, String> {
     };
 
     // Doors: the binary's self-description — the machine-true catalog of
-    // its own docking surface. Costs nothing, touches nothing.
-    if args.doors {
-        let catalog = doors::catalog();
+    // its own docking surface. With --doors-merge, other surfaces' emitted
+    // catalogs federate into one ecosystem inventory: each file is trusted
+    // only if its content addresses recompute (fail-closed).
+    if args.doors || args.doors_merge.is_some() {
+        let mut catalogs = vec![doors::catalog()];
+        if let Some(files) = args.doors_merge.as_deref() {
+            for f in files.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                let text =
+                    fs::read_to_string(f).map_err(|e| format!("doors-merge: read {f}: {e}"))?;
+                let foreign: kosmo_core::DoorCatalog = serde_json::from_str(&text)
+                    .map_err(|e| format!("doors-merge: {f} is not a door catalog: {e}"))?;
+                if !foreign.verify() {
+                    return Err(format!(
+                        "doors-merge: {f} fails content-address verification — a catalog \
+                         that does not recompute is not trusted"
+                    ));
+                }
+                catalogs.push(foreign);
+            }
+        }
+        let catalog = kosmo_core::DoorCatalog::merge(catalogs);
         if args.json {
             println!(
                 "{}",

@@ -81,6 +81,7 @@ use axum::{
     Router,
 };
 use constitutional::{constitutional_check, ConstitutionalHandle, ConstitutionalLayer};
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
 use pse_adapter_il::{adapter::text_to_vector8, store::ILStore};
 use pse_constitutional_interceptor::ConstitutionalEvaluator;
 use pse_exploratory::{
@@ -999,6 +1000,217 @@ async fn reasoning_guide(
     .into_response()
 }
 
+// ── Doors (the server's self-description) ─────────────────────────────────────
+
+/// The server's complete docking surface, spoken by the server itself —
+/// every route as a [`Door`] with its request fields, write power and
+/// needs. A test pins this catalog against the router registrations in
+/// `main`, so the description cannot drift from the dispatch. `/doors`
+/// itself is keyless (a probe path): self-description needs no token on
+/// any surface.
+fn doors_catalog() -> DoorCatalog {
+    let http = |method: &str| DoorSurface::Http {
+        binary: "pse-server".into(),
+        method: method.into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            http("GET"),
+            "/health",
+            vec![],
+            "liveness ping (keyless probe path)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/ready",
+            vec![],
+            "readiness ping (keyless probe path)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/doors",
+            vec![],
+            "this catalog: the server's complete docking surface, spoken by \
+             the server itself — content-addressed, pinned against the \
+             router; keyless like every self-description. Every other route \
+             requires a bearer token when PSE_SERVER_TOKEN is set",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("POST"),
+            "/ingest",
+            vec![],
+            "run text observations through the engine's macro_step: new \
+             crystals enter the engine state and, with PSE_IL_STORE active, \
+             are committed to the Infinity Ledger",
+            vec![
+                DoorInput::valued("text", "<text>").required(),
+                DoorInput::valued("memory_json", "<json>"),
+                DoorInput::valued("records_json", "<json>"),
+                DoorInput::valued("session", "<n>"),
+                DoorInput::valued("question", "<text>"),
+                DoorInput::valued("source_name", "<name>"),
+            ],
+            DoorGovernance::AppendsStore,
+            vec![],
+        ),
+        Door::new(
+            http("POST"),
+            "/context",
+            vec![],
+            "build a retrieval context from records (pure compute)",
+            vec![
+                DoorInput::valued("records_json", "<json>").required(),
+                DoorInput::valued("top_k", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("POST"),
+            "/coverage",
+            vec![],
+            "keyword coverage of a text (pure compute)",
+            vec![
+                DoorInput::valued("text", "<text>").required(),
+                DoorInput::valued("keywords", "<list>").required(),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/il/status",
+            vec![],
+            "Infinity-Ledger health: block count, mean coherence, edge counts",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("POST"),
+            "/il/retrieve",
+            vec![],
+            "Pfauenthron retrieval over the ledger (read-only)",
+            vec![
+                DoorInput::valued("question", "<text>").required(),
+                DoorInput::valued("top_k", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("GET"),
+            "/il/hdag/coherence",
+            vec![],
+            "HDAG coherence-potential profile of the ledger",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("GET"),
+            "/il/hdag/order",
+            vec![],
+            "HDAG topological order of the ledger",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("POST"),
+            "/nxalien/bundle",
+            vec![],
+            "ingest an NxAlienBundle: rules committed to the ledger, the \
+             cross-repo EpistemicSignal updated, evolution proposals \
+             generated under the guard",
+            vec![
+                DoorInput::valued("bundle", "<NxAlienBundle>").required(),
+                DoorInput::valued("timestamp", "<unix-seconds>"),
+            ],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("GET"),
+            "/nxalien/signal",
+            vec![],
+            "the current cross-repo EpistemicSignal (stability, coherence, drift)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("POST"),
+            "/nxalien/validate",
+            vec![],
+            "constitutional pre-check of a bundle's rules — per-rule QTIC \
+             class and coherence, persisting nothing",
+            vec![
+                DoorInput::valued("rules", "<list of RuleAtom>").required(),
+                DoorInput::valued("run_count", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/nxalien/rules/current",
+            vec![],
+            "the evolved rule set from the last signal",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("GET"),
+            "/exploratory/status",
+            vec![],
+            "the adversarial drill ledger's current standing",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("POST"),
+            "/reasoning/guide",
+            vec![],
+            "Epistemic Thunderbolt guidance (D = \u{3c8}\u{b7}\u{3c1}\u{b7}\u{3c9}) over the ledger's \
+             knowledge graph (read-only)",
+            vec![
+                DoorInput::valued("query", "<text>").required(),
+                DoorInput::valued("max_steps", "<n>"),
+                DoorInput::valued("min_d_threshold", "<f>"),
+                DoorInput::valued("top_k_per_step", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("POST"),
+            "/constitutional/check",
+            vec![],
+            "constitutional evaluation of a payload (check only — the \
+             interceptor layer enforces, this route merely answers)",
+            vec![DoorInput::valued("payload", "<json>").required()],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+    ])
+}
+
+async fn doors() -> impl IntoResponse {
+    Json(serde_json::to_value(doors_catalog()).unwrap_or_default())
+}
+
 // ── Server startup ────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -1080,6 +1292,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
+        .route("/doors", get(doors))
         .route("/ingest", post(ingest))
         .route("/context", post(context))
         .route("/coverage", post(coverage))
@@ -1143,4 +1356,92 @@ async fn main() {
         .await
         .expect("failed to bind");
     axum::serve(listener, app).await.expect("server error");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// This server's own source — the doors catalog is pinned against the
+    /// router registrations, so the self-description cannot drift.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    /// Every `(method, route)` the router actually registers.
+    fn registered_routes() -> std::collections::BTreeSet<(String, String)> {
+        let mut routes = std::collections::BTreeSet::new();
+        for line in MAIN_SRC.lines() {
+            if line.trim_start().starts_with("//") {
+                continue; // prose about routes is not a route
+            }
+            let Some(start) = line.find(".route(\"") else {
+                continue;
+            };
+            let after = &line[start + ".route(\"".len()..];
+            let Some(end) = after.find('"') else { continue };
+            let path = &after[..end];
+            let tail = &after[end..];
+            let method = if tail.contains("get(") {
+                "GET"
+            } else if tail.contains("post(") {
+                "POST"
+            } else {
+                continue;
+            };
+            routes.insert((method.to_string(), path.to_string()));
+        }
+        routes
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_router() {
+        let registered = registered_routes();
+        let cataloged: std::collections::BTreeSet<(String, String)> = doors_catalog()
+            .doors
+            .iter()
+            .map(|d| match &d.surface {
+                DoorSurface::Http { method, .. } => (method.clone(), d.name.clone()),
+                other => panic!("a server door must be HTTP, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            registered, cataloged,
+            "the catalog and the router must speak the same routes — \
+             an undescribed route is a hole in the docking surface"
+        );
+    }
+
+    #[test]
+    fn the_servers_write_power_is_exactly_two_store_appenders() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        // The server never mutates a workspace and never decrees; its only
+        // write power is appending observations/rules to its stores.
+        for door in &catalog.doors {
+            assert_ne!(
+                door.governance,
+                DoorGovernance::WritesWorkspace,
+                "{} must not write workspaces",
+                door.name
+            );
+            assert_ne!(
+                door.governance,
+                DoorGovernance::GovernanceAct,
+                "{} must not decree",
+                door.name
+            );
+        }
+        assert_eq!(
+            catalog
+                .doors
+                .iter()
+                .filter(|d| d.governance == DoorGovernance::AppendsStore)
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/ingest", "/nxalien/bundle"],
+            "exactly two store-appending doors"
+        );
+        // The catalog lists itself, deterministically.
+        assert!(catalog.doors.iter().any(|d| d.name == "/doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
+    }
 }

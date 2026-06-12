@@ -3274,6 +3274,7 @@ name = "pse-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "kosmo-core",
  "pse-adapter-il",
  "pse-constitutional-interceptor",
  "pse-core",

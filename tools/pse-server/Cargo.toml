@@ -18,6 +18,7 @@ name = "pse-server"
 path = "src/main.rs"
 
 [dependencies]
+kosmo-core     = { path = "../../crates/kosmo-core", version = "0.1.0" }
 pse-core       = { path = "../../crates/pse-core", version = "0.1.0" }
 pse-types      = { path = "../../crates/pse-types", version = "0.1.0" }
 pse-graph      = { path = "../../crates/pse-graph", version = "0.1.0" }
