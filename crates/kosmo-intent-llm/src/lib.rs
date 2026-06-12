@@ -45,8 +45,12 @@ use kosmo_llm::{config_from_env, extract_json_object, truncate, LlmConfig, LlmEr
 use serde::Deserialize;
 
 pub mod intent_extract;
+pub mod refine;
 pub use intent_extract::{
     build_intent_prompt, intent_system_prompt, parse_intent_response, LlmIntentExtractor,
+};
+pub use refine::{
+    build_refine_prompt, parse_refine_response, refine_system_prompt, LlmWishRefiner, RefineOutcome,
 };
 
 /// A [`WishCompiler`] that delegates prose→`Wish` translation to an LLM.
@@ -151,7 +155,7 @@ struct WishResponseJson {
 
 /// Map a model-supplied kind string to a [`WishFacetKind`]. Unknown kinds are
 /// dropped (the compiler never invents a facet kind).
-fn facet_kind_from_str(s: &str) -> Option<WishFacetKind> {
+pub(crate) fn facet_kind_from_str(s: &str) -> Option<WishFacetKind> {
     match s.trim().to_ascii_lowercase().as_str() {
         "crate" | "crates" | "package" => Some(WishFacetKind::Crate),
         "module" | "mod" => Some(WishFacetKind::Module),
@@ -165,6 +169,7 @@ fn facet_kind_from_str(s: &str) -> Option<WishFacetKind> {
         "composition" | "compose" => Some(WishFacetKind::Composition),
         "capability" | "feature" => Some(WishFacetKind::Capability),
         "test" | "tests" => Some(WishFacetKind::Test),
+        "doc" | "docs" | "documentation" => Some(WishFacetKind::Doc),
         _ => None,
     }
 }

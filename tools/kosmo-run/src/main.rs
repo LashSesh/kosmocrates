@@ -40,11 +40,13 @@ use kosmo_hyphae::{
     promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
 };
 use kosmo_intent::{
-    compile_wish, compile_wish_with_norms, is_reserved_wish_word, observe_workspace_deep,
-    observe_workspace_runtime, observe_workspace_service, observe_workspace_validated, ChatIntent,
-    IntentExtractor, KeywordIntentExtractor, NormCatalog, WishSession,
+    companion_suggestions, compile_wish, compile_wish_with_norms, is_reserved_wish_word,
+    observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
+    observe_workspace_validated, parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot,
+    IndexSelection, IntentExtractor, KeywordIntentExtractor, NormCatalog, SuggestionSource,
+    WishDraft, WishSession,
 };
-use kosmo_intent_llm::LlmIntentExtractor;
+use kosmo_intent_llm::{LlmIntentExtractor, LlmWishRefiner};
 use kosmo_pipeline::{
     landscape_geometry, measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem,
     ActionItemKind, IntegrationRunOptions, LandscapeStanding, WishProposal,
@@ -124,6 +126,9 @@ struct Args {
     /// total intent extractor (keyword rules; LLM-first when a real
     /// provider is chosen, falling back to keywords on any failure).
     chat: Option<String>,
+    /// Atelier mode: path of a durable WishDraft (JSON). Each invocation is
+    /// one shaping round (--chat carries the utterance); "realize" descends.
+    atelier: Option<String>,
 }
 
 impl Default for Args {
@@ -158,6 +163,7 @@ impl Default for Args {
             promote_norm: None,
             trigger: None,
             chat: None,
+            atelier: None,
         }
     }
 }
@@ -253,7 +259,19 @@ OPTIONS:\n\
                           measurable wish, never a template. Deterministic\n\
                           keyword rules by default; with a real --provider\n\
                           the model routes first and falls back to keywords\n\
-                          on any failure. --apply/--ledger/--norms compose.\n\n\
+                          on any failure. --apply/--ledger/--norms compose.\n\
+\n\
+  ATELIER (shape a wish over rounds before realizing it):\n\
+    --atelier <draft.json>  open (or create) a durable wish draft; each\n\
+                          invocation is ONE round, the utterance comes via\n\
+                          --chat. Your dictated facets enter the wish;\n\
+                          machine proposals (companions; model suggestions\n\
+                          with a real --provider) stay PENDING until you\n\
+                          accept them — the machine proposes, you dispose.\n\
+                          Rounds: --chat \"<prose>\" adds facets;\n\
+                          \"accept 3,4\" / \"reject 5\" / \"drop 2\" are\n\
+                          verdicts on the numbered list; \"realize\" freezes\n\
+                          the wish and descends (writes only with --apply).\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -364,6 +382,9 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--chat" => {
                 args.chat = Some(argv.next().ok_or("--chat needs an utterance")?);
+            }
+            "--atelier" => {
+                args.atelier = Some(argv.next().ok_or("--atelier needs a draft file path")?);
             }
             "--ground-top" => {
                 args.ground_top = argv
@@ -1034,30 +1055,37 @@ fn intent_label(intent: &ChatIntent) -> String {
     }
 }
 
-/// The router: deterministic keyword rules by default; when the operator
-/// explicitly chose a real provider, the model routes first — and the
-/// extractor itself falls back to the keyword rules on any failure, so
-/// routing stays total either way. The mock provider routes by keywords
-/// (mock routing would be theater).
-fn chat_extractor(args: &Args) -> Box<dyn IntentExtractor> {
-    if args.provider_set {
-        let config = match args.provider.as_str() {
+/// The shared-transport config for advisory model work (chat routing, wish
+/// refinement) — only when the operator explicitly chose a real provider.
+/// The mock provider yields none (mock advice would be theater).
+fn llm_config_for(args: &Args) -> Option<kosmo_llm::LlmConfig> {
+    if !args.provider_set {
+        return None;
+    }
+    let config =
+        match args.provider.as_str() {
             "claude" => env_key(&["ANTHROPIC_API_KEY", "KOSMO_LLM_API_KEY"])
                 .map(kosmo_llm::LlmConfig::claude),
             "cerebras" => env_key(&["CEREBRAS_API_KEY", "KOSMO_LLM_API_KEY"])
                 .map(kosmo_llm::LlmConfig::cerebras),
             "env" => kosmo_llm::config_from_env().ok(),
             _ => None,
-        };
-        if let Some(config) = config {
-            let config = match &args.model {
-                Some(m) => config.with_model(m.clone()),
-                None => config,
-            };
-            return Box::new(LlmIntentExtractor::new(config));
-        }
+        }?;
+    Some(match &args.model {
+        Some(m) => config.with_model(m.clone()),
+        None => config,
+    })
+}
+
+/// The router: deterministic keyword rules by default; when the operator
+/// explicitly chose a real provider, the model routes first — and the
+/// extractor itself falls back to the keyword rules on any failure, so
+/// routing stays total either way.
+fn chat_extractor(args: &Args) -> Box<dyn IntentExtractor> {
+    match llm_config_for(args) {
+        Some(config) => Box::new(LlmIntentExtractor::new(config)),
+        None => Box::new(KeywordIntentExtractor),
     }
-    Box::new(KeywordIntentExtractor)
 }
 
 /// One-shot chat: extract the intent (total — the fallback is the wish
@@ -1121,6 +1149,301 @@ fn run_chat_mode(args: &Args) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+// ─── Wish atelier (shape a wish over rounds) ────────────────────────────────
+
+/// Load a draft from disk (verifying its content address — a corrupt draft
+/// is a hard error) or start a fresh one.
+fn load_draft(path: &str) -> Result<WishDraft, String> {
+    if !Path::new(path).exists() {
+        return Ok(WishDraft::new(Digest::ZERO));
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    let draft: WishDraft =
+        serde_json::from_str(&text).map_err(|e| format!("parse draft {path}: {e}"))?;
+    if !draft.verify_id() {
+        return Err(format!(
+            "draft {path} fails its content address — refusing a tampered draft"
+        ));
+    }
+    Ok(draft)
+}
+
+fn save_draft(path: &str, draft: &WishDraft) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(draft).map_err(|e| format!("serialize draft: {e}"))?;
+    fs::write(path, json).map_err(|e| format!("write {path}: {e}"))
+}
+
+/// Map a display selection (continuous 1-based numbering over accepted then
+/// pending) to 0-based indices of ONE list; mismatched slots become honest
+/// feedback lines instead of silent skips.
+fn resolve_selection(
+    draft: &WishDraft,
+    selection: &IndexSelection,
+    want_pending: bool,
+) -> (Vec<usize>, Vec<String>) {
+    match selection {
+        IndexSelection::All => {
+            let len = if want_pending {
+                draft.pending.len()
+            } else {
+                draft.accepted.len()
+            };
+            ((0..len).collect(), vec![])
+        }
+        IndexSelection::These(numbers) => {
+            let mut indices = Vec::new();
+            let mut notes = Vec::new();
+            for &n in numbers {
+                match draft.resolve(n) {
+                    Some(DraftSlot::Pending(i)) if want_pending => indices.push(i),
+                    Some(DraftSlot::Accepted(i)) if !want_pending => indices.push(i),
+                    Some(DraftSlot::Pending(_)) => {
+                        notes.push(format!("{n} is a proposal — use accept/reject, not drop"))
+                    }
+                    Some(DraftSlot::Accepted(_)) => {
+                        notes.push(format!("{n} is already in the wish — use drop to retract"))
+                    }
+                    None => notes.push(format!("{n} is not on the list")),
+                }
+            }
+            (indices, notes)
+        }
+    }
+}
+
+/// Render the draft: dialogue, the numbered wish-so-far (measured ✓/✗ when
+/// an observation is available), the numbered proposals, open questions.
+fn render_draft(
+    draft: &WishDraft,
+    observed: Option<&kosmo_core::ObservedTopology>,
+    path: &str,
+    color: bool,
+) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish atelier{}  {}{}{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(DIM),
+        path,
+        c(RESET)
+    ));
+    if draft.prose_history.is_empty() {
+        out.push_str("  (an empty draft — speak a wish: --chat \"a module …\")\n");
+    } else {
+        out.push_str(&format!(
+            "  dialogue ({} round(s)):\n",
+            draft.prose_history.len()
+        ));
+        for (i, prose) in draft.prose_history.iter().enumerate() {
+            out.push_str(&format!("    {}. \u{201c}{}\u{201d}\n", i + 1, prose));
+        }
+    }
+    let mut number = 0usize;
+    if !draft.accepted.is_empty() {
+        out.push_str(&format!("  wish so far ({}):\n", draft.accepted.len()));
+        for f in &draft.accepted {
+            number += 1;
+            let mark = match observed {
+                Some(obs) if obs.contains(f) => format!("{}\u{2713}{}", c(GREEN), c(RESET)),
+                Some(_) => format!("{}\u{2717}{}", c(RED), c(RESET)),
+                None => "?".to_string(),
+            };
+            out.push_str(&format!("    {number:>2} {mark} {:?} {}\n", f.kind, f.key));
+        }
+    }
+    if !draft.pending.is_empty() {
+        out.push_str(&format!(
+            "  proposed ({}) {}— \u{201c}accept <n>\u{201d} / \u{201c}reject <n>\u{201d}:{}\n",
+            draft.pending.len(),
+            c(DIM),
+            c(RESET)
+        ));
+        for s in &draft.pending {
+            number += 1;
+            let source = match &s.source {
+                SuggestionSource::Observation => "substrate".to_string(),
+                SuggestionSource::Model { label } => label.clone(),
+            };
+            out.push_str(&format!(
+                "    {number:>2} {}?{} {:?} {} {}\u{2014} {} [{}]{}\n",
+                c(YELLOW),
+                c(RESET),
+                s.facet.kind,
+                s.facet.key,
+                c(DIM),
+                s.rationale,
+                source,
+                c(RESET)
+            ));
+        }
+    }
+    if !draft.questions.is_empty() {
+        out.push_str("  questions:\n");
+        for q in &draft.questions {
+            out.push_str(&format!("    {}\u{2014} {}{}\n", c(DIM), q, c(RESET)));
+        }
+    }
+    if !draft.accepted.is_empty() {
+        out.push_str(&format!(
+            "  {}(\u{201c}realize\u{201d} freezes the wish and descends; writes only with --apply){}\n",
+            c(DIM),
+            c(RESET)
+        ));
+    }
+    out
+}
+
+/// Freeze the draft and descend toward it — the only place an atelier round
+/// touches the workspace, and only under `--apply`. Without `--apply`:
+/// measure and report, the wish-mode contract.
+fn realize_draft(args: &Args, draft: &WishDraft) -> Result<ExitCode, String> {
+    let wish = draft.to_wish();
+    if wish.predicate_count() == 0 {
+        println!("the draft holds no accepted facets yet — speak a wish first");
+        return Ok(ExitCode::from(1));
+    }
+    let validated = args.validated || wish_needs_validation(&wish);
+    if !args.apply {
+        let observed = if wish_needs_service(&wish) {
+            observe_workspace_service(args.path.as_str())
+        } else if wish_needs_runtime(&wish) {
+            observe_workspace_runtime(args.path.as_str())
+        } else if validated {
+            observe_workspace_validated(args.path.as_str())
+        } else {
+            observe_workspace_deep(args.path.as_str())
+        }
+        .map_err(|e| format!("could not observe {}: {e}", args.path))?;
+        let assessment = assess_wish(&wish, &observed, draft.evidence_bundle_id);
+        print!("{}", wish_report(&wish, &assessment, args.color));
+        println!("  (read-only — add --apply to descend the realized wish)");
+        return Ok(match assessment.status {
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous => ExitCode::SUCCESS,
+            _ => ExitCode::from(1),
+        });
+    }
+    let fallback = wish_fallback(args)?;
+    let session = descend_to_wish(
+        &args.path,
+        &wish,
+        draft.evidence_bundle_id,
+        validated,
+        8,
+        fallback.as_deref(),
+        None,
+    )?;
+    print!("{}", descent_report(&session, args.color));
+    let realized = session.latest().is_some_and(|a| {
+        matches!(
+            a.status,
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous
+        )
+    });
+    // A realized atelier descent is a learning observation like any other.
+    if let Some(dir) = args.norms.as_deref() {
+        match NormStore::open(dir) {
+            Ok(mut store) => record_norm_observation(
+                &mut store,
+                &args.path,
+                &wish,
+                realized,
+                draft.evidence_bundle_id,
+                &PolicyProfile::operator_approved(),
+            ),
+            Err(e) => eprintln!("norms: could not open store: {e}"),
+        }
+    }
+    Ok(if realized {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// One atelier round: load the draft, apply the utterance (prose, verdict,
+/// show, or realize), persist, and render the new state.
+fn run_atelier_mode(args: &Args) -> Result<ExitCode, String> {
+    let draft_path = args.atelier.as_deref().expect("dispatch checked");
+    let mut draft = load_draft(draft_path)?;
+    let utterance = args.chat.as_deref().unwrap_or("");
+    let command = parse_atelier_command(utterance);
+
+    // One observation per round: measures the wish-so-far and filters
+    // companion proposals. Fail-soft — a non-cargo dir just shows '?'.
+    let observed = observe_workspace_deep(&args.path).ok();
+
+    let mut feedback: Vec<String> = Vec::new();
+    let mutated = match command {
+        AtelierCommand::Show => false,
+        AtelierCommand::Realize => return realize_draft(args, &draft),
+        AtelierCommand::Speak(prose) => {
+            let catalog = match args.norms.as_deref() {
+                Some(dir) => {
+                    let store = NormStore::open(dir).map_err(|e| e.to_string())?;
+                    NormCatalog::from_norms(store.norms()).map_err(|e| e.to_string())?
+                }
+                None => NormCatalog::empty(),
+            };
+            draft = draft.speak(&prose, &catalog);
+            let companions = companion_suggestions(&draft, observed.as_ref());
+            draft = draft.propose(companions);
+            // Model refinement is advisory and provider-gated; its absence
+            // costs suggestions, never the round.
+            if let Some(config) = llm_config_for(args) {
+                let refiner = LlmWishRefiner::new(config);
+                let outcome = refiner.refine(&draft);
+                if let Some(note) = &outcome.note {
+                    feedback.push(note.clone());
+                }
+                draft = draft
+                    .propose(outcome.suggestions)
+                    .with_questions(outcome.questions);
+            }
+            true
+        }
+        AtelierCommand::Accept(selection) => {
+            let (indices, notes) = resolve_selection(&draft, &selection, true);
+            feedback.extend(notes);
+            draft = draft.accept_pending(&indices);
+            true
+        }
+        AtelierCommand::Reject(selection) => {
+            let (indices, notes) = resolve_selection(&draft, &selection, true);
+            feedback.extend(notes);
+            draft = draft.reject_pending(&indices);
+            true
+        }
+        AtelierCommand::Drop(selection) => {
+            let (indices, notes) = resolve_selection(&draft, &selection, false);
+            feedback.extend(notes);
+            draft = draft.retract_accepted(&indices);
+            true
+        }
+    };
+    if mutated {
+        save_draft(draft_path, &draft)?;
+    }
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&draft).map_err(|e| e.to_string())?
+        );
+    } else {
+        for note in &feedback {
+            println!("  note: {note}");
+        }
+        print!(
+            "{}",
+            render_draft(&draft, observed.as_ref(), draft_path, args.color)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 // ─── Norm organ (learned archetypes) ────────────────────────────────────────
@@ -1683,6 +2006,15 @@ fn run() -> Result<ExitCode, String> {
     // or arm a trigger. They run and exit before any other mode.
     if args.inject_norm.is_some() || args.promote_norm.is_some() {
         return run_norm_admin(&args);
+    }
+
+    // Atelier: one shaping round on a durable wish draft (--chat carries
+    // the utterance; without one, the round is "show").
+    if args.atelier.is_some() {
+        if args.wish.is_some() {
+            return Err("--atelier and --wish are mutually exclusive".into());
+        }
+        return run_atelier_mode(&args);
     }
 
     // Chat: one utterance, routed onto an existing mode. Wins over the

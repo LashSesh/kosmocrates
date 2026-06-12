@@ -15,6 +15,54 @@ note explicitly says so.
 
 ### Added
 
+* **The wish atelier — a wish is shaped over rounds before it is realized**
+
+  The front door stops being one-shot: `kosmo-run --atelier <draft.json>`
+  opens a durable, content-addressed `WishDraft`
+  (kosmo-intent/src/atelier.rs) that operator and machine refine together,
+  one invocation per round (`--chat` carries the utterance). The
+  governance symmetry of the norm organ, applied to dialogue: **the
+  machine proposes, only the operator disposes.** What you *dictate*
+  (grammar-recognized facets of your own words, including your promoted
+  norm triggers) enters the wish directly; what the machine *proposes*
+  stays pending until an explicit `accept <n>` — pinned by test at the
+  library AND the CLI seam (an unaccepted proposal never materializes).
+
+  Proposals come from two sources: the substrate's own companion
+  heuristics (deterministic, offline — doc/test fibers for accepted
+  structural targets, filtered against what the workspace already
+  exhibits) and, with a real `--provider`, the model-backed
+  `LlmWishRefiner` (kosmo-intent-llm/src/refine.rs) under a pinned
+  suggest-and-ask-only contract ("never plan file layouts, never name
+  technologies, never generate code"); unknown kinds are dropped, a dead
+  or rambling model costs suggestions, never correctness (honest note
+  instead). The refiner work also surfaced and fixed a real gap: the LLM
+  facet-kind mapper predated the Doc facet and never accepted `"doc"`.
+
+  The round language is total and fail-closed toward dictation: exact
+  verdict forms (`accept 1,3` / `accept all` / `reject 5` / `drop 2` on
+  the displayed numbering) and exact realize phrases (`realize`,
+  `build it`) — "build a module parser" stays prose. Each round renders
+  the dialogue, the wish-so-far **measured live** against the workspace
+  (✓/✗ per facet), the numbered proposals with rationale and source, and
+  the model's open questions. `realize` freezes the accepted facets into
+  a wish labelled with the full dialogue and evidence-bound to it
+  (CROSS-006: the prose history *is* the evidence), then descends —
+  writes only under `--apply`, and a realized atelier descent records a
+  norm-learning observation like any other. A tampered draft file is
+  refused by its content address. +18 tests (10 core, 5 refiner, 3
+  binary e2e); Prüfstand 13/13 `--validated`.
+
+### Fixed
+
+* **Workspace build repaired after the dependabot `rand_distr` 0.6 bump.**
+  PR #207 raised `rand_distr` to 0.6 (built on rand 0.10) while the
+  workspace `rand` stays 0.9 — exactly the pairing the manifest comment
+  forbids ("bump both together or not at all") — breaking
+  `mef-solvecoagula` and with it every strict workspace build. Both
+  manifests (root + vendored infinityledger) and the lockfile are back on
+  the rand-0.9-compatible 0.5 line.
+
 * **Wonderlamp assimilation, phase 6 — the chat front door (assimilation
   complete)**
 
