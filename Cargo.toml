@@ -143,7 +143,7 @@ rand     = "0.9"
 # rand_distr must stay on the line built against the workspace `rand`:
 # 0.5.x pairs with rand 0.9 (0.6.x is built on rand 0.10 and breaks every
 # consumer that feeds it a rand-0.9 RNG). Bump both together or not at all.
-rand_distr = "0.5"
+rand_distr = "0.6"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Release profile: tuned for the single-binary, single-thread-fast
