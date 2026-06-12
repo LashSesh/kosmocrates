@@ -963,7 +963,7 @@ fn count_kinds(language: SourceLanguage, content: &str) -> KindCounts {
 }
 
 /// Named structural symbol sets of one source text — the same classifier
-/// pass [`count_kinds`] runs, with the names retained.
+/// pass the fingerprint counting runs, with the names retained.
 ///
 /// This is the cross-language naming layer consensus and descent-context
 /// machinery build on: functions are keyed `name/arity` (overload-safe),
@@ -1007,7 +1007,7 @@ impl SymbolSets {
 }
 
 /// Run a language's classifier over `content` and collect the named symbol
-/// sets. The naming sibling of [`count_kinds`].
+/// sets. The naming sibling of the fingerprint counting pass.
 pub fn symbol_sets(language: SourceLanguage, content: &str) -> SymbolSets {
     let classify = classifier_for(language);
     let mut state = LexState::default();
