@@ -524,6 +524,16 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
         }
     }
 
+    if !request.descent_context.is_empty() {
+        s.push_str(
+            "\n# Symbols already created in this descent\n\n\
+             Reference these exactly; do not re-create or rename them.\n",
+        );
+        for line in &request.descent_context {
+            s.push_str(&format!("- {line}\n"));
+        }
+    }
+
     if !request.memory_grounding.is_empty() {
         s.push_str(
             "\n# Anchored knowledge (recalled from the promotion ledger)\n\n\
@@ -889,6 +899,18 @@ mod tests {
         assert!(prompt.contains("   - language: python"));
         // The section is advisory, the workspace stays authoritative.
         assert!(prompt.contains("always verify against the workspace"));
+    }
+
+    #[test]
+    fn prompt_renders_descent_context_section() {
+        let req = make_request().with_descent_context(vec!["fn route/1 @ src/router.rs".into()]);
+        let prompt = build_user_prompt(&req);
+        assert!(prompt.contains("# Symbols already created in this descent"));
+        assert!(prompt.contains("- fn route/1 @ src/router.rs"));
+        assert!(prompt.contains("do not re-create or rename"));
+        // And absent without context.
+        let bare = build_user_prompt(&make_request());
+        assert!(!bare.contains("Symbols already created"));
     }
 
     #[test]

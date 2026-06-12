@@ -46,7 +46,8 @@ use kosmo_pipeline::{
 };
 use kosmo_pse_bridge::MemoryRecall;
 use kosmo_synthesizer::{
-    ActionSynthesizer, FacetScaffolder, GroundedSynthesizer, MockSynthesizer, SynthesisRequest,
+    ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, GroundedSynthesizer,
+    MockSynthesizer, SynthesisRequest,
 };
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer, SwarmSynthesizer};
 use pse_adapter_kosmo::LedgerRecall;
@@ -375,9 +376,19 @@ fn arm_fallback(
 }
 
 /// The optional LLM fallback for facet realization: built only when a
-/// provider was explicitly chosen, then armed with memory via
-/// [`arm_fallback`]. Deterministic-only when `None`.
+/// provider was explicitly chosen, armed with memory via [`arm_fallback`],
+/// and wrapped in a descent context (`ContextualSynthesizer`) so every
+/// facet's prompt carries the symbols earlier facets created and every
+/// patch passes the Mikro/Meso gates. Deterministic-only when `None`.
 fn wish_fallback(args: &Args) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
+    Ok(
+        bare_wish_fallback(args)?.map(|inner| -> Arc<dyn ActionSynthesizer> {
+            Arc::new(ContextualSynthesizer::new(inner, args.path.clone()))
+        }),
+    )
+}
+
+fn bare_wish_fallback(args: &Args) -> Result<Option<Arc<dyn ActionSynthesizer>>, String> {
     let inner = if args.provider_set {
         match build_synthesizer(args) {
             Ok(s) => Some(s),

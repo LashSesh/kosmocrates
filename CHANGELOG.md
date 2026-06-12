@@ -15,6 +15,35 @@ note explicitly says so.
 
 ### Added
 
+* **Wonderlamp assimilation, phase 3 — descent context and patch gates**
+
+  The facet-to-facet amnesia is healed: `TypeContext`
+  (kosmo-synthesizer) absorbs every accepted patch through the xlang
+  classifier (7 languages, never regex, never a path template) and
+  renders into each subsequent prompt as `# Symbols already created in
+  this descent` — Wonderlamp's decisive anti-hallucination trick,
+  language-agnostic. Advisory like memory grounding: the new
+  `SynthesisRequest.descent_context` is serde-defaulted and not part of
+  `request_id`. Three-stage capping degrades honestly (full → name+kind
+  → most-recent-N behind an elision marker); deletions retract an
+  origin's symbols.
+
+  Wonderlamp's informational gates become real ones:
+  `patch_gates::gate_patch` (worst-wins `GateResult`) judges filesystem
+  truth and descent knowledge — never an upfront plan. Create over an
+  existing path, modify of a missing one, duplicate definitions across
+  a patch, and use-after-delete of a descent-created module are
+  `Reject`s; origin shifts and structureless source files warn; non-code
+  is skipped (fail-closed, not over-closed). `ContextualSynthesizer`
+  delivers fail-closed: a rejected patch arrives with `confidence =
+  ZERO` and a `gate-reject:` rationale — auditable, unmaterializable
+  through the existing `min_confidence` filter — and its symbols are
+  never absorbed (they never existed).
+
+  Wired where multi-file generation lives: one context per
+  `AgentSession::run` and per wish-descent LLM fallback
+  (`Contextual(Grounded(...))`). Prüfstand stays 13/13.
+
 * **Wonderlamp assimilation, phase 2 — the fail-closed SwarmSynthesizer**
 
   The one non-deterministic boundary gets the consensus discipline

@@ -62,3 +62,17 @@ the shipped code, not the test's own forbidden list).
 CLI: `kosmo-run --swarm <n>` (clamped 2–6) wraps any real provider;
 `--swarm` with the mock provider is refused as *consensus theater* — the
 mock answers identically n times, which would manufacture agreement.
+
+## Phase 3 — Descent context + Mikro/Meso patch gates (landed)
+
+| Wonderlamp | Kosmocrates | Transformation |
+|---|---|---|
+| `type_context.rs` growing TypeContext (Rust-only regex, entity-file paths, byte-budget capping) | `kosmo_synthesizer::context::TypeContext` — `absorb_patch` via the xlang classifier over a patch's file changes; `render(budget_lines)` with the three-stage degradation (full `fn route/1 @ src/router.rs` → name+kind → most-recent-N behind an honest elision marker); deletes retract an origin's symbols; crate roots (`lib`/`main`/`mod`) are not modules | language-agnostic, path-template-free; advisory like memory grounding: `SynthesisRequest.descent_context` is `#[serde(default)]` and **not** part of `request_id` |
+| prompt injection of all produced types | `build_user_prompt`: `# Symbols already created in this descent` section ("Reference these exactly; do not re-create or rename them") | same anti-hallucination trick, kosmo wire contract |
+| `gates.rs` Mikro/Meso (informational; imports resolved against the HDAG layer *plan*) | `patch_gates::gate_patch` over `kosmo_core::GateResult`, worst-wins | **fail-closed and plan-free**: judgments come from filesystem truth (Create-over-existing / Modify-of-missing ⇒ Reject) and descent knowledge (use-after-delete of a descent-created module ⇒ Reject; duplicate definitions across a patch ⇒ Reject; origin shift ⇒ Warn; structureless source ⇒ Warn; non-code skipped — fail-closed ≠ over-closed) |
+| (no delivery discipline) | `ContextualSynthesizer` — wraps any `ActionSynthesizer`; injects the rendered context, gates the result, absorbs only non-rejected patches | gate `Reject` ⇒ `confidence = ZERO` + `gate-reject:` rationale: auditable, unmaterializable through the existing `min_confidence` policy filter; rejected symbols never enter the context (they never existed) |
+
+Wiring: one descent context per `AgentSession::run` and per wish-descent
+LLM fallback (`wish_fallback` wraps `Contextual(Grounded(Swarm|Llm))`).
+The deterministic `FacetScaffolder` path stays exact and ungated — it
+builds precisely what it observes back.
