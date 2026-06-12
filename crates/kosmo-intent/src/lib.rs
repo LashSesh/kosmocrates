@@ -25,6 +25,7 @@ use kosmo_core::{
     assess_wish, Digest, ObservedTopology, ParseBackScanScope, Wish, WishAssessment,
     WishConvergenceTrace, WishFacet, WishFacetKind, WishPredicate,
 };
+use kosmo_hyphae::Norm;
 use kosmo_parseback::{ParseBackError, ParseBackExecutor, TopologySnapshot};
 use serde::{Deserialize, Serialize};
 
@@ -1239,6 +1240,173 @@ impl WishCompiler for RuleWishCompiler {
     }
 }
 
+// ─── Norm catalog (learned archetypes in the prose grammar) ─────────────────
+
+/// True iff `word` is reserved by the deterministic wish grammar — a leaf
+/// trigger word, an archetype keyword, or a filler. A promoted norm trigger
+/// may never shadow any of these: the built-in grammar always wins, by
+/// construction rather than by precedence.
+pub fn is_reserved_wish_word(word: &str) -> bool {
+    trigger_kind(word).is_some()
+        || archetype_trigger(word).is_some()
+        || FILLERS.contains(&norm(word).as_str())
+}
+
+/// Why a set of norms could not become a [`NormCatalog`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NormCatalogError {
+    /// The trigger collides with the built-in wish grammar.
+    ReservedTrigger { trigger: String, norm_id: Digest },
+    /// Two armed norms claim the same trigger word.
+    DuplicateTrigger {
+        trigger: String,
+        first: Digest,
+        second: Digest,
+    },
+    /// An armed norm fails its own anti-disease validation.
+    InvalidNorm { norm_id: Digest, message: String },
+}
+
+impl std::fmt::Display for NormCatalogError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReservedTrigger { trigger, .. } => {
+                write!(
+                    f,
+                    "norm trigger '{trigger}' is reserved by the wish grammar"
+                )
+            }
+            Self::DuplicateTrigger { trigger, .. } => {
+                write!(f, "two norms claim the trigger '{trigger}'")
+            }
+            Self::InvalidNorm { message, .. } => write!(f, "invalid norm: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for NormCatalogError {}
+
+/// The armed norms available to [`compile_wish_with_norms`], keyed by their
+/// normalized trigger word. Built from a norm store's contents; norms whose
+/// `trigger` is `None` are skipped (present in the store, inert in the
+/// grammar — exactly the learned-but-unpromoted state).
+#[derive(Debug, Default)]
+pub struct NormCatalog {
+    by_trigger: std::collections::BTreeMap<String, Norm>,
+}
+
+impl NormCatalog {
+    /// The empty catalog — the system's permanent starting state.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Index the **armed** norms (trigger ≠ `None`) of `norms`. Every armed
+    /// norm is re-validated; reserved-word and duplicate-trigger collisions
+    /// are hard errors (fail closed, never silently shadow).
+    pub fn from_norms<'a>(
+        norms: impl IntoIterator<Item = &'a Norm>,
+    ) -> Result<Self, NormCatalogError> {
+        let mut by_trigger = std::collections::BTreeMap::new();
+        for n in norms {
+            let Some(trigger) = n.trigger.as_deref() else {
+                continue;
+            };
+            if let Err(e) = n.validate() {
+                return Err(NormCatalogError::InvalidNorm {
+                    norm_id: n.norm_id,
+                    message: e.to_string(),
+                });
+            }
+            let key = norm(trigger);
+            if key.is_empty() || is_reserved_wish_word(&key) {
+                return Err(NormCatalogError::ReservedTrigger {
+                    trigger: trigger.to_string(),
+                    norm_id: n.norm_id,
+                });
+            }
+            if let Some(prev) = by_trigger.insert(key.clone(), n.clone()) {
+                return Err(NormCatalogError::DuplicateTrigger {
+                    trigger: key,
+                    first: prev.norm_id,
+                    second: n.norm_id,
+                });
+            }
+        }
+        Ok(Self { by_trigger })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_trigger.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_trigger.len()
+    }
+
+    /// The norm armed on `token` (normalized like every grammar word), if any.
+    pub fn expand(&self, token: &str) -> Option<&Norm> {
+        self.by_trigger.get(&norm(token))
+    }
+
+    /// All armed norms, ordered by trigger.
+    pub fn norms(&self) -> impl Iterator<Item = &Norm> {
+        self.by_trigger.values()
+    }
+}
+
+/// [`compile_wish`] extended by a catalog of **promoted** norms: a trigger
+/// word in the prose expands its norm's facet templates exactly like a
+/// built-in archetype (`trigger NAME` → `norm.instantiate(NAME)`).
+///
+/// Grammar precedence is archetype → norm → leaf, but the three trigger sets
+/// are disjoint by construction ([`NormCatalog::from_norms`] rejects reserved
+/// words), so no built-in phrase changes meaning. With an empty catalog the
+/// output is **identical** to [`compile_wish`] — pinned by test; `compile_wish`
+/// itself is untouched and remains byte-deterministic.
+pub fn compile_wish_with_norms(
+    prose: &str,
+    catalog: &NormCatalog,
+    policy_id: Digest,
+    evidence_bundle_id: Digest,
+) -> Wish {
+    let tokens: Vec<&str> = prose.split_whitespace().collect();
+    let mut facets: Vec<WishFacet> = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if let Some(arch) = archetype_trigger(tokens[i]) {
+            if let Some((name, next)) = name_after(&tokens, i) {
+                facets.extend(expand_archetype(arch, &name));
+                i = next;
+                continue;
+            }
+        }
+        // A promoted norm is a learned archetype: same expansion seam.
+        if let Some(armed) = catalog.expand(tokens[i]) {
+            if let Some((name, next)) = name_after(&tokens, i) {
+                facets.extend(armed.instantiate(&name));
+                i = next;
+                continue;
+            }
+        }
+        if let Some(kind) = trigger_kind(tokens[i]) {
+            if let Some((name, next)) = name_after(&tokens, i) {
+                facets.push(WishFacet::new(kind, name));
+                i = next;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    let predicates: Vec<WishPredicate> = facets.into_iter().map(WishPredicate::require).collect();
+    Wish::new(
+        prose.trim().to_string(),
+        predicates,
+        policy_id,
+        evidence_bundle_id,
+    )
+}
+
 // ─── WishSession ─────────────────────────────────────────────────────────────
 
 /// A stateful descent toward a wish-attractor across successive observations.
@@ -1879,6 +2047,151 @@ mod tests {
             .iter()
             .any(|p| p.facet == WishFacet::module("user")));
         assert_eq!(w.predicate_count(), 5, "4 from crud + 1 crate");
+    }
+
+    // ── Norm catalog (learned archetypes in the grammar) ───────────────────
+
+    fn armed_norm(name: &str, trigger: &str) -> Norm {
+        use kosmo_hyphae::{NormFacetTemplate, NormLevel, NormOrigin};
+        Norm::new(
+            name,
+            "a learned loader organ",
+            NormLevel::Molecule,
+            "module+symbol",
+            [
+                NormFacetTemplate::new(WishFacetKind::Module, "{name}"),
+                NormFacetTemplate::new(WishFacetKind::Symbol, "{name}_load"),
+            ],
+            [],
+            [],
+            Digest::of_bytes(b"cand"),
+            Digest::of_bytes(b"ev"),
+            Digest::of_bytes(b"pol"),
+            NormOrigin::OperatorInjected {
+                source: "test".into(),
+            },
+        )
+        .with_trigger(trigger)
+    }
+
+    /// The Phase-4 pin: with an empty catalog, `compile_wish_with_norms` is
+    /// byte-identical to the untouched `compile_wish` — same predicates, same
+    /// content-addressed wish id — across the grammar's whole register.
+    #[test]
+    fn empty_catalog_compiles_byte_identically() {
+        let corpus = [
+            "a crate kosmo-api and a function handle",
+            "a crud user, an endpoint login and a module billing",
+            "docs for helper, a test parser_works",
+            "a behavior add(2,3)=>5 and a contract route(String)->String",
+            "completely free prose without any trigger at all",
+            "",
+        ];
+        let empty = NormCatalog::empty();
+        for prose in corpus {
+            let plain = compile_wish(prose, Digest::ZERO, Digest::of_bytes(b"e"));
+            let normed =
+                compile_wish_with_norms(prose, &empty, Digest::ZERO, Digest::of_bytes(b"e"));
+            assert_eq!(plain.id, normed.id, "wish id drifted for: {prose}");
+            assert_eq!(plain, normed);
+        }
+    }
+
+    #[test]
+    fn promoted_trigger_expands_like_an_archetype() {
+        let catalog = NormCatalog::from_norms([&armed_norm("loader", "loader")]).unwrap();
+        let w = compile_wish_with_norms(
+            "a loader gamma and a crate api",
+            &catalog,
+            Digest::ZERO,
+            Digest::ZERO,
+        );
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::module("gamma")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::symbol("gamma_load")));
+        assert!(w
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::crate_("api")));
+        assert_eq!(w.predicate_count(), 3, "2 from the norm + 1 crate leaf");
+
+        // Fillers between trigger and name are skipped, like everywhere else.
+        let w2 = compile_wish_with_norms(
+            "a loader called delta",
+            &catalog,
+            Digest::ZERO,
+            Digest::ZERO,
+        );
+        assert!(w2
+            .predicates
+            .iter()
+            .any(|p| p.facet == WishFacet::symbol("delta_load")));
+    }
+
+    #[test]
+    fn unarmed_norms_stay_inert_in_the_catalog() {
+        use kosmo_hyphae::{NormFacetTemplate, NormLevel, NormOrigin};
+        let unarmed = Norm::new(
+            "sleeper",
+            "",
+            NormLevel::Atom,
+            "module",
+            [NormFacetTemplate::new(WishFacetKind::Module, "{name}")],
+            [],
+            [],
+            Digest::of_bytes(b"c"),
+            Digest::of_bytes(b"e"),
+            Digest::of_bytes(b"p"),
+            NormOrigin::Learned {
+                observation_ids: vec![Digest::of_bytes(b"o")],
+            },
+        );
+        let catalog = NormCatalog::from_norms([&unarmed]).unwrap();
+        assert!(
+            catalog.is_empty(),
+            "trigger=None norms never enter the grammar"
+        );
+        let w = compile_wish_with_norms("a sleeper x", &catalog, Digest::ZERO, Digest::ZERO);
+        assert_eq!(w.predicate_count(), 0, "an unpromoted norm expands nothing");
+    }
+
+    #[test]
+    fn catalog_rejects_reserved_and_duplicate_triggers() {
+        // A norm may not shadow the built-in grammar ("module" is a leaf
+        // trigger; "crud" is an archetype; "called" is a filler).
+        for reserved in ["module", "crud", "called"] {
+            assert!(is_reserved_wish_word(reserved), "{reserved}");
+            let err = NormCatalog::from_norms([&armed_norm("x", reserved)]).unwrap_err();
+            assert!(
+                matches!(err, NormCatalogError::ReservedTrigger { .. }),
+                "{reserved}: {err}"
+            );
+        }
+        assert!(!is_reserved_wish_word("loader"));
+
+        let a = armed_norm("a", "loader");
+        let b = armed_norm("b", "loader");
+        assert!(matches!(
+            NormCatalog::from_norms([&a, &b]).unwrap_err(),
+            NormCatalogError::DuplicateTrigger { .. }
+        ));
+    }
+
+    #[test]
+    fn catalog_revalidates_armed_norms() {
+        // A tampered norm (id no longer matches) is refused at the catalog
+        // door — the grammar never executes an unverified artifact.
+        let mut tampered = armed_norm("t", "loader");
+        tampered.description = "edited after hashing".into();
+        assert!(matches!(
+            NormCatalog::from_norms([&tampered]).unwrap_err(),
+            NormCatalogError::InvalidNorm { .. }
+        ));
     }
 
     // ── Crate-qualified observation (crate-targeting round-trip) ───────────

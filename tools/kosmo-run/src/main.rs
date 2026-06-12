@@ -36,15 +36,20 @@ use kosmo_core::{
     assess_wish, Digest, GateResult, PolicyProfile, Wish, WishAssessment, WishClosureStatus,
     WishFacet, WishFacetKind, Q16,
 };
+use kosmo_hyphae::{
+    promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
+};
 use kosmo_intent::{
-    compile_wish, observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
-    observe_workspace_validated, WishSession,
+    compile_wish, compile_wish_with_norms, is_reserved_wish_word, observe_workspace_deep,
+    observe_workspace_runtime, observe_workspace_service, observe_workspace_validated, NormCatalog,
+    WishSession,
 };
 use kosmo_pipeline::{
     measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem, ActionItemKind,
     IntegrationRunOptions, LandscapeStanding, WishProposal,
 };
 use kosmo_pse_bridge::MemoryRecall;
+use kosmo_store::NormStore;
 use kosmo_synthesizer::{
     ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, GroundedSynthesizer,
     MockSynthesizer, SynthesisRequest,
@@ -95,6 +100,18 @@ struct Args {
     landscape: bool,
     /// Adopt the top-N open proposals as a wish (descends with --apply).
     adopt: u32,
+    /// Directory of the norm store (`norms.jsonl` + `observations.jsonl`).
+    /// Arms promoted norms in the wish grammar and records realized descents
+    /// as learning observations. Always caller-pathed, never a home dir.
+    norms: Option<String>,
+    /// Operator governance: inject a norm from a JSON spec file (arrives
+    /// trigger-less; arm it with --promote-norm).
+    inject_norm: Option<String>,
+    /// Operator governance: arm a stored norm's prose trigger (hex norm id;
+    /// requires --trigger).
+    promote_norm: Option<String>,
+    /// The trigger word for --promote-norm.
+    trigger: Option<String>,
 }
 
 impl Default for Args {
@@ -122,6 +139,10 @@ impl Default for Args {
             swarm: 0,
             landscape: false,
             adopt: 0,
+            norms: None,
+            inject_norm: None,
+            promote_norm: None,
+            trigger: None,
         }
     }
 }
@@ -185,7 +206,20 @@ OPTIONS:\n\
                           D = \u{3c8}\u{b7}\u{3c1}\u{b7}\u{3c9}) ride along as advisory context and each\n\
                           patch cites the crystals it received. Read-only; a\n\
                           missing ledger is a hard error, never a silent skip.\n\
-    --ground-top <n>      recalled crystals per action (default: 5)\n\n\
+    --ground-top <n>      recalled crystals per action (default: 5)\n\
+\n\
+  NORMS (learned archetypes — the catalog starts empty, always):\n\
+    --norms <dir>         norm store directory. In wish mode: promoted norm\n\
+                          triggers expand in the prose grammar, and every\n\
+                          realized descent (with --apply) is recorded as a\n\
+                          learning observation; a facet shape realized \u{2265}3x\n\
+                          across \u{2265}2 workspaces becomes a stored, UNARMED norm.\n\
+    --inject-norm <file>  operator governance: add a norm from a JSON spec\n\
+                          (facet templates over the {{name}} placeholder only —\n\
+                          path-like templates are rejected). Arrives unarmed.\n\
+    --promote-norm <id> --trigger <word>\n\
+                          operator governance: arm a stored norm's prose\n\
+                          trigger. Reserved grammar words are refused.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -270,6 +304,18 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--ledger" => {
                 args.ledger = Some(argv.next().ok_or("--ledger needs a value")?);
+            }
+            "--norms" => {
+                args.norms = Some(argv.next().ok_or("--norms needs a directory")?);
+            }
+            "--inject-norm" => {
+                args.inject_norm = Some(argv.next().ok_or("--inject-norm needs a JSON file")?);
+            }
+            "--promote-norm" => {
+                args.promote_norm = Some(argv.next().ok_or("--promote-norm needs a norm id")?);
+            }
+            "--trigger" => {
+                args.trigger = Some(argv.next().ok_or("--trigger needs a word")?);
             }
             "--ground-top" => {
                 args.ground_top = argv
@@ -817,11 +863,189 @@ fn run_landscape_mode(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+// ─── Norm organ (learned archetypes) ────────────────────────────────────────
+
+/// Operator governance: `--inject-norm <file>` / `--promote-norm <id>
+/// --trigger <word>`. The explicit flag IS the operator's approval — these
+/// commands exist only as deliberate CLI invocations, never inside the agent
+/// loop — so the store append runs under `operator_approved` regardless of
+/// `--apply` (which governs *workspace* writes, not governance acts).
+fn run_norm_admin(args: &Args) -> Result<ExitCode, String> {
+    let dir = args
+        .norms
+        .as_deref()
+        .ok_or("--inject-norm / --promote-norm require --norms <dir>")?;
+    let mut store = NormStore::open(dir).map_err(|e| e.to_string())?;
+    let policy = PolicyProfile::operator_approved();
+
+    if let Some(ref file) = args.inject_norm {
+        // The spec file's bytes ARE the evidence for the injected norm.
+        let bytes = fs::read(file).map_err(|e| format!("read {file}: {e}"))?;
+        let evidence = Digest::of_bytes(&bytes);
+        let spec: NormInjectionSpec =
+            serde_json::from_slice(&bytes).map_err(|e| format!("parse {file}: {e}"))?;
+        let source = Path::new(file)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("injected")
+            .to_string();
+        let norm = spec
+            .into_norm(evidence, policy.id, source)
+            .map_err(|e| format!("invalid norm spec: {e}"))?;
+        store
+            .append_norm(&norm, &policy)
+            .map_err(|e| e.to_string())?;
+        println!(
+            "injected norm {} ({}, {} facet template(s))",
+            norm.norm_id.to_hex(),
+            norm.name,
+            norm.template.len()
+        );
+        println!(
+            "  unarmed — activate with: --norms {dir} --promote-norm {} --trigger <word>",
+            norm.norm_id.to_hex()
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let id_hex = args.promote_norm.as_deref().expect("dispatch checked");
+    let word = args
+        .trigger
+        .as_deref()
+        .ok_or("--promote-norm requires --trigger <word>")?;
+    // The wish grammar lives in kosmo-intent; the reserved-word check is ours.
+    if is_reserved_wish_word(word) {
+        return Err(format!(
+            "trigger '{word}' is reserved by the wish grammar — choose another word"
+        ));
+    }
+    let norm_id = Digest::from_hex(id_hex)
+        .ok_or_else(|| format!("--promote-norm: '{id_hex}' is not a norm id (hex digest)"))?;
+    let promoted = store
+        .promote(norm_id, word, &policy)
+        .map_err(|e| e.to_string())?;
+    println!(
+        "promoted norm {} — trigger '{}' now expands {} facet template(s) in wish prose",
+        promoted.norm_id.to_hex(),
+        promoted.trigger.as_deref().unwrap_or(word),
+        promoted.template.len()
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The workspace's identity tag for learning observations: a digest of its
+/// canonical path — no raw host path ever enters a durable artifact.
+fn workspace_tag(path: &str) -> Digest {
+    let canonical = fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string());
+    Digest::of_bytes(canonical.as_bytes())
+}
+
+/// Source languages present under `root` (recursive, bounded), via the
+/// fail-closed `SourceLanguage::from_path` detector. Vendor/VCS/build dirs
+/// are skipped.
+fn workspace_languages(root: &Path) -> Vec<String> {
+    const SKIP: &[&str] = &[".git", "target", "node_modules", ".hg", ".svn", "vendor"];
+    fn walk(dir: &Path, depth: u32, langs: &mut std::collections::BTreeSet<&'static str>) {
+        if depth > 8 {
+            return;
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                if !SKIP.contains(&name.as_ref()) {
+                    walk(&path, depth + 1, langs);
+                }
+            } else if let Some(lang) = SourceLanguage::from_path(&path.to_string_lossy()) {
+                langs.insert(lang.as_str());
+            }
+        }
+    }
+    let mut langs = std::collections::BTreeSet::new();
+    walk(root, 0, &mut langs);
+    langs.into_iter().map(String::from).collect()
+}
+
+/// Record the finished descent as a learning observation and run the
+/// promotion scan. Only called under `--apply` (the store requires
+/// `allow_host_write`). Learning failures are reported, never fatal — the
+/// descent's own verdict stands either way.
+fn record_norm_observation(
+    store: &mut NormStore,
+    path: &str,
+    wish: &Wish,
+    realized: bool,
+    evidence: Digest,
+    policy: &PolicyProfile,
+) {
+    let facets: Vec<WishFacet> = wish.predicates.iter().map(|p| p.facet.clone()).collect();
+    if facets.is_empty() {
+        return; // a vacuous wish observes nothing
+    }
+    let obs = FacetBundleObservation::new(
+        workspace_tag(path),
+        facets,
+        workspace_languages(Path::new(path)),
+        realized,
+        evidence,
+        policy.id,
+    );
+    if let Err(e) = store.append_observation(&obs, policy) {
+        eprintln!("norms: could not record observation: {e}");
+        return;
+    }
+    // Every recording re-scans the corpus: shapes that crossed the
+    // thresholds become stored — but UNARMED — norms.
+    let proposals = promotable(
+        store.observations(),
+        &NormLearningConfig::default(),
+        policy.id,
+    );
+    for p in proposals {
+        if store.get(&p.norm.norm_id).is_some() {
+            continue; // already learned
+        }
+        match store.append_norm(&p.norm, policy) {
+            Ok(()) => {
+                println!(
+                    "norm learned: {} — {}",
+                    p.norm.norm_id.to_hex(),
+                    p.norm.description
+                );
+                println!(
+                    "  unarmed — activate with: --norms <dir> --promote-norm {} --trigger <word>",
+                    p.norm.norm_id.to_hex()
+                );
+            }
+            Err(e) => eprintln!("norms: could not store learned norm: {e}"),
+        }
+    }
+}
+
 fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let prose = args.wish.as_deref().unwrap_or("");
     // Bind the wish's identity to its prose — content-addressed, deterministic.
     let evidence = Digest::of_bytes(prose.as_bytes());
-    let wish = compile_wish(prose, Digest::ZERO, evidence);
+    // With a norm store, promoted triggers join the grammar; without one this
+    // is the untouched deterministic front door (and an empty catalog is
+    // pinned byte-identical to it).
+    let mut norm_store = match args.norms.as_deref() {
+        Some(dir) => Some(NormStore::open(dir).map_err(|e| e.to_string())?),
+        None => None,
+    };
+    let wish = match &norm_store {
+        Some(store) => {
+            let catalog = NormCatalog::from_norms(store.norms()).map_err(|e| e.to_string())?;
+            compile_wish_with_norms(prose, &catalog, Digest::ZERO, evidence)
+        }
+        None => compile_wish(prose, Digest::ZERO, evidence),
+    };
 
     // A behaviour facet is satisfiable only by a *passing* test, so any wish
     // that carries one forces validated observation (run the suite), whether or
@@ -863,6 +1087,18 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 WishClosureStatus::Realized | WishClosureStatus::Vacuous
             )
         });
+        // Learning: a finished --apply descent is one facet-bundle sighting.
+        // --apply maps to operator_approved, the policy the store requires.
+        if let Some(ref mut store) = norm_store {
+            record_norm_observation(
+                store,
+                &args.path,
+                &wish,
+                realized,
+                evidence,
+                &PolicyProfile::operator_approved(),
+            );
+        }
         return Ok(if realized {
             ExitCode::SUCCESS
         } else {
@@ -1181,6 +1417,12 @@ fn run() -> Result<ExitCode, String> {
         } else {
             ExitCode::from(3)
         });
+    }
+
+    // Norm governance commands are standalone operator acts: inject a spec,
+    // or arm a trigger. They run and exit before any other mode.
+    if args.inject_norm.is_some() || args.promote_norm.is_some() {
+        return run_norm_admin(&args);
     }
 
     // Landscape mode: the substrate's findings, projected into the wish

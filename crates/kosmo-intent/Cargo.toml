@@ -15,6 +15,7 @@ publish = false
 
 [dependencies]
 kosmo-core      = { path = "../kosmo-core", version = "0.1.0" }
+kosmo-hyphae    = { path = "../kosmo-hyphae", version = "0.1.0" }
 kosmo-parseback = { path = "../kosmo-parseback", version = "0.1.0" }
 kosmo-sandbox   = { path = "../kosmo-sandbox", version = "0.1.0" }
 serde           = { workspace = true }

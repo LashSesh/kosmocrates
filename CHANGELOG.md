@@ -15,6 +15,63 @@ note explicitly says so.
 
 ### Added
 
+* **Wonderlamp assimilation, phase 4 — the norm organ: learned archetypes**
+
+  The de-CRUD insight, made structural: a `Norm`
+  (kosmo-hyphae/src/norm_schema.rs) is a content-addressed bundle of
+  `NormFacetTemplate`s — facet kind + key pattern over the single
+  `{name}` placeholder — so a norm can only ever emit measurable
+  `WishFacet`s, never file trees, stacks or entity scaffolds.
+  `validate()` is the anti-disease gate (path separators, backslashes,
+  file extensions, foreign placeholders and frozen structural names are
+  rejected; `name/arity` of `Signature` is the one sanctioned `/`), and
+  it runs at every door: injection, learning, store append, store load,
+  catalog construction. Wonderlamp's 31-norm built-in catalog stays on
+  the rejection list: **the catalog starts empty, always** (pinned by
+  test), and norms exist only through observation or operator
+  injection.
+
+  Learning (norm_learning.rs): every realized `--apply` descent records
+  a content-addressed `FacetBundleObservation` (facets, digest
+  workspace tag — never a raw path — languages, realized flag).
+  `abstract_bundle` finds the bundle's subject (the dominant shared
+  lowercase subword, boundary-aware so `user` rewrites in `create_user`
+  but never inside `username`) and lifts the bundle to a shape;
+  `promotable` proposes a shape once it was realized ≥3× across ≥2
+  workspaces with consistency ≥ 3/4 (all Q16 integer arithmetic). A
+  proposal lands in the store **unarmed** (`trigger = None`) with its
+  linked `NormGeneCandidate`, so the existing promotion-feedback
+  fitness loop applies unchanged; `NormFitnessTrace::smoothed_fitness`
+  adds Wonderlamp's exponential φ-update as integer EMA.
+
+  Governance: the trigger word is *outside* the norm's content hash —
+  arming is governance over an existing artifact, not a new artifact.
+  `kosmo-store::NormStore` (norms.jsonl + observations.jsonl,
+  caller-pathed, `allow_host_write`-gated like every durable store,
+  corruption = hard error on open) encodes promotion as an append-only
+  audit trail: same `norm_id`, trigger set, loader takes the latest.
+  `kosmo-run --inject-norm <spec.json>` (the spec file's bytes are the
+  evidence; arrives unarmed) and `--promote-norm <id> --trigger <word>`
+  are explicit operator acts; reserved grammar words are refused
+  (`kosmo_intent::is_reserved_wish_word`).
+
+  Activation: `NormCatalog` indexes only armed norms (re-validated at
+  the door; reserved/duplicate triggers are hard errors) and
+  `compile_wish_with_norms` expands a promoted trigger exactly like a
+  built-in archetype — `compile_wish` itself is untouched and the empty
+  catalog is pinned byte-identical to it. Genome layer
+  (norm_genome.rs): co-activation Jaccard clustering into `NormGene`s
+  (single-link, Q16), `relate` (Dependent > Conflicting > Compatible >
+  Independent), `compose` (BFS over `requires`, conflict detection,
+  merged templates) — all advisory, CROSS-010.
+
+  End to end (binary test): three realized descents of one shape in two
+  scratch workspaces ⇒ the third run prints and stores the unarmed
+  norm ⇒ the would-be trigger still expands nothing ⇒
+  `--promote-norm --trigger loader` arms it ⇒ "a loader delta"
+  compiles to the learned shape — and without `--norms`, the same
+  prose stays vacuous. +42 tests across the organ.
+
 * **Wonderlamp assimilation, phase 3 — descent context and patch gates**
 
   The facet-to-facet amnesia is healed: `TypeContext`

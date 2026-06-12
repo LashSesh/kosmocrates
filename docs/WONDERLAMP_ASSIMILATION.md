@@ -76,3 +76,31 @@ Wiring: one descent context per `AgentSession::run` and per wish-descent
 LLM fallback (`wish_fallback` wraps `Contextual(Grounded(Swarm|Llm))`).
 The deterministic `FacetScaffolder` path stays exact and ungated — it
 builds precisely what it observes back.
+
+## Phase 4 — The norm organ: learned archetypes (landed)
+
+The de-CRUD transformation in one sentence: Wonderlamp's norm was a
+recipe for *files across fixed layers*; a Kosmocrates norm is a recipe
+for *measurable targets* — it can only emit `WishFacet`s, so the whole
+organ lives behind the wish door the substrate already measures,
+scaffolds and validates.
+
+| Wonderlamp | Kosmocrates | Transformation |
+|---|---|---|
+| `Norm{layers: NormLayers{database, model, query, service, api, frontend, …}}` | `Norm{template: Vec<NormFacetTemplate{kind: WishFacetKind, key_pattern}>}` (kosmo-hyphae/src/norm_schema.rs) | layers → facet kinds; file paths → `{name}`-placeholder key patterns; `validate()` rejects path separators, backslashes, file extensions, foreign placeholders (`{entity}`…) and frozen structural names — `Signature` `name/arity` is the one sanctioned `/`; `Resolution`/`Dependency`/`Run`/`Service` are not templatable |
+| triggers active on construction | `trigger: Option<String>` — `None` until `--promote-norm --trigger <word>`; **excluded from the content hash** | arming is governance over an existing artifact; promotion re-appends the same `norm_id`, the store's loader takes the latest occurrence — an append-only audit trail |
+| 31-norm built-in catalog (`catalog.rs`) | **rejected wholesale** — the catalog starts empty, pinned by test (`the_catalog_starts_empty`) | norms exist only through observation (learning) or explicit operator injection (`NormInjectionSpec`, spec bytes = evidence) |
+| `learning.rs`: generated file trees → `CrossLayerPattern` (path-topology signature) → `NormCandidate` | `norm_learning.rs`: realized wish predicates → `FacetBundleObservation` (digest workspace tag, never a raw path) → boundary-aware subject abstraction (`create_user` → `create_{name}`, `username` untouched) → shape grouping | the observed unit is a *realized facet bundle*, so there is no path from observation to a file template; shapes that survive abstraction with a frozen structural key fail `validate()` and are never proposed |
+| promotion at ≥N observations in ≥M domains, f64 consistency | `promotable`: ≥3 realized across ≥2 workspace tags, consistency ≥ ¾ — all `Q16::ratio` integer arithmetic | unchanged thresholds, integer math, and the output is still **unarmed**; the proposal carries a linked `NormGeneCandidate`, so the existing promotion-feedback fitness loop applies without modification |
+| fitness φ ← 0.9·φ + 0.1·r (f64) | `NormFitnessTrace::smoothed_fitness(alpha: Q16)` — integer EMA on the existing trace | CROSS-007; `alpha` clamped to the unit interval |
+| `genome.rs` co-activation (f64 Jaccard ≥ 0.8 single-link), `relations.rs`, `compose_norms` | `norm_genome.rs`: `cluster_genes` (Q16 Jaccard, BFS components, integer-mean cohesion), `relate` (Dependent > Conflicting > Compatible > Independent), `compose` (BFS over `requires`, conflict detection, merged sorted templates) | advisory throughout (CROSS-010): genes rank and inform, they gate nothing; composition emits templates, and making the result durable is a separate governed act |
+| `~/.isls` home-dir persistence, write-once + mef_chain | `kosmo-store::NormStore` — caller-pathed directory, `norms.jsonl` + `observations.jsonl`, `allow_host_write`-gated (the same policy bit as every durable store), verify **and** validate on load and append, corruption = hard error on open | content addressing replaces the hash chain; the anti-disease gate runs at rest, not just at creation |
+| chat → `intent_to_norm_ops` | `kosmo_intent::{NormCatalog, compile_wish_with_norms, is_reserved_wish_word}` | a promoted trigger expands exactly like a built-in archetype; reserved grammar words and duplicate triggers are refused at catalog construction; the empty catalog is pinned **byte-identical** to the untouched `compile_wish` |
+
+CLI: `kosmo-run --norms <dir>` (expansion + learning on realized
+`--apply` descents), `--inject-norm <spec.json>`, `--promote-norm <id>
+--trigger <word>`. The e2e binary test walks the plan's lifecycle:
+three realized descents of one shape in two scratch workspaces ⇒ the
+third run stores the unarmed norm ⇒ its would-be trigger still expands
+nothing ⇒ promotion arms it ⇒ "a loader delta" compiles to the learned
+shape ⇒ and without `--norms` the same prose stays vacuous.

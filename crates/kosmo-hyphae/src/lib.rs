@@ -30,6 +30,9 @@ pub mod lpcm;
 pub mod metatron;
 pub mod motif;
 pub mod norm;
+pub mod norm_genome;
+pub mod norm_learning;
+pub mod norm_schema;
 pub mod run;
 pub mod structural_yield;
 pub mod surgery;
@@ -75,6 +78,18 @@ pub use metatron::{
 };
 pub use motif::MotifCandidate;
 pub use norm::{FitnessObservation, NormFitnessTrace, NormGeneCandidate};
+pub use norm_genome::{
+    cluster_genes, compose, default_gene_threshold, relate, ComposeError, NormActivation, NormGene,
+    NormRelation,
+};
+pub use norm_learning::{
+    abstract_bundle, abstract_subject, promotable, FacetBundleObservation, NormLearningConfig,
+    NormProposal,
+};
+pub use norm_schema::{
+    Norm, NormFacetTemplate, NormInjectionSpec, NormLevel, NormOrigin, NormValidationError,
+    NAME_PLACEHOLDER,
+};
 pub use run::{passive_run, passive_run_augmented, HyphaeRunResult};
 pub use structural_yield::{StructuralYield, StructuralYieldKind};
 pub use surgery::{

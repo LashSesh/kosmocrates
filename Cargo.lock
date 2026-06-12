@@ -1578,6 +1578,7 @@ name = "kosmo-intent"
 version = "0.1.0"
 dependencies = [
  "kosmo-core",
+ "kosmo-hyphae",
  "kosmo-parseback",
  "kosmo-sandbox",
  "serde",
@@ -1693,9 +1694,11 @@ version = "0.1.0"
 dependencies = [
  "kosmo-agent",
  "kosmo-core",
+ "kosmo-hyphae",
  "kosmo-intent",
  "kosmo-pipeline",
  "kosmo-pse-bridge",
+ "kosmo-store",
  "kosmo-synthesizer",
  "kosmo-synthesizer-llm",
  "pse-adapter-kosmo",
