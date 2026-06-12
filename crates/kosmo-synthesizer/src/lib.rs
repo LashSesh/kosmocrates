@@ -28,6 +28,8 @@ use kosmo_core::{Digest, WishFacet, WishFacetKind, Q16};
 use kosmo_pipeline::{ActionItem, ActionItemKind};
 use kosmo_pse_bridge::MemoryGroundingEntry;
 
+pub mod consensus;
+
 // ─── Source context ───────────────────────────────────────────────────────────
 
 /// A source file excerpt provided as context to the synthesizer.

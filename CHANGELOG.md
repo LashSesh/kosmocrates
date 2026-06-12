@@ -15,6 +15,42 @@ note explicitly says so.
 
 ### Added
 
+* **Wonderlamp assimilation, phase 1 — deterministic foundations for
+  swarm consensus**
+
+  `wonderlamp.zip` (ISLS, ~56K LOC) is the abandoned predecessor of this
+  system: same vision, no epistemic substrate, and a chronic collapse
+  into CRUD templates. The assimilation ports its valuable organs onto
+  the substrate it lacked — taxonomy and mathematics cross, the disease
+  does not (`docs/WONDERLAMP_ASSIMILATION.md` carries the full port map
+  and the permanent rejection list).
+
+  Phase 1 lands the deterministic foundations, integerized beyond the
+  original:
+
+  * `Q16::geomean` — the n-th root of the raw product via binary search
+    on `i128`: bit-replayable soft unanimity (empty/zero ⇒ ZERO),
+    replacing Wonderlamp's `ln`/`exp` float pipeline.
+  * `kosmo_hyphae::xlang::symbol_sets(_auto)` — the existing 7-language
+    classifier pass with names retained (`name/arity` function keys):
+    the language-agnostic substitute for ISLS's Rust-only regex readers.
+  * `kosmo_hyphae::codematrix::CodeMatrixFingerprint` — the 5D quality
+    fingerprint (richness / functions / types / structure / error
+    handling) as content-addressed Q16 with `verify_id`, language from
+    xlang instead of path guessing; `resonance` = geomean of axis
+    similarities. Strictly advisory (CROSS-010).
+  * `kosmo_synthesizer::consensus` — Ophanim/Konus re-expressed:
+    per-candidate `D_k = ψ·ρ·ω` (the house tripolar form; agreement via
+    percent-weighted Jaccard with exact boundary arithmetic, outlier
+    cutoff kept, **neutral band** ρ=ω=HALF for structure-free patches),
+    ensemble `d_total = geomean(max(D_k, ε)) ⊗ Ω`, `best_index`, and the
+    Coagula `repair_targets` menu. Pure, offline, deterministic — the
+    fail-closed *delivery* (confidence folding, repair rounds) is
+    phase 2's SwarmSynthesizer.
+
+  Every phase ships a disease test: the assimilated sources are pinned
+  free of stack names, file-tree templates, and entity scaffolds.
+
 * **Landscape surfaces — and adopted wishes carry the full armament**
 
   The wish landscape reaches every operator surface: `POST /api/landscape`

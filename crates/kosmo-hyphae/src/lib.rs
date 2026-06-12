@@ -16,6 +16,7 @@
 
 pub mod assimilation;
 pub mod code_hdag;
+pub mod codematrix;
 pub mod collapse;
 pub mod corpus;
 pub mod crystal;
@@ -82,4 +83,7 @@ pub use surgery::{
 };
 pub use swarm::{CompositeSupportCube, CubeMandorla, CubeSwarm, SourceCubeWorker, WorkerStatus};
 pub use void_map::{HostVoid, HostVoidKind, TopologicalVoidMap};
-pub use xlang::{is_test_path, CrossLanguageFingerprint, SourceLanguage};
+pub use xlang::{
+    is_test_path, symbol_sets, symbol_sets_auto, CrossLanguageFingerprint, SourceLanguage,
+    SymbolSets,
+};
