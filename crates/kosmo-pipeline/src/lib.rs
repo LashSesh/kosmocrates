@@ -288,6 +288,12 @@ pub struct IntegrationRunReport {
     /// Empty when `prior_feedback` is empty or no feedback matches.
     pub norm_fitness_traces: Vec<NormFitnessTrace>,
     pub systemcube_export: Option<KcubeExportReport>,
+    /// The built SystemCube itself (with `enable_systemcube`) — the in-process
+    /// seam for real `.kcube` export (`SystemCube::export_to_kcube`). Not part
+    /// of the wire format or `report_id`: the export dry-run above carries the
+    /// serialized truth; this carries the exporter.
+    #[serde(skip)]
+    pub systemcube: Option<SystemCube>,
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
     pub final_result: GateResult,
@@ -330,6 +336,7 @@ impl IntegrationRunReport {
         norm_candidates: Vec<NormGeneCandidate>,
         norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
+        systemcube: Option<SystemCube>,
         aggregated_gate: AggregatedGateResult,
         persisted_crystal_count: u32,
         policy: &PolicyProfile,
@@ -392,6 +399,7 @@ impl IntegrationRunReport {
             norm_candidates,
             norm_fitness_traces,
             systemcube_export,
+            systemcube,
             aggregated_gate,
             final_result,
             persisted_crystal_count,
@@ -1537,57 +1545,58 @@ pub fn run_dry_pipeline(
         .collect();
 
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
-    let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
-        let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
-        // Step 5e: build units then energy-rank them (accepted first, tainted below).
-        let raw_units: Vec<BlueprintUnit> = hyphae
-            .decisions
-            .iter()
-            .filter(|d| d.outcome.is_accepted())
-            .map(|d| {
-                BlueprintUnit::new(
-                    BlueprintUnitKind::ModuleBoundary,
-                    d.yield_id,
-                    kosmo_core::AuthorityLabel::Foundry,
-                    d.taint.clone(),
-                    vec![d.evidence_bundle_id],
-                    policy,
-                )
-            })
-            .collect();
-        let assessments: Vec<_> = raw_units
-            .iter()
-            .map(|u| u.energy_assessment(&GateResult::Pass))
-            .collect();
-        let ranked_ids = rank_by_energy(&assessments);
-        let units: Vec<BlueprintUnit> = ranked_ids
-            .iter()
-            .filter_map(|a| {
-                raw_units
-                    .iter()
-                    .find(|u| u.unit_id == a.subject_id)
-                    .cloned()
-            })
-            .collect();
-        let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
-        let export = cube.export_dry_run(options.systemcube_capacity, policy);
-        // Gate contribution: Warn when compatibility gaps exist (structural advisory, not energy).
-        let cube_gate = if export.compatibility.gaps.is_empty() {
-            GateResult::Pass
+    let (systemcube_export, systemcube): (Option<KcubeExportReport>, Option<SystemCube>) =
+        if options.enable_systemcube {
+            let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
+            // Step 5e: build units then energy-rank them (accepted first, tainted below).
+            let raw_units: Vec<BlueprintUnit> = hyphae
+                .decisions
+                .iter()
+                .filter(|d| d.outcome.is_accepted())
+                .map(|d| {
+                    BlueprintUnit::new(
+                        BlueprintUnitKind::ModuleBoundary,
+                        d.yield_id,
+                        kosmo_core::AuthorityLabel::Foundry,
+                        d.taint.clone(),
+                        vec![d.evidence_bundle_id],
+                        policy,
+                    )
+                })
+                .collect();
+            let assessments: Vec<_> = raw_units
+                .iter()
+                .map(|u| u.energy_assessment(&GateResult::Pass))
+                .collect();
+            let ranked_ids = rank_by_energy(&assessments);
+            let units: Vec<BlueprintUnit> = ranked_ids
+                .iter()
+                .filter_map(|a| {
+                    raw_units
+                        .iter()
+                        .find(|u| u.unit_id == a.subject_id)
+                        .cloned()
+                })
+                .collect();
+            let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
+            let export = cube.export_dry_run(options.systemcube_capacity, policy);
+            // Gate contribution: Warn when compatibility gaps exist (structural advisory, not energy).
+            let cube_gate = if export.compatibility.gaps.is_empty() {
+                GateResult::Pass
+            } else {
+                GateResult::Warn {
+                    message: format!(
+                        "systemcube: {} compatibility gap(s); score={}",
+                        export.compatibility.gaps.len(),
+                        export.compatibility.compatibility_score.raw(),
+                    ),
+                }
+            };
+            agg.record("systemcube", export.export_id, cube_gate);
+            (Some(export), Some(cube))
         } else {
-            GateResult::Warn {
-                message: format!(
-                    "systemcube: {} compatibility gap(s); score={}",
-                    export.compatibility.gaps.len(),
-                    export.compatibility.compatibility_score.raw(),
-                ),
-            }
+            (None, None)
         };
-        agg.record("systemcube", export.export_id, cube_gate);
-        Some(export)
-    } else {
-        None
-    };
 
     // ── 6b. PSE bridge candidates — flatten + confidence-rank ─────────────────
     // Converts norm candidates and topology observations into PseBridgeCandidate
@@ -1687,6 +1696,7 @@ pub fn run_dry_pipeline(
         norm_candidates,
         norm_fitness_traces,
         systemcube_export,
+        systemcube,
         aggregated_gate,
         persisted_crystal_count,
         policy,

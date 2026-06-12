@@ -15,6 +15,43 @@ note explicitly says so.
 
 ### Added
 
+* **Organ doors — foundry, witness, parseback, kcube, codematrix
+  (Spreizung II)**
+
+  Five substrate organs that were reachable only as side effects of
+  `--apply`/`--all` become directed doors of their own — each in the
+  doors catalog by build-enforced pin, one door per run:
+
+  - `--foundry <kinds>` — the loop's own gate executor, invoked alone:
+    allowlisted cargo checks (`build,test,lint,typecheck`; the
+    vocabulary is closed and refusals name the word) under the same
+    timeout discipline and content-addressed evidence the agent uses,
+    worst-wins outcome, exit 6 on failure. `DryRun` is the least power
+    that executes — `ReportOnly` stays inert by design.
+  - `--witness "<argv>"` — one execution of the workspace's binary
+    under the sandbox witness (cwd-confined, 60s budget, output capped
+    but digest-complete): the raw, content-addressed evidence of a run;
+    exit 7 unless clean.
+  - `--parseback [--parseback-baseline <f>]` — the topology eye:
+    a content-addressed snapshot (crates, files, dependency edges);
+    with a baseline file, severity-ranked drift. The baseline is
+    written once and **never silently replaced** (pinned byte-exact) —
+    delete it to rebaseline.
+  - `--kcube <dir>` — the blueprint exporter: full diagnosis →
+    SystemCube → a real, **roundtrip-verified `.kcube` archive**. Each
+    diagnosis run is its own observation event with its own cube
+    identity, so each export lands a distinctly named archive; silent
+    overwrite stays refused by the kcube guard. En route, the pipeline
+    report now carries the built `SystemCube` itself (`#[serde(skip)]`
+    — the wire format and `report_id` are byte-identical).
+  - `--codematrix` — the 5D fingerprint lens (relationality, cohesion,
+    topology, symmetry, entropy) per source plus the most resonant
+    pairs — strictly advisory: it ranks, it never gates (CROSS-010).
+
+  +6 e2e tests (gates fail-closed; witness evidence; baseline-once +
+  drift; per-diagnosis archives; advisory lens; one-door-per-run), and
+  the catalog pin grew the surface to eighteen described doors.
+
 * **Doors — the self-describing docking surface (Spreizung I)**
 
   The design law lands as mechanism: *every function gets its own

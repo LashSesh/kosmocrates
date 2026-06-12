@@ -258,6 +258,90 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--foundry",
+            vec![],
+            "run the loop's own gate executor alone: allowlisted cargo checks \
+         (build,test,lint,typecheck) with worst-wins outcome and \
+         content-addressed evidence; sources untouched (target/ cache aside)",
+            [
+                vec![
+                    DoorInput::valued("--foundry", "<kinds: build,test,lint,typecheck>").required(),
+                    workspace_input(),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--witness",
+            vec![],
+            "execute the workspace's binary once under the sandbox witness \
+         (cwd-confined, 60s budget, output capped but digest-complete) and \
+         print the content-addressed evidence of the run",
+            [
+                vec![
+                    DoorInput::valued("--witness", "<argv,comma,separated>").required(),
+                    workspace_input(),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--parseback",
+            vec![],
+            "capture the workspace's content-addressed topology snapshot \
+         (crates, files, dependency edges); with a baseline file, report \
+         severity-ranked drift — the baseline is never silently replaced",
+            [
+                vec![
+                    DoorInput::valued("--parseback-baseline", "<file>"),
+                    workspace_input(),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--kcube",
+            vec![],
+            "export the workspace's SystemCube blueprint as a real, \
+         roundtrip-verified .kcube archive into the directory you name \
+         (refuses silent overwrite; the explicit flag is the approval)",
+            [
+                vec![
+                    DoorInput::valued("--kcube", "<out-dir>").required(),
+                    DoorInput::valued("--capacity", "<n>"),
+                    workspace_input(),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--codematrix",
+            vec![],
+            "per-source 5D fingerprints (relationality, cohesion, topology, \
+         symmetry, entropy) and the most resonant pairs — strictly advisory: \
+         it ranks, it never gates",
+            [vec![workspace_input()], output_inputs()].concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace],
+        ),
+        Door::new(
+            here(),
             "--doors",
             vec![],
             "this catalog: the binary's complete docking surface, spoken by the \

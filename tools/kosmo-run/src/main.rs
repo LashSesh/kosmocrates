@@ -30,15 +30,20 @@ mod reforge;
 mod steward;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
-    assess_wish, Digest, GateResult, PolicyProfile, StageStanding, VentureSession, Wish,
-    WishAssessment, WishClosureStatus, WishFacet, WishFacetKind, Q16,
+    assess_wish, Digest, FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
+    FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan, FoundryOutcome,
+    FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult, KcubeArtifactKind,
+    KcubeExportPolicy, KcubeWriteOutcome, ParseBackScanScope, PolicyProfile, StageStanding,
+    VentureSession, Wish, WishAssessment, WishClosureStatus, WishFacet, WishFacetKind, Q16,
 };
+use kosmo_foundry::FoundryExecutor;
+use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
 use kosmo_hyphae::{
     promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
 };
@@ -50,11 +55,14 @@ use kosmo_intent::{
     SuggestionSource, WishDraft, WishSession,
 };
 use kosmo_intent_llm::{LlmIntentExtractor, LlmWishRefiner};
+use kosmo_kcube::KcubeExecutor;
+use kosmo_parseback::{diff_snapshots, ParseBackExecutor, TopologySnapshot};
 use kosmo_pipeline::{
     landscape_geometry, measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem,
     ActionItemKind, IntegrationRunOptions, LandscapeStanding, WishProposal,
 };
 use kosmo_pse_bridge::MemoryRecall;
+use kosmo_sandbox::{RunSpec, Sandbox};
 use kosmo_store::NormStore;
 use kosmo_synthesizer::{
     ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, GroundedSynthesizer,
@@ -143,6 +151,23 @@ struct Args {
     /// Doors mode: print this binary's complete docking surface — every
     /// door with inputs, governance and needs, content-addressed.
     doors: bool,
+    /// Foundry door: run the loop's own allowlisted cargo checks (comma
+    /// list: build,test,lint,typecheck) as a directed invocation.
+    foundry: Option<String>,
+    /// Witness door: execute the workspace binary with this comma-separated
+    /// argv under the sandbox witness; print the content-addressed evidence.
+    witness: Option<String>,
+    /// ParseBack door: capture the workspace topology snapshot; with a
+    /// baseline file, report severity-ranked drift against it.
+    parseback: bool,
+    /// Baseline file for --parseback (written once; delete to rebaseline).
+    parseback_baseline: Option<String>,
+    /// KCube door: export the workspace's SystemCube blueprint as a real,
+    /// roundtrip-verified .kcube archive into this directory.
+    kcube: Option<String>,
+    /// Codematrix door: per-source 5D fingerprints + most resonant pairs
+    /// (advisory — ranks, never gates).
+    codematrix: bool,
     /// Steward mode: self-husbandry — survey the workspace's own landscape
     /// and, under --apply, descend the open chores inside the fence.
     steward: bool,
@@ -196,6 +221,12 @@ impl Default for Args {
             reforge: false,
             reforge_report: None,
             doors: false,
+            foundry: None,
+            witness: None,
+            parseback: false,
+            parseback_baseline: None,
+            kcube: None,
+            codematrix: false,
             steward: false,
             fence: None,
             steward_max: 0,
@@ -348,7 +379,25 @@ OPTIONS:\n\
     --doors               print this binary's complete docking surface: every\n\
                           door with its inputs, write power and needs —\n\
                           content-addressed, deterministic, pinned by test\n\
-                          against the parser (--json for the machine form).\n\n\
+                          against the parser (--json for the machine form).\n\
+\n\
+  ORGANS (directed doors over the substrate — one door per run):\n\
+    --foundry <kinds>     run the loop's own gate executor alone: allowlisted\n\
+                          cargo checks (build,test,lint,typecheck), worst-wins\n\
+                          outcome, content-addressed evidence. Exit 6 on fail.\n\
+    --witness \"<argv>\"    execute the workspace binary once under the sandbox\n\
+                          witness (60s budget, cwd-confined) and print the\n\
+                          content-addressed evidence. Exit 7 unless clean.\n\
+    --parseback           capture the workspace topology snapshot (crates,\n\
+                          files, dependency edges — content-addressed);\n\
+    --parseback-baseline <f>  persist the snapshot once and report severity-\n\
+                          ranked drift on later runs (delete to rebaseline).\n\
+    --kcube <dir>         export the workspace's SystemCube blueprint as a\n\
+                          real, roundtrip-verified .kcube archive (refuses\n\
+                          silent overwrite). Exit 8 if not written.\n\
+    --codematrix          per-source 5D fingerprints (relationality, cohesion,\n\
+                          topology, symmetry, entropy) + most resonant pairs.\n\
+                          Advisory: ranks, never gates.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -476,6 +525,29 @@ fn parse_args() -> Result<Option<Args>, String> {
                     Some(argv.next().ok_or("--venture-session needs a file path")?);
             }
             "--doors" => args.doors = true,
+            "--foundry" => {
+                args.foundry = Some(
+                    argv.next()
+                        .ok_or("--foundry needs check kinds (e.g. build,test)")?,
+                );
+            }
+            "--witness" => {
+                args.witness = Some(
+                    argv.next()
+                        .ok_or("--witness needs a comma-separated argv")?,
+                );
+            }
+            "--parseback" => args.parseback = true,
+            "--parseback-baseline" => {
+                args.parseback_baseline = Some(
+                    argv.next()
+                        .ok_or("--parseback-baseline needs a file path")?,
+                );
+            }
+            "--kcube" => {
+                args.kcube = Some(argv.next().ok_or("--kcube needs an output directory")?);
+            }
+            "--codematrix" => args.codematrix = true,
             "--steward" => args.steward = true,
             "--fence" => {
                 args.fence = Some(argv.next().ok_or("--fence needs facet classes")?);
@@ -1992,6 +2064,489 @@ fn run_steward_mode(args: &Args) -> Result<ExitCode, String> {
     })
 }
 
+// ─── Substrate organ doors (Spreizung II) ───────────────────────────────────
+
+/// `--foundry <kinds>`: the loop's own gate executor as a directed door —
+/// the same allowlisted cargo commands, timeout discipline and
+/// content-addressed evidence the agent uses, invoked alone. `DryRun` is
+/// the least power that executes (`ReportOnly` is inert by design); the
+/// commands never touch sources (cargo's `target/` cache aside).
+fn run_foundry_mode(args: &Args) -> Result<ExitCode, String> {
+    let spec = args.foundry.as_deref().unwrap_or_default();
+    let mut checks = Vec::new();
+    for word in spec.split(',') {
+        let word = word.trim().to_lowercase();
+        if word.is_empty() {
+            continue;
+        }
+        let kind = match word.as_str() {
+            "build" => FoundryCheckKind::Build,
+            "test" => FoundryCheckKind::Test,
+            "lint" | "clippy" => FoundryCheckKind::Lint,
+            "typecheck" | "check" => FoundryCheckKind::TypeCheck,
+            other => {
+                return Err(format!(
+                    "--foundry: '{other}' is not a runnable check (the vocabulary: \
+                     build, test, lint, typecheck)"
+                ));
+            }
+        };
+        checks.push(FoundryCheckSpec::new(kind, "workspace", true));
+    }
+    if checks.is_empty() {
+        return Err("--foundry names no check (e.g. --foundry build,test)".into());
+    }
+    let policy = PolicyProfile::dry_run();
+    let root_digest = workspace_tag(&args.path);
+    let plan = FoundryExecutionPlan::new(
+        policy.id,
+        root_digest,
+        Digest::of_bytes(spec.as_bytes()),
+        FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, root_digest),
+        checks,
+        FoundryCommandPolicy::default_cargo_policy(),
+        FoundryTimeoutPolicy::new(600_000, 2_400_000),
+        FoundryEnvironmentPolicy::locked(),
+    );
+    let report = FoundryExecutor::new(args.path.as_str()).execute(&plan, &policy, root_digest);
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates foundry — the gate executor{}",
+            c(BOLD),
+            c(RESET)
+        );
+        for r in &report.check_results {
+            match &r.outcome {
+                FoundryOutcome::Passed => {
+                    println!(
+                        "  {}\u{2713}{} {:?} passed",
+                        c(GREEN),
+                        c(RESET),
+                        r.check_kind
+                    )
+                }
+                FoundryOutcome::Failed { exit_code, .. } => println!(
+                    "  {}\u{2717}{} {:?} failed (exit {})",
+                    c(RED),
+                    c(RESET),
+                    r.check_kind,
+                    exit_code
+                ),
+                other => println!("  \u{2013} {:?}: {:?}", r.check_kind, other),
+            }
+        }
+        println!(
+            "  outcome: {:?} \u{b7} {} ms \u{b7} evidence {}{}\u{2026}{}",
+            report.outcome,
+            report.elapsed_ms,
+            c(DIM),
+            &report.evidence_bundle_id.to_hex()[..12],
+            c(RESET)
+        );
+    }
+    Ok(
+        if matches!(report.outcome, FoundryExecutionOutcome::Passed) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(6)
+        },
+    )
+}
+
+/// `--witness "<argv>"`: one execution of the workspace's binary under the
+/// sandbox witness (cwd-confined, 60s budget, output capped but
+/// digest-complete) — the raw, content-addressed evidence of a run.
+fn run_witness_mode(args: &Args) -> Result<ExitCode, String> {
+    let argv: Vec<String> = args
+        .witness
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let manifest = Path::new(&args.path).join("Cargo.toml");
+    if !manifest.exists() {
+        return Err(format!(
+            "--witness needs a cargo workspace ({} has no Cargo.toml)",
+            args.path
+        ));
+    }
+    let mut run_args = vec![
+        "run".to_string(),
+        "--quiet".to_string(),
+        "--manifest-path".to_string(),
+        manifest.to_string_lossy().into_owned(),
+        "--".to_string(),
+    ];
+    run_args.extend(argv);
+    let sandbox = Sandbox::new()
+        .with_cwd(Path::new(&args.path))
+        .with_timeout(std::time::Duration::from_secs(60));
+    let w = sandbox.run(&RunSpec::new("cargo", run_args));
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "verdict": format!("{:?}", w.verdict),
+                "exit_code": w.exit_code,
+                "duration_ms": w.duration.as_millis() as u64,
+                "stdout_digest": w.stdout_digest.to_hex(),
+                "truncated": w.truncated,
+                "stdout": w.stdout,
+                "stderr": w.stderr,
+            }))
+            .map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates witness — one execution, content-addressed{}",
+            c(BOLD),
+            c(RESET)
+        );
+        println!(
+            "  verdict {:?} \u{b7} exit {:?} \u{b7} {} ms{}",
+            w.verdict,
+            w.exit_code,
+            w.duration.as_millis(),
+            if w.truncated {
+                " \u{b7} output truncated (the digest still covers all of it)"
+            } else {
+                ""
+            }
+        );
+        println!("  stdout digest {}", w.stdout_digest.to_hex());
+        for line in w.stdout.lines().take(20) {
+            println!("  | {line}");
+        }
+        if !w.stderr.trim().is_empty() {
+            for line in w.stderr.lines().take(10) {
+                println!("  ! {line}");
+            }
+        }
+    }
+    Ok(if w.succeeded() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(7)
+    })
+}
+
+/// `--parseback [--parseback-baseline <f>]`: the topology eye as a door —
+/// a content-addressed snapshot of the workspace (crates, files,
+/// dependency edges) and, against a stored baseline, the severity-ranked
+/// drift. The baseline is written once and never silently replaced.
+fn run_parseback_mode(args: &Args) -> Result<ExitCode, String> {
+    let executor = ParseBackExecutor::new(PathBuf::from(&args.path));
+    let now = executor
+        .snapshot(&ParseBackScanScope::FullWorkspace)
+        .map_err(|e| format!("parseback: could not snapshot {}: {e:?}", args.path))?;
+    let c = |code: &'static str| if args.color { code } else { "" };
+    let summary = |snap: &TopologySnapshot| {
+        format!(
+            "{} crate(s), {} dependency edge(s) \u{b7} snapshot {}\u{2026}",
+            snap.crate_count(),
+            snap.dep_edges.len(),
+            &snap.snapshot_id.to_hex()[..12]
+        )
+    };
+    match args.parseback_baseline.as_deref() {
+        None => {
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&now).map_err(|e| e.to_string())?
+                );
+            } else {
+                println!(
+                    "{}Kosmocrates parseback — the topology eye{}",
+                    c(BOLD),
+                    c(RESET)
+                );
+                println!("  {}", summary(&now));
+                println!("  (give --parseback-baseline <file> to persist and diff)");
+            }
+        }
+        Some(p) if !Path::new(p).exists() => {
+            let body = serde_json::to_string_pretty(&now).map_err(|e| e.to_string())?;
+            fs::write(p, body).map_err(|e| format!("parseback: write {p}: {e}"))?;
+            if !args.json {
+                println!(
+                    "{}Kosmocrates parseback — the topology eye{}",
+                    c(BOLD),
+                    c(RESET)
+                );
+                println!("  {}", summary(&now));
+                println!("  baseline written to {p} — future runs report drift against it");
+            }
+        }
+        Some(p) => {
+            let pre: TopologySnapshot = serde_json::from_str(
+                &fs::read_to_string(p).map_err(|e| format!("parseback: read {p}: {e}"))?,
+            )
+            .map_err(|e| format!("parseback: {p} is not a topology snapshot: {e}"))?;
+            let deltas = diff_snapshots(&pre, &now);
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "baseline": pre.snapshot_id.to_hex(),
+                        "current": now.snapshot_id.to_hex(),
+                        "deltas": deltas.iter().map(|d| serde_json::json!({
+                            "kind": format!("{:?}", d.change_kind),
+                            "severity": format!("{:?}", d.severity),
+                            "description": d.description,
+                        })).collect::<Vec<_>>(),
+                    }))
+                    .map_err(|e| e.to_string())?
+                );
+            } else {
+                println!(
+                    "{}Kosmocrates parseback — the topology eye{}",
+                    c(BOLD),
+                    c(RESET)
+                );
+                println!(
+                    "  baseline {}\u{2026} \u{2192} current {}\u{2026}",
+                    &pre.snapshot_id.to_hex()[..12],
+                    &now.snapshot_id.to_hex()[..12]
+                );
+                if deltas.is_empty() {
+                    println!("  {}\u{2713} no topology drift{}", c(GREEN), c(RESET));
+                } else {
+                    for d in &deltas {
+                        println!("  [{:?}] {}", d.severity, d.description);
+                    }
+                }
+                println!("  (the baseline is never silently replaced — delete {p} to rebaseline)");
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `--kcube <dir>`: the blueprint exporter as a door — run the full
+/// diagnosis, build the workspace's SystemCube, and export it as a real,
+/// roundtrip-verified `.kcube` archive. The explicit flag is the
+/// operator's materialization approval; silent overwrite is refused.
+fn run_kcube_mode(args: &Args) -> Result<ExitCode, String> {
+    let out_dir = args.kcube.as_deref().expect("dispatch checked");
+    fs::create_dir_all(out_dir).map_err(|e| format!("kcube: create {out_dir}: {e}"))?;
+    let policy = PolicyProfile::operator_approved_with_systemcube();
+    let options = IntegrationRunOptions::all_layers(args.capacity);
+    let report = run_workspace_pipeline(&args.path, &options, &policy)
+        .map_err(|e| format!("pipeline failed on {}: {e}", args.path))?;
+    let cube = report
+        .systemcube
+        .as_ref()
+        .ok_or("kcube: the pipeline yielded no SystemCube")?;
+    let export_policy = KcubeExportPolicy::write_once(
+        policy.id,
+        Digest::of_bytes(out_dir.as_bytes()),
+        vec![
+            KcubeArtifactKind::CartographyManifest,
+            KcubeArtifactKind::ValidationClosureReport,
+            KcubeArtifactKind::StructuralCrystal,
+        ],
+    );
+    let executor = KcubeExecutor::new(out_dir);
+    let w = cube.export_to_kcube(
+        &executor,
+        args.capacity,
+        &export_policy,
+        &policy,
+        report.report_id,
+        1,
+    );
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&w).map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates kcube — the blueprint archive{}",
+            c(BOLD),
+            c(RESET)
+        );
+        match &w.outcome {
+            KcubeWriteOutcome::Written => {
+                let file = kosmo_kcube::kcube_file_name(
+                    &format!("systemcube-{}", &cube.cube_id.to_hex()[..16]),
+                    1,
+                );
+                println!(
+                    "  {}\u{2713}{} written \u{b7} {} \u{b7} package {}\u{2026} \u{b7} {} bytes \u{b7} roundtrip {}",
+                    c(GREEN),
+                    c(RESET),
+                    Path::new(out_dir).join(file).display(),
+                    &w.package_id.to_hex()[..12],
+                    w.written_bytes,
+                    if w.roundtrip.is_some() {
+                        "verified"
+                    } else {
+                        "not verified"
+                    }
+                );
+            }
+            other => {
+                println!("  {}\u{2717}{} {:?}", c(RED), c(RESET), other);
+                for d in &w.diagnostics {
+                    println!("    {d}");
+                }
+            }
+        }
+    }
+    Ok(if matches!(w.outcome, KcubeWriteOutcome::Written) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(8)
+    })
+}
+
+/// `--codematrix`: the 5D fingerprint lens as a door — per-source axes
+/// (relationality, functional cohesion, topology, symmetry, entropy) and
+/// the most resonant pairs. Strictly advisory: it ranks, it never gates
+/// (CROSS-010); the floats below are display-only.
+fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
+    let root = Path::new(&args.path);
+    let mut prints: Vec<(String, CodeMatrixFingerprint)> = Vec::new();
+    collect_fingerprints(root, root, 0, &mut prints);
+    prints.sort_by(|a, b| a.0.cmp(&b.0));
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "sources": prints.iter().map(|(loc, fp)| serde_json::json!({
+                    "location": loc,
+                    "axes_raw": fp.axes().map(|q| q.raw()),
+                    "richness_raw": fp.richness().raw(),
+                })).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    let c = |code: &'static str| if args.color { code } else { "" };
+    println!(
+        "{}Kosmocrates codematrix — the 5D fingerprint lens (advisory){}",
+        c(BOLD),
+        c(RESET)
+    );
+    if prints.is_empty() {
+        println!("  no fingerprintable sources under {}", args.path);
+        return Ok(ExitCode::SUCCESS);
+    }
+    println!(
+        "  {} source(s) \u{b7} axes: relationality \u{b7} cohesion \u{b7} topology \u{b7} symmetry \u{b7} entropy",
+        prints.len()
+    );
+    for (loc, fp) in &prints {
+        let [r, f, t, s, e] = fp.axes();
+        println!(
+            "  {loc}  r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}",
+            r.to_f64(),
+            f.to_f64(),
+            t.to_f64(),
+            s.to_f64(),
+            e.to_f64()
+        );
+    }
+    if prints.len() >= 2 && prints.len() <= 64 {
+        let mut pairs: Vec<(Q16, &str, &str)> = Vec::new();
+        for i in 0..prints.len() {
+            for j in (i + 1)..prints.len() {
+                pairs.push((
+                    prints[i].1.resonance(&prints[j].1),
+                    prints[i].0.as_str(),
+                    prints[j].0.as_str(),
+                ));
+            }
+        }
+        pairs.sort_by(|a, b| b.0.raw().cmp(&a.0.raw()).then(a.1.cmp(b.1)));
+        println!("  most resonant pairs:");
+        for (res, a, b) in pairs.iter().take(5) {
+            println!("    {:.2}  {a} \u{2194} {b}", res.to_f64());
+        }
+    } else if prints.len() > 64 {
+        println!(
+            "  {}(pairwise resonance skipped above 64 sources){}",
+            c(DIM),
+            c(RESET)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Bounded, deterministic source walk for the codematrix lens (the same
+/// skip list as the language detector; entries sorted; capped).
+fn collect_fingerprints(
+    base: &Path,
+    dir: &Path,
+    depth: u32,
+    out: &mut Vec<(String, CodeMatrixFingerprint)>,
+) {
+    const SKIP: &[&str] = &[
+        ".git",
+        "target",
+        "node_modules",
+        ".hg",
+        ".svn",
+        "vendor",
+        "vendors",
+    ];
+    if depth > 8 || out.len() >= 400 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|e| e.path());
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            let skip = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| SKIP.contains(&n));
+            if !skip {
+                collect_fingerprints(base, &p, depth + 1, out);
+            }
+        } else {
+            let loc = p
+                .strip_prefix(base)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .into_owned();
+            if SourceLanguage::from_path(&loc).is_none() {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(&p) else {
+                continue;
+            };
+            if content.len() > 512 * 1024 {
+                continue;
+            }
+            if let Some(fp) = CodeMatrixFingerprint::from_auto(
+                Digest::of_bytes(content.as_bytes()),
+                &loc,
+                &content,
+            ) {
+                out.push((loc, fp));
+            }
+        }
+    }
+}
+
 // ─── Norm organ (learned archetypes) ────────────────────────────────────────
 
 /// Operator governance: `--inject-norm <file>` / `--promote-norm <id>
@@ -2549,6 +3104,47 @@ fn run() -> Result<ExitCode, String> {
             print!("{}", doors::render(&catalog, args.color));
         }
         return Ok(ExitCode::SUCCESS);
+    }
+
+    // Substrate organ doors (Spreizung II): foundry / witness / parseback /
+    // kcube / codematrix — directed doors over organs that used to be
+    // reachable only as side effects of --apply/--all. One door per run.
+    let organ_doors = usize::from(args.foundry.is_some())
+        + usize::from(args.witness.is_some())
+        + usize::from(args.parseback)
+        + usize::from(args.kcube.is_some())
+        + usize::from(args.codematrix);
+    if organ_doors > 0 {
+        let other_door = args.pruefstand
+            || args.reforge
+            || args.steward
+            || args.landscape
+            || args.wish.is_some()
+            || args.chat.is_some()
+            || args.atelier.is_some()
+            || args.venture.is_some()
+            || args.inject_norm.is_some()
+            || args.promote_norm.is_some();
+        if organ_doors > 1 || other_door {
+            return Err(
+                "--foundry / --witness / --parseback / --kcube / --codematrix are one door \
+                 per run (and exclusive with the other doors)"
+                    .into(),
+            );
+        }
+        if args.foundry.is_some() {
+            return run_foundry_mode(&args);
+        }
+        if args.witness.is_some() {
+            return run_witness_mode(&args);
+        }
+        if args.parseback {
+            return run_parseback_mode(&args);
+        }
+        if args.kcube.is_some() {
+            return run_kcube_mode(&args);
+        }
+        return run_codematrix_mode(&args);
     }
 
     // The Prüfstand descends a built-in reference corpus and reports fidelity:
