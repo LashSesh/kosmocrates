@@ -15,6 +15,40 @@ note explicitly says so.
 
 ### Added
 
+* **Polyglot fabrication — Python joins the build loop (Etappe III)**
+
+  The architecture's language-freedom claim becomes mechanism. A
+  cargo-less Python workspace is now **observed by Python's own law**
+  (file = module, `__init__.py` stands for its package) without `cargo
+  metadata` and without an interpreter: Module facets per file,
+  Symbol/Signature facets via the xlang extractor's verified rules,
+  Test facets for recognized test functions, Doc facets from module and
+  item docstrings. Inside cargo workspaces, Python files stop being
+  blind spots: polyglot observation merges them into the same topology,
+  so the landscape's "beyond observation" residue shrinks to what is
+  genuinely unobservable (crate roots).
+
+  Fabrication follows: in Python workspaces the `FacetScaffolder`
+  builds Module/Symbol/Doc/Test by Python conventions (location-aware —
+  scaffolds land in the file that already provides the module, wherever
+  it lives); in **mixed** workspaces the Rust path keeps precedence and
+  a polyglot fallback builds what Rust cannot name (a Python module's
+  docstring lands in the `.py` file while its smoke test lands as a
+  Rust test — genuinely mixed fabrication, pinned e2e on the adopted
+  cluster of a mixed workspace).
+
+  The Prüfstand grows a Python arm with the same fidelity contract,
+  offline and interpreter-free: a known-good Python system is accepted
+  as realized, an empty one is *fabricated* to realized (the descent
+  scaffolds by Python law), and arity signatures judge in both
+  directions (`greet/0` realized, `greet/2` rejected) — **17/17
+  `--validated`**. Landscape/geometry/adoption pins lifted to the
+  polyglot truth: the mixed fixture now shows four open proposals in
+  two coherent clusters (one per language). Also landed en route: the
+  norm-observation pin for adopted cluster descents (the feature
+  shipped with the interop pass; its binary pin had silently failed to
+  apply). +7 tests.
+
 * **The quality axes — speed as a facet; the landscape grows to five
   finding classes (Etappe II)**
 
