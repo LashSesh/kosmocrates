@@ -15,6 +15,37 @@ note explicitly says so.
 
 ### Added
 
+* **The venture — whole-system fabrication from dependent wishes
+  (Etappe I of the summit staircase)**
+
+  A `Venture` (kosmo-core/src/venture.rs) is a content-addressed web of
+  wish stages with explicit dependencies — the executable counterpart of
+  the substrate's collapse plans. Fail-closed at construction
+  (out-of-range, self- and cyclic dependencies are construction errors:
+  an invalid venture never exists as a value), deterministic execution
+  order (smallest-ready-index Kahn walk), evidence-bound (CROSS-006).
+  The `VentureSession` is pure, serializable orchestration state: a
+  failed stage cascades `Blocked` over every transitive dependent — the
+  staircase never attempts what cannot stand.
+
+  Spec files carry stage wishes as **prose**, compiled through the same
+  grammar as the front door — including promoted norm triggers — so a
+  venture stage's wish is byte-identical to the wish the same prose
+  would produce at `--wish` (pinned). Vacuous stages are hard errors.
+
+  `kosmo-run --venture <spec.json>` previews the staircase read-only
+  (order, standings, live measurement per stage) and erects it under
+  `--apply`: stage by stage in dependency order, each under the full
+  armament (gates, validation, rollback, memory, swarm), each realized
+  stage recorded as a norm-learning observation, progress persisted to
+  `--venture-session` after every stage. Resume is identity-checked: a
+  changed spec is refused, never silently restarted.
+
+  The Etappe-I exit criterion is pinned by binary test: a venture of
+  five functionally dependent stages (modules → docs → test →
+  capability) erects a multi-component system in an empty crate,
+  offline, 5/5 realized — and resumes as a no-op. +14 tests.
+
 * **The interop pass — no new technology, everything thought together**
 
   The UX premise made structural: the system's worth in practice is

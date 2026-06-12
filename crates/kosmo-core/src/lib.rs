@@ -23,6 +23,7 @@ pub mod policy;
 pub mod promotion_feedback;
 pub mod run;
 pub mod validation;
+pub mod venture;
 pub mod wish;
 
 pub use acquisition::{
@@ -74,6 +75,7 @@ pub use run::{
     RunDescriptor,
 };
 pub use validation::{determine_closure_status, ValidationClosureReport, ValidationClosureStatus};
+pub use venture::{StageStanding, Venture, VentureError, VentureSession, VentureStage};
 pub use wish::{
     assess_wish, ObservedTopology, Wish, WishAssessment, WishClosureStatus, WishFacet,
     WishFacetKind, WishPredicate,

@@ -31,11 +31,13 @@ use serde::{Deserialize, Serialize};
 
 pub mod atelier;
 pub mod chat;
+pub mod venture_spec;
 pub use atelier::{
     companion_suggestions, parse_atelier_command, AtelierCommand, DraftSlot, FacetSuggestion,
     IndexSelection, SuggestionSource, WishDraft,
 };
 pub use chat::{route_keywords, ChatIntent, IntentExtractor, KeywordIntentExtractor};
+pub use venture_spec::{compile_venture, VentureSpec, VentureStageSpec};
 
 // ─── Observation adapter ────────────────────────────────────────────────────
 

@@ -33,18 +33,18 @@ use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
-    assess_wish, Digest, GateResult, PolicyProfile, Wish, WishAssessment, WishClosureStatus,
-    WishFacet, WishFacetKind, Q16,
+    assess_wish, Digest, GateResult, PolicyProfile, StageStanding, VentureSession, Wish,
+    WishAssessment, WishClosureStatus, WishFacet, WishFacetKind, Q16,
 };
 use kosmo_hyphae::{
     promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
 };
 use kosmo_intent::{
-    companion_suggestions, compile_wish, compile_wish_with_norms, is_reserved_wish_word,
-    observe_workspace_deep, observe_workspace_runtime, observe_workspace_service,
-    observe_workspace_validated, parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot,
-    IndexSelection, IntentExtractor, KeywordIntentExtractor, NormCatalog, SuggestionSource,
-    WishDraft, WishSession,
+    companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms,
+    is_reserved_wish_word, observe_workspace_deep, observe_workspace_runtime,
+    observe_workspace_service, observe_workspace_validated, parse_atelier_command, AtelierCommand,
+    ChatIntent, DraftSlot, IndexSelection, IntentExtractor, KeywordIntentExtractor, NormCatalog,
+    SuggestionSource, WishDraft, WishSession,
 };
 use kosmo_intent_llm::{LlmIntentExtractor, LlmWishRefiner};
 use kosmo_pipeline::{
@@ -129,6 +129,12 @@ struct Args {
     /// Atelier mode: path of a durable WishDraft (JSON). Each invocation is
     /// one shaping round (--chat carries the utterance); "realize" descends.
     atelier: Option<String>,
+    /// Venture mode: a JSON spec of dependent wish stages, orchestrated as
+    /// one whole-system fabrication (writes only with --apply).
+    venture: Option<String>,
+    /// Durable venture progress (JSON): written after every stage, resumed
+    /// on the next invocation. The venture identity must match.
+    venture_session: Option<String>,
 }
 
 impl Default for Args {
@@ -164,6 +170,8 @@ impl Default for Args {
             trigger: None,
             chat: None,
             atelier: None,
+            venture: None,
+            venture_session: None,
         }
     }
 }
@@ -271,7 +279,17 @@ OPTIONS:\n\
                           Rounds: --chat \"<prose>\" adds facets;\n\
                           \"accept 3,4\" / \"reject 5\" / \"drop 2\" are\n\
                           verdicts on the numbered list; \"realize\" freezes\n\
-                          the wish and descends (writes only with --apply).\n\n\
+                          the wish and descends (writes only with --apply).\n\
+\n\
+  VENTURE (a whole system of dependent wishes):\n\
+    --venture <spec.json> orchestrate a venture: stages carry wishes as\n\
+                          prose (promoted norm triggers work), \"after\"\n\
+                          lists prerequisite stage indices. Stages descend\n\
+                          in dependency order, each under full gates; a\n\
+                          failed stage blocks its dependents. Read-only\n\
+                          preview without --apply.\n\
+    --venture-session <f> durable progress: written after every stage,\n\
+                          resumed on the next run (identity-checked).\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -385,6 +403,13 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--atelier" => {
                 args.atelier = Some(argv.next().ok_or("--atelier needs a draft file path")?);
+            }
+            "--venture" => {
+                args.venture = Some(argv.next().ok_or("--venture needs a spec file path")?);
+            }
+            "--venture-session" => {
+                args.venture_session =
+                    Some(argv.next().ok_or("--venture-session needs a file path")?);
             }
             "--ground-top" => {
                 args.ground_top = argv
@@ -1490,6 +1515,230 @@ fn run_atelier_mode(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+// ─── Venture (a whole system of dependent wishes) ──────────────────────────
+
+/// Load a venture session from disk, verifying both its content address and
+/// that it belongs to `expected` — a session for a different venture is a
+/// hard error, never a silent restart.
+fn load_venture_session(path: &str, expected: &Digest) -> Result<Option<VentureSession>, String> {
+    if !Path::new(path).exists() {
+        return Ok(None);
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    let session: VentureSession =
+        serde_json::from_str(&text).map_err(|e| format!("parse venture session {path}: {e}"))?;
+    if !session.venture().verify_id() {
+        return Err(format!(
+            "venture session {path} fails its content address — refusing a tampered session"
+        ));
+    }
+    if &session.venture().venture_id != expected {
+        return Err(format!(
+            "venture session {path} belongs to a different venture \
+             (the spec changed?) — refusing to mix histories"
+        ));
+    }
+    Ok(Some(session))
+}
+
+fn save_venture_session(path: &str, session: &VentureSession) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(session)
+        .map_err(|e| format!("serialize venture session: {e}"))?;
+    fs::write(path, json).map_err(|e| format!("write {path}: {e}"))
+}
+
+/// Render the venture's staircase: order, standings, facet counts.
+fn render_venture(session: &VentureSession, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let venture = session.venture();
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates venture{}  \u{201c}{}\u{201d}  ({} stage(s))\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        venture.label,
+        venture.stage_count()
+    ));
+    let order = venture.execution_order();
+    let order_labels: Vec<&str> = order
+        .iter()
+        .map(|&i| venture.stages[i].label.as_str())
+        .collect();
+    out.push_str(&format!("  order: {}\n", order_labels.join(" \u{2192} ")));
+    for (i, stage) in venture.stages.iter().enumerate() {
+        let standing = session.standings()[i];
+        let (mark, col) = match standing {
+            StageStanding::Realized => ("\u{2713}", GREEN),
+            StageStanding::Failed => ("\u{2717}", RED),
+            StageStanding::Blocked => ("\u{2298}", RED),
+            StageStanding::Pending => ("\u{00b7}", DIM),
+        };
+        let deps = if stage.after.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "  {}after {:?}{}",
+                c(DIM),
+                stage.after.iter().map(|d| d + 1).collect::<Vec<_>>(),
+                c(RESET)
+            )
+        };
+        out.push_str(&format!(
+            "  {:>2} {}{}{} {}  [{}]  {} facet(s){}\n",
+            i + 1,
+            c(col),
+            mark,
+            c(RESET),
+            stage.label,
+            standing.label(),
+            stage.wish.predicate_count(),
+            deps
+        ));
+    }
+    out
+}
+
+/// Orchestrate a venture: compile the spec, resume or start the session,
+/// and (under `--apply`) descend the stages in dependency order — each
+/// under the full armament, each outcome persisted before the next begins.
+fn run_venture_mode(args: &Args) -> Result<ExitCode, String> {
+    let spec_path = args.venture.as_deref().expect("dispatch checked");
+    let bytes = fs::read(spec_path).map_err(|e| format!("read {spec_path}: {e}"))?;
+    let evidence = Digest::of_bytes(&bytes);
+    let catalog = match args.norms.as_deref() {
+        Some(dir) => {
+            let store = NormStore::open(dir).map_err(|e| e.to_string())?;
+            NormCatalog::from_norms(store.norms()).map_err(|e| e.to_string())?
+        }
+        None => NormCatalog::empty(),
+    };
+    let spec_text = String::from_utf8_lossy(&bytes);
+    let venture = compile_venture(&spec_text, &catalog, Digest::ZERO, evidence)?;
+
+    let mut session = match args.venture_session.as_deref() {
+        Some(path) => load_venture_session(path, &venture.venture_id)?
+            .unwrap_or_else(|| VentureSession::new(venture)),
+        None => VentureSession::new(venture),
+    };
+
+    if !args.apply {
+        // Read-only preview: the staircase plus each stage measured against
+        // the workspace (fail-soft when unobservable).
+        if !args.json {
+            print!("{}", render_venture(&session, args.color));
+            if let Ok(observed) = observe_workspace_deep(args.path.as_str()) {
+                for stage in &session.venture().stages {
+                    let a = assess_wish(&stage.wish, &observed, stage.wish.evidence_bundle_id);
+                    println!(
+                        "     {} measured: {}/{} met",
+                        stage.label, a.met_count, a.total_count
+                    );
+                }
+            }
+            println!("  (read-only — add --apply to erect the venture)");
+        } else {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let fallback = wish_fallback(args)?;
+    while let Some(i) = session.next_ready() {
+        let stage = session.venture().stages[i].clone();
+        if !args.json {
+            println!(
+                "stage {}/{} \u{201c}{}\u{201d} \u{2014} descending \u{2026}",
+                i + 1,
+                session.venture().stage_count(),
+                stage.label
+            );
+        }
+        let validated = args.validated || wish_needs_validation(&stage.wish);
+        let wish_session = descend_to_wish(
+            &args.path,
+            &stage.wish,
+            stage.wish.evidence_bundle_id,
+            validated,
+            8,
+            fallback.as_deref(),
+            None,
+        )?;
+        let realized = wish_session.latest().is_some_and(|a| {
+            matches!(
+                a.status,
+                WishClosureStatus::Realized | WishClosureStatus::Vacuous
+            )
+        });
+        if let Some(a) = wish_session.latest() {
+            if !args.json {
+                println!(
+                    "  \u{2192} {} (met {}/{}, {} observation(s))",
+                    if realized { "REALIZED" } else { "NOT REALIZED" },
+                    a.met_count,
+                    a.total_count,
+                    wish_session.iterations()
+                );
+            }
+        }
+        session.mark(
+            i,
+            if realized {
+                StageStanding::Realized
+            } else {
+                StageStanding::Failed
+            },
+        );
+        // Every realized stage is a learning sighting like any other.
+        if realized {
+            if let Some(dir) = args.norms.as_deref() {
+                match NormStore::open(dir) {
+                    Ok(mut store) => record_norm_observation(
+                        &mut store,
+                        &args.path,
+                        &stage.wish,
+                        realized,
+                        stage.wish.evidence_bundle_id,
+                        &PolicyProfile::operator_approved(),
+                    ),
+                    Err(e) => eprintln!("norms: could not open store: {e}"),
+                }
+            }
+        }
+        // Persist progress before the next stage — the resumability seam.
+        if let Some(path) = args.venture_session.as_deref() {
+            save_venture_session(path, &session)?;
+        }
+    }
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?
+        );
+    } else {
+        print!("{}", render_venture(&session, args.color));
+        println!(
+            "venture: {}/{} realized{}",
+            session.realized_count(),
+            session.venture().stage_count(),
+            if session.is_complete() {
+                " \u{2713}"
+            } else {
+                ""
+            }
+        );
+    }
+    Ok(if session.is_complete() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
 // ─── Norm organ (learned archetypes) ────────────────────────────────────────
 
 /// Operator governance: `--inject-norm <file>` / `--promote-norm <id>
@@ -2050,6 +2299,17 @@ fn run() -> Result<ExitCode, String> {
     // or arm a trigger. They run and exit before any other mode.
     if args.inject_norm.is_some() || args.promote_norm.is_some() {
         return run_norm_admin(&args);
+    }
+
+    // Venture: a whole system of dependent wishes, orchestrated stage by
+    // stage. Exclusive with the single-wish doors.
+    if args.venture.is_some() {
+        if args.wish.is_some() || args.atelier.is_some() || args.chat.is_some() {
+            return Err(
+                "--venture is exclusive with --wish / --atelier / --chat (one door per run)".into(),
+            );
+        }
+        return run_venture_mode(&args);
     }
 
     // Atelier: one shaping round on a durable wish draft (--chat carries
