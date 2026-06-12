@@ -9,6 +9,9 @@
 //! Endpoints:
 //!     GET  /                  Browser UI
 //!     GET  /api/health        Version ping
+//!     GET  /api/doors         The server's docking surface, spoken by the
+//!                             server itself (content-addressed catalog,
+//!                             pinned against the router)
 //!     POST /api/analyse       Run pipeline, return structured report
 //!     POST /api/promote       Substrate→core promotion (offer/batch/
 //!                             calibration/ledger — mirrors kosmo-promote)
@@ -35,7 +38,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
+use kosmo_core::{
+    Digest, Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface, GateResult,
+    PolicyProfile, Q16,
+};
 use kosmo_pipeline::{run_workspace_pipeline, ActionItemKind, IntegrationRunOptions};
 
 // ─── Request / Response types ────────────────────────────────────────────────
@@ -219,6 +225,132 @@ async fn health() -> Json<serde_json::Value> {
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
     }))
+}
+
+// ─── Doors (the server's self-description) ──────────────────────────────────
+
+/// The server's complete docking surface, spoken by the server itself —
+/// every route as a [`Door`] with its request fields, write power and
+/// needs. A test pins this catalog against the router registrations in
+/// `main`, so the description cannot drift from the dispatch.
+fn doors_catalog() -> DoorCatalog {
+    let http = |method: &str| DoorSurface::Http {
+        binary: "kosmo-server".into(),
+        method: method.into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            http("GET"),
+            "/",
+            vec![],
+            "the embedded browser UI (single page, no external assets)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/api/health",
+            vec![],
+            "version ping",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/api/doors",
+            vec![],
+            "this catalog: the server's complete docking surface, spoken by \
+             the server itself — content-addressed, pinned against the router",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/analyse",
+            vec![],
+            "run the dry pipeline over a workspace and return the structured \
+             report (the operator flag changes gate policy, never writes)",
+            vec![
+                DoorInput::valued("path", "<workspace>").required(),
+                DoorInput::switch("flags.all"),
+                DoorInput::switch("flags.metatron"),
+                DoorInput::switch("flags.lpcm"),
+                DoorInput::switch("flags.systemcube"),
+                DoorInput::switch("flags.surgery"),
+                DoorInput::switch("flags.crystals"),
+                DoorInput::switch("flags.norms"),
+                DoorInput::switch("flags.motifs"),
+                DoorInput::switch("flags.pse"),
+                DoorInput::switch("flags.operator"),
+                DoorInput::valued("flags.capacity", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/promote",
+            vec![],
+            "substrate→core promotion (mirrors kosmo-promote): offer gated \
+             candidates to the engine in memory; with offer+ledger, anchor \
+             accepted crystals in the Infinity Ledger (the one host write)",
+            vec![
+                DoorInput::valued("path", "<workspace>").required(),
+                DoorInput::switch("offer"),
+                DoorInput::switch("batch"),
+                DoorInput::switch("all_kinds"),
+                DoorInput::valued("calibration", "default|planning|adaptive|substrate"),
+                DoorInput::valued("ledger", "<dir>"),
+            ],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/landscape",
+            vec![],
+            "the wish landscape: findings projected into ranked proposals \
+             with measured standing; geometry adds clusters and singulars",
+            vec![
+                DoorInput::valued("path", "<workspace>").required(),
+                DoorInput::switch("all"),
+                DoorInput::switch("geometry"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/norms",
+            vec![],
+            "the norm catalog of a caller-pathed store (read-only: the \
+             server never mutates a norm store)",
+            vec![DoorInput::valued("dir", "<dir>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/recall",
+            vec![],
+            "Pfauenthron++ retrieval over an Infinity Ledger (read-only; a \
+             missing ledger is an error, never a creation)",
+            vec![
+                DoorInput::valued("ledger", "<dir>").required(),
+                DoorInput::valued("query", "<text>").required(),
+                DoorInput::valued("top", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+    ])
+}
+
+async fn doors() -> Json<serde_json::Value> {
+    Json(serde_json::to_value(doors_catalog()).unwrap_or_default())
 }
 
 async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse>, ApiError> {
@@ -746,6 +878,7 @@ fn parse_server_args() -> Result<ServerArgs, String> {
                     "ENDPOINTS:\n",
                     "    GET  /              Browser UI\n",
                     "    GET  /api/health    Version ping\n",
+                    "    GET  /api/doors     The server's docking surface (self-described)\n",
                     "    POST /api/analyse   Run pipeline, return JSON report\n",
                     "\n",
                     "NOTE: intended for local development use only.\n",
@@ -794,6 +927,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(serve_index))
         .route("/api/health", get(health))
+        .route("/api/doors", get(doors))
         .route("/api/analyse", post(analyse))
         .route("/api/promote", post(promote))
         .route("/api/recall", post(recall))
@@ -1084,5 +1218,88 @@ mod tests {
         assert!(row["origin"].as_str().unwrap().starts_with("injected"));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// This server's own source — the doors catalog is pinned against the
+    /// router registrations, so the self-description cannot drift.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    /// Every `(method, route)` the router actually registers:
+    /// `.route("<path>", get(...)|post(...))` literals in `main`.
+    fn registered_routes() -> std::collections::BTreeSet<(String, String)> {
+        let mut routes = std::collections::BTreeSet::new();
+        for line in MAIN_SRC.lines() {
+            if line.trim_start().starts_with("//") {
+                continue; // prose about routes is not a route
+            }
+            let Some(start) = line.find(".route(\"") else {
+                continue;
+            };
+            let after = &line[start + ".route(\"".len()..];
+            let Some(end) = after.find('"') else { continue };
+            let path = &after[..end];
+            let tail = &after[end..];
+            let method = if tail.contains("get(") {
+                "GET"
+            } else if tail.contains("post(") {
+                "POST"
+            } else {
+                continue;
+            };
+            routes.insert((method.to_string(), path.to_string()));
+        }
+        routes
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_router() {
+        let registered = registered_routes();
+        let cataloged: std::collections::BTreeSet<(String, String)> = doors_catalog()
+            .doors
+            .iter()
+            .map(|d| match &d.surface {
+                DoorSurface::Http { method, .. } => (method.clone(), d.name.clone()),
+                other => panic!("a server door must be HTTP, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            registered, cataloged,
+            "the catalog and the router must speak the same routes — \
+             an undescribed route is a hole in the docking surface"
+        );
+    }
+
+    #[test]
+    fn the_servers_surface_is_workspace_safe_and_describes_itself() {
+        let catalog = doors_catalog();
+        // The server never mutates a workspace and never decrees: its only
+        // write power is the explicit ledger anchor behind /api/promote.
+        for door in &catalog.doors {
+            assert_ne!(
+                door.governance,
+                DoorGovernance::WritesWorkspace,
+                "{} must not write workspaces",
+                door.name
+            );
+            assert_ne!(
+                door.governance,
+                DoorGovernance::GovernanceAct,
+                "{} must not decree",
+                door.name
+            );
+        }
+        assert_eq!(
+            catalog
+                .doors
+                .iter()
+                .filter(|d| d.governance == DoorGovernance::AppendsStore)
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/api/promote"],
+            "exactly one store-appending door"
+        );
+        // The catalog lists itself, deterministically.
+        assert!(catalog.doors.iter().any(|d| d.name == "/api/doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
     }
 }

@@ -11,6 +11,7 @@ pub mod attractor;
 pub mod authority;
 pub mod cartography;
 pub mod digest;
+pub mod doors;
 pub mod energy;
 pub mod evaluation;
 pub mod evidence;
@@ -40,6 +41,7 @@ pub use cartography::{
     CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
 };
 pub use digest::{canonical_bytes, Digest};
+pub use doors::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
 pub use energy::{
     rank_by_energy, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, TripolarEnergy,
 };

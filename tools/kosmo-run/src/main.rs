@@ -24,6 +24,7 @@
 //! loop offline.
 //! ```
 
+mod doors;
 mod pruefstand;
 mod reforge;
 mod steward;
@@ -139,6 +140,9 @@ struct Args {
     reforge: bool,
     /// Write the reforge report (content-addressed JSON) to this file.
     reforge_report: Option<String>,
+    /// Doors mode: print this binary's complete docking surface — every
+    /// door with inputs, governance and needs, content-addressed.
+    doors: bool,
     /// Steward mode: self-husbandry — survey the workspace's own landscape
     /// and, under --apply, descend the open chores inside the fence.
     steward: bool,
@@ -191,6 +195,7 @@ impl Default for Args {
             venture_session: None,
             reforge: false,
             reforge_report: None,
+            doors: false,
             steward: false,
             fence: None,
             steward_max: 0,
@@ -337,7 +342,13 @@ OPTIONS:\n\
                           widening the fence is an explicit operator act.\n\
     --steward-max <n>     cap the chore list per run (default: uncapped)\n\
     --steward-report <f>  write the content-addressed JSON report to <f>\n\
-                          (host-path-free; fit for an unattended nightly run).\n\n\
+                          (host-path-free; fit for an unattended nightly run).\n\
+\n\
+  DOORS (the binary's self-description):\n\
+    --doors               print this binary's complete docking surface: every\n\
+                          door with its inputs, write power and needs —\n\
+                          content-addressed, deterministic, pinned by test\n\
+                          against the parser (--json for the machine form).\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -464,6 +475,7 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.venture_session =
                     Some(argv.next().ok_or("--venture-session needs a file path")?);
             }
+            "--doors" => args.doors = true,
             "--steward" => args.steward = true,
             "--fence" => {
                 args.fence = Some(argv.next().ok_or("--fence needs facet classes")?);
@@ -2523,6 +2535,21 @@ fn run() -> Result<ExitCode, String> {
         Some(a) => a,
         None => return Ok(ExitCode::SUCCESS),
     };
+
+    // Doors: the binary's self-description — the machine-true catalog of
+    // its own docking surface. Costs nothing, touches nothing.
+    if args.doors {
+        let catalog = doors::catalog();
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&catalog).map_err(|e| e.to_string())?
+            );
+        } else {
+            print!("{}", doors::render(&catalog, args.color));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
 
     // The Prüfstand descends a built-in reference corpus and reports fidelity:
     // every known-good system must be accepted, every broken one rejected.

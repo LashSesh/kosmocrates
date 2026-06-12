@@ -15,6 +15,37 @@ note explicitly says so.
 
 ### Added
 
+* **Doors — the self-describing docking surface (Spreizung I)**
+
+  The design law lands as mechanism: *every function gets its own
+  addressed door; a chat window is one door among many, never the door.*
+  The operator's standing question — "what, exactly, could I operate
+  right now?" — now has a machine answer spoken by the system itself.
+
+  `kosmo_core::doors` is the vocabulary: a `Door` is one operator-facing
+  entry point with its surface (CLI flag / HTTP route), name and aliases,
+  one summary, its inputs (value shapes, required-ness), its **write
+  power as data** (`read-only` / `writes-workspace` / `appends-store` /
+  `governance-act`) and its needs (provider/cargo/network/workspace/
+  store/file) — content-addressed; a `DoorCatalog` is a surface's
+  deterministic, deduped, content-addressed inventory, and catalogs
+  merge across surfaces.
+
+  Surfaces describe **themselves**: `kosmo-run --doors` speaks the
+  binary's thirteen doors (text and `--json`), `GET /api/doors` speaks
+  the server's eight routes. And the description cannot drift: each
+  surface carries a source-pin test that scans its own parser/router and
+  asserts set-equality with the catalog — a new flag or route without a
+  description fails the build, as does a described door without a
+  mechanism. Self-description is offline, keyless, workspace-free and
+  byte-deterministic (pinned e2e). The server's catalog additionally
+  pins its governance truth: no door writes a workspace, no door
+  decrees, exactly one appends a store (`/api/promote`'s explicit ledger
+  anchor). Protocol and the road to the merged ecosystem inventory (and
+  the catalog-generated GUI at its end) in `docs/DOORS.md`. +11 tests
+  (4 vocabulary, 3 kosmo-run incl. the parser pin, 2 e2e, 2 server incl.
+  the router pin).
+
 * **The steward — self-husbandry under an operator-named fence (Etappe V)**
 
   The system now works on itself, governed. `kosmo-run --steward` surveys
