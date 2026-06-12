@@ -15,6 +15,37 @@ note explicitly says so.
 
 ### Added
 
+* **The steward — self-husbandry under an operator-named fence (Etappe V)**
+
+  The system now works on itself, governed. `kosmo-run --steward` surveys
+  a workspace's own wish landscape (run on this repository, it sees its
+  own body: 780 proposals, 645 open chores) and names the open proposals
+  inside an explicit **fence** — a comma-separated list of facet classes
+  the operator spoke (`--fence doc,test`). Nothing is fenced by default:
+  husbandry (`--apply`) without a fence is refused, words outside the
+  facet vocabulary are refused, and widening the fence is itself an
+  explicit per-run operator act. Under `--apply`, each fenced open chore
+  descends as its own evidence-bound wish through the same armament as
+  wish mode — deterministic scaffolds first, so a `doc,test` fence
+  husbands offline with no provider and no key — and every descent is
+  recorded as a norm-learning observation: the system learns from the
+  work it does on itself. A failed chore is recorded and the round
+  continues (exit 4 still tells the truth at the end); `--steward-max`
+  caps the chore list per run.
+
+  The report (`--steward-report`) is content-addressed and
+  **host-path-free** (the workspace appears as its identity digest), fit
+  for an unattended nightly artifact — and `.github/workflows/steward.yml`
+  makes that literal: a scheduled nightly **self-survey** publishes the
+  plan as a build artifact (the machine proposes), while the husbandry
+  job runs only on manual dispatch and pushes a `steward/*` branch, never
+  to `main` — opening and merging the pull request stays the operator's
+  baptism. Protocol in `docs/STEWARD.md`. +10 tests (4 unit: fence
+  vocabulary/refusals, fenced-open selection honoring standing and cap,
+  report counts/json/host-path-freedom; 6 e2e: read-only survey,
+  fenceless and unknown-class refusals, door exclusivity, offline
+  husbandry observed by the norm organ, the cap).
+
 * **The reforge — external empiricism as a bench (Etappe IV)**
 
   The system now proves itself against truth it did not author.

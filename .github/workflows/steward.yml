@@ -1,0 +1,79 @@
+name: Steward
+
+# Self-husbandry (docs/STEWARD.md): the system surveys its own wish
+# landscape nightly and publishes the plan as an artifact — the machine
+# proposes. The husbandry job runs ONLY on manual dispatch: dispatching it
+# is the operator's act. It pushes a steward/* branch for review, never to
+# main — opening and merging the pull request stays a human decision.
+
+on:
+  schedule:
+    # Nightly, off the full hour to be kind to shared runners.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      husband:
+        description: "Husband the doc,test fence and push a steward/* branch"
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+permissions:
+  contents: read
+
+jobs:
+  survey:
+    name: nightly self-survey (read-only)
+    if: ${{ github.event_name == 'schedule' || !inputs.husband }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Survey the repository's own landscape
+        run: |
+          cargo run --locked -p kosmo-run -- \
+            --steward --fence doc,test --no-color \
+            --steward-report "$RUNNER_TEMP/steward-report.json" .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: steward-report
+          path: ${{ runner.temp }}/steward-report.json
+
+  husband:
+    name: fenced husbandry (operator-dispatched)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.husband }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Husband the doc,test fence
+        run: |
+          cargo run --locked -p kosmo-run -- \
+            --steward --fence doc,test --apply --no-color \
+            --steward-report "$RUNNER_TEMP/steward-report.json" .
+      - name: Push the chores as a steward branch (the PR is the operator's act)
+        run: |
+          if git diff --quiet; then
+            echo "nothing to husband — the fenced landscape is clean" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="steward/run-${{ github.run_number }}"
+          git config user.name "kosmo-steward"
+          git config user.email "steward@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "Steward: doc,test chores from the self-survey"
+          git push origin "$branch"
+          echo "pushed \`$branch\` — open a pull request to baptize it" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: steward-report
+          path: ${{ runner.temp }}/steward-report.json

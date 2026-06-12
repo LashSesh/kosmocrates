@@ -26,6 +26,7 @@
 
 mod pruefstand;
 mod reforge;
+mod steward;
 
 use std::fs;
 use std::path::Path;
@@ -138,6 +139,16 @@ struct Args {
     reforge: bool,
     /// Write the reforge report (content-addressed JSON) to this file.
     reforge_report: Option<String>,
+    /// Steward mode: self-husbandry — survey the workspace's own landscape
+    /// and, under --apply, descend the open chores inside the fence.
+    steward: bool,
+    /// The operator's fence: comma-separated facet classes the steward may
+    /// husband (e.g. "doc,test"). Nothing is fenced by default.
+    fence: Option<String>,
+    /// Cap the steward's chore list per run (0 = uncapped).
+    steward_max: u32,
+    /// Write the steward report (content-addressed JSON) to this file.
+    steward_report: Option<String>,
     /// Durable venture progress (JSON): written after every stage, resumed
     /// on the next invocation. The venture identity must match.
     venture_session: Option<String>,
@@ -180,6 +191,10 @@ impl Default for Args {
             venture_session: None,
             reforge: false,
             reforge_report: None,
+            steward: false,
+            fence: None,
+            steward_max: 0,
+            steward_report: None,
         }
     }
 }
@@ -308,7 +323,21 @@ OPTIONS:\n\
                           at run time; the forged tool is executed and must\n\
                           answer like the oracle, within a time budget.\n\
                           One command, reproducible by anyone with a key.\n\
-    --reforge-report <f>  write the content-addressed JSON report to <f>.\n\n\
+    --reforge-report <f>  write the content-addressed JSON report to <f>.\n\
+\n\
+  STEWARD (self-husbandry — the machine proposes, the operator disposes):\n\
+    --steward             survey the workspace's own wish landscape and name\n\
+                          the open chores inside the fence. Read-only without\n\
+                          --apply; with --apply, each fenced chore descends as\n\
+                          its own evidence-bound wish (deterministic scaffolds;\n\
+                          --provider/--ledger/--norms compose as in wish mode).\n\
+    --fence <classes>     the facet classes the steward may husband, comma-\n\
+                          separated (e.g. doc,test). NOTHING is fenced by\n\
+                          default — husbandry without a fence is refused, and\n\
+                          widening the fence is an explicit operator act.\n\
+    --steward-max <n>     cap the chore list per run (default: uncapped)\n\
+    --steward-report <f>  write the content-addressed JSON report to <f>\n\
+                          (host-path-free; fit for an unattended nightly run).\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -434,6 +463,21 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--venture-session" => {
                 args.venture_session =
                     Some(argv.next().ok_or("--venture-session needs a file path")?);
+            }
+            "--steward" => args.steward = true,
+            "--fence" => {
+                args.fence = Some(argv.next().ok_or("--fence needs facet classes")?);
+            }
+            "--steward-max" => {
+                args.steward_max = argv
+                    .next()
+                    .ok_or("--steward-max needs a value")?
+                    .parse()
+                    .map_err(|_| "--steward-max must be a number")?;
+            }
+            "--steward-report" => {
+                args.steward_report =
+                    Some(argv.next().ok_or("--steward-report needs a file path")?);
             }
             "--ground-top" => {
                 args.ground_top = argv
@@ -1799,6 +1843,143 @@ fn run_reforge_mode(args: &Args) -> Result<ExitCode, String> {
     })
 }
 
+// ─── Steward (self-husbandry under an operator-named fence) ─────────────────
+
+/// `--steward`: survey the workspace's wish landscape, name the open chores
+/// inside the operator's `--fence`, and under `--apply` descend each chore
+/// as its own evidence-bound wish — the same armament as wish mode and
+/// landscape adoption, one descent and one norm observation per chore.
+/// Read-only without `--apply`; `--apply` without a fence is refused
+/// (nothing is fenced by default). The report is content-addressed and
+/// host-path-free, fit for an unattended nightly run.
+fn run_steward_mode(args: &Args) -> Result<ExitCode, String> {
+    let fence = args
+        .fence
+        .as_deref()
+        .map(steward::Fence::parse)
+        .transpose()?;
+    if args.apply && fence.is_none() {
+        return Err(
+            "--steward --apply needs --fence <classes>: nothing is fenced by default — \
+             the operator names what the steward may husband (e.g. --fence doc,test)"
+                .into(),
+        );
+    }
+
+    // The same diagnosis the landscape door runs — the steward adds no new
+    // eyes, only governed hands.
+    let policy = PolicyProfile::default_report_only();
+    let options = if args.all_layers {
+        IntegrationRunOptions::all_layers(args.capacity)
+    } else {
+        IntegrationRunOptions::report_only()
+    };
+    let report = run_workspace_pipeline(&args.path, &options, &policy)
+        .map_err(|e| format!("pipeline failed on {}: {e}", args.path))?;
+    let voids = &report.hyphae_result.host_cube.void_map.voids;
+    let landscape = propose_wishes(voids);
+    let observed = observe_workspace_deep(&args.path).ok();
+    let standing = measure_landscape(&landscape, observed.as_ref());
+
+    let cap = (args.steward_max > 0).then_some(args.steward_max as usize);
+    let chores: Vec<&WishProposal> = match &fence {
+        Some(f) => steward::fenced_open(&landscape, &standing, f, cap),
+        None => Vec::new(),
+    };
+    let mut sreport = steward::StewardReport::survey(
+        workspace_tag(&args.path),
+        fence.as_ref(),
+        &landscape,
+        &standing,
+        &chores,
+        args.apply,
+    );
+
+    if args.apply {
+        let fallback = wish_fallback(args)?;
+        let mut norm_store = match args.norms.as_deref() {
+            Some(dir) => match NormStore::open(dir) {
+                Ok(store) => Some(store),
+                Err(e) => {
+                    eprintln!("norms: could not open store: {e}");
+                    None
+                }
+            },
+            None => None,
+        };
+        for p in &chores {
+            let wish = Wish::new(
+                format!("steward: {:?} {}", p.facet.kind, p.facet.key),
+                [kosmo_core::WishPredicate::weighted(
+                    p.facet.clone(),
+                    p.severity,
+                )],
+                Digest::ZERO,
+                report.report_id,
+            );
+            // A failed chore is recorded and the round continues — an
+            // unattended steward reports failures, it doesn't abandon the
+            // remaining fenced work over one of them.
+            let (realized, iterations) = match descend_to_wish(
+                &args.path,
+                &wish,
+                report.report_id,
+                false,
+                8,
+                fallback.as_deref(),
+                None,
+            ) {
+                Ok(session) => (
+                    session
+                        .latest()
+                        .is_some_and(|a| matches!(a.status, WishClosureStatus::Realized)),
+                    session.iterations(),
+                ),
+                Err(e) => {
+                    eprintln!("steward: chore {:?} {}: {e}", p.facet.kind, p.facet.key);
+                    (false, 0)
+                }
+            };
+            // Husbanded chores are sightings too: each descent records a
+            // norm-learning observation like a spoken wish does.
+            if let Some(store) = norm_store.as_mut() {
+                record_norm_observation(
+                    store,
+                    &args.path,
+                    &wish,
+                    realized,
+                    report.report_id,
+                    &PolicyProfile::operator_approved(),
+                );
+            }
+            sreport.chores.push(steward::ChoreOutcome {
+                kind: format!("{:?}", p.facet.kind),
+                key: p.facet.key.clone(),
+                wish_id: wish.id.to_hex(),
+                realized,
+                iterations,
+            });
+        }
+    }
+
+    if args.json {
+        println!("{}", sreport.to_json());
+    } else {
+        print!("{}", sreport.render(args.color));
+    }
+    if let Some(path) = args.steward_report.as_deref() {
+        fs::write(path, sreport.to_json()).map_err(|e| format!("write {path}: {e}"))?;
+        if !args.json {
+            println!("  report written to {path}");
+        }
+    }
+    Ok(if sreport.is_faithful() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(4)
+    })
+}
+
 // ─── Norm organ (learned archetypes) ────────────────────────────────────────
 
 /// Operator governance: `--inject-norm <file>` / `--promote-norm <id>
@@ -2360,6 +2541,24 @@ fn run() -> Result<ExitCode, String> {
     // cannot, and a mock would be theater.
     if args.reforge {
         return run_reforge_mode(&args);
+    }
+
+    // Steward: self-husbandry. Survey the workspace's own landscape; under
+    // --apply, husband the open chores inside the operator-named fence.
+    if args.steward {
+        if args.wish.is_some()
+            || args.atelier.is_some()
+            || args.chat.is_some()
+            || args.venture.is_some()
+            || args.landscape
+        {
+            return Err(
+                "--steward is exclusive with --wish / --atelier / --chat / --venture / \
+                 --landscape (one door per run)"
+                    .into(),
+            );
+        }
+        return run_steward_mode(&args);
     }
 
     // Norm governance commands are standalone operator acts: inject a spec,
