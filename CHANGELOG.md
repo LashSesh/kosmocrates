@@ -15,6 +15,49 @@ note explicitly says so.
 
 ### Added
 
+* **Wonderlamp assimilation, phase 6 — the chat front door (assimilation
+  complete)**
+
+  One utterance, routed onto the organs — never past them. `ChatIntent`
+  (kosmo-intent/src/chat.rs) is the predecessor's `isls-chat` with the
+  disease excised at the type level: where Wonderlamp's intents carried
+  `affected_files` lists, a forced User entity and REST assumptions, a
+  Kosmocrates intent is *type-systemically incapable* of naming a path,
+  file or entity (pinned by a source-scan test on the enum). The seven
+  variants map onto existing organs only: MakeWish, DescendWish,
+  ShowLandscape{geometry}, AdoptLandscape{top}, AdoptCluster{index},
+  ShowStatus, InjectNorm.
+
+  Routing is **total and transient**: `IntentExtractor::extract` cannot
+  fail — the deterministic `KeywordIntentExtractor` bottoms out in
+  MakeWish, so an utterance nobody understood flows to the *measurable*
+  wish door (where an unparseable wish is honestly vacuous), never to a
+  template generator and never to an error. And routing is not a durable
+  artifact (no content addressing, no evidence binding — the routed-to
+  organs own all of that), which is precisely why the LLM router
+  (`LlmIntentExtractor`, kosmo-intent-llm) may degrade to the keyword
+  rules on ANY failure — transport, malformed JSON, unknown intent —
+  proven without network in tests. Its prompt contract pins the model to
+  classification only ("never plan, never generate code, never name
+  files"); fields a model invents are never read.
+
+  CLI: `kosmo-run --chat "<utterance>"` (one-shot, no REPL) echoes the
+  routing decision for audit (`chat[keyword] → adopt cluster 1`) and
+  delegates to the existing modes; `--apply`/`--provider`/`--ledger`/
+  `--norms` compose orthogonally. Chat never escalates: a "build …"
+  utterance without `--apply` measures and says so. With a real
+  `--provider` the model routes first (mock routing would be theater —
+  keywords instead); `--chat` + `--wish` is refused. InjectNorm maps to
+  instructions for the explicit governance flags — chat carries no spec
+  files, by type. +16 tests (6 router, 5 extractor, 5 binary);
+  Prüfstand 13/13 `--validated`.
+
+  **This closes the Wonderlamp assimilation: all six planned phases are
+  landed** — integer consensus core, fail-closed SwarmSynthesizer,
+  descent context + patch gates, the norm organ, the spectral kit with
+  landscape geometry, and the chat front door. The rejection list in
+  `docs/WONDERLAMP_ASSIMILATION.md` is permanent.
+
 * **Wonderlamp assimilation, phase 5 — the spectral kit and the landscape's
   geometry**
 

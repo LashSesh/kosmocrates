@@ -41,9 +41,10 @@ use kosmo_hyphae::{
 };
 use kosmo_intent::{
     compile_wish, compile_wish_with_norms, is_reserved_wish_word, observe_workspace_deep,
-    observe_workspace_runtime, observe_workspace_service, observe_workspace_validated, NormCatalog,
-    WishSession,
+    observe_workspace_runtime, observe_workspace_service, observe_workspace_validated, ChatIntent,
+    IntentExtractor, KeywordIntentExtractor, NormCatalog, WishSession,
 };
+use kosmo_intent_llm::LlmIntentExtractor;
 use kosmo_pipeline::{
     landscape_geometry, measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem,
     ActionItemKind, IntegrationRunOptions, LandscapeStanding, WishProposal,
@@ -65,6 +66,7 @@ const GREEN: &str = "\x1b[32m";
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
 
+#[derive(Clone)]
 struct Args {
     path: String,
     provider: String,
@@ -118,6 +120,10 @@ struct Args {
     promote_norm: Option<String>,
     /// The trigger word for --promote-norm.
     trigger: Option<String>,
+    /// Chat mode: a one-shot utterance, routed to an existing mode by a
+    /// total intent extractor (keyword rules; LLM-first when a real
+    /// provider is chosen, falling back to keywords on any failure).
+    chat: Option<String>,
 }
 
 impl Default for Args {
@@ -151,6 +157,7 @@ impl Default for Args {
             inject_norm: None,
             promote_norm: None,
             trigger: None,
+            chat: None,
         }
     }
 }
@@ -236,7 +243,17 @@ OPTIONS:\n\
                           path-like templates are rejected). Arrives unarmed.\n\
     --promote-norm <id> --trigger <word>\n\
                           operator governance: arm a stored norm's prose\n\
-                          trigger. Reserved grammar words are refused.\n\n\
+                          trigger. Reserved grammar words are refused.\n\
+\n\
+  CHAT (one-shot front door — no REPL):\n\
+    --chat \"<utterance>\"  route a plain utterance to an existing mode:\n\
+                          wish / descend / landscape (+geometry) / adopt /\n\
+                          adopt-cluster / status / norm governance hints.\n\
+                          Routing is TOTAL: anything unrecognized becomes a\n\
+                          measurable wish, never a template. Deterministic\n\
+                          keyword rules by default; with a real --provider\n\
+                          the model routes first and falls back to keywords\n\
+                          on any failure. --apply/--ledger/--norms compose.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -344,6 +361,9 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--trigger" => {
                 args.trigger = Some(argv.next().ok_or("--trigger needs a word")?);
+            }
+            "--chat" => {
+                args.chat = Some(argv.next().ok_or("--chat needs an utterance")?);
             }
             "--ground-top" => {
                 args.ground_top = argv
@@ -994,6 +1014,115 @@ fn adopt_and_descend(
     })
 }
 
+// ─── Chat front door (one-shot utterance → existing modes) ──────────────────
+
+/// Compact audit label for the routing echo line.
+fn intent_label(intent: &ChatIntent) -> String {
+    match intent {
+        ChatIntent::MakeWish { .. } => "make-wish".into(),
+        ChatIntent::DescendWish { .. } => "descend-wish".into(),
+        ChatIntent::ShowLandscape { geometry } => {
+            format!(
+                "show-landscape{}",
+                if *geometry { " +geometry" } else { "" }
+            )
+        }
+        ChatIntent::AdoptLandscape { top } => format!("adopt top-{top}"),
+        ChatIntent::AdoptCluster { index } => format!("adopt cluster {index}"),
+        ChatIntent::ShowStatus => "status".into(),
+        ChatIntent::InjectNorm => "inject-norm".into(),
+    }
+}
+
+/// The router: deterministic keyword rules by default; when the operator
+/// explicitly chose a real provider, the model routes first — and the
+/// extractor itself falls back to the keyword rules on any failure, so
+/// routing stays total either way. The mock provider routes by keywords
+/// (mock routing would be theater).
+fn chat_extractor(args: &Args) -> Box<dyn IntentExtractor> {
+    if args.provider_set {
+        let config = match args.provider.as_str() {
+            "claude" => env_key(&["ANTHROPIC_API_KEY", "KOSMO_LLM_API_KEY"])
+                .map(kosmo_llm::LlmConfig::claude),
+            "cerebras" => env_key(&["CEREBRAS_API_KEY", "KOSMO_LLM_API_KEY"])
+                .map(kosmo_llm::LlmConfig::cerebras),
+            "env" => kosmo_llm::config_from_env().ok(),
+            _ => None,
+        };
+        if let Some(config) = config {
+            let config = match &args.model {
+                Some(m) => config.with_model(m.clone()),
+                None => config,
+            };
+            return Box::new(LlmIntentExtractor::new(config));
+        }
+    }
+    Box::new(KeywordIntentExtractor)
+}
+
+/// One-shot chat: extract the intent (total — the fallback is the wish
+/// door), echo the routing for auditability, and delegate to the existing
+/// mode. Chat never escalates: writes still require the explicit `--apply`.
+fn run_chat_mode(args: &Args) -> Result<ExitCode, String> {
+    let utterance = args.chat.as_deref().unwrap_or("");
+    let extractor = chat_extractor(args);
+    let intent = extractor.extract(utterance);
+    if !args.json {
+        println!(
+            "chat[{}] \u{2192} {}",
+            extractor.name(),
+            intent_label(&intent)
+        );
+    }
+    match intent {
+        ChatIntent::MakeWish { prose } => {
+            let mut sub = args.clone();
+            sub.wish = Some(prose);
+            run_wish_mode(&sub)
+        }
+        ChatIntent::DescendWish { prose } => {
+            let mut sub = args.clone();
+            sub.wish = Some(prose);
+            if !sub.apply && !sub.json {
+                println!("(the utterance asks to build — measuring only; add --apply to descend)");
+            }
+            run_wish_mode(&sub)
+        }
+        ChatIntent::ShowLandscape { geometry } => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            sub.geometry = sub.geometry || geometry;
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::AdoptLandscape { top } => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            sub.adopt = top.max(1);
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::AdoptCluster { index } => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            sub.adopt_cluster = index.max(1);
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::ShowStatus => {
+            let mut sub = args.clone();
+            sub.landscape = true;
+            if !sub.json {
+                println!("status \u{2014} the measured landscape:");
+            }
+            run_landscape_mode(&sub)
+        }
+        ChatIntent::InjectNorm => {
+            println!("norm injection is an operator act with a spec file — chat carries no paths.");
+            println!("  use: kosmo-run --norms <dir> --inject-norm <spec.json>");
+            println!("  then: kosmo-run --norms <dir> --promote-norm <id> --trigger <word>");
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
 // ─── Norm organ (learned archetypes) ────────────────────────────────────────
 
 /// Operator governance: `--inject-norm <file>` / `--promote-norm <id>
@@ -1554,6 +1683,15 @@ fn run() -> Result<ExitCode, String> {
     // or arm a trigger. They run and exit before any other mode.
     if args.inject_norm.is_some() || args.promote_norm.is_some() {
         return run_norm_admin(&args);
+    }
+
+    // Chat: one utterance, routed onto an existing mode. Wins over the
+    // direct mode flags; combining it with --wish is ambiguous, so refused.
+    if args.chat.is_some() {
+        if args.wish.is_some() {
+            return Err("--chat and --wish are mutually exclusive".into());
+        }
+        return run_chat_mode(&args);
     }
 
     // Landscape mode: the substrate's findings, projected into the wish

@@ -29,6 +29,9 @@ use kosmo_hyphae::Norm;
 use kosmo_parseback::{ParseBackError, ParseBackExecutor, TopologySnapshot};
 use serde::{Deserialize, Serialize};
 
+pub mod chat;
+pub use chat::{route_keywords, ChatIntent, IntentExtractor, KeywordIntentExtractor};
+
 // ─── Observation adapter ────────────────────────────────────────────────────
 
 /// Build the present-facet set from a crate topology snapshot.

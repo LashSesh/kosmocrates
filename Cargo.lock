@@ -1697,6 +1697,8 @@ dependencies = [
  "kosmo-core",
  "kosmo-hyphae",
  "kosmo-intent",
+ "kosmo-intent-llm",
+ "kosmo-llm",
  "kosmo-pipeline",
  "kosmo-pse-bridge",
  "kosmo-store",

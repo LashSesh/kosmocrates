@@ -119,3 +119,23 @@ shape ⇒ and without `--norms` the same prose stays vacuous.
 Everything advisory (CROSS-010): geometry ranks and groups the
 already-measured landscape; it gates nothing and changes nothing it
 does not name.
+
+## Phase 6 — Chat front door (landed) — assimilation complete
+
+| Wonderlamp | Kosmocrates | Transformation |
+|---|---|---|
+| `isls-chat` `IntentType{CreateApplication, AddField, ModifyEntity, …}` with `affected_files` lists, forced User entity, REST assumptions | `kosmo_intent::chat::ChatIntent{MakeWish, DescendWish, ShowLandscape{geometry}, AdoptLandscape{top}, AdoptCluster{index}, ShowStatus, InjectNorm}` | **type-systemically path/file/entity-free** (source-scan pin on the enum): every variant maps onto an organ the substrate already has; a chat intent *cannot* describe structure directly — structure enters the world only through measured facets |
+| dual extraction (LLM ↔ keyword fallback) | `IntentExtractor` trait, **total by signature** (`extract` cannot fail): `KeywordIntentExtractor` (ordered rules, MakeWish fallback) and `LlmIntentExtractor` (model-first, keyword fallback on ANY failure — transport, malformed JSON, unknown intent; proven without network) | the house dualism (compile_wish ↔ LlmWishCompiler) applied to routing; the fallback target is the **measurable wish door**, where an unparseable wish is honestly vacuous — never a template generator, never a swallowed utterance |
+| `intent_to_norm_ops` mutating a spec | routing is **transient**: no content addressing, no evidence binding — the routed-to organs own all durable artifacts | exactly why graceful LLM degradation is legitimate here and nowhere else: a routing decision is not a replayable artifact |
+| chat as the generator's steering wheel | `kosmo-run --chat "<utterance>"` — one-shot (no REPL), echoes `chat[router] → intent` for audit, delegates to existing modes; `--apply`/`--provider`/`--ledger`/`--norms` compose orthogonally; a "build …" utterance without `--apply` measures and says so | chat never escalates privileges and never bypasses a policy: it is a *front door*, all walls intact; InjectNorm maps to instructions for the explicit governance flags (chat carries no spec files, by type) |
+
+**The assimilation is complete.** All six planned phases landed, each
+with the full gate ritual: (1) deterministic consensus foundations,
+(2) the fail-closed SwarmSynthesizer, (3) descent context + patch
+gates, (4) the norm organ, (5) the spectral kit + landscape geometry,
+(6) this front door. What Wonderlamp wanted to be — a system that takes
+an utterance and grows software toward it — exists now, but on the
+epistemic substrate it lacked: every step measured, every artifact
+content-addressed and evidence-bound, every gate fail-closed, every
+learned pattern governed. The rejection list above is permanent; the
+disease tests that enforce it run in every CI pass.
