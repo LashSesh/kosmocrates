@@ -107,3 +107,35 @@ fn reforge_refuses_to_run_without_a_real_provider() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn realize_bench_refuses_without_a_real_provider() {
+    // The instrument measures the generative loop, so it needs the real
+    // worker: a mock would measure only the scaffolder (already proven).
+    let out = kosmo_run()
+        .arg("--realize-bench")
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("CEREBRAS_API_KEY")
+        .env_remove("KOSMO_LLM_API_KEY")
+        .env_remove("KOSMO_LLM_PROVIDER")
+        .env_remove("KOSMO_LLM_BASE_URL")
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("provider"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let out = kosmo_run()
+        .args(["--realize-bench", "--provider", "mock"])
+        .output()
+        .expect("spawn kosmo-run");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("scaffolder") && stderr.contains("Prüfstand"),
+        "the refusal names what a mock would and would not measure: {stderr}"
+    );
+}

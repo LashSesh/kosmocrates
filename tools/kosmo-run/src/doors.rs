@@ -207,6 +207,23 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--realize-bench",
+            vec![],
+            "the realization benchmark: drive a curated corpus of behavioural \
+         wishes through the real provider descent and measure the fraction \
+         that reach REALIZED (judged by execution) plus iterations and token \
+         cost — provider-agnostic, mock refused; a measurement, not a gate",
+            [
+                vec![DoorInput::valued("--realize-bench-report", "<file>")],
+                armament_inputs(),
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Provider, DoorNeed::Network, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
             "--steward",
             vec![],
             "self-husbandry: survey the workspace's own landscape and, under \

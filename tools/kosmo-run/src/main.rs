@@ -26,6 +26,7 @@
 
 mod doors;
 mod pruefstand;
+mod realize_bench;
 mod reforge;
 mod steward;
 
@@ -148,6 +149,11 @@ struct Args {
     reforge: bool,
     /// Write the reforge report (content-addressed JSON) to this file.
     reforge_report: Option<String>,
+    /// Realization benchmark: drive a curated behavioural corpus through the
+    /// real generative loop and measure the realization rate (real provider).
+    realize_bench: bool,
+    /// Write the realization-benchmark report (content-addressed JSON) here.
+    realize_bench_report: Option<String>,
     /// Doors mode: print this binary's complete docking surface — every
     /// door with inputs, governance and needs, content-addressed.
     doors: bool,
@@ -224,6 +230,8 @@ impl Default for Args {
             venture_session: None,
             reforge: false,
             reforge_report: None,
+            realize_bench: false,
+            realize_bench_report: None,
             doors: false,
             doors_merge: None,
             foundry: None,
@@ -365,6 +373,16 @@ OPTIONS:\n\
                           answer like the oracle, within a time budget.\n\
                           One command, reproducible by anyone with a key.\n\
     --reforge-report <f>  write the content-addressed JSON report to <f>.\n\
+\n\
+  REALIZE-BENCH (does the generative loop actually work? — requires a real provider):\n\
+    --realize-bench       drive a curated corpus of behavioural wishes through\n\
+                          the REAL provider descent and measure the fraction\n\
+                          that reach REALIZED — judged by executing the forged\n\
+                          program, never by the model's word. Provider-agnostic\n\
+                          (cloud API or a local model via KOSMO_LLM_BASE_URL);\n\
+                          reports realization rate, iterations and token cost.\n\
+                          A measurement, not a gate (always exits 0).\n\
+    --realize-bench-report <f>  write the content-addressed JSON report to <f>.\n\
 \n\
   STEWARD (self-husbandry — the machine proposes, the operator disposes):\n\
     --steward             survey the workspace's own wish landscape and name\n\
@@ -529,6 +547,13 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--reforge-report" => {
                 args.reforge_report =
                     Some(argv.next().ok_or("--reforge-report needs a file path")?);
+            }
+            "--realize-bench" => args.realize_bench = true,
+            "--realize-bench-report" => {
+                args.realize_bench_report = Some(
+                    argv.next()
+                        .ok_or("--realize-bench-report needs a file path")?,
+                );
             }
             "--venture-session" => {
                 args.venture_session =
@@ -1943,6 +1968,48 @@ fn run_reforge_mode(args: &Args) -> Result<ExitCode, String> {
     })
 }
 
+/// `--realize-bench`: fire the real generative loop at a curated behavioural
+/// corpus and measure the realization rate (and token cost) — judged by
+/// execution. Provider-agnostic (the same corpus runs against a cloud API
+/// or a local OpenAI-compatible model); mock is refused. It is an
+/// instrument, not a gate: completion exits 0 and the rate is the finding.
+fn run_realize_bench_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.provider == "mock" {
+        return Err(
+            "--realize-bench needs a real provider (claude | cerebras | env): the mock \
+             synthesizer cannot implement behaviour, so a benchmark of it would measure \
+             only the deterministic scaffolder — which the Prüfstand already proves"
+                .to_string(),
+        );
+    }
+    let synthesizer = build_synthesizer(args)?;
+    let armed = arm_fallback(args, Some(synthesizer))?.ok_or(
+        "--realize-bench needs a real provider (claude | cerebras | env) — set a key or \
+         KOSMO_LLM_BASE_URL for a local model",
+    )?;
+    if !args.json {
+        eprintln!(
+            "kosmo-run: firing {} task(s) through the real loop — this calls the provider \
+             repeatedly and may take a while…",
+            realize_bench::reference_corpus().len()
+        );
+    }
+    let report = realize_bench::run_realize_bench(armed, &args.provider, args.model.clone());
+    if args.json {
+        println!("{}", report.to_json());
+    } else {
+        print!("{}", report.render(args.color));
+    }
+    if let Some(path) = args.realize_bench_report.as_deref() {
+        fs::write(path, report.to_json()).map_err(|e| format!("write {path}: {e}"))?;
+        if !args.json {
+            println!("  report written to {path}");
+        }
+    }
+    // A measurement, not a gate: completion is success; the rate is the finding.
+    Ok(ExitCode::SUCCESS)
+}
+
 // ─── Steward (self-husbandry under an operator-named fence) ─────────────────
 
 /// `--steward`: survey the workspace's wish landscape, name the open chores
@@ -3198,6 +3265,13 @@ fn run() -> Result<ExitCode, String> {
     // cannot, and a mock would be theater.
     if args.reforge {
         return run_reforge_mode(&args);
+    }
+
+    // Realization benchmark: the instrument that measures whether the
+    // generative loop actually works. Requires a real provider — a mock
+    // would measure only the scaffolder, which the Prüfstand already covers.
+    if args.realize_bench {
+        return run_realize_bench_mode(&args);
     }
 
     // Steward: self-husbandry. Survey the workspace's own landscape; under

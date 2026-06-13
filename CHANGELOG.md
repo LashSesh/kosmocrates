@@ -15,6 +15,46 @@ note explicitly says so.
 
 ### Added
 
+* **The realization benchmark — the instrument for the question that
+  decides everything**
+
+  Every gate in this repository was deterministic and offline; the one
+  non-deterministic boundary — the real LLM call that does the actual
+  *generating* — had never been measured. There was exactly one
+  `#[ignore]`d smoke test against a real provider in the whole tree, and
+  it checked nothing about quality. So the "wish → working system" claim
+  rested on nothing empirical. `kosmo-run --realize-bench` is the
+  instrument that changes that, and it is the gate before any GUI is in
+  question.
+
+  It drives a curated corpus of ten behavioural wishes (echo, add,
+  maximum, reverse, uppercase, count-vowels, factorial, fibonacci, gcd,
+  sum-list) through the **same provider-backed descent the operator
+  uses**. Each is a wish of budgeted `Run` facets the scaffolder cannot
+  satisfy, so the real provider must be called; each uses **multiple
+  probes** so a program that prints one memorized answer fails the others
+  (the model must generalize, not hard-code). The verdict is
+  **execution, never the model's word**: the forged program is run under
+  the sandbox witness and matched against the probes. It reports, per
+  task and in aggregate, the **realization rate** (basis points, so the
+  rendered percentage is exact and the body stays float-free), the
+  descent **iterations**, and the **real token cost** (a counting
+  wrapper sums `tokens_used` across every provider call).
+
+  Provider-agnostic by construction (it arms whatever `build_synthesizer`
+  arms): the same corpus runs against a cloud API (`--provider
+  claude|cerebras`) and a local OpenAI-compatible model (`--provider env`
+  + `KOSMO_LLM_BASE_URL`), producing comparable numbers — the choice is
+  the operator's, the instrument is one. Mock is refused: a benchmark of
+  the deterministic scaffolder measures only what the Prüfstand already
+  proves. It is a **measurement, not a gate** (always exits 0; the rate
+  is the finding), with a content-addressed report (`--realize-bench-
+  report`). Protocol — and how to fire it on either deployment — in
+  `docs/REALIZE_BENCH.md`. The honesty boundary is pinned offline (mock
+  and keyless invocations refused); the firing itself needs a key or
+  endpoint and is the operator's. +4 tests; kosmo-run's catalog grows to
+  19 doors.
+
 * **The self-renewing inventory — the last voices and the nightly harvest
   (Spreizung VI)**
 
