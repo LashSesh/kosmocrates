@@ -14,6 +14,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
 phase-matrix = { path = "../../crates/phase-matrix", version = "0.1.0", default-features = false, features = ["cell-substrate", "cell-cli", "cell-funnel-graph", "cell-morphodynamics", "cell-convergence", "cell-handoff", "cell-stitch"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -70,10 +70,42 @@ or router source** and asserts set-equality with its catalog:
 The catalog is deterministic (same binary ⇒ byte-identical answer,
 pinned e2e), needs no workspace, no key, no network.
 
+## The self-renewing harvest
+
+`scripts/harvest-doors.sh` turns federation from a manual act into a
+standing one. Every door-speaking binary emits its own catalog without
+being started or curled — CLIs via a `doors` subcommand, the rest
+(including both servers) via a `--doors` flag that prints the catalog and
+exits before doing anything else. The script collects all of them and
+runs `kosmo-run --doors-merge`, which verifies each by content address
+and writes one federated inventory whose catalog id is deterministic
+given the surfaces present.
+
+`.github/workflows/doors.yml` runs that harvest nightly (and on any push
+that could move the surface), publishing the inventory as a build
+artifact and a job-summary table — the operator's standing answer to
+"what, exactly, could I operate right now?", kept fresh without anyone
+hand-writing it. The harvest **fails closed**: if a surface stops
+answering or a catalog no longer verifies, the job goes red.
+
+## Coverage today
+
+Eighteen surfaces self-describe into one inventory of **189 doors**,
+with the whole stack's write power summarized in one place (read-only,
+appends-store, writes-workspace, governance-act). The operator CLIs and
+both servers, the substrate organ doors, the cognition layer
+(pse, pse-metatron, the five traverse CLIs, pse-eval-matrix, pse-validate,
+phase-matrix, nxalien) and the benchmark all speak.
+
+Honest residue, named rather than faked: the vendored `mef` CLI (under
+`vendors/infinityledger`, not modified so it survives re-vendoring), the
+WASM and Python **bindings** (library surfaces, not operator CLIs), and
+the eight PSE extraction operators (library-captive; a door needs
+graph-region input design). These join when their shape genuinely fits a
+door, not before.
+
 ## Where this goes
 
-The remaining surfaces (kosmo-substrate, kosmo-promote, kosmo-tui, the
-pse and mef CLIs) join door by door in later Spreizungen; their emitted
-catalogs federate into the same inventory. A GUI built after that point
-is generated *from* the catalog — the skin collapses out of the docking
-surface instead of being invented in front of it.
+A GUI built from here is generated *from* the inventory — the skin
+collapses out of the docking surface instead of being invented in front
+of it. The catalog is the contract; the harvest keeps it true.

@@ -851,6 +851,7 @@ struct ServerArgs {
     port: u16,
     host: String,
     open: bool,
+    doors: bool,
 }
 
 fn parse_server_args() -> Result<ServerArgs, String> {
@@ -859,6 +860,7 @@ fn parse_server_args() -> Result<ServerArgs, String> {
         port: 7777,
         host: "127.0.0.1".into(),
         open: false,
+        doors: false,
     };
     let mut i = 0;
     while i < raw.len() {
@@ -902,6 +904,7 @@ fn parse_server_args() -> Result<ServerArgs, String> {
                 args.host = raw[i].clone();
             }
             "--open" => args.open = true,
+            "--doors" => args.doors = true,
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown flag '{flag}'; run --help for usage"));
             }
@@ -923,6 +926,17 @@ async fn main() {
             process::exit(2);
         }
     };
+
+    // Self-description without binding: `kosmo-server --doors` prints the
+    // catalog and exits, so the ecosystem harvest never has to start a
+    // server (uniform with every CLI's doors door).
+    if args.doors {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&doors_catalog()).unwrap_or_default()
+        );
+        return;
+    }
 
     let app = Router::new()
         .route("/", get(serve_index))

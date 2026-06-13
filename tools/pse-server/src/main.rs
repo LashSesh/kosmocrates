@@ -1215,6 +1215,17 @@ async fn doors() -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() {
+    // Self-description without binding: `pse-server --doors` prints the
+    // catalog and exits, so the ecosystem harvest never has to start a
+    // server (uniform with every CLI's `doors` door).
+    if std::env::args().any(|a| a == "--doors") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&doors_catalog()).unwrap_or_default()
+        );
+        return;
+    }
+
     // Structured logging. Honours the standard RUST_LOG env var
     // (`RUST_LOG=pse_server=debug,tower_http=info`). Default INFO so a
     // fresh deployment still emits useful operator logs without

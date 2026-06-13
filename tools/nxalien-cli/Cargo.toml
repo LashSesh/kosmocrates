@@ -18,6 +18,7 @@ name = "nxalien"
 path = "src/main.rs"
 
 [dependencies]
+kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
 pse-nxalien-types = { path = "../../crates/pse-nxalien-types", version = "0.1.0" }
 pse-nxalien-core = { path = "../../crates/pse-nxalien-core", version = "0.1.0" }
 pse-nxalien-cube = { path = "../../crates/pse-nxalien-cube", version = "0.1.0" }

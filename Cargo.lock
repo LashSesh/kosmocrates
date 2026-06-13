@@ -2210,6 +2210,7 @@ name = "nxalien-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "kosmo-core",
  "pse-exploratory",
  "pse-nxalien-agent",
  "pse-nxalien-core",
@@ -2932,6 +2933,7 @@ dependencies = [
 name = "pse-eval-matrix-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-eval-matrix",
  "serde",
  "serde_jcs",
@@ -3206,6 +3208,7 @@ dependencies = [
 name = "pse-phase-matrix-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "phase-matrix",
  "serde",
  "serde_jcs",
@@ -3432,6 +3435,7 @@ dependencies = [
 name = "pse-validation-runner-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "pse-validation-runner",
  "serde",

@@ -15,6 +15,36 @@ note explicitly says so.
 
 ### Added
 
+* **The self-renewing inventory — the last voices and the nightly harvest
+  (Spreizung VI)**
+
+  The docking surface now describes the whole stack and keeps itself
+  true. Five more surfaces self-describe — `pse-eval-matrix`,
+  `pse-validate`, `phase-matrix`, `nxalien` (each a `doors` subcommand
+  pinned against its dispatch) and `kosmo-eval` (a `--doors` flag, its one
+  benchmark door). Both servers gain a `--doors` flag that prints their
+  catalog and exits before binding, so nothing has to be started or
+  curled to be harvested. (En route, a sharp edge: the dispatch-pin's
+  anchor auto-detector was fooled by the test module embedding both
+  anchor strings as literals; it now picks the anchor whose first
+  occurrence is earliest — the real dispatch precedes the test.)
+
+  `scripts/harvest-doors.sh` makes federation standing: every
+  door-speaking binary emits its catalog, `kosmo-run --doors-merge`
+  verifies each by content address and unites them into one inventory
+  whose catalog id is deterministic given the surfaces present.
+  `.github/workflows/doors.yml` runs that harvest nightly (and on
+  surface-touching pushes), publishing the inventory as a build artifact
+  and a job-summary table — the operator's standing answer to "what,
+  exactly, could I operate right now?", fail-closed: a surface that
+  stops answering or a catalog that no longer verifies turns the job
+  red. **Harvested live: eighteen surfaces, 189 doors, one catalog id,
+  the whole stack's write power in one place** (163 read-only, 16
+  appends-store, 8 writes-workspace, 2 governance-act). Honest residue,
+  named in `docs/DOORS.md`: the vendored `mef` CLI, the WASM/Python
+  bindings, and the eight extraction operators stay out until their
+  shape genuinely fits a door. +9 tests.
+
 * **The remaining voices — eight more surfaces self-describe; the
   inventory reaches 137 doors (Spreizung V)**
 

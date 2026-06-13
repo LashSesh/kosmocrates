@@ -6189,7 +6189,67 @@ fn print_table(results: &[ScenarioResult]) {
     println!("{sep}");
 }
 
+/// kosmo-eval's docking surface: a single-shot benchmark binary. Its one
+/// operator door is the benchmark run itself (the default invocation);
+/// `--doors` describes it. Content-addressed and pinned to recompute.
+fn doors_catalog() -> kosmo_core::DoorCatalog {
+    use kosmo_core::{Door, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
+    let here = || DoorSurface::Cli {
+        binary: "kosmo-eval".into(),
+    };
+    kosmo_core::DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "benchmark",
+            vec![],
+            "the default door: run the KOSMO-OPS-01 empirical benchmark — \
+             the R1–R9 invariant scenarios, content-addressed, plus an \
+             optional Cerebras scenario when a key is supplied at the prompt. \
+             Exits non-zero if any invariant is violated",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Cargo, DoorNeed::Provider],
+        ),
+        Door::new(
+            here(),
+            "--doors",
+            vec![],
+            "this catalog: the binary's docking surface, spoken by the binary \
+             itself (add --json for the machine form)",
+            vec![DoorInput::switch("--json")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+    ])
+}
+
+fn print_doors(as_json: bool) {
+    let catalog = doors_catalog();
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("kosmo-eval doors — the docking surface");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for d in &catalog.doors {
+        println!("  {}  [{}]  {}", d.name, d.governance.label(), d.summary);
+    }
+}
+
 fn main() {
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.iter().any(|a| a == "--doors") {
+        print_doors(argv.iter().any(|a| a == "--json"));
+        return;
+    }
+
     println!("╔══════════════════════════════════════════════════════════════╗");
     println!("║    KOSMO-OPS-01 Empirical Validation Benchmark               ║");
     println!("║    Phases R1–R9 · All invariants · Content-addressed         ║");
@@ -6222,5 +6282,19 @@ fn main() {
     } else {
         println!("RESULT: ✘  {failed} INVARIANT(S) VIOLATED");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod doors_tests {
+    use super::*;
+
+    #[test]
+    fn the_catalog_recomputes_and_describes_itself() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes from its content");
+        assert!(catalog.doors.iter().any(|d| d.name == "--doors"));
+        assert!(catalog.doors.iter().any(|d| d.name == "benchmark"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
     }
 }
