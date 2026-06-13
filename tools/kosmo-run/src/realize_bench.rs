@@ -17,12 +17,20 @@
 //! numbers. Mock is refused — a benchmark of the scaffolder measures
 //! nothing the Prüfstand doesn't already prove.
 //!
+//! The corpus is **tiered by difficulty** so a single run yields a spread,
+//! not one number: the *floor* (echo, add — does the loop conduct and a
+//! model clear trivial targets?), the *rung* (palindrome, base conversion,
+//! ROT13 — moderate logic), and the *ceiling* (Roman numerals, precedence
+//! expression evaluation, run-length encoding — where a real engine is
+//! discriminated from a weak one). Every task carries **multiple probes**
+//! that resist hard-coding: a program that prints one memorized answer
+//! fails the others, so the model must generalize.
+//!
 //! What this measures: synthesis-to-spec — given a precise, multi-probe
 //! behavioural target, can the model produce code that an executing witness
-//! accepts? Multiple probes per task resist hard-coding (a program that
-//! prints one memorized answer fails the others, so the model must
-//! generalize). What it does NOT measure: prose→spec compilation (the
-//! front-door grammar / wish-LLM is a separate axis) — the corpus carries
+//! accepts? What it does NOT measure: prose→spec compilation (a separate
+//! axis), nor the true paradigm ceiling (whole multi-component systems) —
+//! these tiers are *harder rungs*, not the summit. The corpus carries
 //! well-formed facets directly, isolating the generative claim.
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -63,24 +71,49 @@ impl ActionSynthesizer for CountingSynthesizer {
     }
 }
 
-/// One behavioural task: a named intent and the argv→stdout probes whose
-/// satisfaction (by execution) defines success. The expected outputs are
-/// self-contained ground truths, trivial to verify by inspection.
+/// Difficulty tier — the spread a single run reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum Tier {
+    /// Trivial: does the loop conduct and a model clear easy targets?
+    Floor,
+    /// Moderate logic — a competent model should clear most.
+    Rung,
+    /// Hard — discriminates a real engine from a weak one.
+    Ceiling,
+}
+
+impl Tier {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Tier::Floor => "floor",
+            Tier::Rung => "rung",
+            Tier::Ceiling => "ceiling",
+        }
+    }
+}
+
+/// One behavioural task: a named intent, its tier, and the argv→stdout
+/// probes whose satisfaction (by execution) defines success. The expected
+/// outputs are self-contained ground truths, trivial to verify by hand.
 pub struct RealizeTask {
     pub name: &'static str,
+    pub tier: Tier,
     /// Human-readable intent (documentation; the wish is built from probes).
     pub intent: &'static str,
     /// `(argv, expected_stdout)` — at least two, to resist hard-coding.
     pub probes: &'static [(&'static [&'static str], &'static str)],
 }
 
-/// The reference corpus: deterministic, self-contained behavioural tasks of
-/// rising difficulty. Each is a wish of budgeted `Run` facets the
-/// scaffolder cannot satisfy, so the descent must call the real provider.
+/// The reference corpus, tiered by difficulty. Each task is a wish of
+/// budgeted `Run` facets the scaffolder cannot satisfy, so the descent must
+/// call the real provider. Ground truths are verifiable by inspection.
 pub fn reference_corpus() -> Vec<RealizeTask> {
+    use Tier::*;
     vec![
+        // ── Floor: does the loop conduct, can a model hit trivial targets? ──
         RealizeTask {
             name: "echo",
+            tier: Floor,
             intent: "print the single argument unchanged",
             probes: &[
                 (&["ping"], "ping"),
@@ -90,6 +123,7 @@ pub fn reference_corpus() -> Vec<RealizeTask> {
         },
         RealizeTask {
             name: "add",
+            tier: Floor,
             intent: "print the sum of two integer arguments",
             probes: &[
                 (&["3", "4"], "7"),
@@ -99,36 +133,43 @@ pub fn reference_corpus() -> Vec<RealizeTask> {
         },
         RealizeTask {
             name: "maximum",
+            tier: Floor,
             intent: "print the larger of two integer arguments",
             probes: &[(&["3", "9"], "9"), (&["42", "7"], "42"), (&["5", "5"], "5")],
         },
         RealizeTask {
             name: "reverse",
+            tier: Floor,
             intent: "print the single argument reversed",
             probes: &[(&["abc"], "cba"), (&["hello"], "olleh"), (&["x"], "x")],
         },
         RealizeTask {
             name: "uppercase",
+            tier: Floor,
             intent: "print the single argument uppercased",
             probes: &[(&["abc"], "ABC"), (&["Hello"], "HELLO")],
         },
         RealizeTask {
             name: "count-vowels",
+            tier: Floor,
             intent: "print the number of vowels (a,e,i,o,u) in the argument",
             probes: &[(&["hello"], "2"), (&["xyz"], "0"), (&["aeiou"], "5")],
         },
         RealizeTask {
             name: "factorial",
+            tier: Floor,
             intent: "print the factorial of a non-negative integer argument",
             probes: &[(&["5"], "120"), (&["0"], "1"), (&["6"], "720")],
         },
         RealizeTask {
             name: "fibonacci",
+            tier: Floor,
             intent: "print the nth Fibonacci number (fib(0)=0, fib(1)=1)",
             probes: &[(&["10"], "55"), (&["0"], "0"), (&["7"], "13")],
         },
         RealizeTask {
             name: "gcd",
+            tier: Floor,
             intent: "print the greatest common divisor of two integer arguments",
             probes: &[
                 (&["12", "18"], "6"),
@@ -138,12 +179,113 @@ pub fn reference_corpus() -> Vec<RealizeTask> {
         },
         RealizeTask {
             name: "sum-list",
+            tier: Floor,
             intent: "print the sum of all integer arguments",
             probes: &[
                 (&["1", "2", "3"], "6"),
                 (&["10", "20"], "30"),
                 (&["5"], "5"),
             ],
+        },
+        // ── Rung: moderate logic — a competent model should clear most. ──
+        RealizeTask {
+            name: "sum-digits",
+            tier: Rung,
+            intent: "print the sum of the decimal digits of the argument",
+            probes: &[(&["12345"], "15"), (&["99"], "18"), (&["7"], "7")],
+        },
+        RealizeTask {
+            name: "palindrome",
+            tier: Rung,
+            intent: "print \"true\" if the argument reads the same backwards, else \"false\"",
+            probes: &[
+                (&["racecar"], "true"),
+                (&["hello"], "false"),
+                (&["noon"], "true"),
+            ],
+        },
+        RealizeTask {
+            name: "lcm",
+            tier: Rung,
+            intent: "print the least common multiple of two integer arguments",
+            probes: &[
+                (&["4", "6"], "12"),
+                (&["3", "5"], "15"),
+                (&["6", "8"], "24"),
+            ],
+        },
+        RealizeTask {
+            name: "rot13",
+            tier: Rung,
+            intent: "print the argument with each letter rotated 13 places (ROT13)",
+            probes: &[(&["hello"], "uryyb"), (&["abc"], "nop"), (&["xyz"], "klm")],
+        },
+        RealizeTask {
+            name: "to-binary",
+            tier: Rung,
+            intent: "print the non-negative integer argument in binary",
+            probes: &[(&["10"], "1010"), (&["255"], "11111111"), (&["0"], "0")],
+        },
+        RealizeTask {
+            name: "to-hex",
+            tier: Rung,
+            intent: "print the non-negative integer argument in lowercase hexadecimal",
+            probes: &[(&["255"], "ff"), (&["16"], "10"), (&["10"], "a")],
+        },
+        RealizeTask {
+            name: "anagram",
+            tier: Rung,
+            intent: "print \"true\" if the two arguments are anagrams, else \"false\"",
+            probes: &[
+                (&["listen", "silent"], "true"),
+                (&["hello", "world"], "false"),
+                (&["abc", "cab"], "true"),
+            ],
+        },
+        RealizeTask {
+            name: "collatz",
+            tier: Rung,
+            intent: "print the number of Collatz steps to reach 1 from the argument",
+            probes: &[(&["6"], "8"), (&["1"], "0"), (&["27"], "111")],
+        },
+        // ── Ceiling: hard — discriminates a real engine from a weak one. ──
+        RealizeTask {
+            name: "nth-prime",
+            tier: Ceiling,
+            intent: "print the nth prime number (1-indexed: the 1st prime is 2)",
+            probes: &[(&["10"], "29"), (&["1"], "2"), (&["25"], "97")],
+        },
+        RealizeTask {
+            name: "roman",
+            tier: Ceiling,
+            intent: "print the positive integer argument as an uppercase Roman numeral",
+            probes: &[(&["1994"], "MCMXCIV"), (&["4"], "IV"), (&["49"], "XLIX")],
+        },
+        RealizeTask {
+            name: "balanced",
+            tier: Ceiling,
+            intent: "print \"valid\" if the argument's parentheses are balanced, else \"invalid\"",
+            probes: &[
+                (&["(())"], "valid"),
+                (&["(()"], "invalid"),
+                (&["()()"], "valid"),
+            ],
+        },
+        RealizeTask {
+            name: "run-length",
+            tier: Ceiling,
+            intent: "run-length encode the argument as char+count pairs (aaabb -> a3b2)",
+            probes: &[
+                (&["aaabb"], "a3b2"),
+                (&["abc"], "a1b1c1"),
+                (&["xxxx"], "x4"),
+            ],
+        },
+        RealizeTask {
+            name: "expr-eval",
+            tier: Ceiling,
+            intent: "evaluate the integer +,-,* expression with normal operator precedence",
+            probes: &[(&["2+3*4"], "14"), (&["10-2*3"], "4"), (&["2*3+4"], "10")],
         },
     ]
 }
@@ -182,6 +324,7 @@ pub fn wish_for(task: &RealizeTask) -> Wish {
 #[derive(Debug, serde::Serialize)]
 pub struct TaskOutcome {
     pub name: &'static str,
+    pub tier: Tier,
     pub wish_id: String,
     pub realized: bool,
     pub iterations: usize,
@@ -212,23 +355,39 @@ impl RealizeBenchReport {
     pub fn total_iterations(&self) -> usize {
         self.outcomes.iter().map(|o| o.iterations).sum()
     }
-    /// Realization rate in basis points (per ten-thousand) — integer, so the
-    /// rendered percentage is exact and the body stays float-free.
-    pub fn rate_bp(&self) -> u32 {
-        if self.outcomes.is_empty() {
+    /// `(realized, attempted)` within one tier.
+    pub fn tier_counts(&self, tier: Tier) -> (usize, usize) {
+        let in_tier: Vec<&TaskOutcome> = self.outcomes.iter().filter(|o| o.tier == tier).collect();
+        (in_tier.iter().filter(|o| o.realized).count(), in_tier.len())
+    }
+    fn rate_bp(realized: usize, attempted: usize) -> u32 {
+        if attempted == 0 {
             return 0;
         }
-        ((self.realized() as u64 * 10_000) / self.attempted() as u64) as u32
+        ((realized as u64 * 10_000) / attempted as u64) as u32
+    }
+    /// Overall realization rate in basis points (integer — the body stays
+    /// float-free; the rendered percentage is exact).
+    pub fn overall_bp(&self) -> u32 {
+        Self::rate_bp(self.realized(), self.attempted())
     }
 
     pub fn to_json(&self) -> String {
         let body = serde_json::to_value(self).unwrap_or_default();
         let report_id = Digest::of(&body);
+        let tiers: Vec<serde_json::Value> = [Tier::Floor, Tier::Rung, Tier::Ceiling]
+            .iter()
+            .map(|t| {
+                let (r, a) = self.tier_counts(*t);
+                serde_json::json!({ "tier": t.label(), "realized": r, "attempted": a, "rate_bp": Self::rate_bp(r, a) })
+            })
+            .collect();
         serde_json::to_string_pretty(&serde_json::json!({
             "report_id": report_id.to_hex(),
             "realized": self.realized(),
             "attempted": self.attempted(),
-            "rate_bp": self.rate_bp(),
+            "rate_bp": self.overall_bp(),
+            "tiers": tiers,
             "total_tokens": self.total_tokens(),
             "report": body,
         }))
@@ -246,24 +405,34 @@ impl RealizeBenchReport {
             "{bold}Kosmocrates realization benchmark{reset}  {dim}provider {} · model {}{reset}\n",
             self.provider, model
         );
-        for o in &self.outcomes {
-            let (mark, col) = if o.realized {
-                ("\u{2713}", green)
-            } else {
-                ("\u{2717}", red)
-            };
+        let pct = |bp: u32| format!("{}.{:02}%", bp / 100, bp % 100);
+        for tier in [Tier::Floor, Tier::Rung, Tier::Ceiling] {
+            let (r, a) = self.tier_counts(tier);
+            if a == 0 {
+                continue;
+            }
             out.push_str(&format!(
-                "  {col}{mark}{reset} {:<13} {} probe(s) · {} iter · {} tokens\n",
-                o.name, o.probes, o.iterations, o.tokens
+                "  {bold}{:<8}{reset} {r}/{a}  ({})\n",
+                tier.label(),
+                pct(Self::rate_bp(r, a))
             ));
+            for o in self.outcomes.iter().filter(|o| o.tier == tier) {
+                let (mark, col) = if o.realized {
+                    ("\u{2713}", green)
+                } else {
+                    ("\u{2717}", red)
+                };
+                out.push_str(&format!(
+                    "    {col}{mark}{reset} {:<12} {} probe(s) · {} iter · {} tokens\n",
+                    o.name, o.probes, o.iterations, o.tokens
+                ));
+            }
         }
-        let rate = self.rate_bp();
         out.push_str(&format!(
-            "  {bold}realized {}/{}{reset} ({}.{:02}%) · {} iterations · {} tokens total\n",
+            "  {bold}realized {}/{}{reset} ({}) · {} iterations · {} tokens total\n",
             self.realized(),
             self.attempted(),
-            rate / 100,
-            rate % 100,
+            pct(self.overall_bp()),
             self.total_iterations(),
             self.total_tokens(),
         ));
@@ -326,6 +495,7 @@ pub fn run_realize_bench(
         };
         outcomes.push(TaskOutcome {
             name: task.name,
+            tier: task.tier,
             wish_id: wish.id.to_hex(),
             realized,
             iterations,
@@ -345,13 +515,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn corpus_is_wellformed_and_resists_hardcoding() {
+    fn corpus_is_wellformed_and_tiered_and_resists_hardcoding() {
         let corpus = reference_corpus();
-        assert!(corpus.len() >= 8, "a corpus worth measuring");
+        assert!(corpus.len() >= 20, "a corpus worth measuring");
         let mut names: Vec<&str> = corpus.iter().map(|t| t.name).collect();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), corpus.len(), "task names are unique");
+        // Every tier is populated — the spread is real, not a single number.
+        for tier in [Tier::Floor, Tier::Rung, Tier::Ceiling] {
+            assert!(
+                corpus.iter().filter(|t| t.tier == tier).count() >= 5,
+                "tier {} needs enough tasks to mean something",
+                tier.label()
+            );
+        }
         for t in &corpus {
             assert!(
                 t.probes.len() >= 2,
@@ -371,7 +549,7 @@ mod tests {
                     );
                 }
                 assert!(
-                    !exp.contains(','),
+                    !exp.contains(',') && !exp.contains("=>"),
                     "{}: expectation survives the grammar",
                     t.name
                 );
@@ -381,12 +559,10 @@ mod tests {
 
     #[test]
     fn the_wish_is_budgeted_runtime_expectations_bound_to_the_probes() {
-        let task = &reference_corpus()[1]; // "add"
-        assert_eq!(task.name, "add");
+        let corpus = reference_corpus();
+        let task = corpus.iter().find(|t| t.name == "add").expect("add task");
         let wish = wish_for(task);
         assert_eq!(wish.predicate_count(), 3);
-        // Each probe becomes a budgeted Run facet — argv + expected output +
-        // time budget, all measured at execution (order-independent).
         let want = WishFacet::run("3,4=>exit:0,out~7,ms<60000");
         assert!(
             wish.predicates.iter().any(|p| p.facet == want),
@@ -401,47 +577,41 @@ mod tests {
     }
 
     #[test]
-    fn report_aggregates_rate_tokens_and_serializes() {
+    fn report_aggregates_tiers_rate_tokens_and_serializes() {
+        let mk = |name: &'static str, tier: Tier, realized: bool, tokens: u32| TaskOutcome {
+            name,
+            tier,
+            wish_id: "00".into(),
+            realized,
+            iterations: 3,
+            probes: 3,
+            tokens,
+        };
         let report = RealizeBenchReport {
             provider: "test".into(),
             model: Some("m".into()),
             outcomes: vec![
-                TaskOutcome {
-                    name: "a",
-                    wish_id: "00".into(),
-                    realized: true,
-                    iterations: 2,
-                    probes: 3,
-                    tokens: 1500,
-                },
-                TaskOutcome {
-                    name: "b",
-                    wish_id: "01".into(),
-                    realized: false,
-                    iterations: 8,
-                    probes: 2,
-                    tokens: 4096,
-                },
-                TaskOutcome {
-                    name: "c",
-                    wish_id: "02".into(),
-                    realized: true,
-                    iterations: 1,
-                    probes: 2,
-                    tokens: 900,
-                },
+                mk("a", Tier::Floor, true, 1000),
+                mk("b", Tier::Floor, true, 1000),
+                mk("c", Tier::Rung, true, 500),
+                mk("d", Tier::Rung, false, 800),
+                mk("e", Tier::Ceiling, false, 900),
             ],
         };
-        assert_eq!(report.attempted(), 3);
-        assert_eq!(report.realized(), 2);
-        assert_eq!(report.rate_bp(), 6666, "2/3 in basis points");
-        assert_eq!(report.total_tokens(), 6496);
-        assert_eq!(report.total_iterations(), 11);
+        assert_eq!(report.attempted(), 5);
+        assert_eq!(report.realized(), 3);
+        assert_eq!(report.overall_bp(), 6000, "3/5");
+        assert_eq!(report.tier_counts(Tier::Floor), (2, 2));
+        assert_eq!(report.tier_counts(Tier::Rung), (1, 2));
+        assert_eq!(report.tier_counts(Tier::Ceiling), (0, 1));
+        assert_eq!(report.total_tokens(), 4200);
         let text = report.render(false);
-        assert!(text.contains("realized 2/3 (66.66%)"), "{text}");
+        assert!(text.contains("floor    2/2  (100.00%)"), "{text}");
+        assert!(text.contains("ceiling  0/1  (0.00%)"), "{text}");
+        assert!(text.contains("realized 3/5 (60.00%)"), "{text}");
         let json = report.to_json();
         assert!(json.contains("\"report_id\""), "{json}");
-        assert!(json.contains("\"rate_bp\": 6666"), "{json}");
-        assert!(json.contains("\"total_tokens\": 6496"), "{json}");
+        assert!(json.contains("\"tier\": \"ceiling\""), "{json}");
+        assert!(json.contains("\"total_tokens\": 4200"), "{json}");
     }
 }

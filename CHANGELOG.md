@@ -13,6 +13,23 @@ note explicitly says so.
 
 ## [Unreleased]
 
+### Changed
+
+* **The realization benchmark grows teeth — a tiered corpus worthy of a
+  real engine.** The first corpus was a floor (echo, add, factorial): it
+  proves the loop conducts, but a premium model would clear it trivially,
+  telling us nothing. The corpus is now **tiered by difficulty** — floor
+  (10), rung (8: palindrome, ROT13, base conversion, anagram, Collatz),
+  ceiling (5: Roman numerals, nth prime, balanced parens, run-length
+  encoding, precedence expression evaluation) — so one run yields a
+  *spread* (per-tier realized/attempted) instead of a single number, and
+  a strong model is actually discriminated from a weak one. Pinned
+  end-to-end against the local OpenAI-shaped stand-in: all 23 task keys
+  parse and run (including the awkward `(())` and `2+3*4`), the tiered
+  report renders, and an *echo-only* stand-in scores the honest baseline
+  **1/23 (4.34%)**. The tiers are harder rungs, not the paradigm summit
+  (whole systems from prose) — that instrument is still ahead.
+
 ### Added
 
 * **The realization benchmark — the instrument for the question that

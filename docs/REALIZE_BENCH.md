@@ -12,15 +12,28 @@ gate before any GUI is even in question.
 
 ## What it does
 
-It drives a curated corpus of behavioural wishes (`echo`, `add`,
-`maximum`, `reverse`, `uppercase`, `count-vowels`, `factorial`,
-`fibonacci`, `gcd`, `sum-list`) through the **same provider-backed
-descent the operator uses**. Each task is a wish of budgeted `Run`
-facets the scaffolder cannot satisfy — a `Run` facet needs real logic,
-not a stub — so the descent must call the real provider. Every task uses
-**multiple probes** (e.g. `add`: 3+4=7, 10+32=42, 0+0=0), so a program
-that prints one memorized answer fails the others: the model must
-generalize, not hard-code.
+It drives a curated corpus of behavioural wishes through the **same
+provider-backed descent the operator uses**. Each task is a wish of
+budgeted `Run` facets the scaffolder cannot satisfy — a `Run` facet
+needs real logic, not a stub — so the descent must call the real
+provider. Every task uses **multiple probes** (e.g. `add`: 3+4=7,
+10+32=42, 0+0=0), so a program that prints one memorized answer fails
+the others: the model must generalize, not hard-code.
+
+The corpus is **tiered by difficulty**, so one run yields a spread, not
+a single number:
+
+- **floor** (10) — echo, add, reverse, factorial …: does the loop
+  conduct, and can a model hit trivial targets at all?
+- **rung** (8) — palindrome, ROT13, base conversion, anagram, Collatz
+  steps …: moderate logic a competent model should mostly clear.
+- **ceiling** (5) — Roman numerals, nth prime, balanced parentheses,
+  run-length encoding, precedence expression evaluation: where a real
+  engine is discriminated from a weak one.
+
+These tiers are *harder rungs*, not the paradigm summit (whole
+multi-component systems from prose) — that is a larger instrument still
+ahead.
 
 The verdict is **execution, never the model's word**: the forged program
 is run under the sandbox witness and its output and exit code are matched
@@ -79,8 +92,25 @@ scaffolder measures only what the Prüfstand already proves.
 
 ## How to read a result
 
-`realized 7/10 (70.00%)` with a model means: of ten behavioural targets
-the scaffolder could not touch, the model drove seven to a program that
-**actually runs correctly on every probe**. A low rate is not a failure
-of the bench — it is the honest news about that model on this loop, which
-is exactly what has to be known before the surface is dressed up.
+The spread is the point. A run prints per tier, e.g.:
+
+```
+floor    10/10 (100.00%)
+rung      6/8  (75.00%)
+ceiling   2/5  (40.00%)
+realized 18/23 (78.26%) · … iterations · … tokens total
+```
+
+That means: the model cleared every trivial target, most of the moderate
+ones, and two of the five hard ones — each verified by **executing the
+forged program on every probe**. A low ceiling with a high floor is the
+honest shape of "competent but not yet at the top"; a low floor would
+mean either a weak model or a loop problem (the local stand-in pre-flight
+rules out the latter). The verified baseline: an *echo-only* stand-in
+scores **1/23 (4.34%)** — it can do exactly one thing — so any real model
+is read against that floor.
+
+Successful tasks are cheap (the model realizes them in one to a few
+descent iterations); only tasks the model genuinely cannot do burn the
+full 8-iteration budget. So cost scales with difficulty, and a capable
+engine spends most of its tokens on the few rungs it can't yet reach.

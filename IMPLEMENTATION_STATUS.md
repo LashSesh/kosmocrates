@@ -24,6 +24,10 @@
 - **`DeficiencyVector` always-on pipeline Step 1c** ✅
 - **`PseBridgeCandidate` conversion from pipeline observations wired as Step 6b** ✅
 
+### The realization benchmark grows teeth — a tiered corpus (2026-06-13)
+
+The floor corpus proved the loop conducts; a premium model would clear it trivially. Now tiered (floor 10 / rung 8 / ceiling 5: Roman numerals, nth prime, balanced parens, run-length, precedence expr-eval) so one run reports a *spread* per tier and discriminates a strong engine from a weak one. Pinned e2e against the local OpenAI-shaped stand-in: all 23 keys parse+run (incl. `(())`, `2+3*4`), tiered report renders, echo-only baseline = **1/23 (4.34%)**. Harder rungs, not the paradigm summit (whole systems from prose — still ahead). Workspace 3339/3339; Prüfstand 17/17.
+
 ### The realization benchmark — the first instrument for the generative-loop question (2026-06-13)
 
 The one non-deterministic boundary, finally measurable. Before this: exactly one `#[ignore]`d live smoke test, checking nothing about quality — the "wish → system" claim rested on no empirical evidence.
