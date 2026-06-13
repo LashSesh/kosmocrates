@@ -24,6 +24,7 @@ use kosmo_pipeline::{
 #[derive(Debug)]
 struct Args {
     path: String,
+    doors: bool,
     store: Option<PathBuf>,
     all_layers: bool,
     metatron: bool,
@@ -53,6 +54,7 @@ fn parse_args() -> Result<Args, String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut args = Args {
         path: ".".into(),
+        doors: false,
         store: None,
         all_layers: false,
         metatron: false,
@@ -73,6 +75,7 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 0usize;
     while i < raw.len() {
         match raw[i].as_str() {
+            "--doors" => args.doors = true,
             "-h" | "--help" => {
                 print_help();
                 process::exit(0);
@@ -185,6 +188,7 @@ fn print_help() {
         "    --fail-on-reject Exit 1 if gate result is Reject\n",
         "    --fail-on-warn   Exit 1 if gate result is Reject or Warn\n",
         "    -h, --help       Print this help\n",
+        "    --doors          The binary's docking surface, self-described\n",
         "    -V, --version    Print version\n",
         "\n",
         "EXAMPLES:\n",
@@ -757,6 +761,11 @@ fn main() {
         }
     };
 
+    if args.doors {
+        print_doors(matches!(args.output, OutputFormat::Json));
+        return;
+    }
+
     let policy = if args.operator {
         PolicyProfile::operator_approved()
     } else {
@@ -815,5 +824,159 @@ fn main() {
     };
     if should_fail {
         process::exit(1);
+    }
+}
+
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
+
+/// The binary's complete docking surface, pinned by test against the parser.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "kosmo-substrate".into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "analyse",
+            vec![],
+            "the default door: run the substrate pipeline over a workspace and \
+             print the ranked action queue; optional layers compose; with \
+             --store the crystal store grows across sessions",
+            vec![
+                DoorInput::valued("path", "<workspace>"),
+                DoorInput::switch("--all"),
+                DoorInput::switch("--all-layers"),
+                DoorInput::switch("--metatron"),
+                DoorInput::switch("--lpcm"),
+                DoorInput::switch("--systemcube"),
+                DoorInput::switch("--surgery"),
+                DoorInput::switch("--crystals"),
+                DoorInput::switch("--norms"),
+                DoorInput::switch("--motifs"),
+                DoorInput::switch("--pse"),
+                DoorInput::switch("--operator"),
+                DoorInput::valued("--capacity", "<n>"),
+                DoorInput::valued("--store", "<path>"),
+                DoorInput::valued("--output", "text|json|markdown|summary"),
+                DoorInput::switch("--fail-on-reject"),
+                DoorInput::switch("--fail-on-warn"),
+            ],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--doors",
+            vec![],
+            "this catalog: the binary's complete docking surface (--output json \
+             for the machine form)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--help",
+            vec!["-h".into()],
+            "the prose usage text",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--version",
+            vec!["-V".into()],
+            "print the version",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+    ])
+}
+
+fn print_doors(as_json: bool) {
+    let catalog = doors_catalog();
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("kosmo-substrate doors — the docking surface");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for door in &catalog.doors {
+        println!(
+            "  {}  [{}]  {}",
+            door.name,
+            door.governance.label(),
+            door.summary
+        );
+    }
+}
+
+#[cfg(test)]
+mod doors_tests {
+    use super::*;
+
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    /// Every flag literal the parser actually matches.
+    fn parsed_flags() -> std::collections::BTreeSet<String> {
+        let mut flags = std::collections::BTreeSet::new();
+        for line in MAIN_SRC.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(start) = rest.find("\"-") {
+                let after = &rest[start + 1..];
+                let Some(end) = after.find('"') else { break };
+                let literal = &after[..end];
+                let tail = after[end + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    flags.insert(literal.to_string());
+                }
+                rest = &after[end + 1..];
+            }
+        }
+        flags
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_parser() {
+        let parsed = parsed_flags();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            for name in std::iter::once(&door.name).chain(door.aliases.iter()) {
+                if name.starts_with('-') {
+                    cataloged.insert(name.clone());
+                }
+            }
+            for input in &door.inputs {
+                if input.name.starts_with('-') {
+                    cataloged.insert(input.name.clone());
+                }
+            }
+        }
+        assert_eq!(
+            parsed, cataloged,
+            "the catalog and the parser must speak the same flags"
+        );
+    }
+
+    #[test]
+    fn the_catalog_recomputes_and_describes_itself() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        assert!(catalog.doors.iter().any(|d| d.name == "--doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
     }
 }

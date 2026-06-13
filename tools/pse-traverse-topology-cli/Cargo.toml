@@ -18,6 +18,7 @@ name = "pse-traverse-topology"
 path = "src/main.rs"
 
 [dependencies]
+kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
 pse-traverse = { path = "../../crates/pse-traverse", version = "0.1.0", features = ["topology"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

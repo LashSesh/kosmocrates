@@ -45,6 +45,7 @@ use kosmo_pipeline::{
 #[derive(Debug)]
 struct Args {
     path: String,
+    doors: bool,
     store: Option<PathBuf>,
     all_layers: bool,
     metatron: bool,
@@ -72,6 +73,7 @@ fn parse_args() -> Result<Args, String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut args = Args {
         path: ".".into(),
+        doors: false,
         store: None,
         all_layers: false,
         metatron: false,
@@ -88,6 +90,7 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 0usize;
     while i < raw.len() {
         match raw[i].as_str() {
+            "--doors" => args.doors = true,
             "-h" | "--help" => {
                 println!(concat!(
                     "Kosmocrates TUI — interactive workspace topology dashboard\n",
@@ -96,6 +99,7 @@ fn parse_args() -> Result<Args, String> {
                     "    kosmo-tui [OPTIONS] [PATH]\n",
                     "\n",
                     "OPTIONS: same flags as kosmo-substrate\n",
+                    "    --doors          The binary's docking surface, self-described\n",
                     "    --store <path>   Crystal store path (persists CAD library)\n",
                     "    --all            Enable all analysis layers\n",
                     "    --metatron / --lpcm / --systemcube / --surgery\n",
@@ -1082,6 +1086,11 @@ fn main() {
         }
     };
 
+    if args.doors {
+        print_doors();
+        return;
+    }
+
     let policy = if args.operator {
         PolicyProfile::operator_approved()
     } else {
@@ -1260,5 +1269,186 @@ mod tests {
         assert!(!landscape_lines_render(&Err("boom".into())).is_empty());
 
         std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
+
+/// The binary's complete docking surface — flags AND the key vocabulary of
+/// the event loop, both pinned by test against this source.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "kosmo-tui".into(),
+    };
+    let keys = ["q", "c", "r", "p", "l", "j", "k", "g", "G"]
+        .iter()
+        .map(|k| DoorInput::switch(*k));
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "tui",
+            vec![],
+            "the default door: the interactive three-pane dashboard over the \
+             workspace's ranked action queue. Keys: q quit (also Esc, ctrl-c \
+             via c), r re-run, p promote in memory, l landscape, j/k scroll, \
+             g/G top/bottom (PgUp/PgDn page). With --store under --operator \
+             the crystal store can grow",
+            keys.chain([
+                DoorInput::valued("path", "<workspace>"),
+                DoorInput::switch("--all"),
+                DoorInput::switch("--all-layers"),
+                DoorInput::switch("--metatron"),
+                DoorInput::switch("--lpcm"),
+                DoorInput::switch("--systemcube"),
+                DoorInput::switch("--surgery"),
+                DoorInput::switch("--crystals"),
+                DoorInput::switch("--norms"),
+                DoorInput::switch("--motifs"),
+                DoorInput::switch("--pse"),
+                DoorInput::switch("--operator"),
+                DoorInput::valued("--capacity", "<n>"),
+                DoorInput::valued("--store", "<path>"),
+            ])
+            .collect(),
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--doors",
+            vec![],
+            "this catalog: the binary's complete docking surface, keys included",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--help",
+            vec!["-h".into()],
+            "the prose usage text",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--version",
+            vec!["-V".into()],
+            "print the version",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+    ])
+}
+
+fn print_doors() {
+    // The TUI is the interactive face; its self-description is emitted in
+    // the machine form so any federating surface can ingest it directly
+    // (`kosmo-run --doors-merge`). The readable inventory lives there.
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&doors_catalog()).unwrap_or_default()
+    );
+}
+
+#[cfg(test)]
+mod doors_tests {
+    use super::*;
+
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    /// Every flag literal the parser actually matches.
+    fn parsed_flags() -> std::collections::BTreeSet<String> {
+        let mut flags = std::collections::BTreeSet::new();
+        for line in MAIN_SRC.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(start) = rest.find("\"-") {
+                let after = &rest[start + 1..];
+                let Some(end) = after.find('"') else { break };
+                let literal = &after[..end];
+                let tail = after[end + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    flags.insert(literal.to_string());
+                }
+                rest = &after[end + 1..];
+            }
+        }
+        flags
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_parser() {
+        let parsed = parsed_flags();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            for name in std::iter::once(&door.name).chain(door.aliases.iter()) {
+                if name.starts_with('-') {
+                    cataloged.insert(name.clone());
+                }
+            }
+            for input in &door.inputs {
+                if input.name.starts_with('-') {
+                    cataloged.insert(input.name.clone());
+                }
+            }
+        }
+        assert_eq!(
+            parsed, cataloged,
+            "the catalog and the parser must speak the same flags"
+        );
+    }
+
+    #[test]
+    fn the_catalog_recomputes_and_describes_itself() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        assert!(catalog.doors.iter().any(|d| d.name == "--doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
+    }
+
+    /// Every key the event loop actually matches (`Char('x')` literals).
+    fn handled_keys() -> std::collections::BTreeSet<char> {
+        let mut keys = std::collections::BTreeSet::new();
+        for line in MAIN_SRC.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(start) = rest.find("Char('") {
+                let after = &rest[start + 6..];
+                if let Some(c) = after.chars().next() {
+                    // Keys are alphanumeric; this also keeps the scanner
+                    // from catching its own source line.
+                    if c.is_ascii_alphanumeric() {
+                        keys.insert(c);
+                    }
+                }
+                rest = after;
+            }
+        }
+        keys
+    }
+
+    #[test]
+    fn the_key_vocabulary_is_pinned_to_the_event_loop() {
+        let handled = handled_keys();
+        let cataloged: std::collections::BTreeSet<char> = doors_catalog()
+            .doors
+            .iter()
+            .flat_map(|d| d.inputs.iter())
+            .filter(|i| i.name.len() == 1 && !i.name.starts_with('-'))
+            .filter_map(|i| i.name.chars().next())
+            .collect();
+        assert_eq!(
+            handled, cataloged,
+            "the catalog and the event loop must speak the same keys"
+        );
     }
 }

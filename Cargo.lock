@@ -1745,6 +1745,7 @@ dependencies = [
  "pse-core",
  "pse-types",
  "ratatui",
+ "serde_json",
 ]
 
 [[package]]
@@ -3349,6 +3350,7 @@ dependencies = [
 name = "pse-traverse-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-core",
  "pse-graph",
  "pse-traverse",
@@ -3362,6 +3364,7 @@ dependencies = [
 name = "pse-traverse-cognition-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_jcs",
@@ -3372,6 +3375,7 @@ dependencies = [
 name = "pse-traverse-horizon-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_jcs",
@@ -3382,6 +3386,7 @@ dependencies = [
 name = "pse-traverse-lpcm-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_json",
@@ -3392,6 +3397,7 @@ dependencies = [
 name = "pse-traverse-topology-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_json",

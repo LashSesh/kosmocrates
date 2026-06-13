@@ -15,6 +15,34 @@ note explicitly says so.
 
 ### Added
 
+* **The remaining voices — eight more surfaces self-describe; the
+  inventory reaches 137 doors (Spreizung V)**
+
+  kosmo-substrate, kosmo-promote, kosmo-tui and the five traverse CLIs
+  (pse-traverse-cli, -horizon, -cognition, -topology, -lpcm) join the
+  federation, each with the same discipline: a content-addressed
+  catalog spoken from inside the binary (`--doors` / `doors`), pinned
+  by test against its own parser or dispatch. The pins earned their
+  keep immediately: kosmo-substrate's and kosmo-tui's forgotten `-V`
+  version aliases surfaced as set-diffs and now stand in the catalog.
+
+  **kosmo-tui's catalog speaks keys**: the interactive vocabulary
+  (q/c/r/p/l/j/k/g/G) is cataloged as inputs and pinned against the
+  event loop's `Char(…)` arms — a key the loop handles but the catalog
+  doesn't name fails the build, and vice versa. kosmo-promote's recall
+  mode is its own read-only door beside the store-appending promote
+  door; the traverse CLIs carry the all-read-only pin (53 doors of
+  horizon/cognition/topology/LPCM analysis — `--out` writes only
+  operator-named files).
+
+  Federated live across **thirteen surfaces: 137 doors under one
+  catalog id** — kosmo-run 18, pse 18, pse-server 17,
+  pse-traverse-topology 16, pse-traverse-cognition 14, pse-metatron 9,
+  pse-traverse-horizon 9, pse-traverse-cli 8, pse-traverse-lpcm 8,
+  kosmo-server 8, kosmo-promote 4, kosmo-substrate 4, kosmo-tui 4.
+  +17 tests (a parser/dispatch pin and a recompute/governance pin per
+  surface; the TUI key pin).
+
 * **The PSE layer joins the inventory — pse and pse-metatron
   self-describe (Spreizung IV)**
 
