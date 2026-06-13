@@ -14,6 +14,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
 pse-traverse = { path = "../../crates/pse-traverse", version = "0.1.0", default-features = false, features = ["cognition", "cognition-cli"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

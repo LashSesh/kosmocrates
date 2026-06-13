@@ -18,6 +18,7 @@ name = "pse"
 path = "src/main.rs"
 
 [dependencies]
+kosmo-core = { path = "../kosmo-core", version = "0.1.0" }
 pse-types = { path = "../pse-types", version = "0.1.0" }
 pse-core = { path = "../pse-core", version = "0.1.0" }
 pse-evidence = { path = "../pse-evidence", version = "0.1.0" }

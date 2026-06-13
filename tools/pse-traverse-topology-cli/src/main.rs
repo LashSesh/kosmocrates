@@ -54,6 +54,10 @@ fn main() -> ExitCode {
         "replay" => cmd_replay(&args[2..]),
         "verify" => cmd_verify(&args[2..]),
         "run" => cmd_run(&args[2..]),
+        "doors" => {
+            cmd_doors(&args[2..]);
+            Ok(())
+        }
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -88,6 +92,7 @@ const USAGE: &str = "Usage:
   pse-traverse-topology replay        --bundle <bundle.json> [--expect same-digest]
   pse-traverse-topology verify        --bundle <bundle.json>
   pse-traverse-topology run           --state <state.json> --rd <rd.json> --out <bundle.json>
+  pse-traverse-topology doors     [--json]   the binary's docking surface, self-described
 ";
 
 type CliResult<T> = std::result::Result<T, String>;
@@ -338,4 +343,264 @@ fn cmd_run(args: &[String]) -> CliResult<()> {
         result.outcome.bundle.bundle_id.hex()
     );
     Ok(())
+}
+
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
+
+/// The binary's complete docking surface, spoken by the binary itself.
+/// Every subcommand observes artifact files; `--out` writes only the file
+/// the operator names. A test pins this catalog against the dispatch.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "pse-traverse-topology".into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "doors",
+            vec![],
+            "this catalog: the binary's complete docking surface, spoken by the binary itself (add --json for the machine form)",
+            vec![DoorInput::switch("--json")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "help",
+            vec!["--help".into(), "-h".into()],
+            "the prose usage text",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "inspect",
+            vec![],
+            "inspect a topology state",
+            vec![DoorInput::valued("state", "<json>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "window",
+            vec![],
+            "cut the phase-space window",
+            vec![DoorInput::valued("--state", "<json>").required(), DoorInput::valued("--rd", "<file>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "axis",
+            vec![],
+            "the axis report of a window",
+            vec![DoorInput::valued("--window", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "triangulate",
+            vec![],
+            "MeshHolo triangulation of a window",
+            vec![DoorInput::valued("--window", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "lift",
+            vec![],
+            "the MTL micro-fiber lift",
+            vec![DoorInput::valued("--window", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "weight",
+            vec![],
+            "weight the mesh with its fibers",
+            vec![DoorInput::valued("--mesh", "<json>").required(), DoorInput::valued("--fibers", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "refine",
+            vec![],
+            "DK-operator refinement under a depth budget",
+            vec![DoorInput::valued("--mesh", "<json>").required(), DoorInput::valued("--depth", "<n>"), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "carrier",
+            vec![],
+            "the carrier readiness gate",
+            vec![DoorInput::valued("--mesh", "<json>").required(), DoorInput::valued("--window", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "reinterpret",
+            vec![],
+            "reinterpret the mesh through the carrier",
+            vec![DoorInput::valued("--mesh", "<json>").required(), DoorInput::valued("--carrier", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "gate",
+            vec![],
+            "the 8-metric Kairos gate over window, mesh and fibers",
+            vec![DoorInput::valued("--window", "<json>").required(), DoorInput::valued("--mesh", "<json>").required(), DoorInput::valued("--fibers", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "bundle",
+            vec![],
+            "bundle a gate verdict into one artifact",
+            vec![DoorInput::valued("--gate", "<json>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "replay",
+            vec![],
+            "replay a bundle byte-identically",
+            vec![DoorInput::valued("--bundle", "<json>").required(), DoorInput::valued("--expect", "same-digest")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "run",
+            vec![],
+            "the full topology chain in one run",
+            vec![DoorInput::valued("--state", "<json>").required(), DoorInput::valued("--rd", "<file>").required(), DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "verify",
+            vec![],
+            "verify a topology bundle",
+            vec![DoorInput::valued("--bundle", "<json>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+    ])
+}
+
+fn cmd_doors(args: &[String]) {
+    let catalog = doors_catalog();
+    if args.iter().any(|a| a == "--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("pse-traverse-topology doors — the docking surface");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for door in &catalog.doors {
+        println!(
+            "  {}  [{}]  {}",
+            door.name,
+            door.governance.label(),
+            door.summary
+        );
+    }
+}
+
+#[cfg(test)]
+mod doors_tests {
+    use super::*;
+
+    /// This binary's own dispatch source — the catalog is pinned against it.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    fn dispatched_words() -> std::collections::BTreeSet<String> {
+        let start = MAIN_SRC
+            .find("match args[1].as_str() {")
+            .expect("the dispatch match exists");
+        let slice = &MAIN_SRC[start..];
+        let end = slice
+            .lines()
+            .scan(0usize, |off, line| {
+                let here = *off;
+                *off += line.len() + 1;
+                Some((here, line))
+            })
+            .find(|(_, line)| *line == "    }" || *line == "    };")
+            .map(|(off, _)| off)
+            .expect("the dispatch match closes");
+        let slice = &slice[..end];
+        let mut words = std::collections::BTreeSet::new();
+        for line in slice.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(q) = rest.find('"') {
+                let after = &rest[q + 1..];
+                let Some(close) = after.find('"') else { break };
+                let literal = &after[..close];
+                let tail = after[close + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    words.insert(literal.to_string());
+                }
+                rest = &after[close + 1..];
+            }
+        }
+        words
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_dispatch() {
+        let dispatched = dispatched_words();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            cataloged.insert(door.name.clone());
+            for alias in &door.aliases {
+                cataloged.insert(alias.clone());
+            }
+        }
+        assert_eq!(
+            dispatched, cataloged,
+            "the catalog and the dispatch must speak the same words"
+        );
+    }
+
+    #[test]
+    fn every_door_is_read_only_and_the_catalog_recomputes() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        for door in &catalog.doors {
+            assert_eq!(
+                door.governance,
+                DoorGovernance::ReadOnly,
+                "{}: traversal analyses observe artifacts; --out writes only \
+                 operator-named files",
+                door.name
+            );
+        }
+        assert!(catalog.doors.iter().any(|d| d.name == "doors"));
+    }
 }

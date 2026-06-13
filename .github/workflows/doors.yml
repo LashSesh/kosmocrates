@@ -1,0 +1,65 @@
+name: Doors
+
+# The self-renewing inventory (docs/DOORS.md): every door-speaking surface
+# emits its own content-addressed catalog; kosmo-run federates them into one
+# ecosystem inventory. This job harvests that inventory nightly (and on
+# demand) and publishes it as a build artifact — the operator's standing
+# answer to "what, exactly, could I operate right now?", kept fresh without
+# anyone hand-writing it. The harvest fails closed: if a surface stops
+# answering or a catalog no longer verifies, the job goes red.
+
+on:
+  schedule:
+    # Nightly, a few minutes off the steward's slot.
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    # Only when something that could change the surface moves.
+    paths:
+      - "tools/**"
+      - "crates/pse-cli/**"
+      - "crates/kosmo-core/src/doors.rs"
+      - "scripts/harvest-doors.sh"
+      - ".github/workflows/doors.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  harvest:
+    name: harvest the ecosystem inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Harvest every surface's doors into one inventory
+        run: scripts/harvest-doors.sh --out "$RUNNER_TEMP/doors-inventory.json"
+      - name: Summarize the inventory
+        run: |
+          python3 - "$RUNNER_TEMP/doors-inventory.json" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, sys
+          from collections import Counter
+          d = json.load(open(sys.argv[1]))
+          by_surface = Counter()
+          by_gov = Counter()
+          for door in d["doors"]:
+              s = door["surface"]
+              by_surface[(s.get("Cli") or s.get("Http"))["binary"]] += 1
+              by_gov[door["governance"]] += 1
+          print(f"## Docking surface — {len(d['doors'])} doors across {len(by_surface)} surfaces")
+          print(f"\nCatalog id: `{d['catalog_id']}`\n")
+          print("| surface | doors |")
+          print("|---|---|")
+          for k, v in sorted(by_surface.items(), key=lambda kv: -kv[1]):
+              print(f"| {k} | {v} |")
+          print("\n**Write power:** " + ", ".join(f"{v} {k}" for k, v in sorted(by_gov.items())))
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: doors-inventory
+          path: ${{ runner.temp }}/doors-inventory.json

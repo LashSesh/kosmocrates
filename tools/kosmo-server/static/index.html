@@ -190,10 +190,21 @@ td.desc{word-break:break-word}
     </div>
   </div>
 
+  <div class="card">
+    <div class="path-row">
+      <label for="doors-btn">Doors — the server's docking surface, spoken by the server itself</label>
+    </div>
+    <div class="actions-row">
+      <button id="doors-btn" onclick="runDoors()">Show the doors</button>
+      <span id="doors-status" class="status-msg"></span>
+    </div>
+  </div>
+
   <div id="error-box" class="error-card hidden"></div>
   <div id="promote-results"></div>
   <div id="recall-results"></div>
   <div id="landscape-results"></div>
+  <div id="doors-results"></div>
   <div id="results"></div>
 
 </main>
@@ -334,6 +345,47 @@ function renderPromote(d){
   out.innerHTML=html;
 }
 
+async function runDoors(){
+  const btn=document.getElementById('doors-btn');
+  const status=document.getElementById('doors-status');
+  const errBox=document.getElementById('error-box');
+  const out=document.getElementById('doors-results');
+
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Asking…';
+  status.textContent='';
+  errBox.classList.add('hidden');
+
+  try{
+    const resp=await fetch('/api/doors');
+    if(!resp.ok){
+      errBox.textContent='Doors failed';
+      errBox.classList.remove('hidden');
+      out.innerHTML='';
+      return;
+    }
+    const d=await resp.json();
+    status.textContent=`${d.doors.length} door(s) · catalog ${d.catalog_id.slice(0,12)}…`;
+    let html=`<div class="card"><h2>Doors <span class="count">${d.doors.length}</span></h2>`;
+    html+=`<table><thead><tr><th>door</th><th>power</th><th>inputs</th><th>summary</th></tr></thead><tbody>`;
+    for(const door of d.doors){
+      const method=door.surface&&door.surface.Http?door.surface.Http.method+' ':'';
+      const inputs=(door.inputs||[]).map(i=>i.name+(i.value?' '+i.value:'')+(i.required?'*':'')).join(' · ');
+      const gov=typeof door.governance==='string'?door.governance:JSON.stringify(door.governance);
+      html+=`<tr><td><code>${esc(method+door.name)}</code></td><td>${esc(gov)}</td>`+
+            `<td class="dim">${esc(inputs)}</td><td>${esc(door.summary)}</td></tr>`;
+    }
+    html+=`</tbody></table></div>`;
+    out.innerHTML=html;
+  }catch(e){
+    errBox.textContent='Doors failed: '+e;
+    errBox.classList.remove('hidden');
+  }finally{
+    btn.disabled=false;
+    btn.textContent='Show the doors';
+  }
+}
+
 async function runLandscape(){
   const btn=document.getElementById('landscape-btn');
   const status=document.getElementById('landscape-status');
@@ -350,7 +402,7 @@ async function runLandscape(){
     const resp=await fetch('/api/landscape',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({path,all:false})
+      body:JSON.stringify({path,all:false,geometry:true})
     });
     if(!resp.ok){
       let msg='Landscape failed';
@@ -374,6 +426,18 @@ async function runLandscape(){
       });
       html+=`</tbody></table>`;
       html+=`<div class="meta-list"><div>adopt the open peaks <span><code>kosmo-run --landscape --adopt N --apply ${esc(path)}</code></span></div></div>`;
+    }
+    if(d.geometry&&d.geometry.clusters.length){
+      html+=`<h2 style="margin-top:16px">Geometry <span class="count">${d.geometry.clusters.length} cluster(s)</span></h2>`;
+      d.geometry.clusters.forEach((cl,i)=>{
+        html+=`<div class="meta-list"><div>cluster ${i+1} · mass ${esc(cl.severity_mass)} · ${esc(cl.subjects.join(', '))}`+
+              `<span>${cl.facets.map(f=>`<code>${esc(f)}</code>`).join(' ')}</span></div></div>`;
+      });
+      (d.geometry.singular||[]).forEach(s9=>{
+        html+=`<div class="meta-list"><div>singular — removing it disconnects the landscape`+
+              `<span><code>${esc(s9.facet)}</code> coupling ${esc(s9.coupling_mass)}</span></div></div>`;
+      });
+      html+=`<div class="meta-list"><div>adopt one coherent cluster <span><code>kosmo-run --landscape --adopt-cluster i --apply ${esc(path)}</code></span></div></div>`;
     }
     html+=`</div>`;
     out.innerHTML=html;

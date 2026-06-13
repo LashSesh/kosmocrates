@@ -24,32 +24,46 @@
 //! loop offline.
 //! ```
 
+mod doors;
 mod pruefstand;
+mod realize_bench;
+mod reforge;
+mod steward;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
-    assess_wish, Digest, GateResult, PolicyProfile, Wish, WishAssessment, WishClosureStatus,
-    WishFacet, WishFacetKind, Q16,
+    assess_wish, Digest, FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
+    FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan, FoundryOutcome,
+    FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult, KcubeArtifactKind,
+    KcubeExportPolicy, KcubeWriteOutcome, ParseBackScanScope, PolicyProfile, StageStanding,
+    VentureSession, Wish, WishAssessment, WishClosureStatus, WishFacet, WishFacetKind, Q16,
 };
+use kosmo_foundry::FoundryExecutor;
+use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
 use kosmo_hyphae::{
     promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
 };
 use kosmo_intent::{
-    compile_wish, compile_wish_with_norms, is_reserved_wish_word, observe_workspace_deep,
-    observe_workspace_runtime, observe_workspace_service, observe_workspace_validated, ChatIntent,
-    IntentExtractor, KeywordIntentExtractor, NormCatalog, WishSession,
+    companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms,
+    is_reserved_wish_word, observe_workspace_deep, observe_workspace_runtime,
+    observe_workspace_service, observe_workspace_validated, parse_atelier_command, AtelierCommand,
+    ChatIntent, DraftSlot, IndexSelection, IntentExtractor, KeywordIntentExtractor, NormCatalog,
+    SuggestionSource, WishDraft, WishSession,
 };
-use kosmo_intent_llm::LlmIntentExtractor;
+use kosmo_intent_llm::{LlmIntentExtractor, LlmWishRefiner};
+use kosmo_kcube::KcubeExecutor;
+use kosmo_parseback::{diff_snapshots, ParseBackExecutor, TopologySnapshot};
 use kosmo_pipeline::{
     landscape_geometry, measure_landscape, propose_wishes, run_workspace_pipeline, ActionItem,
     ActionItemKind, IntegrationRunOptions, LandscapeStanding, WishProposal,
 };
 use kosmo_pse_bridge::MemoryRecall;
+use kosmo_sandbox::{RunSpec, Sandbox};
 use kosmo_store::NormStore;
 use kosmo_synthesizer::{
     ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, GroundedSynthesizer,
@@ -124,6 +138,59 @@ struct Args {
     /// total intent extractor (keyword rules; LLM-first when a real
     /// provider is chosen, falling back to keywords on any failure).
     chat: Option<String>,
+    /// Atelier mode: path of a durable WishDraft (JSON). Each invocation is
+    /// one shaping round (--chat carries the utterance); "realize" descends.
+    atelier: Option<String>,
+    /// Venture mode: a JSON spec of dependent wish stages, orchestrated as
+    /// one whole-system fabrication (writes only with --apply).
+    venture: Option<String>,
+    /// Reforge mode: the external-empiricism bench — re-forge known system
+    /// tools from oracle-collected wish specs (requires a real provider).
+    reforge: bool,
+    /// Write the reforge report (content-addressed JSON) to this file.
+    reforge_report: Option<String>,
+    /// Realization benchmark: drive a curated behavioural corpus through the
+    /// real generative loop and measure the realization rate (real provider).
+    realize_bench: bool,
+    /// Write the realization-benchmark report (content-addressed JSON) here.
+    realize_bench_report: Option<String>,
+    /// Doors mode: print this binary's complete docking surface — every
+    /// door with inputs, governance and needs, content-addressed.
+    doors: bool,
+    /// Federate: comma-separated catalog JSON files (emitted by other
+    /// surfaces' doors) merged into one ecosystem inventory. Each file is
+    /// verified by content address before it is trusted. Implies --doors.
+    doors_merge: Option<String>,
+    /// Foundry door: run the loop's own allowlisted cargo checks (comma
+    /// list: build,test,lint,typecheck) as a directed invocation.
+    foundry: Option<String>,
+    /// Witness door: execute the workspace binary with this comma-separated
+    /// argv under the sandbox witness; print the content-addressed evidence.
+    witness: Option<String>,
+    /// ParseBack door: capture the workspace topology snapshot; with a
+    /// baseline file, report severity-ranked drift against it.
+    parseback: bool,
+    /// Baseline file for --parseback (written once; delete to rebaseline).
+    parseback_baseline: Option<String>,
+    /// KCube door: export the workspace's SystemCube blueprint as a real,
+    /// roundtrip-verified .kcube archive into this directory.
+    kcube: Option<String>,
+    /// Codematrix door: per-source 5D fingerprints + most resonant pairs
+    /// (advisory — ranks, never gates).
+    codematrix: bool,
+    /// Steward mode: self-husbandry — survey the workspace's own landscape
+    /// and, under --apply, descend the open chores inside the fence.
+    steward: bool,
+    /// The operator's fence: comma-separated facet classes the steward may
+    /// husband (e.g. "doc,test"). Nothing is fenced by default.
+    fence: Option<String>,
+    /// Cap the steward's chore list per run (0 = uncapped).
+    steward_max: u32,
+    /// Write the steward report (content-addressed JSON) to this file.
+    steward_report: Option<String>,
+    /// Durable venture progress (JSON): written after every stage, resumed
+    /// on the next invocation. The venture identity must match.
+    venture_session: Option<String>,
 }
 
 impl Default for Args {
@@ -158,6 +225,25 @@ impl Default for Args {
             promote_norm: None,
             trigger: None,
             chat: None,
+            atelier: None,
+            venture: None,
+            venture_session: None,
+            reforge: false,
+            reforge_report: None,
+            realize_bench: false,
+            realize_bench_report: None,
+            doors: false,
+            doors_merge: None,
+            foundry: None,
+            witness: None,
+            parseback: false,
+            parseback_baseline: None,
+            kcube: None,
+            codematrix: false,
+            steward: false,
+            fence: None,
+            steward_max: 0,
+            steward_report: None,
         }
     }
 }
@@ -188,6 +274,8 @@ OPTIONS:\n\
     --wish \"<prose>\"      compile a plain-language wish and measure the\n\
                           workspace against it; prints met/missing facets\n\
     --validated           observe green tests too (runs the suite; heavier)\n\
+                          (run probes accept a tail budget: \"hi=>out~hi,ms<50\"\n\
+                          — the program must answer AND stay under 50ms)\n\
     --scaffold            also print the file changes that would close the gap\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\
@@ -253,7 +341,91 @@ OPTIONS:\n\
                           measurable wish, never a template. Deterministic\n\
                           keyword rules by default; with a real --provider\n\
                           the model routes first and falls back to keywords\n\
-                          on any failure. --apply/--ledger/--norms compose.\n\n\
+                          on any failure. --apply/--ledger/--norms compose.\n\
+\n\
+  ATELIER (shape a wish over rounds before realizing it):\n\
+    --atelier <draft.json>  open (or create) a durable wish draft; each\n\
+                          invocation is ONE round, the utterance comes via\n\
+                          --chat. Your dictated facets enter the wish;\n\
+                          machine proposals (companions; model suggestions\n\
+                          with a real --provider) stay PENDING until you\n\
+                          accept them — the machine proposes, you dispose.\n\
+                          Rounds: --chat \"<prose>\" adds facets;\n\
+                          \"accept 3,4\" / \"reject 5\" / \"drop 2\" are\n\
+                          verdicts on the numbered list; \"realize\" freezes\n\
+                          the wish and descends (writes only with --apply).\n\
+\n\
+  VENTURE (a whole system of dependent wishes):\n\
+    --venture <spec.json> orchestrate a venture: stages carry wishes as\n\
+                          prose (promoted norm triggers work), \"after\"\n\
+                          lists prerequisite stage indices. Stages descend\n\
+                          in dependency order, each under full gates; a\n\
+                          failed stage blocks its dependents. Read-only\n\
+                          preview without --apply.\n\
+    --venture-session <f> durable progress: written after every stage,\n\
+                          resumed on the next run (identity-checked).\n\
+\n\
+  REFORGE (external empiricism — requires a real provider):\n\
+    --reforge             re-forge known system tools (expr, factor,\n\
+                          basename) from wish specs whose expectations are\n\
+                          collected from the REAL binaries on this machine\n\
+                          at run time; the forged tool is executed and must\n\
+                          answer like the oracle, within a time budget.\n\
+                          One command, reproducible by anyone with a key.\n\
+    --reforge-report <f>  write the content-addressed JSON report to <f>.\n\
+\n\
+  REALIZE-BENCH (does the generative loop actually work? — requires a real provider):\n\
+    --realize-bench       drive a curated corpus of behavioural wishes through\n\
+                          the REAL provider descent and measure the fraction\n\
+                          that reach REALIZED — judged by executing the forged\n\
+                          program, never by the model's word. Provider-agnostic\n\
+                          (cloud API or a local model via KOSMO_LLM_BASE_URL);\n\
+                          reports realization rate, iterations and token cost.\n\
+                          A measurement, not a gate (always exits 0).\n\
+    --realize-bench-report <f>  write the content-addressed JSON report to <f>.\n\
+\n\
+  STEWARD (self-husbandry — the machine proposes, the operator disposes):\n\
+    --steward             survey the workspace's own wish landscape and name\n\
+                          the open chores inside the fence. Read-only without\n\
+                          --apply; with --apply, each fenced chore descends as\n\
+                          its own evidence-bound wish (deterministic scaffolds;\n\
+                          --provider/--ledger/--norms compose as in wish mode).\n\
+    --fence <classes>     the facet classes the steward may husband, comma-\n\
+                          separated (e.g. doc,test). NOTHING is fenced by\n\
+                          default — husbandry without a fence is refused, and\n\
+                          widening the fence is an explicit operator act.\n\
+    --steward-max <n>     cap the chore list per run (default: uncapped)\n\
+    --steward-report <f>  write the content-addressed JSON report to <f>\n\
+                          (host-path-free; fit for an unattended nightly run).\n\
+\n\
+  DOORS (the binary's self-description):\n\
+    --doors               print this binary's complete docking surface: every\n\
+                          door with its inputs, write power and needs —\n\
+                          content-addressed, deterministic, pinned by test\n\
+                          against the parser (--json for the machine form).\n\
+    --doors-merge <files> federate: merge other surfaces' emitted catalogs\n\
+                          (comma-separated JSON files, e.g. from\n\
+                          GET /api/doors) into one ecosystem inventory; each\n\
+                          file is verified by content address — a catalog\n\
+                          that does not recompute is refused.\n\
+\n\
+  ORGANS (directed doors over the substrate — one door per run):\n\
+    --foundry <kinds>     run the loop's own gate executor alone: allowlisted\n\
+                          cargo checks (build,test,lint,typecheck), worst-wins\n\
+                          outcome, content-addressed evidence. Exit 6 on fail.\n\
+    --witness \"<argv>\"    execute the workspace binary once under the sandbox\n\
+                          witness (60s budget, cwd-confined) and print the\n\
+                          content-addressed evidence. Exit 7 unless clean.\n\
+    --parseback           capture the workspace topology snapshot (crates,\n\
+                          files, dependency edges — content-addressed);\n\
+    --parseback-baseline <f>  persist the snapshot once and report severity-\n\
+                          ranked drift on later runs (delete to rebaseline).\n\
+    --kcube <dir>         export the workspace's SystemCube blueprint as a\n\
+                          real, roundtrip-verified .kcube archive (refuses\n\
+                          silent overwrite). Exit 8 if not written.\n\
+    --codematrix          per-source 5D fingerprints (relationality, cohesion,\n\
+                          topology, symmetry, entropy) + most resonant pairs.\n\
+                          Advisory: ranks, never gates.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -365,6 +537,73 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--chat" => {
                 args.chat = Some(argv.next().ok_or("--chat needs an utterance")?);
             }
+            "--atelier" => {
+                args.atelier = Some(argv.next().ok_or("--atelier needs a draft file path")?);
+            }
+            "--venture" => {
+                args.venture = Some(argv.next().ok_or("--venture needs a spec file path")?);
+            }
+            "--reforge" => args.reforge = true,
+            "--reforge-report" => {
+                args.reforge_report =
+                    Some(argv.next().ok_or("--reforge-report needs a file path")?);
+            }
+            "--realize-bench" => args.realize_bench = true,
+            "--realize-bench-report" => {
+                args.realize_bench_report = Some(
+                    argv.next()
+                        .ok_or("--realize-bench-report needs a file path")?,
+                );
+            }
+            "--venture-session" => {
+                args.venture_session =
+                    Some(argv.next().ok_or("--venture-session needs a file path")?);
+            }
+            "--doors" => args.doors = true,
+            "--doors-merge" => {
+                args.doors_merge = Some(
+                    argv.next()
+                        .ok_or("--doors-merge needs catalog files (comma-separated)")?,
+                );
+            }
+            "--foundry" => {
+                args.foundry = Some(
+                    argv.next()
+                        .ok_or("--foundry needs check kinds (e.g. build,test)")?,
+                );
+            }
+            "--witness" => {
+                args.witness = Some(
+                    argv.next()
+                        .ok_or("--witness needs a comma-separated argv")?,
+                );
+            }
+            "--parseback" => args.parseback = true,
+            "--parseback-baseline" => {
+                args.parseback_baseline = Some(
+                    argv.next()
+                        .ok_or("--parseback-baseline needs a file path")?,
+                );
+            }
+            "--kcube" => {
+                args.kcube = Some(argv.next().ok_or("--kcube needs an output directory")?);
+            }
+            "--codematrix" => args.codematrix = true,
+            "--steward" => args.steward = true,
+            "--fence" => {
+                args.fence = Some(argv.next().ok_or("--fence needs facet classes")?);
+            }
+            "--steward-max" => {
+                args.steward_max = argv
+                    .next()
+                    .ok_or("--steward-max needs a value")?
+                    .parse()
+                    .map_err(|_| "--steward-max must be a number")?;
+            }
+            "--steward-report" => {
+                args.steward_report =
+                    Some(argv.next().ok_or("--steward-report needs a file path")?);
+            }
             "--ground-top" => {
                 args.ground_top = argv
                     .next()
@@ -434,7 +673,17 @@ fn build_synthesizer(args: &Args) -> Result<Arc<dyn ActionSynthesizer>, String> 
             ))
         }
         "env" | "auto" | "" => {
-            let synth = LlmSynthesizer::from_env().map_err(|e| e.to_string())?;
+            // First contact without a key is an invitation, not a dead end:
+            // most of the system runs offline.
+            let synth = LlmSynthesizer::from_env().map_err(|e| {
+                format!(
+                    "{e}\n\nno LLM provider is required to start — these run offline:\n\
+                     \x20 kosmo-run --landscape .            map what the workspace is missing\n\
+                     \x20 kosmo-run --wish \"a module x\" .    measure a wish (add --apply to build)\n\
+                     \x20 kosmo-run --chat \"status\" .        ask in plain words\n\
+                     \x20 kosmo-run --atelier wish.json --chat \"a module x\" .   shape a wish over rounds"
+                )
+            })?;
             Ok(swarmed(synth))
         }
         other => Err(format!(
@@ -1007,6 +1256,21 @@ fn adopt_and_descend(
         .latest()
         .map(|a| matches!(a.status, WishClosureStatus::Realized))
         .unwrap_or(false);
+    // The system's own proposals are sightings too: an adopted descent
+    // records a norm-learning observation like a spoken wish does.
+    if let Some(dir) = args.norms.as_deref() {
+        match NormStore::open(dir) {
+            Ok(mut store) => record_norm_observation(
+                &mut store,
+                &args.path,
+                &wish,
+                realized,
+                evidence,
+                &PolicyProfile::operator_approved(),
+            ),
+            Err(e) => eprintln!("norms: could not open store: {e}"),
+        }
+    }
     Ok(if realized {
         ExitCode::SUCCESS
     } else {
@@ -1034,30 +1298,37 @@ fn intent_label(intent: &ChatIntent) -> String {
     }
 }
 
-/// The router: deterministic keyword rules by default; when the operator
-/// explicitly chose a real provider, the model routes first — and the
-/// extractor itself falls back to the keyword rules on any failure, so
-/// routing stays total either way. The mock provider routes by keywords
-/// (mock routing would be theater).
-fn chat_extractor(args: &Args) -> Box<dyn IntentExtractor> {
-    if args.provider_set {
-        let config = match args.provider.as_str() {
+/// The shared-transport config for advisory model work (chat routing, wish
+/// refinement) — only when the operator explicitly chose a real provider.
+/// The mock provider yields none (mock advice would be theater).
+fn llm_config_for(args: &Args) -> Option<kosmo_llm::LlmConfig> {
+    if !args.provider_set {
+        return None;
+    }
+    let config =
+        match args.provider.as_str() {
             "claude" => env_key(&["ANTHROPIC_API_KEY", "KOSMO_LLM_API_KEY"])
                 .map(kosmo_llm::LlmConfig::claude),
             "cerebras" => env_key(&["CEREBRAS_API_KEY", "KOSMO_LLM_API_KEY"])
                 .map(kosmo_llm::LlmConfig::cerebras),
             "env" => kosmo_llm::config_from_env().ok(),
             _ => None,
-        };
-        if let Some(config) = config {
-            let config = match &args.model {
-                Some(m) => config.with_model(m.clone()),
-                None => config,
-            };
-            return Box::new(LlmIntentExtractor::new(config));
-        }
+        }?;
+    Some(match &args.model {
+        Some(m) => config.with_model(m.clone()),
+        None => config,
+    })
+}
+
+/// The router: deterministic keyword rules by default; when the operator
+/// explicitly chose a real provider, the model routes first — and the
+/// extractor itself falls back to the keyword rules on any failure, so
+/// routing stays total either way.
+fn chat_extractor(args: &Args) -> Box<dyn IntentExtractor> {
+    match llm_config_for(args) {
+        Some(config) => Box::new(LlmIntentExtractor::new(config)),
+        None => Box::new(KeywordIntentExtractor),
     }
-    Box::new(KeywordIntentExtractor)
 }
 
 /// One-shot chat: extract the intent (total — the fallback is the wish
@@ -1110,7 +1381,26 @@ fn run_chat_mode(args: &Args) -> Result<ExitCode, String> {
             let mut sub = args.clone();
             sub.landscape = true;
             if !sub.json {
-                println!("status \u{2014} the measured landscape:");
+                println!("status \u{2014} the system's measured standing:");
+                // The cockpit lines: every armed organ reports in one glance.
+                if let Some(dir) = args.norms.as_deref() {
+                    match NormStore::open(dir) {
+                        Ok(store) => {
+                            let armed =
+                                store.norms().iter().filter(|n| n.trigger.is_some()).count();
+                            println!(
+                                "  norms: {} known ({} armed) \u{b7} {} observation(s)",
+                                store.norms().len(),
+                                armed,
+                                store.observations().len()
+                            );
+                        }
+                        Err(e) => println!("  norms: store unreadable ({e})"),
+                    }
+                }
+                if let Some(recall) = open_recall(args)? {
+                    println!("  memory: {}", recall.source());
+                }
             }
             run_landscape_mode(&sub)
         }
@@ -1119,6 +1409,1223 @@ fn run_chat_mode(args: &Args) -> Result<ExitCode, String> {
             println!("  use: kosmo-run --norms <dir> --inject-norm <spec.json>");
             println!("  then: kosmo-run --norms <dir> --promote-norm <id> --trigger <word>");
             Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+// ─── Wish atelier (shape a wish over rounds) ────────────────────────────────
+
+/// Load a draft from disk (verifying its content address — a corrupt draft
+/// is a hard error) or start a fresh one.
+fn load_draft(path: &str) -> Result<WishDraft, String> {
+    if !Path::new(path).exists() {
+        return Ok(WishDraft::new(Digest::ZERO));
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    let draft: WishDraft =
+        serde_json::from_str(&text).map_err(|e| format!("parse draft {path}: {e}"))?;
+    if !draft.verify_id() {
+        return Err(format!(
+            "draft {path} fails its content address — refusing a tampered draft"
+        ));
+    }
+    Ok(draft)
+}
+
+fn save_draft(path: &str, draft: &WishDraft) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(draft).map_err(|e| format!("serialize draft: {e}"))?;
+    fs::write(path, json).map_err(|e| format!("write {path}: {e}"))
+}
+
+/// Map a display selection (continuous 1-based numbering over accepted then
+/// pending) to 0-based indices of ONE list; mismatched slots become honest
+/// feedback lines instead of silent skips.
+fn resolve_selection(
+    draft: &WishDraft,
+    selection: &IndexSelection,
+    want_pending: bool,
+) -> (Vec<usize>, Vec<String>) {
+    match selection {
+        IndexSelection::All => {
+            let len = if want_pending {
+                draft.pending.len()
+            } else {
+                draft.accepted.len()
+            };
+            ((0..len).collect(), vec![])
+        }
+        IndexSelection::These(numbers) => {
+            let mut indices = Vec::new();
+            let mut notes = Vec::new();
+            for &n in numbers {
+                match draft.resolve(n) {
+                    Some(DraftSlot::Pending(i)) if want_pending => indices.push(i),
+                    Some(DraftSlot::Accepted(i)) if !want_pending => indices.push(i),
+                    Some(DraftSlot::Pending(_)) => {
+                        notes.push(format!("{n} is a proposal — use accept/reject, not drop"))
+                    }
+                    Some(DraftSlot::Accepted(_)) => {
+                        notes.push(format!("{n} is already in the wish — use drop to retract"))
+                    }
+                    None => notes.push(format!("{n} is not on the list")),
+                }
+            }
+            (indices, notes)
+        }
+    }
+}
+
+/// Render the draft: dialogue, the numbered wish-so-far (measured ✓/✗ when
+/// an observation is available), the numbered proposals, open questions.
+fn render_draft(
+    draft: &WishDraft,
+    observed: Option<&kosmo_core::ObservedTopology>,
+    path: &str,
+    color: bool,
+) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish atelier{}  {}{}{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(DIM),
+        path,
+        c(RESET)
+    ));
+    if draft.prose_history.is_empty() {
+        out.push_str("  (an empty draft — speak a wish: --chat \"a module …\")\n");
+    } else {
+        out.push_str(&format!(
+            "  dialogue ({} round(s)):\n",
+            draft.prose_history.len()
+        ));
+        for (i, prose) in draft.prose_history.iter().enumerate() {
+            out.push_str(&format!("    {}. \u{201c}{}\u{201d}\n", i + 1, prose));
+        }
+    }
+    let mut number = 0usize;
+    if !draft.accepted.is_empty() {
+        out.push_str(&format!("  wish so far ({}):\n", draft.accepted.len()));
+        for f in &draft.accepted {
+            number += 1;
+            let mark = match observed {
+                Some(obs) if obs.contains(f) => format!("{}\u{2713}{}", c(GREEN), c(RESET)),
+                Some(_) => format!("{}\u{2717}{}", c(RED), c(RESET)),
+                None => "?".to_string(),
+            };
+            out.push_str(&format!("    {number:>2} {mark} {:?} {}\n", f.kind, f.key));
+        }
+    }
+    if !draft.pending.is_empty() {
+        out.push_str(&format!(
+            "  proposed ({}) {}— \u{201c}accept <n>\u{201d} / \u{201c}reject <n>\u{201d}:{}\n",
+            draft.pending.len(),
+            c(DIM),
+            c(RESET)
+        ));
+        for s in &draft.pending {
+            number += 1;
+            let source = match &s.source {
+                SuggestionSource::Observation => "substrate".to_string(),
+                SuggestionSource::Model { label } => label.clone(),
+            };
+            out.push_str(&format!(
+                "    {number:>2} {}?{} {:?} {} {}\u{2014} {} [{}]{}\n",
+                c(YELLOW),
+                c(RESET),
+                s.facet.kind,
+                s.facet.key,
+                c(DIM),
+                s.rationale,
+                source,
+                c(RESET)
+            ));
+        }
+    }
+    if !draft.questions.is_empty() {
+        out.push_str("  questions:\n");
+        for q in &draft.questions {
+            out.push_str(&format!("    {}\u{2014} {}{}\n", c(DIM), q, c(RESET)));
+        }
+    }
+    if !draft.accepted.is_empty() {
+        out.push_str(&format!(
+            "  {}(\u{201c}realize\u{201d} freezes the wish and descends; writes only with --apply){}\n",
+            c(DIM),
+            c(RESET)
+        ));
+    }
+    out
+}
+
+/// Freeze the draft and descend toward it — the only place an atelier round
+/// touches the workspace, and only under `--apply`. Without `--apply`:
+/// measure and report, the wish-mode contract.
+fn realize_draft(args: &Args, draft: &WishDraft) -> Result<ExitCode, String> {
+    let wish = draft.to_wish();
+    if wish.predicate_count() == 0 {
+        println!("the draft holds no accepted facets yet — speak a wish first");
+        return Ok(ExitCode::from(1));
+    }
+    let validated = args.validated || wish_needs_validation(&wish);
+    if !args.apply {
+        let observed = if wish_needs_service(&wish) {
+            observe_workspace_service(args.path.as_str())
+        } else if wish_needs_runtime(&wish) {
+            observe_workspace_runtime(args.path.as_str())
+        } else if validated {
+            observe_workspace_validated(args.path.as_str())
+        } else {
+            observe_workspace_deep(args.path.as_str())
+        }
+        .map_err(|e| format!("could not observe {}: {e}", args.path))?;
+        let assessment = assess_wish(&wish, &observed, draft.evidence_bundle_id);
+        print!("{}", wish_report(&wish, &assessment, args.color));
+        println!("  (read-only — add --apply to descend the realized wish)");
+        return Ok(match assessment.status {
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous => ExitCode::SUCCESS,
+            _ => ExitCode::from(1),
+        });
+    }
+    let fallback = wish_fallback(args)?;
+    let session = descend_to_wish(
+        &args.path,
+        &wish,
+        draft.evidence_bundle_id,
+        validated,
+        8,
+        fallback.as_deref(),
+        None,
+    )?;
+    print!("{}", descent_report(&session, args.color));
+    let realized = session.latest().is_some_and(|a| {
+        matches!(
+            a.status,
+            WishClosureStatus::Realized | WishClosureStatus::Vacuous
+        )
+    });
+    // A realized atelier descent is a learning observation like any other.
+    if let Some(dir) = args.norms.as_deref() {
+        match NormStore::open(dir) {
+            Ok(mut store) => record_norm_observation(
+                &mut store,
+                &args.path,
+                &wish,
+                realized,
+                draft.evidence_bundle_id,
+                &PolicyProfile::operator_approved(),
+            ),
+            Err(e) => eprintln!("norms: could not open store: {e}"),
+        }
+    }
+    Ok(if realized {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+/// One atelier round: load the draft, apply the utterance (prose, verdict,
+/// show, or realize), persist, and render the new state.
+fn run_atelier_mode(args: &Args) -> Result<ExitCode, String> {
+    let draft_path = args.atelier.as_deref().expect("dispatch checked");
+    let mut draft = load_draft(draft_path)?;
+    let utterance = args.chat.as_deref().unwrap_or("");
+    let command = parse_atelier_command(utterance);
+
+    // One observation per round: measures the wish-so-far and filters
+    // companion proposals. Fail-soft — a non-cargo dir just shows '?'.
+    let observed = observe_workspace_deep(&args.path).ok();
+
+    let mut feedback: Vec<String> = Vec::new();
+    let mutated = match command {
+        AtelierCommand::Show => false,
+        AtelierCommand::Realize => return realize_draft(args, &draft),
+        AtelierCommand::Speak(prose) => {
+            let catalog = match args.norms.as_deref() {
+                Some(dir) => {
+                    let store = NormStore::open(dir).map_err(|e| e.to_string())?;
+                    NormCatalog::from_norms(store.norms()).map_err(|e| e.to_string())?
+                }
+                None => NormCatalog::empty(),
+            };
+            draft = draft.speak(&prose, &catalog);
+            let companions = companion_suggestions(&draft, observed.as_ref());
+            draft = draft.propose(companions);
+            // Model refinement is advisory and provider-gated; its absence
+            // costs suggestions, never the round.
+            if let Some(config) = llm_config_for(args) {
+                let refiner = LlmWishRefiner::new(config);
+                let outcome = refiner.refine(&draft);
+                if let Some(note) = &outcome.note {
+                    feedback.push(note.clone());
+                }
+                draft = draft
+                    .propose(outcome.suggestions)
+                    .with_questions(outcome.questions);
+            }
+            true
+        }
+        AtelierCommand::Accept(selection) => {
+            let (indices, notes) = resolve_selection(&draft, &selection, true);
+            feedback.extend(notes);
+            draft = draft.accept_pending(&indices);
+            true
+        }
+        AtelierCommand::Reject(selection) => {
+            let (indices, notes) = resolve_selection(&draft, &selection, true);
+            feedback.extend(notes);
+            draft = draft.reject_pending(&indices);
+            true
+        }
+        AtelierCommand::Drop(selection) => {
+            let (indices, notes) = resolve_selection(&draft, &selection, false);
+            feedback.extend(notes);
+            draft = draft.retract_accepted(&indices);
+            true
+        }
+    };
+    if mutated {
+        save_draft(draft_path, &draft)?;
+    }
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&draft).map_err(|e| e.to_string())?
+        );
+    } else {
+        for note in &feedback {
+            println!("  note: {note}");
+        }
+        print!(
+            "{}",
+            render_draft(&draft, observed.as_ref(), draft_path, args.color)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+// ─── Venture (a whole system of dependent wishes) ──────────────────────────
+
+/// Load a venture session from disk, verifying both its content address and
+/// that it belongs to `expected` — a session for a different venture is a
+/// hard error, never a silent restart.
+fn load_venture_session(path: &str, expected: &Digest) -> Result<Option<VentureSession>, String> {
+    if !Path::new(path).exists() {
+        return Ok(None);
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    let session: VentureSession =
+        serde_json::from_str(&text).map_err(|e| format!("parse venture session {path}: {e}"))?;
+    if !session.venture().verify_id() {
+        return Err(format!(
+            "venture session {path} fails its content address — refusing a tampered session"
+        ));
+    }
+    if &session.venture().venture_id != expected {
+        return Err(format!(
+            "venture session {path} belongs to a different venture \
+             (the spec changed?) — refusing to mix histories"
+        ));
+    }
+    Ok(Some(session))
+}
+
+fn save_venture_session(path: &str, session: &VentureSession) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(session)
+        .map_err(|e| format!("serialize venture session: {e}"))?;
+    fs::write(path, json).map_err(|e| format!("write {path}: {e}"))
+}
+
+/// Render the venture's staircase: order, standings, facet counts.
+fn render_venture(session: &VentureSession, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let venture = session.venture();
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates venture{}  \u{201c}{}\u{201d}  ({} stage(s))\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        venture.label,
+        venture.stage_count()
+    ));
+    let order = venture.execution_order();
+    let order_labels: Vec<&str> = order
+        .iter()
+        .map(|&i| venture.stages[i].label.as_str())
+        .collect();
+    out.push_str(&format!("  order: {}\n", order_labels.join(" \u{2192} ")));
+    for (i, stage) in venture.stages.iter().enumerate() {
+        let standing = session.standings()[i];
+        let (mark, col) = match standing {
+            StageStanding::Realized => ("\u{2713}", GREEN),
+            StageStanding::Failed => ("\u{2717}", RED),
+            StageStanding::Blocked => ("\u{2298}", RED),
+            StageStanding::Pending => ("\u{00b7}", DIM),
+        };
+        let deps = if stage.after.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "  {}after {:?}{}",
+                c(DIM),
+                stage.after.iter().map(|d| d + 1).collect::<Vec<_>>(),
+                c(RESET)
+            )
+        };
+        out.push_str(&format!(
+            "  {:>2} {}{}{} {}  [{}]  {} facet(s){}\n",
+            i + 1,
+            c(col),
+            mark,
+            c(RESET),
+            stage.label,
+            standing.label(),
+            stage.wish.predicate_count(),
+            deps
+        ));
+    }
+    out
+}
+
+/// Orchestrate a venture: compile the spec, resume or start the session,
+/// and (under `--apply`) descend the stages in dependency order — each
+/// under the full armament, each outcome persisted before the next begins.
+fn run_venture_mode(args: &Args) -> Result<ExitCode, String> {
+    let spec_path = args.venture.as_deref().expect("dispatch checked");
+    let bytes = fs::read(spec_path).map_err(|e| format!("read {spec_path}: {e}"))?;
+    let evidence = Digest::of_bytes(&bytes);
+    let catalog = match args.norms.as_deref() {
+        Some(dir) => {
+            let store = NormStore::open(dir).map_err(|e| e.to_string())?;
+            NormCatalog::from_norms(store.norms()).map_err(|e| e.to_string())?
+        }
+        None => NormCatalog::empty(),
+    };
+    let spec_text = String::from_utf8_lossy(&bytes);
+    let venture = compile_venture(&spec_text, &catalog, Digest::ZERO, evidence)?;
+
+    let mut session = match args.venture_session.as_deref() {
+        Some(path) => load_venture_session(path, &venture.venture_id)?
+            .unwrap_or_else(|| VentureSession::new(venture)),
+        None => VentureSession::new(venture),
+    };
+
+    if !args.apply {
+        // Read-only preview: the staircase plus each stage measured against
+        // the workspace (fail-soft when unobservable).
+        if !args.json {
+            print!("{}", render_venture(&session, args.color));
+            if let Ok(observed) = observe_workspace_deep(args.path.as_str()) {
+                for stage in &session.venture().stages {
+                    let a = assess_wish(&stage.wish, &observed, stage.wish.evidence_bundle_id);
+                    println!(
+                        "     {} measured: {}/{} met",
+                        stage.label, a.met_count, a.total_count
+                    );
+                }
+            }
+            println!("  (read-only — add --apply to erect the venture)");
+        } else {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let fallback = wish_fallback(args)?;
+    while let Some(i) = session.next_ready() {
+        let stage = session.venture().stages[i].clone();
+        if !args.json {
+            println!(
+                "stage {}/{} \u{201c}{}\u{201d} \u{2014} descending \u{2026}",
+                i + 1,
+                session.venture().stage_count(),
+                stage.label
+            );
+        }
+        let validated = args.validated || wish_needs_validation(&stage.wish);
+        let wish_session = descend_to_wish(
+            &args.path,
+            &stage.wish,
+            stage.wish.evidence_bundle_id,
+            validated,
+            8,
+            fallback.as_deref(),
+            None,
+        )?;
+        let realized = wish_session.latest().is_some_and(|a| {
+            matches!(
+                a.status,
+                WishClosureStatus::Realized | WishClosureStatus::Vacuous
+            )
+        });
+        if let Some(a) = wish_session.latest() {
+            if !args.json {
+                println!(
+                    "  \u{2192} {} (met {}/{}, {} observation(s))",
+                    if realized { "REALIZED" } else { "NOT REALIZED" },
+                    a.met_count,
+                    a.total_count,
+                    wish_session.iterations()
+                );
+            }
+        }
+        session.mark(
+            i,
+            if realized {
+                StageStanding::Realized
+            } else {
+                StageStanding::Failed
+            },
+        );
+        // Every realized stage is a learning sighting like any other.
+        if realized {
+            if let Some(dir) = args.norms.as_deref() {
+                match NormStore::open(dir) {
+                    Ok(mut store) => record_norm_observation(
+                        &mut store,
+                        &args.path,
+                        &stage.wish,
+                        realized,
+                        stage.wish.evidence_bundle_id,
+                        &PolicyProfile::operator_approved(),
+                    ),
+                    Err(e) => eprintln!("norms: could not open store: {e}"),
+                }
+            }
+        }
+        // Persist progress before the next stage — the resumability seam.
+        if let Some(path) = args.venture_session.as_deref() {
+            save_venture_session(path, &session)?;
+        }
+    }
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?
+        );
+    } else {
+        print!("{}", render_venture(&session, args.color));
+        println!(
+            "venture: {}/{} realized{}",
+            session.realized_count(),
+            session.venture().stage_count(),
+            if session.is_complete() {
+                " \u{2713}"
+            } else {
+                ""
+            }
+        );
+    }
+    Ok(if session.is_complete() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
+// ─── Reforge (the external-empiricism bench) ────────────────────────────────
+
+/// Run the reforge bench: oracle-collected wishes, re-forged with the
+/// provider-backed fallback, judged at execution. Refuses to run without a
+/// real provider — and refuses the mock outright (forging theater).
+fn run_reforge_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.provider == "mock" {
+        return Err(
+            "--reforge needs a real provider (claude | cerebras | env): the mock \
+             synthesizer cannot implement behaviour, and pretending otherwise \
+             would be forging theater"
+                .to_string(),
+        );
+    }
+    let synthesizer = build_synthesizer(args)?;
+    let fallback = arm_fallback(args, Some(synthesizer))?
+        .ok_or("--reforge needs a real provider (claude | cerebras | env)")?;
+    let report = reforge::run_reforge(fallback.as_ref(), &args.provider);
+    if args.json {
+        println!("{}", report.to_json());
+    } else {
+        print!("{}", report.render(args.color));
+    }
+    if let Some(path) = args.reforge_report.as_deref() {
+        fs::write(path, report.to_json()).map_err(|e| format!("write {path}: {e}"))?;
+        if !args.json {
+            println!("  report written to {path}");
+        }
+    }
+    Ok(if report.is_faithful() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(5)
+    })
+}
+
+/// `--realize-bench`: fire the real generative loop at a curated behavioural
+/// corpus and measure the realization rate (and token cost) — judged by
+/// execution. Provider-agnostic (the same corpus runs against a cloud API
+/// or a local OpenAI-compatible model); mock is refused. It is an
+/// instrument, not a gate: completion exits 0 and the rate is the finding.
+fn run_realize_bench_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.provider == "mock" {
+        return Err(
+            "--realize-bench needs a real provider (claude | cerebras | env): the mock \
+             synthesizer cannot implement behaviour, so a benchmark of it would measure \
+             only the deterministic scaffolder — which the Prüfstand already proves"
+                .to_string(),
+        );
+    }
+    let synthesizer = build_synthesizer(args)?;
+    let armed = arm_fallback(args, Some(synthesizer))?.ok_or(
+        "--realize-bench needs a real provider (claude | cerebras | env) — set a key or \
+         KOSMO_LLM_BASE_URL for a local model",
+    )?;
+    if !args.json {
+        eprintln!(
+            "kosmo-run: firing {} task(s) through the real loop — this calls the provider \
+             repeatedly and may take a while…",
+            realize_bench::reference_corpus().len()
+        );
+    }
+    let report = realize_bench::run_realize_bench(armed, &args.provider, args.model.clone());
+    if args.json {
+        println!("{}", report.to_json());
+    } else {
+        print!("{}", report.render(args.color));
+    }
+    if let Some(path) = args.realize_bench_report.as_deref() {
+        fs::write(path, report.to_json()).map_err(|e| format!("write {path}: {e}"))?;
+        if !args.json {
+            println!("  report written to {path}");
+        }
+    }
+    // A measurement, not a gate: completion is success; the rate is the finding.
+    Ok(ExitCode::SUCCESS)
+}
+
+// ─── Steward (self-husbandry under an operator-named fence) ─────────────────
+
+/// `--steward`: survey the workspace's wish landscape, name the open chores
+/// inside the operator's `--fence`, and under `--apply` descend each chore
+/// as its own evidence-bound wish — the same armament as wish mode and
+/// landscape adoption, one descent and one norm observation per chore.
+/// Read-only without `--apply`; `--apply` without a fence is refused
+/// (nothing is fenced by default). The report is content-addressed and
+/// host-path-free, fit for an unattended nightly run.
+fn run_steward_mode(args: &Args) -> Result<ExitCode, String> {
+    let fence = args
+        .fence
+        .as_deref()
+        .map(steward::Fence::parse)
+        .transpose()?;
+    if args.apply && fence.is_none() {
+        return Err(
+            "--steward --apply needs --fence <classes>: nothing is fenced by default — \
+             the operator names what the steward may husband (e.g. --fence doc,test)"
+                .into(),
+        );
+    }
+
+    // The same diagnosis the landscape door runs — the steward adds no new
+    // eyes, only governed hands.
+    let policy = PolicyProfile::default_report_only();
+    let options = if args.all_layers {
+        IntegrationRunOptions::all_layers(args.capacity)
+    } else {
+        IntegrationRunOptions::report_only()
+    };
+    let report = run_workspace_pipeline(&args.path, &options, &policy)
+        .map_err(|e| format!("pipeline failed on {}: {e}", args.path))?;
+    let voids = &report.hyphae_result.host_cube.void_map.voids;
+    let landscape = propose_wishes(voids);
+    let observed = observe_workspace_deep(&args.path).ok();
+    let standing = measure_landscape(&landscape, observed.as_ref());
+
+    let cap = (args.steward_max > 0).then_some(args.steward_max as usize);
+    let chores: Vec<&WishProposal> = match &fence {
+        Some(f) => steward::fenced_open(&landscape, &standing, f, cap),
+        None => Vec::new(),
+    };
+    let mut sreport = steward::StewardReport::survey(
+        workspace_tag(&args.path),
+        fence.as_ref(),
+        &landscape,
+        &standing,
+        &chores,
+        args.apply,
+    );
+
+    if args.apply {
+        let fallback = wish_fallback(args)?;
+        let mut norm_store = match args.norms.as_deref() {
+            Some(dir) => match NormStore::open(dir) {
+                Ok(store) => Some(store),
+                Err(e) => {
+                    eprintln!("norms: could not open store: {e}");
+                    None
+                }
+            },
+            None => None,
+        };
+        for p in &chores {
+            let wish = Wish::new(
+                format!("steward: {:?} {}", p.facet.kind, p.facet.key),
+                [kosmo_core::WishPredicate::weighted(
+                    p.facet.clone(),
+                    p.severity,
+                )],
+                Digest::ZERO,
+                report.report_id,
+            );
+            // A failed chore is recorded and the round continues — an
+            // unattended steward reports failures, it doesn't abandon the
+            // remaining fenced work over one of them.
+            let (realized, iterations) = match descend_to_wish(
+                &args.path,
+                &wish,
+                report.report_id,
+                false,
+                8,
+                fallback.as_deref(),
+                None,
+            ) {
+                Ok(session) => (
+                    session
+                        .latest()
+                        .is_some_and(|a| matches!(a.status, WishClosureStatus::Realized)),
+                    session.iterations(),
+                ),
+                Err(e) => {
+                    eprintln!("steward: chore {:?} {}: {e}", p.facet.kind, p.facet.key);
+                    (false, 0)
+                }
+            };
+            // Husbanded chores are sightings too: each descent records a
+            // norm-learning observation like a spoken wish does.
+            if let Some(store) = norm_store.as_mut() {
+                record_norm_observation(
+                    store,
+                    &args.path,
+                    &wish,
+                    realized,
+                    report.report_id,
+                    &PolicyProfile::operator_approved(),
+                );
+            }
+            sreport.chores.push(steward::ChoreOutcome {
+                kind: format!("{:?}", p.facet.kind),
+                key: p.facet.key.clone(),
+                wish_id: wish.id.to_hex(),
+                realized,
+                iterations,
+            });
+        }
+    }
+
+    if args.json {
+        println!("{}", sreport.to_json());
+    } else {
+        print!("{}", sreport.render(args.color));
+    }
+    if let Some(path) = args.steward_report.as_deref() {
+        fs::write(path, sreport.to_json()).map_err(|e| format!("write {path}: {e}"))?;
+        if !args.json {
+            println!("  report written to {path}");
+        }
+    }
+    Ok(if sreport.is_faithful() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(4)
+    })
+}
+
+// ─── Substrate organ doors (Spreizung II) ───────────────────────────────────
+
+/// `--foundry <kinds>`: the loop's own gate executor as a directed door —
+/// the same allowlisted cargo commands, timeout discipline and
+/// content-addressed evidence the agent uses, invoked alone. `DryRun` is
+/// the least power that executes (`ReportOnly` is inert by design); the
+/// commands never touch sources (cargo's `target/` cache aside).
+fn run_foundry_mode(args: &Args) -> Result<ExitCode, String> {
+    let spec = args.foundry.as_deref().unwrap_or_default();
+    let mut checks = Vec::new();
+    for word in spec.split(',') {
+        let word = word.trim().to_lowercase();
+        if word.is_empty() {
+            continue;
+        }
+        let kind = match word.as_str() {
+            "build" => FoundryCheckKind::Build,
+            "test" => FoundryCheckKind::Test,
+            "lint" | "clippy" => FoundryCheckKind::Lint,
+            "typecheck" | "check" => FoundryCheckKind::TypeCheck,
+            other => {
+                return Err(format!(
+                    "--foundry: '{other}' is not a runnable check (the vocabulary: \
+                     build, test, lint, typecheck)"
+                ));
+            }
+        };
+        checks.push(FoundryCheckSpec::new(kind, "workspace", true));
+    }
+    if checks.is_empty() {
+        return Err("--foundry names no check (e.g. --foundry build,test)".into());
+    }
+    let policy = PolicyProfile::dry_run();
+    let root_digest = workspace_tag(&args.path);
+    let plan = FoundryExecutionPlan::new(
+        policy.id,
+        root_digest,
+        Digest::of_bytes(spec.as_bytes()),
+        FoundrySandboxSpec::new(FoundrySandboxKind::LocalDryRun, root_digest),
+        checks,
+        FoundryCommandPolicy::default_cargo_policy(),
+        FoundryTimeoutPolicy::new(600_000, 2_400_000),
+        FoundryEnvironmentPolicy::locked(),
+    );
+    let report = FoundryExecutor::new(args.path.as_str()).execute(&plan, &policy, root_digest);
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates foundry — the gate executor{}",
+            c(BOLD),
+            c(RESET)
+        );
+        for r in &report.check_results {
+            match &r.outcome {
+                FoundryOutcome::Passed => {
+                    println!(
+                        "  {}\u{2713}{} {:?} passed",
+                        c(GREEN),
+                        c(RESET),
+                        r.check_kind
+                    )
+                }
+                FoundryOutcome::Failed { exit_code, .. } => println!(
+                    "  {}\u{2717}{} {:?} failed (exit {})",
+                    c(RED),
+                    c(RESET),
+                    r.check_kind,
+                    exit_code
+                ),
+                other => println!("  \u{2013} {:?}: {:?}", r.check_kind, other),
+            }
+        }
+        println!(
+            "  outcome: {:?} \u{b7} {} ms \u{b7} evidence {}{}\u{2026}{}",
+            report.outcome,
+            report.elapsed_ms,
+            c(DIM),
+            &report.evidence_bundle_id.to_hex()[..12],
+            c(RESET)
+        );
+    }
+    Ok(
+        if matches!(report.outcome, FoundryExecutionOutcome::Passed) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(6)
+        },
+    )
+}
+
+/// `--witness "<argv>"`: one execution of the workspace's binary under the
+/// sandbox witness (cwd-confined, 60s budget, output capped but
+/// digest-complete) — the raw, content-addressed evidence of a run.
+fn run_witness_mode(args: &Args) -> Result<ExitCode, String> {
+    let argv: Vec<String> = args
+        .witness
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let manifest = Path::new(&args.path).join("Cargo.toml");
+    if !manifest.exists() {
+        return Err(format!(
+            "--witness needs a cargo workspace ({} has no Cargo.toml)",
+            args.path
+        ));
+    }
+    let mut run_args = vec![
+        "run".to_string(),
+        "--quiet".to_string(),
+        "--manifest-path".to_string(),
+        manifest.to_string_lossy().into_owned(),
+        "--".to_string(),
+    ];
+    run_args.extend(argv);
+    let sandbox = Sandbox::new()
+        .with_cwd(Path::new(&args.path))
+        .with_timeout(std::time::Duration::from_secs(60));
+    let w = sandbox.run(&RunSpec::new("cargo", run_args));
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "verdict": format!("{:?}", w.verdict),
+                "exit_code": w.exit_code,
+                "duration_ms": w.duration.as_millis() as u64,
+                "stdout_digest": w.stdout_digest.to_hex(),
+                "truncated": w.truncated,
+                "stdout": w.stdout,
+                "stderr": w.stderr,
+            }))
+            .map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates witness — one execution, content-addressed{}",
+            c(BOLD),
+            c(RESET)
+        );
+        println!(
+            "  verdict {:?} \u{b7} exit {:?} \u{b7} {} ms{}",
+            w.verdict,
+            w.exit_code,
+            w.duration.as_millis(),
+            if w.truncated {
+                " \u{b7} output truncated (the digest still covers all of it)"
+            } else {
+                ""
+            }
+        );
+        println!("  stdout digest {}", w.stdout_digest.to_hex());
+        for line in w.stdout.lines().take(20) {
+            println!("  | {line}");
+        }
+        if !w.stderr.trim().is_empty() {
+            for line in w.stderr.lines().take(10) {
+                println!("  ! {line}");
+            }
+        }
+    }
+    Ok(if w.succeeded() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(7)
+    })
+}
+
+/// `--parseback [--parseback-baseline <f>]`: the topology eye as a door —
+/// a content-addressed snapshot of the workspace (crates, files,
+/// dependency edges) and, against a stored baseline, the severity-ranked
+/// drift. The baseline is written once and never silently replaced.
+fn run_parseback_mode(args: &Args) -> Result<ExitCode, String> {
+    let executor = ParseBackExecutor::new(PathBuf::from(&args.path));
+    let now = executor
+        .snapshot(&ParseBackScanScope::FullWorkspace)
+        .map_err(|e| format!("parseback: could not snapshot {}: {e:?}", args.path))?;
+    let c = |code: &'static str| if args.color { code } else { "" };
+    let summary = |snap: &TopologySnapshot| {
+        format!(
+            "{} crate(s), {} dependency edge(s) \u{b7} snapshot {}\u{2026}",
+            snap.crate_count(),
+            snap.dep_edges.len(),
+            &snap.snapshot_id.to_hex()[..12]
+        )
+    };
+    match args.parseback_baseline.as_deref() {
+        None => {
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&now).map_err(|e| e.to_string())?
+                );
+            } else {
+                println!(
+                    "{}Kosmocrates parseback — the topology eye{}",
+                    c(BOLD),
+                    c(RESET)
+                );
+                println!("  {}", summary(&now));
+                println!("  (give --parseback-baseline <file> to persist and diff)");
+            }
+        }
+        Some(p) if !Path::new(p).exists() => {
+            let body = serde_json::to_string_pretty(&now).map_err(|e| e.to_string())?;
+            fs::write(p, body).map_err(|e| format!("parseback: write {p}: {e}"))?;
+            if !args.json {
+                println!(
+                    "{}Kosmocrates parseback — the topology eye{}",
+                    c(BOLD),
+                    c(RESET)
+                );
+                println!("  {}", summary(&now));
+                println!("  baseline written to {p} — future runs report drift against it");
+            }
+        }
+        Some(p) => {
+            let pre: TopologySnapshot = serde_json::from_str(
+                &fs::read_to_string(p).map_err(|e| format!("parseback: read {p}: {e}"))?,
+            )
+            .map_err(|e| format!("parseback: {p} is not a topology snapshot: {e}"))?;
+            let deltas = diff_snapshots(&pre, &now);
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "baseline": pre.snapshot_id.to_hex(),
+                        "current": now.snapshot_id.to_hex(),
+                        "deltas": deltas.iter().map(|d| serde_json::json!({
+                            "kind": format!("{:?}", d.change_kind),
+                            "severity": format!("{:?}", d.severity),
+                            "description": d.description,
+                        })).collect::<Vec<_>>(),
+                    }))
+                    .map_err(|e| e.to_string())?
+                );
+            } else {
+                println!(
+                    "{}Kosmocrates parseback — the topology eye{}",
+                    c(BOLD),
+                    c(RESET)
+                );
+                println!(
+                    "  baseline {}\u{2026} \u{2192} current {}\u{2026}",
+                    &pre.snapshot_id.to_hex()[..12],
+                    &now.snapshot_id.to_hex()[..12]
+                );
+                if deltas.is_empty() {
+                    println!("  {}\u{2713} no topology drift{}", c(GREEN), c(RESET));
+                } else {
+                    for d in &deltas {
+                        println!("  [{:?}] {}", d.severity, d.description);
+                    }
+                }
+                println!("  (the baseline is never silently replaced — delete {p} to rebaseline)");
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `--kcube <dir>`: the blueprint exporter as a door — run the full
+/// diagnosis, build the workspace's SystemCube, and export it as a real,
+/// roundtrip-verified `.kcube` archive. The explicit flag is the
+/// operator's materialization approval; silent overwrite is refused.
+fn run_kcube_mode(args: &Args) -> Result<ExitCode, String> {
+    let out_dir = args.kcube.as_deref().expect("dispatch checked");
+    fs::create_dir_all(out_dir).map_err(|e| format!("kcube: create {out_dir}: {e}"))?;
+    let policy = PolicyProfile::operator_approved_with_systemcube();
+    let options = IntegrationRunOptions::all_layers(args.capacity);
+    let report = run_workspace_pipeline(&args.path, &options, &policy)
+        .map_err(|e| format!("pipeline failed on {}: {e}", args.path))?;
+    let cube = report
+        .systemcube
+        .as_ref()
+        .ok_or("kcube: the pipeline yielded no SystemCube")?;
+    let export_policy = KcubeExportPolicy::write_once(
+        policy.id,
+        Digest::of_bytes(out_dir.as_bytes()),
+        vec![
+            KcubeArtifactKind::CartographyManifest,
+            KcubeArtifactKind::ValidationClosureReport,
+            KcubeArtifactKind::StructuralCrystal,
+        ],
+    );
+    let executor = KcubeExecutor::new(out_dir);
+    let w = cube.export_to_kcube(
+        &executor,
+        args.capacity,
+        &export_policy,
+        &policy,
+        report.report_id,
+        1,
+    );
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&w).map_err(|e| e.to_string())?
+        );
+    } else {
+        let c = |code: &'static str| if args.color { code } else { "" };
+        println!(
+            "{}Kosmocrates kcube — the blueprint archive{}",
+            c(BOLD),
+            c(RESET)
+        );
+        match &w.outcome {
+            KcubeWriteOutcome::Written => {
+                let file = kosmo_kcube::kcube_file_name(
+                    &format!("systemcube-{}", &cube.cube_id.to_hex()[..16]),
+                    1,
+                );
+                println!(
+                    "  {}\u{2713}{} written \u{b7} {} \u{b7} package {}\u{2026} \u{b7} {} bytes \u{b7} roundtrip {}",
+                    c(GREEN),
+                    c(RESET),
+                    Path::new(out_dir).join(file).display(),
+                    &w.package_id.to_hex()[..12],
+                    w.written_bytes,
+                    if w.roundtrip.is_some() {
+                        "verified"
+                    } else {
+                        "not verified"
+                    }
+                );
+            }
+            other => {
+                println!("  {}\u{2717}{} {:?}", c(RED), c(RESET), other);
+                for d in &w.diagnostics {
+                    println!("    {d}");
+                }
+            }
+        }
+    }
+    Ok(if matches!(w.outcome, KcubeWriteOutcome::Written) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(8)
+    })
+}
+
+/// `--codematrix`: the 5D fingerprint lens as a door — per-source axes
+/// (relationality, functional cohesion, topology, symmetry, entropy) and
+/// the most resonant pairs. Strictly advisory: it ranks, it never gates
+/// (CROSS-010); the floats below are display-only.
+fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
+    let root = Path::new(&args.path);
+    let mut prints: Vec<(String, CodeMatrixFingerprint)> = Vec::new();
+    collect_fingerprints(root, root, 0, &mut prints);
+    prints.sort_by(|a, b| a.0.cmp(&b.0));
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "sources": prints.iter().map(|(loc, fp)| serde_json::json!({
+                    "location": loc,
+                    "axes_raw": fp.axes().map(|q| q.raw()),
+                    "richness_raw": fp.richness().raw(),
+                })).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    let c = |code: &'static str| if args.color { code } else { "" };
+    println!(
+        "{}Kosmocrates codematrix — the 5D fingerprint lens (advisory){}",
+        c(BOLD),
+        c(RESET)
+    );
+    if prints.is_empty() {
+        println!("  no fingerprintable sources under {}", args.path);
+        return Ok(ExitCode::SUCCESS);
+    }
+    println!(
+        "  {} source(s) \u{b7} axes: relationality \u{b7} cohesion \u{b7} topology \u{b7} symmetry \u{b7} entropy",
+        prints.len()
+    );
+    for (loc, fp) in &prints {
+        let [r, f, t, s, e] = fp.axes();
+        println!(
+            "  {loc}  r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}",
+            r.to_f64(),
+            f.to_f64(),
+            t.to_f64(),
+            s.to_f64(),
+            e.to_f64()
+        );
+    }
+    if prints.len() >= 2 && prints.len() <= 64 {
+        let mut pairs: Vec<(Q16, &str, &str)> = Vec::new();
+        for i in 0..prints.len() {
+            for j in (i + 1)..prints.len() {
+                pairs.push((
+                    prints[i].1.resonance(&prints[j].1),
+                    prints[i].0.as_str(),
+                    prints[j].0.as_str(),
+                ));
+            }
+        }
+        pairs.sort_by(|a, b| b.0.raw().cmp(&a.0.raw()).then(a.1.cmp(b.1)));
+        println!("  most resonant pairs:");
+        for (res, a, b) in pairs.iter().take(5) {
+            println!("    {:.2}  {a} \u{2194} {b}", res.to_f64());
+        }
+    } else if prints.len() > 64 {
+        println!(
+            "  {}(pairwise resonance skipped above 64 sources){}",
+            c(DIM),
+            c(RESET)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Bounded, deterministic source walk for the codematrix lens (the same
+/// skip list as the language detector; entries sorted; capped).
+fn collect_fingerprints(
+    base: &Path,
+    dir: &Path,
+    depth: u32,
+    out: &mut Vec<(String, CodeMatrixFingerprint)>,
+) {
+    const SKIP: &[&str] = &[
+        ".git",
+        "target",
+        "node_modules",
+        ".hg",
+        ".svn",
+        "vendor",
+        "vendors",
+    ];
+    if depth > 8 || out.len() >= 400 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|e| e.path());
+    for e in entries {
+        let p = e.path();
+        if p.is_dir() {
+            let skip = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| SKIP.contains(&n));
+            if !skip {
+                collect_fingerprints(base, &p, depth + 1, out);
+            }
+        } else {
+            let loc = p
+                .strip_prefix(base)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .into_owned();
+            if SourceLanguage::from_path(&loc).is_none() {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(&p) else {
+                continue;
+            };
+            if content.len() > 512 * 1024 {
+                continue;
+            }
+            if let Some(fp) = CodeMatrixFingerprint::from_auto(
+                Digest::of_bytes(content.as_bytes()),
+                &loc,
+                &content,
+            ) {
+                out.push((loc, fp));
+            }
         }
     }
 }
@@ -1667,6 +3174,80 @@ fn run() -> Result<ExitCode, String> {
         None => return Ok(ExitCode::SUCCESS),
     };
 
+    // Doors: the binary's self-description — the machine-true catalog of
+    // its own docking surface. With --doors-merge, other surfaces' emitted
+    // catalogs federate into one ecosystem inventory: each file is trusted
+    // only if its content addresses recompute (fail-closed).
+    if args.doors || args.doors_merge.is_some() {
+        let mut catalogs = vec![doors::catalog()];
+        if let Some(files) = args.doors_merge.as_deref() {
+            for f in files.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                let text =
+                    fs::read_to_string(f).map_err(|e| format!("doors-merge: read {f}: {e}"))?;
+                let foreign: kosmo_core::DoorCatalog = serde_json::from_str(&text)
+                    .map_err(|e| format!("doors-merge: {f} is not a door catalog: {e}"))?;
+                if !foreign.verify() {
+                    return Err(format!(
+                        "doors-merge: {f} fails content-address verification — a catalog \
+                         that does not recompute is not trusted"
+                    ));
+                }
+                catalogs.push(foreign);
+            }
+        }
+        let catalog = kosmo_core::DoorCatalog::merge(catalogs);
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&catalog).map_err(|e| e.to_string())?
+            );
+        } else {
+            print!("{}", doors::render(&catalog, args.color));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    // Substrate organ doors (Spreizung II): foundry / witness / parseback /
+    // kcube / codematrix — directed doors over organs that used to be
+    // reachable only as side effects of --apply/--all. One door per run.
+    let organ_doors = usize::from(args.foundry.is_some())
+        + usize::from(args.witness.is_some())
+        + usize::from(args.parseback)
+        + usize::from(args.kcube.is_some())
+        + usize::from(args.codematrix);
+    if organ_doors > 0 {
+        let other_door = args.pruefstand
+            || args.reforge
+            || args.steward
+            || args.landscape
+            || args.wish.is_some()
+            || args.chat.is_some()
+            || args.atelier.is_some()
+            || args.venture.is_some()
+            || args.inject_norm.is_some()
+            || args.promote_norm.is_some();
+        if organ_doors > 1 || other_door {
+            return Err(
+                "--foundry / --witness / --parseback / --kcube / --codematrix are one door \
+                 per run (and exclusive with the other doors)"
+                    .into(),
+            );
+        }
+        if args.foundry.is_some() {
+            return run_foundry_mode(&args);
+        }
+        if args.witness.is_some() {
+            return run_witness_mode(&args);
+        }
+        if args.parseback {
+            return run_parseback_mode(&args);
+        }
+        if args.kcube.is_some() {
+            return run_kcube_mode(&args);
+        }
+        return run_codematrix_mode(&args);
+    }
+
     // The Prüfstand descends a built-in reference corpus and reports fidelity:
     // every known-good system must be accepted, every broken one rejected.
     if args.pruefstand {
@@ -1679,10 +3260,62 @@ fn run() -> Result<ExitCode, String> {
         });
     }
 
+    // Reforge: the external-empiricism bench. Requires a real provider —
+    // re-forging implements behaviour, which the deterministic scaffolder
+    // cannot, and a mock would be theater.
+    if args.reforge {
+        return run_reforge_mode(&args);
+    }
+
+    // Realization benchmark: the instrument that measures whether the
+    // generative loop actually works. Requires a real provider — a mock
+    // would measure only the scaffolder, which the Prüfstand already covers.
+    if args.realize_bench {
+        return run_realize_bench_mode(&args);
+    }
+
+    // Steward: self-husbandry. Survey the workspace's own landscape; under
+    // --apply, husband the open chores inside the operator-named fence.
+    if args.steward {
+        if args.wish.is_some()
+            || args.atelier.is_some()
+            || args.chat.is_some()
+            || args.venture.is_some()
+            || args.landscape
+        {
+            return Err(
+                "--steward is exclusive with --wish / --atelier / --chat / --venture / \
+                 --landscape (one door per run)"
+                    .into(),
+            );
+        }
+        return run_steward_mode(&args);
+    }
+
     // Norm governance commands are standalone operator acts: inject a spec,
     // or arm a trigger. They run and exit before any other mode.
     if args.inject_norm.is_some() || args.promote_norm.is_some() {
         return run_norm_admin(&args);
+    }
+
+    // Venture: a whole system of dependent wishes, orchestrated stage by
+    // stage. Exclusive with the single-wish doors.
+    if args.venture.is_some() {
+        if args.wish.is_some() || args.atelier.is_some() || args.chat.is_some() {
+            return Err(
+                "--venture is exclusive with --wish / --atelier / --chat (one door per run)".into(),
+            );
+        }
+        return run_venture_mode(&args);
+    }
+
+    // Atelier: one shaping round on a durable wish draft (--chat carries
+    // the utterance; without one, the round is "show").
+    if args.atelier.is_some() {
+        if args.wish.is_some() {
+            return Err("--atelier and --wish are mutually exclusive".into());
+        }
+        return run_atelier_mode(&args);
     }
 
     // Chat: one utterance, routed onto an existing mode. Wins over the

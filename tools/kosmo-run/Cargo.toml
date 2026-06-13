@@ -19,15 +19,20 @@ path = "src/main.rs"
 
 [dependencies]
 kosmo-core            = { path = "../../crates/kosmo-core", version = "0.1.0" }
+kosmo-foundry         = { path = "../../crates/kosmo-foundry", version = "0.1.0" }
 kosmo-hyphae          = { path = "../../crates/kosmo-hyphae", version = "0.1.0" }
 kosmo-intent          = { path = "../../crates/kosmo-intent", version = "0.1.0" }
 kosmo-intent-llm      = { path = "../../crates/kosmo-intent-llm", version = "0.1.0" }
+kosmo-kcube           = { path = "../../crates/kosmo-kcube", version = "0.1.0" }
 kosmo-llm             = { path = "../../crates/kosmo-llm", version = "0.1.0" }
+kosmo-parseback       = { path = "../../crates/kosmo-parseback", version = "0.1.0" }
 kosmo-pipeline        = { path = "../../crates/kosmo-pipeline", version = "0.1.0" }
+kosmo-sandbox         = { path = "../../crates/kosmo-sandbox", version = "0.1.0" }
 kosmo-store           = { path = "../../crates/kosmo-store", version = "0.1.0" }
 kosmo-synthesizer     = { path = "../../crates/kosmo-synthesizer", version = "0.1.0" }
 kosmo-synthesizer-llm = { path = "../../crates/kosmo-synthesizer-llm", version = "0.1.0" }
 kosmo-agent           = { path = "../../crates/kosmo-agent", version = "0.1.0" }
 kosmo-pse-bridge      = { path = "../../crates/kosmo-pse-bridge", version = "0.1.0" }
 pse-adapter-kosmo     = { path = "../../adapters/pse-adapter-kosmo", version = "0.1.0" }
+serde                 = { workspace = true }
 serde_json            = { workspace = true }

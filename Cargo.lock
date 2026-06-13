@@ -1623,16 +1623,21 @@ version = "0.1.0"
 dependencies = [
  "kosmo-agent",
  "kosmo-core",
+ "kosmo-foundry",
  "kosmo-hyphae",
  "kosmo-intent",
  "kosmo-intent-llm",
+ "kosmo-kcube",
  "kosmo-llm",
+ "kosmo-parseback",
  "kosmo-pipeline",
  "kosmo-pse-bridge",
+ "kosmo-sandbox",
  "kosmo-store",
  "kosmo-synthesizer",
  "kosmo-synthesizer-llm",
  "pse-adapter-kosmo",
+ "serde",
  "serde_json",
 ]
 
@@ -1650,9 +1655,11 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "kosmo-core",
+ "kosmo-hyphae",
  "kosmo-intent",
  "kosmo-pipeline",
  "kosmo-pse-bridge",
+ "kosmo-store",
  "pse-adapter-il",
  "pse-adapter-kosmo",
  "pse-core",
@@ -1738,6 +1745,7 @@ dependencies = [
  "pse-core",
  "pse-types",
  "ratatui",
+ "serde_json",
 ]
 
 [[package]]
@@ -2202,6 +2210,7 @@ name = "nxalien-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "kosmo-core",
  "pse-exploratory",
  "pse-nxalien-agent",
  "pse-nxalien-core",
@@ -2811,6 +2820,7 @@ name = "pse-cli"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "kosmo-core",
  "pse-adapter-airquality",
  "pse-adapter-binance",
  "pse-adapter-entsoe",
@@ -2923,6 +2933,7 @@ dependencies = [
 name = "pse-eval-matrix-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-eval-matrix",
  "serde",
  "serde_jcs",
@@ -3067,6 +3078,7 @@ dependencies = [
 name = "pse-metatron-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-metatron",
  "serde",
  "serde_json",
@@ -3196,6 +3208,7 @@ dependencies = [
 name = "pse-phase-matrix-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "phase-matrix",
  "serde",
  "serde_jcs",
@@ -3267,6 +3280,7 @@ name = "pse-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "kosmo-core",
  "pse-adapter-il",
  "pse-constitutional-interceptor",
  "pse-core",
@@ -3339,6 +3353,7 @@ dependencies = [
 name = "pse-traverse-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-core",
  "pse-graph",
  "pse-traverse",
@@ -3352,6 +3367,7 @@ dependencies = [
 name = "pse-traverse-cognition-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_jcs",
@@ -3362,6 +3378,7 @@ dependencies = [
 name = "pse-traverse-horizon-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_jcs",
@@ -3372,6 +3389,7 @@ dependencies = [
 name = "pse-traverse-lpcm-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_json",
@@ -3382,6 +3400,7 @@ dependencies = [
 name = "pse-traverse-topology-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "serde",
  "serde_json",
@@ -3416,6 +3435,7 @@ dependencies = [
 name = "pse-validation-runner-cli"
 version = "0.1.0"
 dependencies = [
+ "kosmo-core",
  "pse-traverse",
  "pse-validation-runner",
  "serde",

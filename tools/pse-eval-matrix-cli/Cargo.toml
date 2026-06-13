@@ -14,6 +14,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
 pse-eval-matrix = { path = "../../crates/pse-eval-matrix", version = "0.1.0", default-features = false, features = ["eval-matrix", "eval-cli", "eval-agent", "eval-cognition", "eval-streams", "eval-statistics", "eval-reports"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

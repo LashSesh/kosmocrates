@@ -1,5 +1,6 @@
 //! PSE CLI — Command line interface for the Kosmocrates.
 
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
 use pse_core::{macro_step, GlobalState};
 use pse_graph::PassthroughAdapter;
 use pse_types::Config;
@@ -44,6 +45,7 @@ fn print_usage() {
     eprintln!("GENERAL:");
     eprintln!("  pse run [ticks]           Run macro-step loop");
     eprintln!("  pse serve [addr]          Start gateway server");
+    eprintln!("  pse doors [--json]        The binary's docking surface, self-described");
     eprintln!("  pse --version             Show version");
     eprintln!("  pse --help                Show this help");
 }
@@ -688,6 +690,262 @@ fn cmd_build_wasm() {
     }
 }
 
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+/// The PSE CLI's complete docking surface, spoken by the binary itself —
+/// every subcommand as a [`Door`] with inputs, write power and needs. A
+/// test pins this catalog against the dispatch match in `main` (including
+/// the observe adapters' vocabulary), so the description cannot drift.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "pse".into(),
+    };
+    let observe_inputs = {
+        let mut v: Vec<DoorInput> = [
+            "binance",
+            "entsoe",
+            "seismo",
+            "weather",
+            "airquality",
+            "iot",
+            "syslog",
+            "vitals",
+        ]
+        .iter()
+        .map(|a| DoorInput::switch(*a))
+        .collect();
+        v.extend([
+            DoorInput::switch("--embedded"),
+            DoorInput::switch("--offline"),
+            DoorInput::valued("--ticks", "<n>"),
+            DoorInput::valued("--csv", "<file>"),
+            DoorInput::valued("--seed", "<n>"),
+            DoorInput::valued("--entries", "<n>"),
+            DoorInput::valued("--duration-sec", "<n>"),
+        ]);
+        v
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "doors",
+            vec![],
+            "this catalog: the binary's complete docking surface, spoken by \
+             the binary itself — content-addressed, pinned by test against \
+             the dispatch (add --json for the machine form)",
+            vec![DoorInput::switch("--json")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--help",
+            vec!["help".into()],
+            "the prose usage text (the human-shaped companion of doors)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--version",
+            vec![],
+            "print the version",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "init",
+            vec![],
+            "print the workspace initialization hints (informational only — \
+             nothing is created)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "status",
+            vec![],
+            "the engine's current standing",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "run",
+            vec![],
+            "run the macro-step loop for N ticks (in-memory; nothing durable)",
+            vec![DoorInput::valued("ticks", "<n>")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "observe",
+            vec![],
+            "ingest observations from one domain adapter (crypto markets, \
+             energy grid, seismology, weather, air quality, IoT, syslog, \
+             vitals) through macro_step — new crystals build the local \
+             crystal store",
+            observe_inputs,
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::Network],
+        ),
+        Door::new(
+            here(),
+            "quality",
+            vec![],
+            "data-quality scan of a CSV through the tabular adapter \
+             (anomalies, drifts, crystals); --output writes the report you name",
+            vec![
+                DoorInput::valued("--file", "<csv>").required(),
+                DoorInput::valued("--entity-col", "<name>"),
+                DoorInput::valued("--output", "<file>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "monitor",
+            vec![],
+            "monitor a CSV stream for anomalies (read-only)",
+            vec![DoorInput::valued("--file", "<csv>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "crystals",
+            vec![],
+            "list the crystal archive",
+            vec![DoorInput::valued("--format", "json")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            here(),
+            "accumulation",
+            vec![],
+            "the engine's accumulation metrics",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "audit",
+            vec![],
+            "verify the evidence chains of stored crystals",
+            vec![
+                DoorInput::switch("--summary"),
+                DoorInput::switch("--verify-only"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            here(),
+            "memory",
+            vec![],
+            "cross-session pattern-memory status (built from the crystal store)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            here(),
+            "swarm",
+            vec![],
+            "swarm node demo / status (prints instructions and state)",
+            vec![DoorInput::valued("subcommand", "demo|status")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "build-wasm",
+            vec![],
+            "build the WebAssembly bundle into web/pkg via wasm-pack",
+            vec![],
+            DoorGovernance::WritesWorkspace,
+            vec![DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "navigate",
+            vec![],
+            "placeholder: the TRITON navigator is not yet wired here \
+             (prints a notice)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "bench",
+            vec![],
+            "placeholder: points at the benchmark example (prints a notice)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "serve",
+            vec![],
+            "start the PSE gateway HTTP server on <addr>",
+            vec![DoorInput::valued("addr", "<host:port>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Network],
+        ),
+    ])
+}
+
+fn cmd_doors(args: &[String]) {
+    let catalog = doors_catalog();
+    if args.iter().any(|a| a == "--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("PSE doors — the docking surface of pse");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for door in &catalog.doors {
+        println!();
+        println!("  {}  [{}]", door.name, door.governance.label());
+        println!("      {}", door.summary);
+        if !door.inputs.is_empty() {
+            let inputs: Vec<String> = door
+                .inputs
+                .iter()
+                .map(|i| {
+                    let mut s = i.name.clone();
+                    if let Some(v) = &i.value {
+                        s.push(' ');
+                        s.push_str(v);
+                    }
+                    if i.required {
+                        s.push_str(" (required)");
+                    }
+                    s
+                })
+                .collect();
+            println!("      inputs: {}", inputs.join(" · "));
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
@@ -733,6 +991,7 @@ fn main() {
         "memory" => cmd_memory(),
         "swarm" => cmd_swarm(&args[2..]),
         "build-wasm" => cmd_build_wasm(),
+        "doors" => cmd_doors(&args[2..]),
         "navigate" => println!("Navigator: not yet configured."),
         "bench" => {
             println!("Benchmark suite: run 'cargo run --release --example bench_full -p pse-core'.")
@@ -759,10 +1018,106 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::print_usage;
+    use super::*;
 
     #[test]
     fn print_usage_does_not_panic() {
         print_usage();
+    }
+
+    /// This binary's own dispatch source — the catalog is pinned against
+    /// the `match args[1]` in `main`, so the self-description cannot drift.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    /// Every bare-word literal the top-level dispatch actually matches
+    /// (subcommands and, via the nested observe match, the adapter words).
+    fn dispatched_words() -> std::collections::BTreeSet<String> {
+        let start = MAIN_SRC
+            .find("match args[1].as_str() {")
+            .expect("the dispatch match exists");
+        let slice = &MAIN_SRC[start..];
+        let end = slice
+            .lines()
+            .scan(0usize, |off, line| {
+                let here = *off;
+                *off += line.len() + 1;
+                Some((here, line))
+            })
+            .find(|(_, line)| *line == "    }")
+            .map(|(off, _)| off)
+            .expect("the dispatch match closes");
+        let slice = &slice[..end];
+        let mut words = std::collections::BTreeSet::new();
+        for line in slice.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(q) = rest.find('"') {
+                let after = &rest[q + 1..];
+                let Some(close) = after.find('"') else { break };
+                let literal = &after[..close];
+                let tail = after[close + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    words.insert(literal.to_string());
+                }
+                rest = &after[close + 1..];
+            }
+        }
+        words
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_dispatch() {
+        let dispatched = dispatched_words();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            cataloged.insert(door.name.clone());
+            for alias in &door.aliases {
+                cataloged.insert(alias.clone());
+            }
+            for input in &door.inputs {
+                // Bare-word inputs (the observe adapters) are dispatch
+                // vocabulary too; flag-shaped and shape-hint inputs are not.
+                if !input.name.starts_with('-') && input.value.is_none() {
+                    cataloged.insert(input.name.clone());
+                }
+            }
+        }
+        // Shape-hint inputs like `ticks <n>` / `addr <host:port>` /
+        // `subcommand demo|status` are positional hints, not match arms.
+        assert_eq!(
+            dispatched, cataloged,
+            "the catalog and the dispatch must speak the same words — \
+             an undescribed subcommand is a hole in the docking surface"
+        );
+    }
+
+    #[test]
+    fn the_clis_write_power_is_honest() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        assert_eq!(
+            catalog
+                .doors
+                .iter()
+                .filter(|d| d.governance == DoorGovernance::AppendsStore)
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["observe"],
+            "exactly one store-appending door (the crystal store grows by observation)"
+        );
+        assert_eq!(
+            catalog
+                .doors
+                .iter()
+                .filter(|d| d.governance == DoorGovernance::WritesWorkspace)
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["build-wasm"],
+            "exactly one workspace-writing door (the wasm bundle)"
+        );
+        assert!(catalog.doors.iter().any(|d| d.name == "doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
     }
 }

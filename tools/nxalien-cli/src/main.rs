@@ -50,6 +50,10 @@ fn main() -> Result<()> {
         "replay" => cmd_replay(&args),
         "verify" => cmd_verify(&args),
         "export" => cmd_export(&args),
+        "doors" => {
+            cmd_doors(&args);
+            Ok(())
+        }
         "help" | "--help" | "-h" => {
             print_usage();
             Ok(())
@@ -709,4 +713,213 @@ fn utc_now() -> String {
     // Deterministic: always use seed=0 for reproducibility.
     // A real implementation would use chrono or std::time.
     "2026-01-01T00:00:00Z".to_string()
+}
+
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
+
+/// The binary's complete docking surface, spoken by the binary itself and
+/// pinned by test against the dispatch.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "nxalien".into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "doors",
+            vec![],
+            "this catalog: the binary's complete docking surface, spoken by the binary itself (add --json for the machine form)",
+            vec![DoorInput::switch("--json")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "help",
+            vec!["--help".into(), "-h".into()],
+            "the prose usage text",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--version",
+            vec!["-V".into()],
+            "print the version",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "init",
+            vec![],
+            "initialize the nxalien agent-context",
+            vec![],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "inspect",
+            vec![],
+            "inspect the project's crate topology and rule state",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "compile",
+            vec![],
+            "compile rules into a bundle (--remote optional → a cross-repo attractor)",
+            vec![DoorInput::valued("--remote", "<url>"), DoorInput::switch("--remote-only")],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::File, DoorNeed::Network],
+        ),
+        Door::new(
+            here(),
+            "ground",
+            vec![],
+            "ground the agent context in the compiled bundle",
+            vec![],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "handoff",
+            vec![],
+            "produce an agent handoff artifact",
+            vec![],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "replay",
+            vec![],
+            "replay a compile run byte-identically",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "verify",
+            vec![],
+            "verify a bundle",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "export",
+            vec![],
+            "export the bundle",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+    ])
+}
+
+fn cmd_doors(args: &[String]) {
+    let catalog = doors_catalog();
+    if args.iter().any(|a| a == "--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("nxalien doors — the docking surface");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for d in &catalog.doors {
+        println!("  {}  [{}]  {}", d.name, d.governance.label(), d.summary);
+    }
+}
+
+#[cfg(test)]
+mod doors_tests {
+    use super::*;
+
+    /// This binary's own dispatch source — the catalog is pinned against it.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    fn dispatched_words() -> std::collections::BTreeSet<String> {
+        // Pick whichever dispatch anchor occurs FIRST in the file: the real
+        // dispatch precedes this test module, which embeds both anchors as
+        // string literals (so a plain `contains` check would be self-fooled).
+        let a = MAIN_SRC.find("match args[1].as_str() {");
+        let b = MAIN_SRC.find("match subcmd {");
+        let start = match (a, b) {
+            (Some(x), Some(y)) => x.min(y),
+            (Some(x), None) => x,
+            (None, Some(y)) => y,
+            (None, None) => panic!("the dispatch match exists"),
+        };
+        let slice = &MAIN_SRC[start..];
+        let end = slice
+            .lines()
+            .scan(0usize, |off, line| {
+                let here = *off;
+                *off += line.len() + 1;
+                Some((here, line))
+            })
+            .find(|(_, line)| *line == "    }" || *line == "    };")
+            .map(|(off, _)| off)
+            .expect("the dispatch match closes");
+        let slice = &slice[..end];
+        let mut words = std::collections::BTreeSet::new();
+        for line in slice.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(q) = rest.find('"') {
+                let after = &rest[q + 1..];
+                let Some(close) = after.find('"') else { break };
+                let literal = &after[..close];
+                let tail = after[close + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    words.insert(literal.to_string());
+                }
+                rest = &after[close + 1..];
+            }
+        }
+        words
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_dispatch() {
+        let dispatched = dispatched_words();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            cataloged.insert(door.name.clone());
+            for alias in &door.aliases {
+                cataloged.insert(alias.clone());
+            }
+        }
+        assert_eq!(
+            dispatched, cataloged,
+            "the catalog and the dispatch must speak the same words"
+        );
+    }
+
+    #[test]
+    fn the_catalog_recomputes_and_describes_itself() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        assert!(catalog.doors.iter().any(|d| d.name == "doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
+    }
 }

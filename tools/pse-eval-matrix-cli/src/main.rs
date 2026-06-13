@@ -48,6 +48,10 @@ fn main() -> ExitCode {
         "compare" => cmd_compare(&args[2..]),
         "report" => cmd_report(&args[2..]),
         "agent-exoskeleton" => cmd_agent_exoskeleton(&args[2..]),
+        "doors" => {
+            cmd_doors(&args[2..]);
+            return ExitCode::SUCCESS;
+        }
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
@@ -419,4 +423,222 @@ fn cmd_agent_exoskeleton(args: &[String]) -> CliResult<()> {
         run_agent_exoskeleton_benchmark()
     };
     write_canonical(&report, Some(out), "agent exoskeleton report")
+}
+
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
+
+/// The binary's complete docking surface, spoken by the binary itself and
+/// pinned by test against the dispatch.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "pse-eval-matrix".into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "doors",
+            vec![],
+            "this catalog: the binary's complete docking surface, spoken by the binary itself (add --json for the machine form)",
+            vec![DoorInput::switch("--json")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--help",
+            vec!["-h".into(), "help".into()],
+            "the prose usage text",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "init",
+            vec![],
+            "initialize the metric ledger and kernel schemas",
+            vec![DoorInput::valued("--out", "<file>")],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "validate",
+            vec![],
+            "validate a kernel schema",
+            vec![DoorInput::valued("schema", "<file>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "plan",
+            vec![],
+            "plan the evaluation matrix (variants × workloads × domains)",
+            vec![DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "run",
+            vec![],
+            "execute the matrix, scoring results into the metric ledger",
+            vec![DoorInput::valued("--out", "<file>")],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "replay",
+            vec![],
+            "deterministic re-execution of a variant",
+            vec![DoorInput::valued("--report", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "score",
+            vec![],
+            "score a result bundle",
+            vec![DoorInput::valued("--bundle", "<file>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "ablate",
+            vec![],
+            "ablation comparison across variants",
+            vec![DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "compare",
+            vec![],
+            "bootstrap-CI comparison between variants",
+            vec![DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "report",
+            vec![],
+            "export the results as markdown/json",
+            vec![DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "agent-exoskeleton",
+            vec![],
+            "the LLM-agent workload (real provider; reasoning over the cognition pipeline)",
+            vec![DoorInput::valued("--out", "<file>")],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Provider, DoorNeed::Network, DoorNeed::File],
+        ),
+    ])
+}
+
+fn cmd_doors(args: &[String]) {
+    let catalog = doors_catalog();
+    if args.iter().any(|a| a == "--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("pse-eval-matrix doors — the docking surface");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for d in &catalog.doors {
+        println!("  {}  [{}]  {}", d.name, d.governance.label(), d.summary);
+    }
+}
+
+#[cfg(test)]
+mod doors_tests {
+    use super::*;
+
+    /// This binary's own dispatch source — the catalog is pinned against it.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    fn dispatched_words() -> std::collections::BTreeSet<String> {
+        // Pick whichever dispatch anchor occurs FIRST in the file: the real
+        // dispatch precedes this test module, which embeds both anchors as
+        // string literals (so a plain `contains` check would be self-fooled).
+        let a = MAIN_SRC.find("match args[1].as_str() {");
+        let b = MAIN_SRC.find("match subcmd {");
+        let start = match (a, b) {
+            (Some(x), Some(y)) => x.min(y),
+            (Some(x), None) => x,
+            (None, Some(y)) => y,
+            (None, None) => panic!("the dispatch match exists"),
+        };
+        let slice = &MAIN_SRC[start..];
+        let end = slice
+            .lines()
+            .scan(0usize, |off, line| {
+                let here = *off;
+                *off += line.len() + 1;
+                Some((here, line))
+            })
+            .find(|(_, line)| *line == "    }" || *line == "    };")
+            .map(|(off, _)| off)
+            .expect("the dispatch match closes");
+        let slice = &slice[..end];
+        let mut words = std::collections::BTreeSet::new();
+        for line in slice.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(q) = rest.find('"') {
+                let after = &rest[q + 1..];
+                let Some(close) = after.find('"') else { break };
+                let literal = &after[..close];
+                let tail = after[close + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    words.insert(literal.to_string());
+                }
+                rest = &after[close + 1..];
+            }
+        }
+        words
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_dispatch() {
+        let dispatched = dispatched_words();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            cataloged.insert(door.name.clone());
+            for alias in &door.aliases {
+                cataloged.insert(alias.clone());
+            }
+        }
+        assert_eq!(
+            dispatched, cataloged,
+            "the catalog and the dispatch must speak the same words"
+        );
+    }
+
+    #[test]
+    fn the_catalog_recomputes_and_describes_itself() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        assert!(catalog.doors.iter().any(|d| d.name == "doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
+    }
 }

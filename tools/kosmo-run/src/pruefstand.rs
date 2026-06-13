@@ -39,6 +39,9 @@ pub struct Scenario {
     pub needs_cargo: bool,
     /// `true` writes the source as a binary (`src/main.rs`) — for `Run` probes.
     pub bin: bool,
+    /// `true` builds a cargo-less **Python** workspace: the source goes to
+    /// `calc.py` and the descent runs through the polyglot door.
+    pub python: bool,
 }
 
 /// How a scenario's actual verdict compared to its expectation.
@@ -97,6 +100,16 @@ pub fn reference_corpus() -> Vec<Scenario> {
         expect: Expectation::Realized,
         needs_cargo: false,
         bin: false,
+        python: false,
+    };
+    let py = |name, lib, wish, expect| Scenario {
+        name,
+        lib,
+        wish,
+        expect,
+        needs_cargo: false,
+        bin: false,
+        python: true,
     };
     vec![
         lib("symbol", "a function greet"),
@@ -114,6 +127,7 @@ pub fn reference_corpus() -> Vec<Scenario> {
             expect: Expectation::Realized,
             needs_cargo: true,
             bin: false,
+            python: false,
         },
         Scenario {
             name: "behavior-wrong",
@@ -122,6 +136,7 @@ pub fn reference_corpus() -> Vec<Scenario> {
             expect: Expectation::Rejected,
             needs_cargo: true,
             bin: false,
+            python: false,
         },
         // The keystone at the PROCESS boundary (level 5): the artifact is run.
         Scenario {
@@ -134,6 +149,7 @@ pub fn reference_corpus() -> Vec<Scenario> {
             expect: Expectation::Realized,
             needs_cargo: true,
             bin: true,
+            python: false,
         },
         Scenario {
             name: "run-empty",
@@ -142,6 +158,7 @@ pub fn reference_corpus() -> Vec<Scenario> {
             expect: Expectation::Rejected,
             needs_cargo: true,
             bin: true,
+            python: false,
         },
         // The keystone at the SERVICE boundary (level 6): the server is started,
         // awaited, probed over HTTP, torn down.
@@ -164,6 +181,7 @@ fn main() {
             expect: Expectation::Realized,
             needs_cargo: true,
             bin: true,
+            python: false,
         },
         Scenario {
             name: "service-empty",
@@ -172,19 +190,53 @@ fn main() {
             expect: Expectation::Rejected,
             needs_cargo: true,
             bin: true,
+            python: false,
         },
+        // The polyglot arm: the same fidelity contract over Python systems,
+        // observed and fabricated by Python's own law (file = module),
+        // offline, interpreter-free.
+        py(
+            "py-observed",
+            "\"\"\"calc.\"\"\"\n\n\ndef greet():\n    \"\"\"Say hi.\"\"\"\n    return \"hi\"\n\n\ndef test_greet():\n    assert greet() == \"hi\"\n",
+            "a module calc and a function greet and docs for greet and a test test_greet",
+            Expectation::Realized,
+        ),
+        py(
+            "py-scaffold",
+            "\"\"\"calc.\"\"\"\n",
+            "a module store and a function put_record and a test test_store",
+            Expectation::Realized,
+        ),
+        py(
+            "py-arity-right",
+            "def greet():\n    return \"hi\"\n",
+            "a signature greet/0",
+            Expectation::Realized,
+        ),
+        py(
+            "py-arity-wrong",
+            "def greet():\n    return \"hi\"\n",
+            "a signature greet/2",
+            Expectation::Rejected,
+        ),
     ]
 }
 
 /// A throwaway single-crate workspace named `calc`. The source goes to
 /// `src/main.rs` for a `bin` scenario (so `cargo run` has a target), else
 /// `src/lib.rs`.
-fn make_workspace(name: &str, lib: &str, bin: bool) -> std::io::Result<PathBuf> {
+fn make_workspace(name: &str, lib: &str, bin: bool, python: bool) -> std::io::Result<PathBuf> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let root = std::env::temp_dir().join(format!("kosmo-pruefstand-{name}-{nanos}"));
+    if python {
+        // A cargo-less Python workspace: the polyglot door.
+        std::fs::create_dir_all(&root)?;
+        std::fs::write(root.join("calc.py"), lib)?;
+        return Ok(root);
+    }
     std::fs::create_dir_all(root.join("src"))?;
     std::fs::write(
         root.join("Cargo.toml"),
@@ -207,7 +259,7 @@ pub fn run_scenario(s: &Scenario, allow_cargo: bool) -> Outcome {
     if s.needs_cargo && !allow_cargo {
         return skip();
     }
-    let root = match make_workspace(s.name, s.lib, s.bin) {
+    let root = match make_workspace(s.name, s.lib, s.bin, s.python) {
         Ok(r) => r,
         Err(_) => return skip(),
     };

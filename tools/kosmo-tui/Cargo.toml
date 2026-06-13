@@ -18,6 +18,7 @@ name = "kosmo-tui"
 path = "src/main.rs"
 
 [dependencies]
+serde_json = { workspace = true }
 kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
 kosmo-pipeline = { path = "../../crates/kosmo-pipeline", version = "0.1.0" }
 kosmo-intent = { path = "../../crates/kosmo-intent", version = "0.1.0" }

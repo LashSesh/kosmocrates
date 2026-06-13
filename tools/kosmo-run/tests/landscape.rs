@@ -71,9 +71,13 @@ fn landscape_maps_findings_with_honest_standing() {
     // The Rust module's targets are open (observable, unmet)…
     assert_eq!(standing_of("router"), "open");
     assert_eq!(standing_of("router_smoke"), "open");
-    // …the Python target is honestly beyond the wish world's observation.
-    assert_eq!(standing_of("handlers"), "beyond-observation");
-    assert!(doc["open"].as_u64().unwrap() >= 2);
+    // …and since the polyglot door, the Python module's targets are too:
+    // file = module, observed without an interpreter.
+    assert_eq!(standing_of("handlers"), "open");
+    assert_eq!(standing_of("handlers_smoke"), "open");
+    // The crate root stays honest residue (no `mod lib` exists to observe).
+    assert_eq!(standing_of("lib"), "beyond-observation");
+    assert!(doc["open"].as_u64().unwrap() >= 4);
     // The landscape is evidence-bound to the diagnosis report.
     assert!(!doc["report_id"].as_str().unwrap().is_empty());
 
@@ -154,12 +158,33 @@ fn geometry_is_opt_in_and_clusters_the_open_landscape() {
         assert!(doc.get(key).is_some(), "{key} survives --geometry");
     }
     let clusters = doc["geometry"]["clusters"].as_array().unwrap();
-    assert_eq!(clusters.len(), 1, "one module, one cluster: {clusters:?}");
-    let facets = clusters[0]["facets"].as_array().unwrap();
-    let facets: Vec<&str> = facets.iter().map(|f| f.as_str().unwrap()).collect();
-    assert!(facets.contains(&"Doc router"), "{facets:?}");
-    assert!(facets.contains(&"Test router_smoke"), "{facets:?}");
-    assert_eq!(clusters[0]["subjects"][0], "router");
+    assert_eq!(
+        clusters.len(),
+        2,
+        "two modules — one Rust, one Python — two coherent clusters: {clusters:?}"
+    );
+    let cluster_of = |subject: &str| -> Vec<String> {
+        clusters
+            .iter()
+            .find(|c| c["subjects"][0] == subject)
+            .unwrap_or_else(|| panic!("cluster for {subject}"))["facets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f.as_str().unwrap().to_string())
+            .collect()
+    };
+    let router = cluster_of("router");
+    assert!(router.contains(&"Doc router".to_string()), "{router:?}");
+    assert!(
+        router.contains(&"Test router_smoke".to_string()),
+        "{router:?}"
+    );
+    let handlers = cluster_of("handlers");
+    assert!(
+        handlers.contains(&"Doc handlers".to_string()),
+        "the Python organ clusters too: {handlers:?}"
+    );
 
     // Text mode mentions the geometry only under the flag.
     let out = kosmo_run()
@@ -179,6 +204,7 @@ fn geometry_is_opt_in_and_clusters_the_open_landscape() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("geometry:"), "{stdout}");
     assert!(stdout.contains("cluster 1"), "{stdout}");
+    assert!(stdout.contains("cluster 2"), "{stdout}");
 
     fs::remove_dir_all(&root).ok();
 }
@@ -250,6 +276,7 @@ fn adopt_cluster_takes_one_coherent_cluster_and_guards_its_flags() {
 #[test]
 fn adopt_cluster_with_apply_descends_the_cluster_to_realized() {
     let root = mixed_workspace("cluster-apply");
+    let norms = root.join("norms-store");
     let out = kosmo_run()
         .args([
             "--landscape",
@@ -257,22 +284,40 @@ fn adopt_cluster_with_apply_descends_the_cluster_to_realized() {
             "1",
             "--apply",
             "--no-color",
+            "--norms",
+            norms.to_str().unwrap(),
             root.to_str().unwrap(),
         ])
         .output()
         .expect("spawn kosmo-run");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    if !out.status.success() {
+    if stdout.contains("could not observe") || stdout.contains("pipeline failed") {
         // cargo metadata unavailable in exotic sandboxes — the in-process
         // descend tests already pin convergence; this is the CLI seam.
         eprintln!("observe unavailable, skipping: {stdout}");
         fs::remove_dir_all(&root).ok();
         return;
     }
+    assert!(out.status.success(), "{stdout}");
     assert!(stdout.contains("REALIZED"), "descent converged: {stdout}");
+    // Cluster 1 is the Python organ (handlers): its doc lands as a module
+    // docstring via the polyglot scaffold fallback, its smoke test as a
+    // Rust test in the cargo crate — a genuinely mixed fabrication.
+    let handlers = fs::read_to_string(root.join("lib/handlers.py")).unwrap();
+    assert!(
+        handlers.starts_with("\"\"\""),
+        "module docstring landed in the Python file: {handlers}"
+    );
     let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
-    assert!(lib.contains("/// `router`"), "doc stub landed: {lib}");
-    assert!(lib.contains("fn router_smoke"), "smoke test landed: {lib}");
+    assert!(
+        lib.contains("fn handlers_smoke"),
+        "smoke test landed: {lib}"
+    );
+    // The system's own proposal is a sighting too: the adopted descent
+    // recorded a norm-learning observation.
+    let observations = fs::read_to_string(norms.join("observations.jsonl"))
+        .expect("adopted descents feed norm learning");
+    assert_eq!(observations.lines().count(), 1, "{observations}");
     fs::remove_dir_all(&root).ok();
 }
 
@@ -291,19 +336,22 @@ fn adopt_with_apply_descends_to_realized() {
         .output()
         .expect("spawn kosmo-run");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    if !out.status.success() {
+    if stdout.contains("could not observe") || stdout.contains("pipeline failed") {
         // cargo metadata unavailable in exotic sandboxes — the in-process
         // descend tests already pin convergence; this is the CLI seam.
         eprintln!("observe unavailable, skipping: {stdout}");
         fs::remove_dir_all(&root).ok();
         return;
     }
+    assert!(out.status.success(), "{stdout}");
     assert!(stdout.contains("REALIZED"), "descent converged: {stdout}");
+    // The top-2 open proposals are now the two smoke tests — one per
+    // module, one per language; both land as Rust tests in the cargo crate.
     let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
-    assert!(
-        lib.contains("/// `router`"),
-        "doc stub landed above the module declaration: {lib}"
-    );
     assert!(lib.contains("fn router_smoke"), "smoke test landed: {lib}");
+    assert!(
+        lib.contains("fn handlers_smoke"),
+        "the Python module's smoke test landed too: {lib}"
+    );
     fs::remove_dir_all(&root).ok();
 }

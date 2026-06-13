@@ -288,6 +288,12 @@ pub struct IntegrationRunReport {
     /// Empty when `prior_feedback` is empty or no feedback matches.
     pub norm_fitness_traces: Vec<NormFitnessTrace>,
     pub systemcube_export: Option<KcubeExportReport>,
+    /// The built SystemCube itself (with `enable_systemcube`) — the in-process
+    /// seam for real `.kcube` export (`SystemCube::export_to_kcube`). Not part
+    /// of the wire format or `report_id`: the export dry-run above carries the
+    /// serialized truth; this carries the exporter.
+    #[serde(skip)]
+    pub systemcube: Option<SystemCube>,
     pub aggregated_gate: AggregatedGateResult,
     /// Fail-closed merge across all layers.
     pub final_result: GateResult,
@@ -330,6 +336,7 @@ impl IntegrationRunReport {
         norm_candidates: Vec<NormGeneCandidate>,
         norm_fitness_traces: Vec<NormFitnessTrace>,
         systemcube_export: Option<KcubeExportReport>,
+        systemcube: Option<SystemCube>,
         aggregated_gate: AggregatedGateResult,
         persisted_crystal_count: u32,
         policy: &PolicyProfile,
@@ -392,6 +399,7 @@ impl IntegrationRunReport {
             norm_candidates,
             norm_fitness_traces,
             systemcube_export,
+            systemcube,
             aggregated_gate,
             final_result,
             persisted_crystal_count,
@@ -618,14 +626,23 @@ pub struct WishLandscape {
 }
 
 /// Project the substrate's findings into the wish vocabulary — pure and
-/// deterministic. The current projection:
+/// deterministic. The current projection (five finding classes; the
+/// vocabulary grows class by class):
 ///
 /// - `MissingDocFiber { for_module }`  → `Doc(for_module)` (the module's
 ///   declaration carries no doc comment)
 /// - `MissingTestFiber { for_module }` → `Test("<for_module>_smoke")` (the
 ///   deterministic smoke-test name the scaffolder builds)
-/// - everything else → [`UnmappedVoid`] (honest residue; the vocabulary
-///   grows finding-class by finding-class)
+/// - `MissingErrorHandling { location }` → `Test("<stem>_handles_errors")`
+///   — the fix is *demonstrated*, not declared: a test proving the error
+///   path exists
+/// - `IncompleteFunctionBody { location }` → `Test("<stem>_complete")` —
+///   the finished body, proven by a test
+/// - `MissingImplementation { intent }` → `Capability("impl:<slug>")` — the
+///   free-form intent as a declared capability tag (the house currency for
+///   free-form targets)
+/// - everything else (`MissingTypeAnnotation`, `Custom`) →
+///   [`UnmappedVoid`] (honest residue)
 ///
 /// Proposals are deduplicated per facet (highest severity wins) and sorted
 /// by severity descending, then facet key — deterministic landscape order.
@@ -638,6 +655,31 @@ fn module_stem(target: &str) -> String {
     let last = target.rsplit('/').next().unwrap_or(target);
     let stem = last.split('.').next().unwrap_or(last);
     stem.to_string()
+}
+
+/// A free-form intent as a capability-key slug: lowercase alphanumerics,
+/// hyphen-separated, collapsed and capped — deterministic, never a path.
+fn intent_slug(intent: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = true;
+    for c in intent.chars() {
+        if c.is_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+        if slug.len() >= 48 {
+            break;
+        }
+    }
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        "intent".to_string()
+    } else {
+        slug
+    }
 }
 
 pub fn propose_wishes(voids: &[kosmo_hyphae::HostVoid]) -> WishLandscape {
@@ -659,6 +701,37 @@ pub fn propose_wishes(voids: &[kosmo_hyphae::HostVoid]) -> WishLandscape {
                     WishFacet::test(format!("{m}_smoke")),
                     m,
                     format!("MissingTestFiber @ {}", v.location),
+                ))
+            }
+            HostVoidKind::MissingErrorHandling { location } if !location.is_empty() => {
+                let m = module_stem(location);
+                Some((
+                    WishFacet::test(format!("{m}_handles_errors")),
+                    m,
+                    format!("MissingErrorHandling @ {}", v.location),
+                ))
+            }
+            HostVoidKind::IncompleteFunctionBody { location } if !location.is_empty() => {
+                let m = module_stem(location);
+                Some((
+                    WishFacet::test(format!("{m}_complete")),
+                    m,
+                    format!("IncompleteFunctionBody @ {}", v.location),
+                ))
+            }
+            HostVoidKind::MissingImplementation { intent } if !intent.is_empty() => {
+                let slug = intent_slug(intent);
+                // The subject is the void's host module when known — that is
+                // what the standing measurement can actually see.
+                let subject = if v.location.is_empty() {
+                    slug.clone()
+                } else {
+                    module_stem(&v.location)
+                };
+                Some((
+                    WishFacet::capability(format!("impl:{slug}")),
+                    subject,
+                    format!("MissingImplementation @ {}", v.location),
                 ))
             }
             _ => None,
@@ -1472,57 +1545,58 @@ pub fn run_dry_pipeline(
         .collect();
 
     // ── 5. Optional SystemCube v0.4.3 export ──────────────────────────────────
-    let systemcube_export: Option<KcubeExportReport> = if options.enable_systemcube {
-        let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
-        // Step 5e: build units then energy-rank them (accepted first, tainted below).
-        let raw_units: Vec<BlueprintUnit> = hyphae
-            .decisions
-            .iter()
-            .filter(|d| d.outcome.is_accepted())
-            .map(|d| {
-                BlueprintUnit::new(
-                    BlueprintUnitKind::ModuleBoundary,
-                    d.yield_id,
-                    kosmo_core::AuthorityLabel::Foundry,
-                    d.taint.clone(),
-                    vec![d.evidence_bundle_id],
-                    policy,
-                )
-            })
-            .collect();
-        let assessments: Vec<_> = raw_units
-            .iter()
-            .map(|u| u.energy_assessment(&GateResult::Pass))
-            .collect();
-        let ranked_ids = rank_by_energy(&assessments);
-        let units: Vec<BlueprintUnit> = ranked_ids
-            .iter()
-            .filter_map(|a| {
-                raw_units
-                    .iter()
-                    .find(|u| u.unit_id == a.subject_id)
-                    .cloned()
-            })
-            .collect();
-        let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
-        let export = cube.export_dry_run(options.systemcube_capacity, policy);
-        // Gate contribution: Warn when compatibility gaps exist (structural advisory, not energy).
-        let cube_gate = if export.compatibility.gaps.is_empty() {
-            GateResult::Pass
+    let (systemcube_export, systemcube): (Option<KcubeExportReport>, Option<SystemCube>) =
+        if options.enable_systemcube {
+            let run_desc = kosmo_core::RunDescriptor::new(policy.id, "pipeline");
+            // Step 5e: build units then energy-rank them (accepted first, tainted below).
+            let raw_units: Vec<BlueprintUnit> = hyphae
+                .decisions
+                .iter()
+                .filter(|d| d.outcome.is_accepted())
+                .map(|d| {
+                    BlueprintUnit::new(
+                        BlueprintUnitKind::ModuleBoundary,
+                        d.yield_id,
+                        kosmo_core::AuthorityLabel::Foundry,
+                        d.taint.clone(),
+                        vec![d.evidence_bundle_id],
+                        policy,
+                    )
+                })
+                .collect();
+            let assessments: Vec<_> = raw_units
+                .iter()
+                .map(|u| u.energy_assessment(&GateResult::Pass))
+                .collect();
+            let ranked_ids = rank_by_energy(&assessments);
+            let units: Vec<BlueprintUnit> = ranked_ids
+                .iter()
+                .filter_map(|a| {
+                    raw_units
+                        .iter()
+                        .find(|u| u.unit_id == a.subject_id)
+                        .cloned()
+                })
+                .collect();
+            let cube = SystemCube::new(hyphae.host_cube.cube_id, &run_desc, policy, units);
+            let export = cube.export_dry_run(options.systemcube_capacity, policy);
+            // Gate contribution: Warn when compatibility gaps exist (structural advisory, not energy).
+            let cube_gate = if export.compatibility.gaps.is_empty() {
+                GateResult::Pass
+            } else {
+                GateResult::Warn {
+                    message: format!(
+                        "systemcube: {} compatibility gap(s); score={}",
+                        export.compatibility.gaps.len(),
+                        export.compatibility.compatibility_score.raw(),
+                    ),
+                }
+            };
+            agg.record("systemcube", export.export_id, cube_gate);
+            (Some(export), Some(cube))
         } else {
-            GateResult::Warn {
-                message: format!(
-                    "systemcube: {} compatibility gap(s); score={}",
-                    export.compatibility.gaps.len(),
-                    export.compatibility.compatibility_score.raw(),
-                ),
-            }
+            (None, None)
         };
-        agg.record("systemcube", export.export_id, cube_gate);
-        Some(export)
-    } else {
-        None
-    };
 
     // ── 6b. PSE bridge candidates — flatten + confidence-rank ─────────────────
     // Converts norm candidates and topology observations into PseBridgeCandidate
@@ -1622,6 +1696,7 @@ pub fn run_dry_pipeline(
         norm_candidates,
         norm_fitness_traces,
         systemcube_export,
+        systemcube,
         aggregated_gate,
         persisted_crystal_count,
         policy,
@@ -4036,16 +4111,93 @@ mod tests {
             ),
         ];
         let l = propose_wishes(&voids);
-        assert_eq!(l.proposals.len(), 2);
+        assert_eq!(l.proposals.len(), 3);
         // Sorted by severity descending: the test wish (0.90) first.
         assert_eq!(l.proposals[0].facet, WishFacet::test("router_smoke"));
         assert_eq!(l.proposals[1].facet, WishFacet::doc("router"));
         assert!(l.proposals[1]
             .rationale
             .contains("MissingDocFiber @ src/router.rs"));
-        // The inexpressible finding is honest residue, never dropped.
-        assert_eq!(l.unmapped.len(), 1);
-        assert!(l.unmapped[0].kind_label.contains("MissingErrorHandling"));
+        // Since the quality axes landed, error handling projects too: the
+        // fix is demonstrated by a test, not declared.
+        assert_eq!(l.proposals[2].facet, WishFacet::test("io_handles_errors"));
+        assert!(l.unmapped.is_empty());
+    }
+
+    #[test]
+    fn landscape_projects_five_finding_classes() {
+        use kosmo_hyphae::HostVoidKind;
+        // One void per mapped class, plus the two honest residues.
+        let voids = vec![
+            void(
+                HostVoidKind::MissingDocFiber {
+                    for_module: "router".into(),
+                },
+                90,
+                "src/router.rs",
+            ),
+            void(
+                HostVoidKind::MissingTestFiber {
+                    for_module: "router".into(),
+                },
+                85,
+                "src/router.rs",
+            ),
+            void(
+                HostVoidKind::MissingErrorHandling {
+                    location: "src/io.rs".into(),
+                },
+                80,
+                "src/io.rs",
+            ),
+            void(
+                HostVoidKind::IncompleteFunctionBody {
+                    location: "src/core.rs:12".into(),
+                },
+                75,
+                "src/core.rs",
+            ),
+            void(
+                HostVoidKind::MissingImplementation {
+                    intent: "Parse the HTTP headers!".into(),
+                },
+                70,
+                "src/http.rs",
+            ),
+            void(
+                HostVoidKind::MissingTypeAnnotation {
+                    location: "src/x.rs".into(),
+                },
+                65,
+                "src/x.rs",
+            ),
+            void(
+                HostVoidKind::Custom {
+                    description: "vibes".into(),
+                },
+                60,
+                "src/y.rs",
+            ),
+        ];
+        let l = propose_wishes(&voids);
+        // The Etappe-II pin: at least five finding classes project.
+        assert_eq!(l.proposals.len(), 5, "{:?}", l.proposals);
+        let facets: Vec<&WishFacet> = l.proposals.iter().map(|p| &p.facet).collect();
+        assert!(facets.contains(&&WishFacet::doc("router")));
+        assert!(facets.contains(&&WishFacet::test("router_smoke")));
+        assert!(facets.contains(&&WishFacet::test("io_handles_errors")));
+        assert!(facets.contains(&&WishFacet::test("core_complete")));
+        // The free-form intent becomes a deterministic capability slug, and
+        // the subject is the host module the measurement can actually see.
+        assert!(facets.contains(&&WishFacet::capability("impl:parse-the-http-headers")));
+        let impl_proposal = l
+            .proposals
+            .iter()
+            .find(|p| p.facet.key.starts_with("impl:"))
+            .unwrap();
+        assert_eq!(impl_proposal.subject, "http");
+        // The two inexpressible classes stay honest residue, never dropped.
+        assert_eq!(l.unmapped.len(), 2);
     }
 
     #[test]

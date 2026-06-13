@@ -9,11 +9,19 @@
 //! Endpoints:
 //!     GET  /                  Browser UI
 //!     GET  /api/health        Version ping
+//!     GET  /api/doors         The server's docking surface, spoken by the
+//!                             server itself (content-addressed catalog,
+//!                             pinned against the router)
 //!     POST /api/analyse       Run pipeline, return structured report
 //!     POST /api/promote       Substrate→core promotion (offer/batch/
 //!                             calibration/ledger — mirrors kosmo-promote)
 //!     POST /api/landscape     The wish landscape: findings projected into
 //!                             ranked wish proposals with measured standing
+//!                             (+ spectral geometry on request: coherent
+//!                             clusters and singular proposals)
+//!     POST /api/norms         The norm catalog of a caller-pathed store
+//!                             (read-only: learned/injected archetypes,
+//!                             armed triggers, observation count)
 //!     POST /api/recall        Pfauenthron++ retrieval over an Infinity
 //!                             Ledger (read-only; the ledger must exist)
 //! ```
@@ -30,7 +38,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-use kosmo_core::{Digest, GateResult, PolicyProfile, Q16};
+use kosmo_core::{
+    Digest, Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface, GateResult,
+    PolicyProfile, Q16,
+};
 use kosmo_pipeline::{run_workspace_pipeline, ActionItemKind, IntegrationRunOptions};
 
 // ─── Request / Response types ────────────────────────────────────────────────
@@ -216,6 +227,132 @@ async fn health() -> Json<serde_json::Value> {
     }))
 }
 
+// ─── Doors (the server's self-description) ──────────────────────────────────
+
+/// The server's complete docking surface, spoken by the server itself —
+/// every route as a [`Door`] with its request fields, write power and
+/// needs. A test pins this catalog against the router registrations in
+/// `main`, so the description cannot drift from the dispatch.
+fn doors_catalog() -> DoorCatalog {
+    let http = |method: &str| DoorSurface::Http {
+        binary: "kosmo-server".into(),
+        method: method.into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            http("GET"),
+            "/",
+            vec![],
+            "the embedded browser UI (single page, no external assets)",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/api/health",
+            vec![],
+            "version ping",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("GET"),
+            "/api/doors",
+            vec![],
+            "this catalog: the server's complete docking surface, spoken by \
+             the server itself — content-addressed, pinned against the router",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/analyse",
+            vec![],
+            "run the dry pipeline over a workspace and return the structured \
+             report (the operator flag changes gate policy, never writes)",
+            vec![
+                DoorInput::valued("path", "<workspace>").required(),
+                DoorInput::switch("flags.all"),
+                DoorInput::switch("flags.metatron"),
+                DoorInput::switch("flags.lpcm"),
+                DoorInput::switch("flags.systemcube"),
+                DoorInput::switch("flags.surgery"),
+                DoorInput::switch("flags.crystals"),
+                DoorInput::switch("flags.norms"),
+                DoorInput::switch("flags.motifs"),
+                DoorInput::switch("flags.pse"),
+                DoorInput::switch("flags.operator"),
+                DoorInput::valued("flags.capacity", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/promote",
+            vec![],
+            "substrate→core promotion (mirrors kosmo-promote): offer gated \
+             candidates to the engine in memory; with offer+ledger, anchor \
+             accepted crystals in the Infinity Ledger (the one host write)",
+            vec![
+                DoorInput::valued("path", "<workspace>").required(),
+                DoorInput::switch("offer"),
+                DoorInput::switch("batch"),
+                DoorInput::switch("all_kinds"),
+                DoorInput::valued("calibration", "default|planning|adaptive|substrate"),
+                DoorInput::valued("ledger", "<dir>"),
+            ],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/landscape",
+            vec![],
+            "the wish landscape: findings projected into ranked proposals \
+             with measured standing; geometry adds clusters and singulars",
+            vec![
+                DoorInput::valued("path", "<workspace>").required(),
+                DoorInput::switch("all"),
+                DoorInput::switch("geometry"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/norms",
+            vec![],
+            "the norm catalog of a caller-pathed store (read-only: the \
+             server never mutates a norm store)",
+            vec![DoorInput::valued("dir", "<dir>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            http("POST"),
+            "/api/recall",
+            vec![],
+            "Pfauenthron++ retrieval over an Infinity Ledger (read-only; a \
+             missing ledger is an error, never a creation)",
+            vec![
+                DoorInput::valued("ledger", "<dir>").required(),
+                DoorInput::valued("query", "<text>").required(),
+                DoorInput::valued("top", "<n>"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+    ])
+}
+
+async fn doors() -> Json<serde_json::Value> {
+    Json(serde_json::to_value(doors_catalog()).unwrap_or_default())
+}
+
 async fn analyse(Json(req): Json<AnalyseRequest>) -> Result<Json<AnalyseResponse>, ApiError> {
     let policy = if req.flags.operator {
         PolicyProfile::operator_approved()
@@ -318,6 +455,17 @@ struct LandscapeRequest {
     /// Enable all optional pipeline layers (heavier scan).
     #[serde(default)]
     all: bool,
+    /// Also compute the spectral geometry of the OPEN landscape (coherent
+    /// clusters + singular proposals). Strictly additive: without it the
+    /// response is unchanged.
+    #[serde(default)]
+    geometry: bool,
+}
+
+#[derive(Deserialize)]
+struct NormsRequest {
+    /// The norm store directory (caller-pathed, like every store).
+    dir: String,
 }
 
 #[derive(Deserialize)]
@@ -582,7 +730,7 @@ fn do_landscape(req: &LandscapeRequest) -> Result<serde_json::Value, String> {
             })
         })
         .collect();
-    Ok(serde_json::json!({
+    let mut doc = serde_json::json!({
         "path": req.path,
         "report_id": report.report_id.to_hex(),
         "proposals": rows,
@@ -595,11 +743,86 @@ fn do_landscape(req: &LandscapeRequest) -> Result<serde_json::Value, String> {
             .iter()
             .map(|u| serde_json::json!({"kind": u.kind_label, "location": u.location}))
             .collect::<Vec<_>>(),
+    });
+    // Spectral geometry on request — one standing definition with the CLI:
+    // couple the OPEN proposals, cluster, surface the singularities.
+    if req.geometry {
+        let open_proposals: Vec<kosmo_pipeline::WishProposal> = landscape
+            .proposals
+            .iter()
+            .zip(&standing)
+            .filter(|(_, s)| **s == kosmo_pipeline::LandscapeStanding::Open)
+            .map(|(p, _)| p.clone())
+            .collect();
+        let geo = kosmo_pipeline::landscape_geometry(&open_proposals, 6);
+        let facet_label = |i: usize| {
+            format!(
+                "{:?} {}",
+                open_proposals[i].facet.kind, open_proposals[i].facet.key
+            )
+        };
+        doc["geometry"] = serde_json::json!({
+            "clusters": geo.clusters.iter().map(|cl| serde_json::json!({
+                "facets": cl.members.iter().map(|&i| facet_label(i)).collect::<Vec<_>>(),
+                "subjects": cl.subjects,
+                "severity_mass": format!("{:.2}", cl.severity_mass.to_f64()),
+            })).collect::<Vec<_>>(),
+            "singular": geo.singular.iter().map(|s| serde_json::json!({
+                "facet": facet_label(s.index),
+                "coupling_mass": format!("{:.2}", s.coupling_mass.to_f64()),
+            })).collect::<Vec<_>>(),
+        });
+    }
+    Ok(doc)
+}
+
+/// Synchronous norm-catalog core — a read-only window onto a caller-pathed
+/// norm store: every learned/injected archetype, its arming state, and the
+/// observation count. The server never appends, promotes or injects (those
+/// are explicit operator acts on the CLI).
+fn do_norms(req: &NormsRequest) -> Result<serde_json::Value, String> {
+    let store = kosmo_store::NormStore::open(&req.dir).map_err(|e| e.to_string())?;
+    let norms: Vec<serde_json::Value> = store
+        .norms()
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "norm_id": n.norm_id.to_hex(),
+                "name": n.name,
+                "description": n.description,
+                "level": format!("{:?}", n.level),
+                "semantic_class": n.semantic_class,
+                "trigger": n.trigger,
+                "templates": n.template.len(),
+                "origin": match &n.origin {
+                    kosmo_hyphae::NormOrigin::Learned { observation_ids } =>
+                        format!("learned ({} observation(s))", observation_ids.len()),
+                    kosmo_hyphae::NormOrigin::OperatorInjected { source } =>
+                        format!("injected ({source})"),
+                },
+            })
+        })
+        .collect();
+    let armed = store.norms().iter().filter(|n| n.trigger.is_some()).count();
+    Ok(serde_json::json!({
+        "dir": req.dir,
+        "norms": norms,
+        "known": store.norms().len(),
+        "armed": armed,
+        "observations": store.observations().len(),
     }))
 }
 
 async fn landscape(Json(req): Json<LandscapeRequest>) -> Result<Json<serde_json::Value>, ApiError> {
     tokio::task::spawn_blocking(move || do_landscape(&req))
+        .await
+        .map_err(|e| ApiError(e.to_string()))?
+        .map(Json)
+        .map_err(ApiError)
+}
+
+async fn norms(Json(req): Json<NormsRequest>) -> Result<Json<serde_json::Value>, ApiError> {
+    tokio::task::spawn_blocking(move || do_norms(&req))
         .await
         .map_err(|e| ApiError(e.to_string()))?
         .map(Json)
@@ -628,6 +851,7 @@ struct ServerArgs {
     port: u16,
     host: String,
     open: bool,
+    doors: bool,
 }
 
 fn parse_server_args() -> Result<ServerArgs, String> {
@@ -636,6 +860,7 @@ fn parse_server_args() -> Result<ServerArgs, String> {
         port: 7777,
         host: "127.0.0.1".into(),
         open: false,
+        doors: false,
     };
     let mut i = 0;
     while i < raw.len() {
@@ -655,6 +880,7 @@ fn parse_server_args() -> Result<ServerArgs, String> {
                     "ENDPOINTS:\n",
                     "    GET  /              Browser UI\n",
                     "    GET  /api/health    Version ping\n",
+                    "    GET  /api/doors     The server's docking surface (self-described)\n",
                     "    POST /api/analyse   Run pipeline, return JSON report\n",
                     "\n",
                     "NOTE: intended for local development use only.\n",
@@ -678,6 +904,7 @@ fn parse_server_args() -> Result<ServerArgs, String> {
                 args.host = raw[i].clone();
             }
             "--open" => args.open = true,
+            "--doors" => args.doors = true,
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown flag '{flag}'; run --help for usage"));
             }
@@ -700,13 +927,26 @@ async fn main() {
         }
     };
 
+    // Self-description without binding: `kosmo-server --doors` prints the
+    // catalog and exits, so the ecosystem harvest never has to start a
+    // server (uniform with every CLI's doors door).
+    if args.doors {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&doors_catalog()).unwrap_or_default()
+        );
+        return;
+    }
+
     let app = Router::new()
         .route("/", get(serve_index))
         .route("/api/health", get(health))
+        .route("/api/doors", get(doors))
         .route("/api/analyse", post(analyse))
         .route("/api/promote", post(promote))
         .route("/api/recall", post(recall))
-        .route("/api/landscape", post(landscape));
+        .route("/api/landscape", post(landscape))
+        .route("/api/norms", post(norms));
 
     let addr_str = format!("{}:{}", args.host, args.port);
     let addr: SocketAddr = addr_str.parse().unwrap_or_else(|_| {
@@ -883,8 +1123,13 @@ mod tests {
         let doc = do_landscape(&LandscapeRequest {
             path: root.to_string_lossy().into_owned(),
             all: false,
+            geometry: false,
         })
         .expect("landscape must succeed");
+        assert!(
+            doc.get("geometry").is_none(),
+            "geometry is strictly opt-in — the plain response is unchanged"
+        );
         let proposals = doc["proposals"].as_array().unwrap();
         assert!(!proposals.is_empty(), "findings project to proposals");
         let router_doc = proposals
@@ -895,13 +1140,180 @@ mod tests {
         assert!(doc["open"].as_u64().unwrap() >= 1);
         assert!(!doc["report_id"].as_str().unwrap().is_empty());
 
+        // With geometry: the open doc+test of `router` form ONE cluster —
+        // the same standing definition as the CLI surface.
+        let doc = do_landscape(&LandscapeRequest {
+            path: root.to_string_lossy().into_owned(),
+            all: false,
+            geometry: true,
+        })
+        .expect("landscape must succeed");
+        let clusters = doc["geometry"]["clusters"].as_array().unwrap();
+        assert_eq!(clusters.len(), 1, "{clusters:?}");
+        let facets: Vec<&str> = clusters[0]["facets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f.as_str().unwrap())
+            .collect();
+        assert!(facets.contains(&"Doc router"), "{facets:?}");
+        assert!(facets.contains(&"Test router_smoke"), "{facets:?}");
+
         // A nonexistent path is a hard error, not an empty landscape.
         assert!(do_landscape(&LandscapeRequest {
             path: "/nonexistent/kosmo-landscape-xyz".into(),
             all: false,
+            geometry: false,
         })
         .is_err());
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn norms_endpoint_is_a_read_only_window() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("kosmo-server-norms-{nanos}"));
+
+        // An empty (even nonexistent) store reads as the empty catalog —
+        // the structural Wonderlamp rejection, visible over HTTP.
+        let doc = do_norms(&NormsRequest {
+            dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("an empty store is readable");
+        assert_eq!(doc["known"], 0);
+        assert_eq!(doc["armed"], 0);
+        assert_eq!(doc["observations"], 0);
+        assert!(!dir.exists(), "reading must not create anything");
+
+        // Seed one armed norm via the store's own discipline, then read it.
+        let norm = kosmo_hyphae::Norm::new(
+            "loader",
+            "module plus loader fn",
+            kosmo_hyphae::NormLevel::Molecule,
+            "module+symbol",
+            [
+                kosmo_hyphae::NormFacetTemplate::new(kosmo_core::WishFacetKind::Module, "{name}"),
+                kosmo_hyphae::NormFacetTemplate::new(
+                    kosmo_core::WishFacetKind::Symbol,
+                    "{name}_load",
+                ),
+            ],
+            [],
+            [],
+            Digest::of_bytes(b"cand"),
+            Digest::of_bytes(b"ev"),
+            Digest::of_bytes(b"pol"),
+            kosmo_hyphae::NormOrigin::OperatorInjected {
+                source: "test".into(),
+            },
+        );
+        let mut store = kosmo_store::NormStore::open(&dir).unwrap();
+        store
+            .append_norm(&norm, &PolicyProfile::operator_approved())
+            .unwrap();
+        store
+            .promote(norm.norm_id, "loader", &PolicyProfile::operator_approved())
+            .unwrap();
+
+        let doc = do_norms(&NormsRequest {
+            dir: dir.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        assert_eq!(doc["known"], 1);
+        assert_eq!(doc["armed"], 1);
+        let row = &doc["norms"].as_array().unwrap()[0];
+        assert_eq!(row["name"], "loader");
+        assert_eq!(row["trigger"], "loader");
+        assert_eq!(row["templates"], 2);
+        assert!(row["origin"].as_str().unwrap().starts_with("injected"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// This server's own source — the doors catalog is pinned against the
+    /// router registrations, so the self-description cannot drift.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    /// Every `(method, route)` the router actually registers:
+    /// `.route("<path>", get(...)|post(...))` literals in `main`.
+    fn registered_routes() -> std::collections::BTreeSet<(String, String)> {
+        let mut routes = std::collections::BTreeSet::new();
+        for line in MAIN_SRC.lines() {
+            if line.trim_start().starts_with("//") {
+                continue; // prose about routes is not a route
+            }
+            let Some(start) = line.find(".route(\"") else {
+                continue;
+            };
+            let after = &line[start + ".route(\"".len()..];
+            let Some(end) = after.find('"') else { continue };
+            let path = &after[..end];
+            let tail = &after[end..];
+            let method = if tail.contains("get(") {
+                "GET"
+            } else if tail.contains("post(") {
+                "POST"
+            } else {
+                continue;
+            };
+            routes.insert((method.to_string(), path.to_string()));
+        }
+        routes
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_router() {
+        let registered = registered_routes();
+        let cataloged: std::collections::BTreeSet<(String, String)> = doors_catalog()
+            .doors
+            .iter()
+            .map(|d| match &d.surface {
+                DoorSurface::Http { method, .. } => (method.clone(), d.name.clone()),
+                other => panic!("a server door must be HTTP, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            registered, cataloged,
+            "the catalog and the router must speak the same routes — \
+             an undescribed route is a hole in the docking surface"
+        );
+    }
+
+    #[test]
+    fn the_servers_surface_is_workspace_safe_and_describes_itself() {
+        let catalog = doors_catalog();
+        // The server never mutates a workspace and never decrees: its only
+        // write power is the explicit ledger anchor behind /api/promote.
+        for door in &catalog.doors {
+            assert_ne!(
+                door.governance,
+                DoorGovernance::WritesWorkspace,
+                "{} must not write workspaces",
+                door.name
+            );
+            assert_ne!(
+                door.governance,
+                DoorGovernance::GovernanceAct,
+                "{} must not decree",
+                door.name
+            );
+        }
+        assert_eq!(
+            catalog
+                .doors
+                .iter()
+                .filter(|d| d.governance == DoorGovernance::AppendsStore)
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/api/promote"],
+            "exactly one store-appending door"
+        );
+        // The catalog lists itself, deterministically.
+        assert!(catalog.doors.iter().any(|d| d.name == "/api/doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
     }
 }

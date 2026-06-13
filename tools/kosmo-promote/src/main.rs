@@ -63,6 +63,7 @@ use pse_types::{Config, SemanticCrystal};
 
 struct Args {
     path: String,
+    doors: bool,
     offer: bool,
     all_kinds: bool,
     json: bool,
@@ -180,12 +181,15 @@ OPTIONS:\n\
                                 ticks fire; trades cross-session determinism\n\
                                 for out-of-the-box deployability)\n\
     --json          Machine-readable output.\n\
-    -h, --help      This help.\n";
+    -h, --help      This help.\n
+    --doors              The binary's docking surface, self-described
+";
 
 fn parse_args() -> Result<Args, String> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut args = Args {
         path: ".".into(),
+        doors: false,
         offer: false,
         all_kinds: false,
         json: false,
@@ -202,6 +206,7 @@ fn parse_args() -> Result<Args, String> {
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
+            "--doors" => args.doors = true,
             "-h" | "--help" => {
                 println!("{HELP}");
                 process::exit(0);
@@ -493,6 +498,11 @@ fn main() {
             process::exit(2);
         }
     };
+
+    if args.doors {
+        print_doors(args.json);
+        return;
+    }
 
     // Recall mode: query the anchored memory instead of promoting.
     if let Some(query) = args.recall.clone() {
@@ -939,5 +949,160 @@ fn main() {
                 }
             );
         }
+    }
+}
+
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
+
+/// The binary's complete docking surface, pinned by test against the parser.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "kosmo-promote".into(),
+    };
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "promote",
+            vec![],
+            "the default door: offer the substrate's gated candidates to the \
+             PSE engine (report-only without --offer); --state/--feedback \
+             persist engine memory and verdicts, --ledger anchors accepted \
+             crystals in the Infinity Ledger (the host writes are the flags)",
+            vec![
+                DoorInput::valued("path", "<workspace>"),
+                DoorInput::switch("--offer"),
+                DoorInput::switch("--all-kinds"),
+                DoorInput::switch("--batch"),
+                DoorInput::valued("--ticks", "<n>"),
+                DoorInput::valued("--calibration", "default|planning|adaptive|substrate"),
+                DoorInput::valued("--state", "<file>"),
+                DoorInput::valued("--store", "<file>"),
+                DoorInput::valued("--feedback", "<file>"),
+                DoorInput::valued("--ledger", "<dir>"),
+                DoorInput::switch("--json"),
+            ],
+            DoorGovernance::AppendsStore,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--recall",
+            vec![],
+            "Pfauenthron retrieval over the anchored memory (read-only; the \
+             ledger must exist)",
+            vec![
+                DoorInput::valued("--recall", "<query>").required(),
+                DoorInput::valued("--ledger", "<dir>").required(),
+                DoorInput::valued("--top", "<k>"),
+                DoorInput::switch("--json"),
+            ],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Store],
+        ),
+        Door::new(
+            here(),
+            "--doors",
+            vec![],
+            "this catalog: the binary's complete docking surface (--json for \
+             the machine form)",
+            vec![DoorInput::switch("--json")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "--help",
+            vec!["-h".into()],
+            "the prose usage text",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+    ])
+}
+
+fn print_doors(as_json: bool) {
+    let catalog = doors_catalog();
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("kosmo-promote doors — the docking surface");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for door in &catalog.doors {
+        println!(
+            "  {}  [{}]  {}",
+            door.name,
+            door.governance.label(),
+            door.summary
+        );
+    }
+}
+
+#[cfg(test)]
+mod doors_tests {
+    use super::*;
+
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    /// Every flag literal the parser actually matches.
+    fn parsed_flags() -> std::collections::BTreeSet<String> {
+        let mut flags = std::collections::BTreeSet::new();
+        for line in MAIN_SRC.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(start) = rest.find("\"-") {
+                let after = &rest[start + 1..];
+                let Some(end) = after.find('"') else { break };
+                let literal = &after[..end];
+                let tail = after[end + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    flags.insert(literal.to_string());
+                }
+                rest = &after[end + 1..];
+            }
+        }
+        flags
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_parser() {
+        let parsed = parsed_flags();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            for name in std::iter::once(&door.name).chain(door.aliases.iter()) {
+                if name.starts_with('-') {
+                    cataloged.insert(name.clone());
+                }
+            }
+            for input in &door.inputs {
+                if input.name.starts_with('-') {
+                    cataloged.insert(input.name.clone());
+                }
+            }
+        }
+        assert_eq!(
+            parsed, cataloged,
+            "the catalog and the parser must speak the same flags"
+        );
+    }
+
+    #[test]
+    fn the_catalog_recomputes_and_describes_itself() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        assert!(catalog.doors.iter().any(|d| d.name == "--doors"));
+        assert_eq!(catalog.catalog_id, doors_catalog().catalog_id);
     }
 }

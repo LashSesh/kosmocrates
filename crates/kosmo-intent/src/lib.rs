@@ -25,12 +25,20 @@ use kosmo_core::{
     assess_wish, Digest, ObservedTopology, ParseBackScanScope, Wish, WishAssessment,
     WishConvergenceTrace, WishFacet, WishFacetKind, WishPredicate,
 };
+use kosmo_hyphae::xlang::{symbol_sets, SourceLanguage};
 use kosmo_hyphae::Norm;
 use kosmo_parseback::{ParseBackError, ParseBackExecutor, TopologySnapshot};
 use serde::{Deserialize, Serialize};
 
+pub mod atelier;
 pub mod chat;
+pub mod venture_spec;
+pub use atelier::{
+    companion_suggestions, parse_atelier_command, AtelierCommand, DraftSlot, FacetSuggestion,
+    IndexSelection, SuggestionSource, WishDraft,
+};
 pub use chat::{route_keywords, ChatIntent, IntentExtractor, KeywordIntentExtractor};
+pub use venture_spec::{compile_venture, VentureSpec, VentureStageSpec};
 
 // ─── Observation adapter ────────────────────────────────────────────────────
 
@@ -637,6 +645,165 @@ pub fn facets_from_rust_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
     facets
 }
 
+// ─── Python observation (polyglot parity) ───────────────────────────────────
+
+/// Python's two docstring openers.
+const PY_DOC_OPENERS: [&str; 2] = ["\"\"\"", "'''"];
+
+/// Recursively collect `.py` file paths under `dir`, skipping vendor/VCS and
+/// virtualenv directories.
+fn collect_py(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(
+                name,
+                "target" | ".git" | "__pycache__" | ".venv" | "venv" | "node_modules"
+            ) {
+                continue;
+            }
+            collect_py(&path, out);
+        } else if path.extension().is_some_and(|e| e == "py") {
+            out.push(path);
+        }
+    }
+}
+
+/// The module name of a Python file: its stem — Python's own law, file =
+/// module — with `__init__.py` standing for its package directory.
+fn python_module_name(file: &Path) -> Option<String> {
+    let stem = file.file_stem()?.to_str()?;
+    if stem == "__init__" {
+        file.parent()?
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(String::from)
+    } else {
+        Some(stem.to_string())
+    }
+}
+
+/// The name introduced by a top-level `def`/`class` line, if any.
+fn python_item_name(line: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix("def ")
+        .or_else(|| line.strip_prefix("class "))?;
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+fn opens_python_docstring(trimmed: &str) -> bool {
+    PY_DOC_OPENERS.iter().any(|q| trimmed.starts_with(q))
+}
+
+/// `Doc` facets from a Python source: the module docstring (first statement
+/// is a string) keys the module; a docstring directly under a top-level
+/// `def`/`class` keys that item. Lexical and fail-closed — only what is
+/// positively present counts.
+fn python_doc_facets(module: &str, source: &str) -> BTreeSet<WishFacet> {
+    let mut facets = BTreeSet::new();
+    // Module docstring: the first non-empty, non-comment line opens a string.
+    for line in source.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        if opens_python_docstring(t) {
+            facets.insert(WishFacet::doc(module));
+        }
+        break;
+    }
+    // Item docstrings: a top-level def/class whose next non-empty line opens
+    // a string documents that item.
+    let mut lines = source.lines().peekable();
+    while let Some(line) = lines.next() {
+        if !(line.starts_with("def ") || line.starts_with("class ")) {
+            continue;
+        }
+        let Some(name) = python_item_name(line) else {
+            continue;
+        };
+        // The header may span lines until the trailing ':'.
+        let mut header = line.trim_end().to_string();
+        while !header.ends_with(':') {
+            match lines.next() {
+                Some(cont) => header.push_str(cont.trim_end()),
+                None => return facets,
+            }
+        }
+        while let Some(next) = lines.peek() {
+            let t = next.trim();
+            if t.is_empty() {
+                lines.next();
+                continue;
+            }
+            if opens_python_docstring(t) {
+                facets.insert(WishFacet::doc(name.clone()));
+            }
+            break;
+        }
+    }
+    facets
+}
+
+/// Lexical facets of every `.py` file under `dir`: one `Module` per file
+/// (Python's file = module law), `Symbol` + `Signature` facets from the
+/// xlang extractor (the same verified rules the substrate scans with),
+/// `Test` facets for its recognized test functions, and `Doc` facets from
+/// docstrings. Read-only; needs no interpreter.
+pub fn facets_from_python_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
+    let root = dir.as_ref();
+    let mut files = Vec::new();
+    collect_py(root, &mut files);
+    files.sort();
+    let mut facets = BTreeSet::new();
+    for file in &files {
+        let Some(module) = python_module_name(file) else {
+            continue;
+        };
+        let Ok(content) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        facets.insert(WishFacet::module(module.clone()));
+        let sets = symbol_sets(SourceLanguage::Python, &content);
+        for key in &sets.functions {
+            if let Some((name, _arity)) = key.split_once('/') {
+                facets.insert(WishFacet::symbol(name));
+            }
+            facets.insert(WishFacet::signature(key.clone()));
+        }
+        for t in &sets.types {
+            facets.insert(WishFacet::symbol(t.clone()));
+        }
+        for t in &sets.tests {
+            facets.insert(WishFacet::test(t.clone()));
+        }
+        facets.extend(python_doc_facets(&module, &content));
+    }
+    facets
+}
+
+/// A cargo-less workspace that carries Python source — observed without
+/// `cargo metadata`.
+fn workspace_is_python(root: &Path) -> bool {
+    if root.join("Cargo.toml").exists() {
+        return false;
+    }
+    if root.join("pyproject.toml").exists() {
+        return true;
+    }
+    let mut files = Vec::new();
+    collect_py(root, &mut files);
+    !files.is_empty()
+}
+
 /// Walk every `.rs` file under `dir` and collect the `(test_fn_name, spec)`
 /// pairs from `// kosmo:behavior:` markers. Read-only.
 fn behavior_specs_from_dir(dir: impl AsRef<Path>) -> Vec<(String, String)> {
@@ -661,8 +828,22 @@ pub fn observe_workspace_deep(
     root: impl Into<PathBuf>,
 ) -> Result<ObservedTopology, ParseBackError> {
     let root = root.into();
+    // A cargo-less Python workspace observes by its own law (file = module)
+    // — no `cargo metadata` requirement: the polyglot door.
+    if workspace_is_python(&root) {
+        let mut observed = ObservedTopology::empty();
+        for facet in facets_from_python_dir(&root) {
+            observed.insert(facet);
+        }
+        return Ok(observed);
+    }
     let mut observed = observe_workspace(root.clone())?;
     for facet in facets_from_rust_dir(&root) {
+        observed.insert(facet);
+    }
+    // Polyglot observation: Python files inside a cargo workspace are
+    // measurable targets too, not blind spots.
+    for facet in facets_from_python_dir(&root) {
         observed.insert(facet);
     }
     Ok(observed)
@@ -758,16 +939,21 @@ pub fn observe_workspace_validated(
 
 // ─── Runtime observation (level 5 — execute and probe) ──────────────────────
 
-/// A runtime probe's expectation: an exit code and/or a stdout substring.
+/// A runtime probe's expectation: an exit code, a stdout substring, and/or
+/// a wall-clock budget in milliseconds — the first *quality axis*: speed as
+/// a measurable, fail-closed facet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RunExpect {
     exit: Option<i32>,
     stdout_contains: Option<String>,
+    /// The witness's duration must not exceed this many milliseconds.
+    max_ms: Option<u64>,
 }
 
 /// Parse a `Run` facet key `"args=>expect"` into `(args, expect)`. `args` is
-/// comma-separated (passed after `cargo run --`); `expect` is `exit:<n>` and/or
-/// `out~<substr>`. `None` if malformed.
+/// comma-separated (passed after `cargo run --`); `expect` is `exit:<n>`
+/// and/or `out~<substr>`, optionally capped by a tail-anchored `ms<N` budget
+/// (`"hi=>out~hi,ms<50"`). `None` if malformed.
 fn parse_run_key(key: &str) -> Option<(Vec<String>, RunExpect)> {
     let (args_str, expect_str) = key.split_once("=>")?;
     let args = args_str
@@ -780,6 +966,15 @@ fn parse_run_key(key: &str) -> Option<(Vec<String>, RunExpect)> {
 }
 
 fn parse_run_expect(s: &str) -> Option<RunExpect> {
+    // The budget atom anchors at the tail (so an `out~` substring may
+    // contain anything before it): "...,ms<N", or the lone "ms<N".
+    let (s, max_ms) = if let Some((head, n)) = s.rsplit_once(",ms<") {
+        (head, Some(n.parse::<u64>().ok()?))
+    } else if let Some(n) = s.strip_prefix("ms<") {
+        ("", Some(n.parse::<u64>().ok()?))
+    } else {
+        (s, None)
+    };
     let mut exit = None;
     let rest = if let Some(r) = s.strip_prefix("exit:") {
         let digits: String = r
@@ -793,17 +988,19 @@ fn parse_run_expect(s: &str) -> Option<RunExpect> {
         s
     };
     let stdout_contains = rest.strip_prefix("out~").map(|x| x.to_string());
-    if exit.is_none() && stdout_contains.is_none() {
+    if exit.is_none() && stdout_contains.is_none() && max_ms.is_none() {
         return None;
     }
     Some(RunExpect {
         exit,
         stdout_contains,
+        max_ms,
     })
 }
 
 /// A clean-exit witness that matches the expectation. Fail-closed: a timeout,
-/// crash, or spawn failure never matches, even if the substring was printed.
+/// crash, or spawn failure never matches, even if the substring was printed —
+/// and a blown budget is a miss, never a warning.
 fn run_matches(w: &kosmo_sandbox::RuntimeWitness, e: &RunExpect) -> bool {
     if w.verdict != kosmo_sandbox::RunVerdict::Exited {
         return false;
@@ -815,6 +1012,11 @@ fn run_matches(w: &kosmo_sandbox::RuntimeWitness, e: &RunExpect) -> bool {
     }
     if let Some(sub) = &e.stdout_contains {
         if !w.stdout.contains(sub) {
+            return false;
+        }
+    }
+    if let Some(cap) = e.max_ms {
+        if w.duration.as_millis() > u128::from(cap) {
             return false;
         }
     }
@@ -2001,6 +2203,58 @@ mod tests {
         assert!(!facets.iter().any(|f| f.kind == WishFacetKind::Behavior));
     }
 
+    // ── Python observation (polyglot parity) ──────────────────────────────
+
+    #[test]
+    fn python_dir_observes_modules_symbols_docs_and_tests() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-pyobs-{nanos}"));
+        std::fs::create_dir_all(root.join("pkg")).unwrap();
+        std::fs::write(
+            root.join("calc.py"),
+            "\"\"\"calc module.\"\"\"\n\n\ndef greet(name):\n    \"\"\"Say hi.\"\"\"\n    return name\n\n\nclass Engine:\n    pass\n\n\ndef test_greet():\n    assert greet(\"x\")\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("pkg/__init__.py"), "def boot():\n    pass\n").unwrap();
+
+        let facets = facets_from_python_dir(&root);
+        assert!(facets.contains(&WishFacet::module("calc")), "{facets:?}");
+        assert!(
+            facets.contains(&WishFacet::module("pkg")),
+            "__init__.py stands for its package: {facets:?}"
+        );
+        assert!(facets.contains(&WishFacet::symbol("greet")));
+        assert!(facets.contains(&WishFacet::signature("greet/1")));
+        assert!(facets.contains(&WishFacet::symbol("Engine")));
+        assert!(facets.contains(&WishFacet::test("test_greet")));
+        assert!(facets.contains(&WishFacet::doc("calc")), "module docstring");
+        assert!(facets.contains(&WishFacet::doc("greet")), "item docstring");
+        assert!(
+            !facets.contains(&WishFacet::doc("Engine")),
+            "an undocumented class earns no Doc facet"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn cargoless_python_workspace_observes_without_cargo_metadata() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-pyws-{nanos}"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("calc.py"), "def greet():\n    return 1\n").unwrap();
+        let observed = observe_workspace_deep(&root).expect("the polyglot door observes");
+        assert!(observed.contains(&WishFacet::module("calc")));
+        assert!(observed.contains(&WishFacet::symbol("greet")));
+        assert!(observed.contains(&WishFacet::signature("greet/0")));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     // ── Archetypes (the breadth axis) ─────────────────────────────────────
 
     #[test]
@@ -2306,24 +2560,80 @@ mod tests {
             parse_run_expect("exit:0"),
             Some(RunExpect {
                 exit: Some(0),
-                stdout_contains: None
+                stdout_contains: None,
+                max_ms: None
             })
         );
         assert_eq!(
             parse_run_expect("out~hi"),
             Some(RunExpect {
                 exit: None,
-                stdout_contains: Some("hi".into())
+                stdout_contains: Some("hi".into()),
+                max_ms: None
             })
         );
         assert_eq!(
             parse_run_expect("exit:0,out~hi"),
             Some(RunExpect {
                 exit: Some(0),
-                stdout_contains: Some("hi".into())
+                stdout_contains: Some("hi".into()),
+                max_ms: None
             })
         );
         assert!(parse_run_expect("garbage").is_none());
+    }
+
+    #[test]
+    fn parse_run_expect_budget_atom_anchors_at_the_tail() {
+        // The first quality axis: speed as a measurable expectation.
+        assert_eq!(
+            parse_run_expect("out~hi,ms<50"),
+            Some(RunExpect {
+                exit: None,
+                stdout_contains: Some("hi".into()),
+                max_ms: Some(50)
+            })
+        );
+        assert_eq!(
+            parse_run_expect("exit:0,out~a,b,ms<200"),
+            Some(RunExpect {
+                exit: Some(0),
+                stdout_contains: Some("a,b".into()),
+                max_ms: Some(200)
+            }),
+            "the out~ substring keeps its commas; the budget anchors at the tail"
+        );
+        assert_eq!(
+            parse_run_expect("ms<10"),
+            Some(RunExpect {
+                exit: None,
+                stdout_contains: None,
+                max_ms: Some(10)
+            }),
+            "a lone budget is a valid expectation (clean exit within budget)"
+        );
+        // Malformed budgets fail the whole key — never silently ignored.
+        assert!(parse_run_expect("out~hi,ms<fast").is_none());
+    }
+
+    #[test]
+    fn run_matches_enforces_the_budget_failclosed() {
+        use kosmo_sandbox::{RunVerdict, RuntimeWitness};
+        let e = parse_run_expect("out~hi,ms<50").unwrap();
+        let witness = |ms: u64| RuntimeWitness {
+            verdict: RunVerdict::Exited,
+            exit_code: Some(0),
+            stdout: "hi".into(),
+            stderr: String::new(),
+            stdout_digest: Digest::ZERO,
+            duration: std::time::Duration::from_millis(ms),
+            truncated: false,
+        };
+        assert!(run_matches(&witness(10), &e), "within budget matches");
+        assert!(
+            !run_matches(&witness(80), &e),
+            "a blown budget is a miss, never a warning"
+        );
     }
 
     #[test]
@@ -2341,6 +2651,7 @@ mod tests {
         let e = RunExpect {
             exit: Some(0),
             stdout_contains: Some("5".into()),
+            max_ms: None,
         };
         // A timed-out run never matches — even with the right stdout printed.
         let timed = RuntimeWitness {

@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+use kosmo_core::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
 use pse_metatron::closure::{
     holistic_state::HolisticEigenmodeState,
     isomorphic::IsomorphicProjectionReport,
@@ -40,6 +41,10 @@ fn dispatch(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         "close" => cmd_close(args),
         "replay" => cmd_replay(args),
         "verify" => cmd_verify(args),
+        "doors" => {
+            cmd_doors(args);
+            Ok(())
+        }
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
@@ -418,6 +423,130 @@ fn write_json_file<T: serde::Serialize>(
     Ok(())
 }
 
+// ─── Doors (the binary's self-description) ───────────────────────────────────
+
+/// The Metatron CLI's complete docking surface, spoken by the binary
+/// itself. Every subcommand operates on validation-run artifacts (files);
+/// `--out` writes only files the operator names — nothing else is touched.
+/// A test pins this catalog against the dispatch match.
+fn doors_catalog() -> DoorCatalog {
+    let here = || DoorSurface::Cli {
+        binary: "pse-metatron".into(),
+    };
+    let run_dir = || DoorInput::valued("run-dir", "<validation-run>").required();
+    let out = || DoorInput::valued("--out", "<file>");
+    DoorCatalog::new(vec![
+        Door::new(
+            here(),
+            "doors",
+            vec![],
+            "this catalog: the binary's complete docking surface, spoken by \
+             the binary itself (add --json for the machine form)",
+            vec![DoorInput::switch("--json")],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "help",
+            vec!["--help".into(), "-h".into()],
+            "the prose usage text",
+            vec![],
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
+            "inspect",
+            vec![],
+            "print artifact presence in a validation run directory",
+            vec![run_dir()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "project-local",
+            vec![],
+            "collect local Monolith projections from the run's artifacts",
+            vec![run_dir(), out()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "isomorphism",
+            vec![],
+            "evaluate isomorphic projection reports",
+            vec![run_dir(), out()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "spectral-gap",
+            vec![],
+            "evaluate the spectral-gap stitch report",
+            vec![run_dir(), out()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "close",
+            vec![],
+            "run the full Metatron closure chain (Closed / Diagnostic / \
+             Rejected — the verdict is observed, never assumed)",
+            vec![run_dir(), out()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "replay",
+            vec![],
+            "verify byte-identity of a closure report (deterministic replay)",
+            vec![run_dir()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+        Door::new(
+            here(),
+            "verify",
+            vec![],
+            "verify a holistic_eigenmode_state.json",
+            vec![DoorInput::valued("state", "<file>").required()],
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::File],
+        ),
+    ])
+}
+
+fn cmd_doors(args: &[String]) {
+    let catalog = doors_catalog();
+    if args.iter().any(|a| a == "--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&catalog).unwrap_or_default()
+        );
+        return;
+    }
+    println!("pse-metatron doors — the docking surface");
+    println!(
+        "  catalog {}… · {} door(s)",
+        &catalog.catalog_id.to_hex()[..12],
+        catalog.len()
+    );
+    for door in &catalog.doors {
+        println!(
+            "  {}  [{}]  {}",
+            door.name,
+            door.governance.label(),
+            door.summary
+        );
+    }
+}
+
 fn print_help() {
     println!(
         r#"pse-metatron — Holistic Eigenmode Closure Layer (PSE-METATRON-MONOLITH-01)
@@ -433,9 +562,86 @@ SUBCOMMANDS:
   close          Run the full Metatron closure chain
   replay         Verify byte-identity of a closure report
   verify         Verify a holistic_eigenmode_state.json
+  doors          The binary's docking surface, self-described (--json)
 
 OPTIONS:
   --out <path>   Output file path
 "#
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// This binary's own dispatch source — the catalog is pinned against it.
+    const MAIN_SRC: &str = include_str!("main.rs");
+
+    fn dispatched_words() -> std::collections::BTreeSet<String> {
+        let start = MAIN_SRC
+            .find("match subcmd {")
+            .expect("the dispatch match exists");
+        let slice = &MAIN_SRC[start..];
+        let end = slice
+            .lines()
+            .scan(0usize, |off, line| {
+                let here = *off;
+                *off += line.len() + 1;
+                Some((here, line))
+            })
+            .find(|(_, line)| *line == "    }")
+            .map(|(off, _)| off)
+            .expect("the dispatch match closes");
+        let slice = &slice[..end];
+        let mut words = std::collections::BTreeSet::new();
+        for line in slice.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(q) = rest.find('"') {
+                let after = &rest[q + 1..];
+                let Some(close) = after.find('"') else { break };
+                let literal = &after[..close];
+                let tail = after[close + 1..].trim_start();
+                if tail.starts_with("=>") || tail.starts_with('|') {
+                    words.insert(literal.to_string());
+                }
+                rest = &after[close + 1..];
+            }
+        }
+        words
+    }
+
+    #[test]
+    fn the_doors_catalog_is_pinned_to_the_dispatch() {
+        let dispatched = dispatched_words();
+        let mut cataloged = std::collections::BTreeSet::new();
+        for door in doors_catalog().doors {
+            cataloged.insert(door.name.clone());
+            for alias in &door.aliases {
+                cataloged.insert(alias.clone());
+            }
+        }
+        assert_eq!(
+            dispatched, cataloged,
+            "the catalog and the dispatch must speak the same words"
+        );
+    }
+
+    #[test]
+    fn every_analysis_is_read_only() {
+        let catalog = doors_catalog();
+        assert!(catalog.verify(), "the catalog recomputes");
+        for door in &catalog.doors {
+            assert_eq!(
+                door.governance,
+                DoorGovernance::ReadOnly,
+                "{}: Metatron analyses observe artifacts; --out writes only \
+                 the file the operator names",
+                door.name
+            );
+        }
+        assert!(catalog.doors.iter().any(|d| d.name == "doors"));
+    }
 }

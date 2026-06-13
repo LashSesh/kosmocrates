@@ -589,7 +589,14 @@ impl FacetScaffolder {
     /// Dispatch a facet to its per-kind scaffolder, treating `ws` as the crate
     /// root. Paths in the returned changes are relative to `ws`.
     fn scaffold_kind(ws: &Path, kind: &WishFacetKind, key: &str) -> Vec<FileChange> {
-        match kind {
+        // A cargo-less Python workspace builds by Python's own law (file =
+        // module) — the polyglot fabrication door. Cargo workspaces keep the
+        // Rust path even when they carry Python files (the manifest names
+        // the build system).
+        if Self::workspace_is_python(ws) {
+            return Self::python_scaffold_kind(ws, kind, key);
+        }
+        let changes = match kind {
             WishFacetKind::Symbol => Self::scaffold_symbol(ws, key),
             WishFacetKind::Doc => Self::scaffold_doc(ws, key),
             WishFacetKind::Signature => Self::scaffold_signature(ws, key),
@@ -605,7 +612,248 @@ impl FacetScaffolder {
             WishFacetKind::Dependency => Self::scaffold_dependency(ws, key),
             // A resolution ("the bad thing is gone") has no structural scaffold.
             WishFacetKind::Resolution => vec![],
+        };
+        // Polyglot fallback in mixed workspaces: when the Rust path cannot
+        // name the target (e.g. a Doc facet whose item lives in a .py file)
+        // but Python source exists, build by Python's law instead.
+        if changes.is_empty() && Self::has_python_files(ws) {
+            return Self::python_scaffold_kind(ws, kind, key);
         }
+        changes
+    }
+
+    /// A cargo-less workspace that carries Python source (or a pyproject):
+    /// scaffolds follow Python's conventions instead of cargo's.
+    fn workspace_is_python(ws: &Path) -> bool {
+        if ws.join("Cargo.toml").exists() {
+            return false;
+        }
+        ws.join("pyproject.toml").exists() || Self::has_python_files(ws)
+    }
+
+    /// Any `.py` file under `ws` (bounded walk, vendor dirs skipped).
+    fn has_python_files(ws: &Path) -> bool {
+        fn any_py(dir: &Path, depth: u32) -> bool {
+            if depth > 4 {
+                return false;
+            }
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return false;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if path.is_dir() {
+                    if !matches!(
+                        name.as_ref(),
+                        ".git" | "__pycache__" | ".venv" | "venv" | "node_modules" | "target"
+                    ) && any_py(&path, depth + 1)
+                    {
+                        return true;
+                    }
+                } else if path.extension().is_some_and(|e| e == "py") {
+                    return true;
+                }
+            }
+            false
+        }
+        any_py(ws, 0)
+    }
+
+    /// All `.py` files under `ws` (sorted; vendor dirs skipped).
+    fn python_files(ws: &Path) -> Vec<std::path::PathBuf> {
+        fn collect(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if path.is_dir() {
+                    if !matches!(
+                        name.as_ref(),
+                        ".git" | "__pycache__" | ".venv" | "venv" | "node_modules" | "target"
+                    ) {
+                        collect(&path, out);
+                    }
+                } else if path.extension().is_some_and(|e| e == "py") {
+                    out.push(path);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        collect(ws, &mut files);
+        files.sort();
+        files
+    }
+
+    /// The existing file providing Python module `name` (file = module law;
+    /// `__init__.py` stands for its package directory), wherever it lives.
+    fn python_module_file(ws: &Path, name: &str) -> Option<std::path::PathBuf> {
+        Self::python_files(ws).into_iter().find(|file| {
+            let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            if stem == "__init__" {
+                file.parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    == Some(name)
+            } else {
+                stem == name
+            }
+        })
+    }
+
+    /// The Python fabrication path: Module, Symbol, Doc and Test scaffolds
+    /// under Python's file = module law. Everything else is an honest no-op
+    /// (an unscaffoldable facet ends the descent unmet — fail-closed).
+    fn python_scaffold_kind(ws: &Path, kind: &WishFacetKind, key: &str) -> Vec<FileChange> {
+        match kind {
+            WishFacetKind::Module => Self::python_scaffold_module(ws, key),
+            WishFacetKind::Symbol => Self::python_scaffold_symbol(ws, key),
+            WishFacetKind::Doc => Self::python_scaffold_doc(ws, key),
+            WishFacetKind::Test => Self::python_scaffold_test(ws, key),
+            _ => vec![],
+        }
+    }
+
+    /// `Module` → `<name>.py` with a module docstring. Idempotent: a module
+    /// already provided by any existing file (wherever it lives) is a no-op.
+    fn python_scaffold_module(ws: &Path, name: &str) -> Vec<FileChange> {
+        if Self::python_module_file(ws, name).is_some() {
+            return vec![];
+        }
+        let rel = format!("{name}.py");
+        vec![FileChange::create(
+            rel,
+            format!("\"\"\"{name} (scaffolded by kosmo).\"\"\"\n"),
+        )]
+    }
+
+    /// `Symbol` → `def <name>():` inside `<name>.py` (created if missing) —
+    /// a stub with a docstring, so the symbol is observable and documented.
+    fn python_scaffold_symbol(ws: &Path, name: &str) -> Vec<FileChange> {
+        let (rel, path) = match Self::python_module_file(ws, name) {
+            Some(found) => (
+                found
+                    .strip_prefix(ws)
+                    .unwrap_or(&found)
+                    .to_string_lossy()
+                    .into_owned(),
+                found.clone(),
+            ),
+            None => {
+                let rel = format!("{name}.py");
+                let path = ws.join(&rel);
+                (rel, path)
+            }
+        };
+        let marker = format!("def {name}");
+        let stub = format!(
+            "def {name}():\n    \"\"\"{name} (scaffolded by kosmo).\"\"\"\n    return None\n"
+        );
+        if path.exists() {
+            let mut content = std::fs::read_to_string(&path).unwrap_or_default();
+            if content.contains(&marker) {
+                return vec![];
+            }
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str("\n\n");
+            content.push_str(&stub);
+            return vec![FileChange::modify(rel, content)];
+        }
+        vec![FileChange::create(
+            rel,
+            format!("\"\"\"{name} (scaffolded by kosmo).\"\"\"\n\n\n{stub}"),
+        )]
+    }
+
+    /// `Doc` → insert a docstring under an existing top-level `def`/`class`
+    /// named `key`, or a module docstring atop `<key>.py`. No target → no-op.
+    fn python_scaffold_doc(ws: &Path, key: &str) -> Vec<FileChange> {
+        let files = Self::python_files(ws);
+        // First choice: document the def/class named `key`.
+        for file in &files {
+            let Ok(content) = std::fs::read_to_string(file) else {
+                continue;
+            };
+            let lines: Vec<&str> = content.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                let is_item = (line.starts_with("def ") || line.starts_with("class "))
+                    && line[line.find(' ').unwrap_or(0) + 1..].starts_with(&format!("{key}("))
+                    || line.starts_with(&format!("def {key}("))
+                    || line.starts_with(&format!("class {key}("))
+                    || *line == format!("class {key}:");
+                if !is_item || !line.trim_end().ends_with(':') {
+                    continue;
+                }
+                let next = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
+                if next.starts_with("\"\"\"") || next.starts_with("'''") {
+                    return vec![]; // already documented
+                }
+                let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+                out.insert(
+                    i + 1,
+                    format!("    \"\"\"`{key}` (docs scaffolded by kosmo).\"\"\""),
+                );
+                let rel = file.strip_prefix(ws).unwrap_or(file).to_path_buf();
+                return vec![FileChange::modify(rel, out.join("\n") + "\n")];
+            }
+        }
+        // Second choice: a module docstring atop the file providing module
+        // `key`, wherever it lives (file = module law).
+        if let Some(module) = Self::python_module_file(ws, key) {
+            let content = std::fs::read_to_string(&module).unwrap_or_default();
+            let first = content
+                .lines()
+                .find(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
+                .unwrap_or("");
+            if first.trim().starts_with("\"\"\"") || first.trim().starts_with("'''") {
+                return vec![];
+            }
+            let rel = module
+                .strip_prefix(ws)
+                .unwrap_or(&module)
+                .to_string_lossy()
+                .into_owned();
+            return vec![FileChange::modify(
+                rel,
+                format!("\"\"\"`{key}` (docs scaffolded by kosmo).\"\"\"\n{content}"),
+            )];
+        }
+        vec![]
+    }
+
+    /// `Test` → append `def <key>():` to `test_kosmo.py` (the pytest-shaped
+    /// scaffold file). The function keeps the facet's exact name so lexical
+    /// observation matches; pytest collects it when the name carries the
+    /// `test_` prefix — the ecosystem's own law.
+    fn python_scaffold_test(ws: &Path, key: &str) -> Vec<FileChange> {
+        let rel = "test_kosmo.py".to_string();
+        let path = ws.join(&rel);
+        let marker = format!("def {key}");
+        let stub = format!(
+            "def {key}():\n    \"\"\"Smoke (scaffolded by kosmo).\"\"\"\n    assert True\n"
+        );
+        if path.exists() {
+            let mut content = std::fs::read_to_string(&path).unwrap_or_default();
+            if content.contains(&marker) {
+                return vec![];
+            }
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str("\n\n");
+            content.push_str(&stub);
+            return vec![FileChange::modify(rel, content)];
+        }
+        vec![FileChange::create(
+            rel,
+            format!("\"\"\"Tests (scaffolded by kosmo).\"\"\"\n\n\n{stub}"),
+        )]
     }
 
     /// Which facet kinds describe an *item inside a crate* (and so can be

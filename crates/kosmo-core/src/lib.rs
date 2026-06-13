@@ -11,6 +11,7 @@ pub mod attractor;
 pub mod authority;
 pub mod cartography;
 pub mod digest;
+pub mod doors;
 pub mod energy;
 pub mod evaluation;
 pub mod evidence;
@@ -23,6 +24,7 @@ pub mod policy;
 pub mod promotion_feedback;
 pub mod run;
 pub mod validation;
+pub mod venture;
 pub mod wish;
 
 pub use acquisition::{
@@ -39,6 +41,7 @@ pub use cartography::{
     CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
 };
 pub use digest::{canonical_bytes, Digest};
+pub use doors::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
 pub use energy::{
     rank_by_energy, EnergyAssessment, EnergyFactors, EnergyKernel, FoundrySurvival, TripolarEnergy,
 };
@@ -74,6 +77,7 @@ pub use run::{
     RunDescriptor,
 };
 pub use validation::{determine_closure_status, ValidationClosureReport, ValidationClosureStatus};
+pub use venture::{StageStanding, Venture, VentureError, VentureSession, VentureStage};
 pub use wish::{
     assess_wish, ObservedTopology, Wish, WishAssessment, WishClosureStatus, WishFacet,
     WishFacetKind, WishPredicate,

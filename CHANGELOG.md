@@ -15,6 +15,451 @@ note explicitly says so.
 
 ### Added
 
+* **The realization benchmark — the instrument for the question that
+  decides everything**
+
+  Every gate in this repository was deterministic and offline; the one
+  non-deterministic boundary — the real LLM call that does the actual
+  *generating* — had never been measured. There was exactly one
+  `#[ignore]`d smoke test against a real provider in the whole tree, and
+  it checked nothing about quality. So the "wish → working system" claim
+  rested on nothing empirical. `kosmo-run --realize-bench` is the
+  instrument that changes that, and it is the gate before any GUI is in
+  question.
+
+  It drives a curated corpus of ten behavioural wishes (echo, add,
+  maximum, reverse, uppercase, count-vowels, factorial, fibonacci, gcd,
+  sum-list) through the **same provider-backed descent the operator
+  uses**. Each is a wish of budgeted `Run` facets the scaffolder cannot
+  satisfy, so the real provider must be called; each uses **multiple
+  probes** so a program that prints one memorized answer fails the others
+  (the model must generalize, not hard-code). The verdict is
+  **execution, never the model's word**: the forged program is run under
+  the sandbox witness and matched against the probes. It reports, per
+  task and in aggregate, the **realization rate** (basis points, so the
+  rendered percentage is exact and the body stays float-free), the
+  descent **iterations**, and the **real token cost** (a counting
+  wrapper sums `tokens_used` across every provider call).
+
+  Provider-agnostic by construction (it arms whatever `build_synthesizer`
+  arms): the same corpus runs against a cloud API (`--provider
+  claude|cerebras`) and a local OpenAI-compatible model (`--provider env`
+  + `KOSMO_LLM_BASE_URL`), producing comparable numbers — the choice is
+  the operator's, the instrument is one. Mock is refused: a benchmark of
+  the deterministic scaffolder measures only what the Prüfstand already
+  proves. It is a **measurement, not a gate** (always exits 0; the rate
+  is the finding), with a content-addressed report (`--realize-bench-
+  report`). Protocol — and how to fire it on either deployment — in
+  `docs/REALIZE_BENCH.md`. The honesty boundary is pinned offline (mock
+  and keyless invocations refused); the firing itself needs a key or
+  endpoint and is the operator's. +4 tests; kosmo-run's catalog grows to
+  19 doors.
+
+* **The self-renewing inventory — the last voices and the nightly harvest
+  (Spreizung VI)**
+
+  The docking surface now describes the whole stack and keeps itself
+  true. Five more surfaces self-describe — `pse-eval-matrix`,
+  `pse-validate`, `phase-matrix`, `nxalien` (each a `doors` subcommand
+  pinned against its dispatch) and `kosmo-eval` (a `--doors` flag, its one
+  benchmark door). Both servers gain a `--doors` flag that prints their
+  catalog and exits before binding, so nothing has to be started or
+  curled to be harvested. (En route, a sharp edge: the dispatch-pin's
+  anchor auto-detector was fooled by the test module embedding both
+  anchor strings as literals; it now picks the anchor whose first
+  occurrence is earliest — the real dispatch precedes the test.)
+
+  `scripts/harvest-doors.sh` makes federation standing: every
+  door-speaking binary emits its catalog, `kosmo-run --doors-merge`
+  verifies each by content address and unites them into one inventory
+  whose catalog id is deterministic given the surfaces present.
+  `.github/workflows/doors.yml` runs that harvest nightly (and on
+  surface-touching pushes), publishing the inventory as a build artifact
+  and a job-summary table — the operator's standing answer to "what,
+  exactly, could I operate right now?", fail-closed: a surface that
+  stops answering or a catalog that no longer verifies turns the job
+  red. **Harvested live: eighteen surfaces, 189 doors, one catalog id,
+  the whole stack's write power in one place** (163 read-only, 16
+  appends-store, 8 writes-workspace, 2 governance-act). Honest residue,
+  named in `docs/DOORS.md`: the vendored `mef` CLI, the WASM/Python
+  bindings, and the eight extraction operators stay out until their
+  shape genuinely fits a door. +9 tests.
+
+* **The remaining voices — eight more surfaces self-describe; the
+  inventory reaches 137 doors (Spreizung V)**
+
+  kosmo-substrate, kosmo-promote, kosmo-tui and the five traverse CLIs
+  (pse-traverse-cli, -horizon, -cognition, -topology, -lpcm) join the
+  federation, each with the same discipline: a content-addressed
+  catalog spoken from inside the binary (`--doors` / `doors`), pinned
+  by test against its own parser or dispatch. The pins earned their
+  keep immediately: kosmo-substrate's and kosmo-tui's forgotten `-V`
+  version aliases surfaced as set-diffs and now stand in the catalog.
+
+  **kosmo-tui's catalog speaks keys**: the interactive vocabulary
+  (q/c/r/p/l/j/k/g/G) is cataloged as inputs and pinned against the
+  event loop's `Char(…)` arms — a key the loop handles but the catalog
+  doesn't name fails the build, and vice versa. kosmo-promote's recall
+  mode is its own read-only door beside the store-appending promote
+  door; the traverse CLIs carry the all-read-only pin (53 doors of
+  horizon/cognition/topology/LPCM analysis — `--out` writes only
+  operator-named files).
+
+  Federated live across **thirteen surfaces: 137 doors under one
+  catalog id** — kosmo-run 18, pse 18, pse-server 17,
+  pse-traverse-topology 16, pse-traverse-cognition 14, pse-metatron 9,
+  pse-traverse-horizon 9, pse-traverse-cli 8, pse-traverse-lpcm 8,
+  kosmo-server 8, kosmo-promote 4, kosmo-substrate 4, kosmo-tui 4.
+  +17 tests (a parser/dispatch pin and a recompute/governance pin per
+  surface; the TUI key pin).
+
+* **The PSE layer joins the inventory — pse and pse-metatron
+  self-describe (Spreizung IV)**
+
+  The cognition layer's surfaces speak for themselves. `pse doors`
+  catalogs the PSE CLI's eighteen subcommand doors — including the
+  **live-world door** (`observe` over eight domain adapters: crypto
+  markets, energy grid, seismology, weather, air quality, IoT, syslog,
+  vitals) — pinned against the dispatch match in `main` by source scan,
+  **adapter vocabulary included**: an adapter the dispatch matches but
+  the catalog doesn't name (or vice versa) fails the build. The write
+  power is pinned honest: exactly one store-appender (`observe` grows
+  the crystal store), exactly one workspace-writer (`build-wasm`), and
+  the two stubs (`navigate`, `bench`) are cataloged *as* stubs — the
+  inventory tells the truth about placeholders too.
+
+  `pse-metatron doors` catalogs the Metatron closure CLI (inspect,
+  project-local, isomorphism, spectral-gap, close, replay, verify) with
+  the all-read-only pin: analyses observe artifacts, `--out` writes
+  only the file the operator names.
+
+  Both CLIs use the shared `kosmo_core::doors` vocabulary — kosmo-core
+  is dependency-free foundation, so the PSE→kosmo-core edge adds no
+  cycle and leaves CROSS-002 (kosmo never imports pse) untouched.
+  Federated live: **five surfaces, 70 doors, one catalog id**
+  (kosmo-run 18, pse 18, pse-server 17, pse-metatron 9, kosmo-server
+  8). Honest residue, named: the eight extraction operators
+  (Band/Ratio/Correlation/Granger/Spectral/Topological/Phase/
+  Contraction) stay library-captive — their door needs its own design
+  (graph-region inputs), a later Spreizung. +4 tests (two pins per
+  surface).
+
+* **Federation — the ecosystem inventory across three surfaces
+  (Spreizung III)**
+
+  The catalogs entangle. **pse-server learns self-description**:
+  `GET /doors` speaks its seventeen routes from inside the server —
+  request fields, write power, needs — pinned against the router by the
+  same source-scan technique, with the governance truth pinned too
+  (exactly two store-appending doors, `/ingest` and `/nxalien/bundle`;
+  nothing writes a workspace, nothing decrees). `/doors` joins
+  `/health` and `/ready` as a keyless probe path: self-description
+  needs no token on any surface.
+
+  Catalogs now **federate as artifacts**, not over the network:
+  `kosmo-run --doors-merge <files>` unites the binary's own catalog
+  with other surfaces' emitted JSON into one deterministic,
+  deduplicated, content-addressed ecosystem inventory. Trust is
+  mathematical and fail-closed: `Door::verify_id` and
+  `DoorCatalog::verify` recompute every identity from the visible
+  content, and a tampered catalog is refused by file name (pinned e2e —
+  one reworded summary breaks the merge). Demonstrated live: kosmo-run
+  + kosmo-server + pse-server harvest into **one 43-door inventory
+  under a single catalog id**. The federated rendering shows surfaces
+  and owners; the browser panel grows a *Doors* card rendering
+  `GET /api/doors`. +4 tests (tamper-evidence in the vocabulary,
+  federation e2e incl. refusal, the two pse-server pins).
+
+* **Organ doors — foundry, witness, parseback, kcube, codematrix
+  (Spreizung II)**
+
+  Five substrate organs that were reachable only as side effects of
+  `--apply`/`--all` become directed doors of their own — each in the
+  doors catalog by build-enforced pin, one door per run:
+
+  - `--foundry <kinds>` — the loop's own gate executor, invoked alone:
+    allowlisted cargo checks (`build,test,lint,typecheck`; the
+    vocabulary is closed and refusals name the word) under the same
+    timeout discipline and content-addressed evidence the agent uses,
+    worst-wins outcome, exit 6 on failure. `DryRun` is the least power
+    that executes — `ReportOnly` stays inert by design.
+  - `--witness "<argv>"` — one execution of the workspace's binary
+    under the sandbox witness (cwd-confined, 60s budget, output capped
+    but digest-complete): the raw, content-addressed evidence of a run;
+    exit 7 unless clean.
+  - `--parseback [--parseback-baseline <f>]` — the topology eye:
+    a content-addressed snapshot (crates, files, dependency edges);
+    with a baseline file, severity-ranked drift. The baseline is
+    written once and **never silently replaced** (pinned byte-exact) —
+    delete it to rebaseline.
+  - `--kcube <dir>` — the blueprint exporter: full diagnosis →
+    SystemCube → a real, **roundtrip-verified `.kcube` archive**. Each
+    diagnosis run is its own observation event with its own cube
+    identity, so each export lands a distinctly named archive; silent
+    overwrite stays refused by the kcube guard. En route, the pipeline
+    report now carries the built `SystemCube` itself (`#[serde(skip)]`
+    — the wire format and `report_id` are byte-identical).
+  - `--codematrix` — the 5D fingerprint lens (relationality, cohesion,
+    topology, symmetry, entropy) per source plus the most resonant
+    pairs — strictly advisory: it ranks, it never gates (CROSS-010).
+
+  +6 e2e tests (gates fail-closed; witness evidence; baseline-once +
+  drift; per-diagnosis archives; advisory lens; one-door-per-run), and
+  the catalog pin grew the surface to eighteen described doors.
+
+* **Doors — the self-describing docking surface (Spreizung I)**
+
+  The design law lands as mechanism: *every function gets its own
+  addressed door; a chat window is one door among many, never the door.*
+  The operator's standing question — "what, exactly, could I operate
+  right now?" — now has a machine answer spoken by the system itself.
+
+  `kosmo_core::doors` is the vocabulary: a `Door` is one operator-facing
+  entry point with its surface (CLI flag / HTTP route), name and aliases,
+  one summary, its inputs (value shapes, required-ness), its **write
+  power as data** (`read-only` / `writes-workspace` / `appends-store` /
+  `governance-act`) and its needs (provider/cargo/network/workspace/
+  store/file) — content-addressed; a `DoorCatalog` is a surface's
+  deterministic, deduped, content-addressed inventory, and catalogs
+  merge across surfaces.
+
+  Surfaces describe **themselves**: `kosmo-run --doors` speaks the
+  binary's thirteen doors (text and `--json`), `GET /api/doors` speaks
+  the server's eight routes. And the description cannot drift: each
+  surface carries a source-pin test that scans its own parser/router and
+  asserts set-equality with the catalog — a new flag or route without a
+  description fails the build, as does a described door without a
+  mechanism. Self-description is offline, keyless, workspace-free and
+  byte-deterministic (pinned e2e). The server's catalog additionally
+  pins its governance truth: no door writes a workspace, no door
+  decrees, exactly one appends a store (`/api/promote`'s explicit ledger
+  anchor). Protocol and the road to the merged ecosystem inventory (and
+  the catalog-generated GUI at its end) in `docs/DOORS.md`. +11 tests
+  (4 vocabulary, 3 kosmo-run incl. the parser pin, 2 e2e, 2 server incl.
+  the router pin).
+
+* **The steward — self-husbandry under an operator-named fence (Etappe V)**
+
+  The system now works on itself, governed. `kosmo-run --steward` surveys
+  a workspace's own wish landscape (run on this repository, it sees its
+  own body: 780 proposals, 645 open chores) and names the open proposals
+  inside an explicit **fence** — a comma-separated list of facet classes
+  the operator spoke (`--fence doc,test`). Nothing is fenced by default:
+  husbandry (`--apply`) without a fence is refused, words outside the
+  facet vocabulary are refused, and widening the fence is itself an
+  explicit per-run operator act. Under `--apply`, each fenced open chore
+  descends as its own evidence-bound wish through the same armament as
+  wish mode — deterministic scaffolds first, so a `doc,test` fence
+  husbands offline with no provider and no key — and every descent is
+  recorded as a norm-learning observation: the system learns from the
+  work it does on itself. A failed chore is recorded and the round
+  continues (exit 4 still tells the truth at the end); `--steward-max`
+  caps the chore list per run.
+
+  The report (`--steward-report`) is content-addressed and
+  **host-path-free** (the workspace appears as its identity digest), fit
+  for an unattended nightly artifact — and `.github/workflows/steward.yml`
+  makes that literal: a scheduled nightly **self-survey** publishes the
+  plan as a build artifact (the machine proposes), while the husbandry
+  job runs only on manual dispatch and pushes a `steward/*` branch, never
+  to `main` — opening and merging the pull request stays the operator's
+  baptism. Protocol in `docs/STEWARD.md`. +10 tests (4 unit: fence
+  vocabulary/refusals, fenced-open selection honoring standing and cap,
+  report counts/json/host-path-freedom; 6 e2e: read-only survey,
+  fenceless and unknown-class refusals, door exclusivity, offline
+  husbandry observed by the norm organ, the cap).
+
+* **The reforge — external empiricism as a bench (Etappe IV)**
+
+  The system now proves itself against truth it did not author.
+  `kosmo-run --reforge` collects ground truth at runtime by probing
+  **external oracles** — `expr`, `factor`, `basename`, binaries this
+  repository did not write — and refuses to invent a single answer
+  (missing tool, non-zero exit, empty or ambiguous output ⇒ the target
+  is *skipped*, never faked). Each probed truth set becomes a wish of
+  budgeted `Run` facets (`args=>exit:0,out~answer,ms<60000`), evidence
+  content-addressed over `(tool, truths)`; a fresh scratch workspace
+  with an empty `main` is then **forged to that wish via the real
+  provider descent** — the same `descend_to_wish` loop, judged by the
+  same runtime observer that executes the program and matches its
+  output and exit code against the oracle's answers.
+
+  The honesty boundary is pinned offline: re-forging implements
+  behaviour, so `--reforge` without a provider refuses with a clear
+  error, and `--provider mock` is rejected as *forging theater* — the
+  mock cannot implement behaviour and the bench will not pretend it
+  can. The outcome is a content-addressed JSON report
+  (`--reforge-report <file>`; report_id = digest of the body) listing
+  per target the wish id, probes, iterations and realization; exit 0
+  only when no attempted target failed (exit 5 otherwise). The stranger
+  protocol — one command, no trust required — is documented in
+  `docs/REFORGE.md`. +6 tests (5 unit: target wellformedness, echo
+  oracle round-trip, missing/ambiguous oracles yield no truth, wish
+  format pinned byte-exact, report counts/json; 1 e2e: the
+  provider/mock refusals).
+
+* **Polyglot fabrication — Python joins the build loop (Etappe III)**
+
+  The architecture's language-freedom claim becomes mechanism. A
+  cargo-less Python workspace is now **observed by Python's own law**
+  (file = module, `__init__.py` stands for its package) without `cargo
+  metadata` and without an interpreter: Module facets per file,
+  Symbol/Signature facets via the xlang extractor's verified rules,
+  Test facets for recognized test functions, Doc facets from module and
+  item docstrings. Inside cargo workspaces, Python files stop being
+  blind spots: polyglot observation merges them into the same topology,
+  so the landscape's "beyond observation" residue shrinks to what is
+  genuinely unobservable (crate roots).
+
+  Fabrication follows: in Python workspaces the `FacetScaffolder`
+  builds Module/Symbol/Doc/Test by Python conventions (location-aware —
+  scaffolds land in the file that already provides the module, wherever
+  it lives); in **mixed** workspaces the Rust path keeps precedence and
+  a polyglot fallback builds what Rust cannot name (a Python module's
+  docstring lands in the `.py` file while its smoke test lands as a
+  Rust test — genuinely mixed fabrication, pinned e2e on the adopted
+  cluster of a mixed workspace).
+
+  The Prüfstand grows a Python arm with the same fidelity contract,
+  offline and interpreter-free: a known-good Python system is accepted
+  as realized, an empty one is *fabricated* to realized (the descent
+  scaffolds by Python law), and arity signatures judge in both
+  directions (`greet/0` realized, `greet/2` rejected) — **17/17
+  `--validated`**. Landscape/geometry/adoption pins lifted to the
+  polyglot truth: the mixed fixture now shows four open proposals in
+  two coherent clusters (one per language). Also landed en route: the
+  norm-observation pin for adopted cluster descents (the feature
+  shipped with the interop pass; its binary pin had silently failed to
+  apply). +7 tests.
+
+* **The quality axes — speed as a facet; the landscape grows to five
+  finding classes (Etappe II)**
+
+  The wish vocabulary crosses into quality: a `Run` probe's expectation
+  accepts a tail-anchored wall-clock budget — `"hi=>out~hi,ms<50"`
+  means *the program, executed, answers correctly AND stays under
+  50ms*, measured from the sandbox witness's duration and fail-closed
+  (a blown budget is a miss, never a warning; a malformed budget fails
+  the whole key). Pinned end to end: a fixture that sleeps 60ms
+  realizes a generous budget and measurably misses a 10ms one.
+
+  The landscape projection grows from two to **five** finding classes:
+  `MissingErrorHandling` → `Test("<stem>_handles_errors")` and
+  `IncompleteFunctionBody` → `Test("<stem>_complete")` (the fix is
+  *demonstrated* by a test, not declared), `MissingImplementation` →
+  `Capability("impl:<slug>")` (the free-form intent as a deterministic
+  capability slug, subject = the host module the standing measurement
+  can actually see). `MissingTypeAnnotation` and `Custom` stay honest
+  residue. +4 tests.
+
+* **The venture — whole-system fabrication from dependent wishes
+  (Etappe I of the summit staircase)**
+
+  A `Venture` (kosmo-core/src/venture.rs) is a content-addressed web of
+  wish stages with explicit dependencies — the executable counterpart of
+  the substrate's collapse plans. Fail-closed at construction
+  (out-of-range, self- and cyclic dependencies are construction errors:
+  an invalid venture never exists as a value), deterministic execution
+  order (smallest-ready-index Kahn walk), evidence-bound (CROSS-006).
+  The `VentureSession` is pure, serializable orchestration state: a
+  failed stage cascades `Blocked` over every transitive dependent — the
+  staircase never attempts what cannot stand.
+
+  Spec files carry stage wishes as **prose**, compiled through the same
+  grammar as the front door — including promoted norm triggers — so a
+  venture stage's wish is byte-identical to the wish the same prose
+  would produce at `--wish` (pinned). Vacuous stages are hard errors.
+
+  `kosmo-run --venture <spec.json>` previews the staircase read-only
+  (order, standings, live measurement per stage) and erects it under
+  `--apply`: stage by stage in dependency order, each under the full
+  armament (gates, validation, rollback, memory, swarm), each realized
+  stage recorded as a norm-learning observation, progress persisted to
+  `--venture-session` after every stage. Resume is identity-checked: a
+  changed spec is refused, never silently restarted.
+
+  The Etappe-I exit criterion is pinned by binary test: a venture of
+  five functionally dependent stages (modules → docs → test →
+  capability) erects a multi-component system in an empty crate,
+  offline, 5/5 realized — and resumes as a no-op. +14 tests.
+
+* **The interop pass — no new technology, everything thought together**
+
+  The UX premise made structural: the system's worth in practice is
+  decided by whether its organs compose, so every surface catches up
+  with every organ.
+
+  - **Adopted descents feed norm learning.** `--adopt`,
+    `--adopt-cluster` and chat-routed adoption now record
+    facet-bundle observations like a spoken wish does (previously the
+    system learned nothing from precisely the work it proposed
+    itself). Pinned: an adopted-cluster descent leaves exactly one
+    observation in the store.
+  - **The server catches up:** `POST /api/landscape` accepts
+    `geometry: true` (strictly additive — without it the response is
+    byte-identical, pinned) and returns the coherent clusters and
+    singular proposals; new `POST /api/norms` is a read-only window
+    onto a caller-pathed norm store (catalog, arming state, origin,
+    observation count — the server never appends or promotes). The
+    browser panel renders the geometry and the adopt-cluster hint.
+  - **The TUI catches up:** the `l` landscape pane renders the
+    spectral shape (cluster and singularity lines) under the peaks,
+    from the same standing definition as CLI and HTTP.
+  - **Status becomes a cockpit:** `--chat "status"` reports the armed
+    organs in one glance — norm catalog (known/armed/observations)
+    and memory source — before the measured landscape.
+  - **First contact is an invitation:** a keyless `kosmo-run .` now
+    answers with the offline doors (`--landscape`, `--wish`, `--chat`,
+    `--atelier`) instead of a bare missing-key error.
+
+* **The wish atelier — a wish is shaped over rounds before it is realized**
+
+  The front door stops being one-shot: `kosmo-run --atelier <draft.json>`
+  opens a durable, content-addressed `WishDraft`
+  (kosmo-intent/src/atelier.rs) that operator and machine refine together,
+  one invocation per round (`--chat` carries the utterance). The
+  governance symmetry of the norm organ, applied to dialogue: **the
+  machine proposes, only the operator disposes.** What you *dictate*
+  (grammar-recognized facets of your own words, including your promoted
+  norm triggers) enters the wish directly; what the machine *proposes*
+  stays pending until an explicit `accept <n>` — pinned by test at the
+  library AND the CLI seam (an unaccepted proposal never materializes).
+
+  Proposals come from two sources: the substrate's own companion
+  heuristics (deterministic, offline — doc/test fibers for accepted
+  structural targets, filtered against what the workspace already
+  exhibits) and, with a real `--provider`, the model-backed
+  `LlmWishRefiner` (kosmo-intent-llm/src/refine.rs) under a pinned
+  suggest-and-ask-only contract ("never plan file layouts, never name
+  technologies, never generate code"); unknown kinds are dropped, a dead
+  or rambling model costs suggestions, never correctness (honest note
+  instead). The refiner work also surfaced and fixed a real gap: the LLM
+  facet-kind mapper predated the Doc facet and never accepted `"doc"`.
+
+  The round language is total and fail-closed toward dictation: exact
+  verdict forms (`accept 1,3` / `accept all` / `reject 5` / `drop 2` on
+  the displayed numbering) and exact realize phrases (`realize`,
+  `build it`) — "build a module parser" stays prose. Each round renders
+  the dialogue, the wish-so-far **measured live** against the workspace
+  (✓/✗ per facet), the numbered proposals with rationale and source, and
+  the model's open questions. `realize` freezes the accepted facets into
+  a wish labelled with the full dialogue and evidence-bound to it
+  (CROSS-006: the prose history *is* the evidence), then descends —
+  writes only under `--apply`, and a realized atelier descent records a
+  norm-learning observation like any other. A tampered draft file is
+  refused by its content address. +18 tests (10 core, 5 refiner, 3
+  binary e2e); Prüfstand 13/13 `--validated`.
+
+### Fixed
+
+* **Workspace build repaired after the dependabot `rand_distr` 0.6 bump.**
+  PR #207 raised `rand_distr` to 0.6 (built on rand 0.10) while the
+  workspace `rand` stays 0.9 — exactly the pairing the manifest comment
+  forbids ("bump both together or not at all") — breaking
+  `mef-solvecoagula` and with it every strict workspace build. Both
+  manifests (root + vendored infinityledger) and the lockfile are back on
+  the rand-0.9-compatible 0.5 line.
+
 * **Wonderlamp assimilation, phase 6 — the chat front door (assimilation
   complete)**
 
