@@ -669,8 +669,12 @@ fn service_contract(key: &str) -> String {
          `body~` substring when one is given; answer any UNKNOWN path with a 404 response so \
          the server reads as ready;\n\
          - take request inputs from the URL (path and query string, e.g. `/get?k=foo`); a step \
-         may ALSO carry a REQUEST BODY (the `<<body` part of its key), sent with a \
-         `Content-Length` header — read that many bytes after the blank line to recover it;\n\
+         may ALSO carry a REQUEST BODY (the `<<body` part of its key), sent after the headers \
+         with a `Content-Length` header. Read it PRECISELY: read bytes until you have the \
+         `\\r\\n\\r\\n` that ends the headers, parse the integer N from `Content-Length`, then \
+         read exactly N more bytes for the body. Do NOT read until end-of-stream — the client \
+         keeps the connection open waiting for your response, so reading past the body will \
+         hang until timeout (the server then looks dead and the probe fails);\n\
          - keep the `// kosmo:service: {key}` marker comment on its own line in the source.\n\n\
          The probe to satisfy (a `METHOD:/path[<<REQUEST_BODY]=>STATUS[,body~SUBSTR]` key):\n\n    {key}\n\n\
          If that key has several steps separated by ` ; ` it is a SCENARIO: the steps are \
