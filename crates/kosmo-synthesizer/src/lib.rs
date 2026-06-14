@@ -80,6 +80,11 @@ pub struct SynthesisRequest {
     /// NOT part of `request_id`; empty outside a repair.
     #[serde(default)]
     pub repair_diagnostics: Vec<String>,
+    /// Whether this wish permits adding crate dependencies to `Cargo.toml` (the
+    /// build can fetch from crates.io). Advisory like the other context fields —
+    /// NOT part of `request_id`; `false` keeps synthesis std-only.
+    #[serde(default)]
+    pub deps_allowed: bool,
 }
 
 impl SynthesisRequest {
@@ -99,6 +104,7 @@ impl SynthesisRequest {
             memory_grounding: vec![],
             descent_context: vec![],
             repair_diagnostics: vec![],
+            deps_allowed: false,
         }
     }
 
@@ -122,6 +128,13 @@ impl SynthesisRequest {
     /// Attach build/observe diagnostics the model must repair first (advisory).
     pub fn with_repair_diagnostics(mut self, lines: Vec<String>) -> Self {
         self.repair_diagnostics = lines;
+        self
+    }
+
+    /// Permit adding crate dependencies to `Cargo.toml` (advisory; the build
+    /// fetches from crates.io). Off by default — synthesis stays std-only.
+    pub fn with_deps_allowed(mut self, allowed: bool) -> Self {
+        self.deps_allowed = allowed;
         self
     }
 }

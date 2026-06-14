@@ -583,7 +583,7 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
     // the same "directed, not blind" move the repair channel makes for builds.
     if let ActionItemKind::RealizeWishFacet { facet } = &item.kind {
         if facet.kind == WishFacetKind::Service {
-            s.push_str(&service_contract(&facet.key));
+            s.push_str(&service_contract(&facet.key, request.deps_allowed));
         }
     }
 
@@ -649,10 +649,26 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
 /// guess. The harness starts the binary as a long-running server with
 /// `KOSMO_PORT` set to a free loopback port and issues the probe(s) over HTTP
 /// against that one process; a key may be a `;`-separated SEQUENCE run in order,
-/// so state persists in memory across requests. Without this contract a model
-/// has no way to know which port to bind, that inputs arrive in the URL or a
-/// request body, or that steps share one server.
-fn service_contract(key: &str) -> String {
+/// so state persists in memory across requests. With `deps_allowed`, a crate
+/// (e.g. `tiny_http`) may serve instead of a raw `TcpListener`. Without this
+/// contract a model has no way to know which port to bind, that inputs arrive
+/// in the URL or a request body, or that steps share one server.
+fn service_contract(key: &str, deps_allowed: bool) -> String {
+    let server_bullet = if deps_allowed {
+        "- run an HTTP server bound to 127.0.0.1 on that port. You MAY add a crate to \
+         `Cargo.toml` (the build fetches it from crates.io); the simplest path is `tiny_http` \
+         (add `tiny_http = \"0.12\"`): `let server = \
+         tiny_http::Server::http(format!(\"127.0.0.1:{}\", port)).unwrap();`, then loop over \
+         `server.incoming_requests()`, route on `request.url()` / `request.method()`, read any \
+         body with `request.as_reader()`, and reply with \
+         `request.respond(tiny_http::Response::from_string(text).with_status_code(code))` — a \
+         raw `std::net::TcpListener` is also fine. Keep the server looping; it must never exit \
+         on its own"
+    } else {
+        "- bind a `std::net::TcpListener` on 127.0.0.1 at that port — use ONLY the standard \
+         library, do NOT add dependencies — and keep accepting connections in a loop (the \
+         server must never exit on its own)"
+    };
     format!(
         "\n# How this service wish is verified — your program is STARTED AS A SERVER\n\n\
          The harness builds your workspace and launches your binary with `cargo run`, with \
@@ -661,20 +677,16 @@ fn service_contract(key: &str) -> String {
          against that one running process, then tears it down. Your `fn main` MUST therefore:\n\
          - read the port from the `KOSMO_PORT` environment variable \
          (`std::env::var(\"KOSMO_PORT\")`);\n\
-         - bind a `std::net::TcpListener` on 127.0.0.1 at that port — use ONLY the standard \
-         library, do NOT add dependencies — and keep accepting connections in a loop (the \
-         server must never exit on its own);\n\
-         - answer each request with a raw HTTP/1.1 response whose status line carries the \
-         expected code (e.g. `HTTP/1.1 200 OK`), then a blank line, then a body containing the \
-         `body~` substring when one is given; answer any UNKNOWN path with a 404 response so \
-         the server reads as ready;\n\
+         {server_bullet};\n\
+         - answer each request with an HTTP response whose status line carries the expected \
+         code (e.g. `HTTP/1.1 200 OK`), and a body containing the `body~` substring when one is \
+         given; answer any UNKNOWN path with a 404 so the server reads as ready;\n\
          - take request inputs from the URL (path and query string, e.g. `/get?k=foo`); a step \
          may ALSO carry a REQUEST BODY (the `<<body` part of its key), sent after the headers \
-         with a `Content-Length` header. Read it PRECISELY: read bytes until you have the \
-         `\\r\\n\\r\\n` that ends the headers, parse the integer N from `Content-Length`, then \
-         read exactly N more bytes for the body. Do NOT read until end-of-stream — the client \
-         keeps the connection open waiting for your response, so reading past the body will \
-         hang until timeout (the server then looks dead and the probe fails);\n\
+         with a `Content-Length` header. If you read the socket directly, read it PRECISELY: \
+         consume up to the `\\r\\n\\r\\n` that ends the headers, parse N from `Content-Length`, \
+         then read exactly N more bytes — do NOT read to end-of-stream (the client holds the \
+         connection open for your response, so reading past the body hangs until timeout);\n\
          - keep the `// kosmo:service: {key}` marker comment on its own line in the source.\n\n\
          The probe to satisfy (a `METHOD:/path[<<REQUEST_BODY]=>STATUS[,body~SUBSTR]` key):\n\n    {key}\n\n\
          If that key has several steps separated by ` ; ` it is a SCENARIO: the steps are \
@@ -852,6 +864,38 @@ mod tests {
         assert!(
             prompt.contains("GET:/health=>200,body~ok"),
             "must echo the probe key:\n{prompt}"
+        );
+    }
+
+    #[test]
+    fn service_contract_offers_a_crate_only_when_deps_are_allowed() {
+        let mk = |deps: bool| {
+            let facet = kosmo_core::WishFacet::service("GET:/health=>200,body~ok");
+            let item = ActionItem {
+                action_id: Digest::of(&"svc-deps"),
+                priority_score: Q16::ONE,
+                kind: ActionItemKind::RealizeWishFacet { facet },
+                description: "realize a service".into(),
+                policy_id: Digest::ZERO,
+            };
+            build_user_prompt(
+                &SynthesisRequest::new(item, "/workspace/demo").with_deps_allowed(deps),
+            )
+        };
+        // Default (std-only) must not suggest a crate.
+        assert!(
+            !mk(false).contains("tiny_http"),
+            "std-only contract must not name a crate"
+        );
+        // Opt-in surfaces the crate path.
+        let allowed = mk(true);
+        assert!(
+            allowed.contains("tiny_http"),
+            "deps-allowed contract offers tiny_http:\n{allowed}"
+        );
+        assert!(
+            allowed.contains("crates.io"),
+            "deps-allowed contract mentions crates.io"
         );
     }
 
