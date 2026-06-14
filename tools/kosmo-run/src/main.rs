@@ -51,9 +51,10 @@ use kosmo_hyphae::{
 use kosmo_intent::{
     companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms,
     is_reserved_wish_word, observe_workspace_deep, observe_workspace_runtime,
-    observe_workspace_runtime_diag, observe_workspace_service, observe_workspace_validated,
-    parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot, IndexSelection, IntentExtractor,
-    KeywordIntentExtractor, NormCatalog, SuggestionSource, WishDraft, WishSession,
+    observe_workspace_runtime_diag, observe_workspace_service, observe_workspace_service_diag,
+    observe_workspace_validated, parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot,
+    IndexSelection, IntentExtractor, KeywordIntentExtractor, NormCatalog, SuggestionSource,
+    WishDraft, WishSession,
 };
 use kosmo_intent_llm::{LlmIntentExtractor, LlmWishRefiner};
 use kosmo_kcube::KcubeExecutor;
@@ -154,6 +155,9 @@ struct Args {
     realize_bench: bool,
     /// Write the realization-benchmark report (content-addressed JSON) here.
     realize_bench_report: Option<String>,
+    /// Service-synthesis smoke: drive ONE HTTP-service wish through the real
+    /// loop — the artifact is started as a server and probed over HTTP.
+    realize_service: bool,
     /// Doors mode: print this binary's complete docking surface — every
     /// door with inputs, governance and needs, content-addressed.
     doors: bool,
@@ -232,6 +236,7 @@ impl Default for Args {
             reforge_report: None,
             realize_bench: false,
             realize_bench_report: None,
+            realize_service: false,
             doors: false,
             doors_merge: None,
             foundry: None,
@@ -383,6 +388,10 @@ OPTIONS:\n\
                           reports realization rate, iterations and token cost.\n\
                           A measurement, not a gate (always exits 0).\n\
     --realize-bench-report <f>  write the content-addressed JSON report to <f>.\n\
+    --realize-service     drive ONE HTTP-service wish through the same loop: the\n\
+                          artifact is started as a SERVER and probed over HTTP\n\
+                          (the served witness), proving the loop realizes more\n\
+                          than CLIs. Real provider; a measurement, exits 0.\n\
 \n\
   STEWARD (self-husbandry — the machine proposes, the operator disposes):\n\
     --steward             survey the workspace's own wish landscape and name\n\
@@ -549,6 +558,7 @@ fn parse_args() -> Result<Option<Args>, String> {
                     Some(argv.next().ok_or("--reforge-report needs a file path")?);
             }
             "--realize-bench" => args.realize_bench = true,
+            "--realize-service" => args.realize_service = true,
             "--realize-bench-report" => {
                 args.realize_bench_report = Some(
                     argv.next()
@@ -2010,6 +2020,51 @@ fn run_realize_bench_mode(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `--realize-service`: the service-dimension counterpart to `--realize-bench`.
+/// Drive ONE HTTP-service wish through the real descent and report whether the
+/// artifact, **started as a server and probed over HTTP**, answered. Requires a
+/// real provider (mock cannot implement a server). A measurement, exits 0.
+fn run_service_smoke_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.provider == "mock" {
+        return Err(
+            "--realize-service needs a real provider (claude | cerebras | env): the mock \
+             synthesizer cannot implement a server"
+                .to_string(),
+        );
+    }
+    let synthesizer = build_synthesizer(args)?;
+    let armed = arm_fallback(args, Some(synthesizer))?.ok_or(
+        "--realize-service needs a real provider (claude | cerebras | env) — set a key or \
+         KOSMO_LLM_BASE_URL for a local model",
+    )?;
+    let max_iters: u32 = std::env::var("KOSMO_REALIZE_MAX_ITERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(8);
+    if !args.json {
+        eprintln!(
+            "kosmo-run: firing 1 HTTP-service wish through the real loop — starts a server \
+             and probes it over HTTP…"
+        );
+    }
+    let (realized, iterations, tokens) = realize_bench::run_service_smoke(armed, max_iters);
+    if args.json {
+        println!(
+            "{{\"service_smoke\":{{\"realized\":{realized},\"iterations\":{iterations},\"tokens\":{tokens}}}}}"
+        );
+    } else {
+        println!(
+            "service realization: {} · {} iterations · {} tokens",
+            if realized { "REALIZED" } else { "unrealized" },
+            iterations,
+            tokens
+        );
+    }
+    // A measurement, not a gate: completion is success; the verdict is the finding.
+    Ok(ExitCode::SUCCESS)
+}
+
 // ─── Steward (self-husbandry under an operator-named fence) ─────────────────
 
 /// `--steward`: survey the workspace's wish landscape, name the open chores
@@ -3171,12 +3226,19 @@ fn descend_to_wish(
     // failure these drive the repair attempt (we have no fresh assessment then).
     let mut last_unmet: Vec<WishFacet> = Vec::new();
     loop {
-        // Directed diagnostics from this observation (runtime wishes only): a
-        // build failure, or a probe that ran but produced the wrong result. Fed
-        // back next iteration so the model repairs directly instead of guessing.
+        // Directed diagnostics from this observation: a build failure, a probe
+        // that ran but produced the wrong result, or a service that never
+        // answered (or answered wrong). Fed back next iteration so the model
+        // repairs directly instead of guessing.
         let mut run_diag: Option<String> = None;
         let observation = if wish_needs_service(wish) {
-            observe_workspace_service(path)
+            match observe_workspace_service_diag(path) {
+                Ok((observed, diag)) => {
+                    run_diag = diag;
+                    Ok(observed)
+                }
+                Err(e) => Err(e),
+            }
         } else if wish_needs_runtime(wish) {
             match observe_workspace_runtime_diag(path) {
                 Ok((observed, diag)) => {
@@ -3400,6 +3462,12 @@ fn run() -> Result<ExitCode, String> {
     // would measure only the scaffolder, which the Prüfstand already covers.
     if args.realize_bench {
         return run_realize_bench_mode(&args);
+    }
+
+    // The service-dimension counterpart: realize an HTTP service (started as a
+    // server, probed over HTTP) — proving the loop reaches past CLIs.
+    if args.realize_service {
+        return run_service_smoke_mode(&args);
     }
 
     // Steward: self-husbandry. Survey the workspace's own landscape; under

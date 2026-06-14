@@ -50,7 +50,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::json;
 
-use kosmo_core::{Digest, Q16};
+use kosmo_core::{Digest, WishFacetKind, Q16};
 use kosmo_pipeline::ActionItemKind;
 use kosmo_synthesizer::{
     ActionSynthesizer, FileChange, Patch, SynthesisError, SynthesisRequest, SynthesisResult,
@@ -576,6 +576,17 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
         request.workspace_path.to_string_lossy()
     ));
 
+    // A Service facet is witnessed by *starting the artifact as a server* and
+    // probing it over HTTP. The contract (bind the port handed in via
+    // `KOSMO_PORT`) is private to this harness — a model cannot guess the exact
+    // env var, so the served probe could never become ready. State it plainly,
+    // the same "directed, not blind" move the repair channel makes for builds.
+    if let ActionItemKind::RealizeWishFacet { facet } = &item.kind {
+        if facet.kind == WishFacetKind::Service {
+            s.push_str(&service_contract(&facet.key));
+        }
+    }
+
     if !request.repair_diagnostics.is_empty() {
         s.push_str(
             "\n# Repair required — your previous attempt did not pass the checks\n\n\
@@ -632,6 +643,42 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
 
     s.push_str("\nReturn the JSON patch object now.");
     s
+}
+
+/// The witness contract for a `Service` facet — the things the model cannot
+/// guess. The harness starts the binary as a long-running server with
+/// `KOSMO_PORT` set to a free loopback port and issues the probe(s) over HTTP
+/// against that one process; a key may be a `;`-separated SEQUENCE run in order,
+/// so state persists in memory across requests. Without this contract a model
+/// has no way to know which port to bind, that inputs arrive in the URL, or that
+/// steps share one server.
+fn service_contract(key: &str) -> String {
+    format!(
+        "\n# How this service wish is verified — your program is STARTED AS A SERVER\n\n\
+         The harness builds your workspace and launches your binary with `cargo run`, with \
+         the environment variable `KOSMO_PORT` set to a free TCP port on 127.0.0.1. It then \
+         waits for your program to accept connections and issues the probe(s) below over HTTP \
+         against that one running process, then tears it down. Your `fn main` MUST therefore:\n\
+         - read the port from the `KOSMO_PORT` environment variable \
+         (`std::env::var(\"KOSMO_PORT\")`);\n\
+         - bind a `std::net::TcpListener` on 127.0.0.1 at that port — use ONLY the standard \
+         library, do NOT add dependencies — and keep accepting connections in a loop (the \
+         server must never exit on its own);\n\
+         - answer each request with a raw HTTP/1.1 response whose status line carries the \
+         expected code (e.g. `HTTP/1.1 200 OK`), then a blank line, then a body containing the \
+         `body~` substring when one is given; answer any UNKNOWN path with a 404 response so \
+         the server reads as ready;\n\
+         - take request inputs from the URL — path and query string, e.g. `/get?k=foo` — as \
+         no request body is sent;\n\
+         - keep the `// kosmo:service: {key}` marker comment on its own line in the source.\n\n\
+         The probe to satisfy (a `METHOD:/path=>STATUS[,body~SUBSTR]` key):\n\n    {key}\n\n\
+         If that key has several steps separated by ` ; ` it is a SCENARIO: the steps are \
+         issued IN ORDER against the same running server, so hold any state in memory (e.g. a \
+         `std::collections::HashMap`) across requests — a later step must see what an earlier \
+         step stored.\n\
+         A program that exits immediately, ignores `KOSMO_PORT`, binds a different port, or \
+         never loops will never be observed as ready, and the wish stays unrealized.\n"
+    )
 }
 
 // ─── Response parsing (pure) ────────────────────────────────────────────────
@@ -775,6 +822,50 @@ mod tests {
             policy_id: policy.id,
         };
         SynthesisRequest::new(item, "/workspace/demo")
+    }
+
+    #[test]
+    fn service_facet_prompt_states_the_port_contract() {
+        let facet = kosmo_core::WishFacet::service("GET:/health=>200,body~ok");
+        let item = ActionItem {
+            action_id: Digest::of(&"svc"),
+            priority_score: Q16::ONE,
+            kind: ActionItemKind::RealizeWishFacet { facet },
+            description: "realize a health service".into(),
+            policy_id: Digest::ZERO,
+        };
+        let prompt = build_user_prompt(&SynthesisRequest::new(item, "/workspace/demo"));
+        // The bits the served witness depends on but a model cannot guess.
+        assert!(
+            prompt.contains("KOSMO_PORT"),
+            "must name the port env var:\n{prompt}"
+        );
+        assert!(
+            prompt.contains("STARTED AS A SERVER"),
+            "must frame it as a server:\n{prompt}"
+        );
+        assert!(
+            prompt.contains("GET:/health=>200,body~ok"),
+            "must echo the probe key:\n{prompt}"
+        );
+    }
+
+    #[test]
+    fn run_facet_prompt_omits_the_service_contract() {
+        // A Run facet is a CLI (argv→stdout); it must NOT carry the server contract.
+        let facet = kosmo_core::WishFacet::run("add,2,3=>out~5");
+        let item = ActionItem {
+            action_id: Digest::of(&"run"),
+            priority_score: Q16::ONE,
+            kind: ActionItemKind::RealizeWishFacet { facet },
+            description: "realize add".into(),
+            policy_id: Digest::ZERO,
+        };
+        let prompt = build_user_prompt(&SynthesisRequest::new(item, "/workspace/demo"));
+        assert!(
+            !prompt.contains("KOSMO_PORT"),
+            "a CLI wish must not carry the server contract:\n{prompt}"
+        );
     }
 
     #[test]

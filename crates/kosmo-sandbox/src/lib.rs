@@ -448,6 +448,96 @@ impl Sandbox {
             None => ServiceWitness::never_ready(),
         }
     }
+
+    /// Start `spec` as a server (port via `KOSMO_PORT`), wait for readiness,
+    /// then issue `probes` **in order against the same running process** — so
+    /// state set by one request is visible to the next — collecting a
+    /// [`ServiceWitness`] per step. Always tears the whole group down at the end.
+    ///
+    /// Readiness is detected *without mutating*: a `GET /` is retried until the
+    /// server returns any HTTP response (so the server must answer unknown paths
+    /// — e.g. with 404 — to be seen as ready) or the budget elapses. A server
+    /// that dies mid-sequence witnesses the remaining steps as not-ready.
+    pub fn serve_and_probe_sequence(
+        &self,
+        spec: &RunSpec,
+        probes: &[HttpProbe],
+    ) -> Vec<ServiceWitness> {
+        if probes.is_empty() {
+            return Vec::new();
+        }
+        let Some(port) = free_port() else {
+            return vec![ServiceWitness::spawn_failed(); probes.len()];
+        };
+        let mut cmd = Command::new(&spec.program);
+        cmd.args(&spec.args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env("KOSMO_PORT", port.to_string())
+            .env("KOSMO_SEED", self.seed.to_string());
+        if let Some(cwd) = &self.cwd {
+            cmd.current_dir(cwd);
+        }
+        for (k, v) in &self.env {
+            cmd.env(k, v);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(_) => return vec![ServiceWitness::spawn_failed(); probes.len()],
+        };
+        let pid = child.id();
+        let out = spawn_reader(child.stdout.take(), self.output_cap);
+        let err = spawn_reader(child.stderr.take(), self.output_cap);
+
+        // Readiness without mutating state: a GET / retried until any HTTP
+        // response, the server exits, or the budget elapses.
+        let ready_probe = HttpProbe::get("/");
+        let start = Instant::now();
+        let mut ready = false;
+        while start.elapsed() < self.timeout {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            if http_probe(port, &ready_probe, self.output_cap).is_some() {
+                ready = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        let mut witnesses = Vec::with_capacity(probes.len());
+        for probe in probes {
+            if !ready {
+                witnesses.push(ServiceWitness::never_ready());
+                continue;
+            }
+            // A step that gets no answer (server crashed mid-sequence) is
+            // not-ready; later steps then also fail closed.
+            let started = Instant::now();
+            match http_probe(port, probe, self.output_cap) {
+                Some((status, body)) => witnesses.push(ServiceWitness {
+                    verdict: ServiceVerdict::Probed,
+                    status: Some(status),
+                    body_digest: Digest::of_bytes(body.as_bytes()),
+                    body,
+                    startup: started.elapsed(),
+                }),
+                None => witnesses.push(ServiceWitness::never_ready()),
+            }
+        }
+
+        kill_group(pid);
+        let _ = child.wait();
+        let _ = out.join();
+        let _ = err.join();
+        witnesses
+    }
 }
 
 /// Pick a free loopback TCP port by binding `:0` and reading the assignment.
@@ -648,5 +738,33 @@ mod tests {
             .serve_and_probe(&sh("sleep 30"), &HttpProbe::get("/health"));
         assert_eq!(w.verdict, ServiceVerdict::NeverReady);
         assert!(!w.answered());
+    }
+
+    #[test]
+    fn serve_sequence_spawn_failure_is_a_verdict_per_step() {
+        let ws = Sandbox::new().serve_and_probe_sequence(
+            &RunSpec::new("kosmo-no-such-server-xyz", Vec::<String>::new()),
+            &[HttpProbe::get("/a"), HttpProbe::get("/b")],
+        );
+        assert_eq!(ws.len(), 2, "one witness per step");
+        assert!(ws.iter().all(|w| w.verdict == ServiceVerdict::SpawnFailed));
+    }
+
+    #[test]
+    fn serve_sequence_never_ready_is_killed_within_budget() {
+        let ws = Sandbox::new()
+            .with_timeout(Duration::from_millis(400))
+            .serve_and_probe_sequence(
+                &sh("sleep 30"),
+                &[HttpProbe::get("/x"), HttpProbe::get("/y")],
+            );
+        assert_eq!(ws.len(), 2);
+        assert!(ws.iter().all(|w| w.verdict == ServiceVerdict::NeverReady));
+    }
+
+    #[test]
+    fn serve_sequence_empty_probes_is_empty() {
+        let ws = Sandbox::new().serve_and_probe_sequence(&sh("true"), &[]);
+        assert!(ws.is_empty());
     }
 }

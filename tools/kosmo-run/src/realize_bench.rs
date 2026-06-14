@@ -540,6 +540,63 @@ pub fn run_realize_bench(
     }
 }
 
+/// A minimal **service-synthesis smoke**: drive ONE HTTP-service wish — a tiny
+/// STATEFUL key-value server — through the same provider-backed descent and
+/// report whether the *served* witness accepted it. The wish is a scenario:
+/// `POST /set?k&v` (twice) then `GET /get?k` (twice) are issued IN ORDER against
+/// one running server, so the server must hold state in memory across requests.
+/// Exercises the service dimension — state, routing, sequencing — the corpus,
+/// all `Run`, does not. Returns `(realized, iterations, tokens)`.
+pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (bool, usize, u32) {
+    // Set two keys, then read both back — one scenario, run in order against ONE
+    // server. Distinct values (alpha/beta) defeat a server that ignores the key
+    // and returns a constant; success means state truly persisted in memory.
+    let key = "POST:/set?k=a&v=alpha=>200 ; POST:/set?k=b&v=beta=>200 ; \
+               GET:/get?k=a=>200,body~alpha ; GET:/get?k=b=>200,body~beta";
+    let evidence = Digest::of(&("service-smoke", key));
+    let wish = Wish::new(
+        "realize a stateful key-value HTTP service: POST /set?k&v stores, GET /get?k returns it",
+        [WishPredicate::require(WishFacet::service(key))],
+        Digest::ZERO,
+        evidence,
+    );
+    let counter = Arc::new(CountingSynthesizer::new(armed));
+    let (realized, iterations) = match scratch_workspace("service-smoke") {
+        Ok(root) => {
+            let descent = descend_to_wish(
+                root.to_str().unwrap_or("."),
+                &wish,
+                wish.evidence_bundle_id,
+                false,
+                max_iters,
+                Some(counter.as_ref()),
+                None,
+            );
+            std::fs::remove_dir_all(&root).ok();
+            match descent {
+                Ok(session) => (
+                    session
+                        .latest()
+                        .is_some_and(|a| matches!(a.status, WishClosureStatus::Realized)),
+                    session.iterations(),
+                ),
+                Err(e) => {
+                    eprintln!("  !! service-smoke setup error: {e}");
+                    (false, 0)
+                }
+            }
+        }
+        Err(_) => (false, 0),
+    };
+    eprintln!(
+        "  service-smoke {}  ({} iter · {} tok)",
+        if realized { "\u{2713}" } else { "\u{2717}" },
+        iterations,
+        counter.total(),
+    );
+    (realized, iterations, counter.total())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

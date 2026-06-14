@@ -1188,6 +1188,22 @@ fn parse_service_key(key: &str) -> Option<(kosmo_sandbox::HttpProbe, ServiceExpe
     Some((probe, parse_service_expect(exp.trim())?))
 }
 
+/// Parse a `Service` facet key into its ordered steps. A key is either a single
+/// `method:path=>expect`, or several such steps separated by `" ; "` — run in
+/// order against ONE running server so state set by one step is visible to the
+/// next. `None` if empty or any step is malformed.
+fn parse_service_scenario(key: &str) -> Option<Vec<(kosmo_sandbox::HttpProbe, ServiceExpect)>> {
+    let steps: Vec<&str> = key
+        .split(" ; ")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if steps.is_empty() {
+        return None;
+    }
+    steps.into_iter().map(parse_service_key).collect()
+}
+
 fn parse_service_expect(s: &str) -> Option<ServiceExpect> {
     let (status_part, body) = match s.split_once(",body~") {
         Some((st, b)) => (st, Some(b.to_string())),
@@ -1261,10 +1277,23 @@ fn service_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
 pub fn observe_workspace_service(
     root: impl Into<PathBuf>,
 ) -> Result<ObservedTopology, ParseBackError> {
+    observe_workspace_service_diag(root).map(|(observed, _)| observed)
+}
+
+/// Like [`observe_workspace_service`], and additionally a human diagnostic
+/// naming every service probe that did **not** match and why — the server
+/// never became ready, answered the wrong status, or returned a body missing
+/// the expected substring. Fed back into the next synthesis iteration so the
+/// model repairs the server directly instead of guessing: the service-dimension
+/// twin of [`observe_workspace_runtime_diag`]. `None` when every probe matched.
+pub fn observe_workspace_service_diag(
+    root: impl Into<PathBuf>,
+) -> Result<(ObservedTopology, Option<String>), ParseBackError> {
     use kosmo_sandbox::{RunSpec, Sandbox};
     let root = root.into();
     let mut observed = observe_workspace_runtime(&root)?;
     let probes = service_probes_from_dir(&root);
+    let mut misses: Vec<String> = Vec::new();
     if !probes.is_empty() {
         let manifest = root.join("Cargo.toml").to_string_lossy().into_owned();
         // Pre-build once so each serve starts fast (the readiness budget then
@@ -1280,20 +1309,92 @@ pub fn observe_workspace_service(
             .with_cwd(&root)
             .with_timeout(std::time::Duration::from_secs(20));
         for key in probes {
-            let Some((probe, expect)) = parse_service_key(&key) else {
+            let Some(steps) = parse_service_scenario(&key) else {
                 continue;
             };
             let spec = RunSpec::new(
                 "cargo",
                 ["run", "--quiet", "--manifest-path", manifest.as_str()],
             );
-            let witness = sandbox.serve_and_probe(&spec, &probe);
-            if service_matches(&witness, &expect) {
+            let probe_list: Vec<kosmo_sandbox::HttpProbe> =
+                steps.iter().map(|(p, _)| p.clone()).collect();
+            // One step → the original single-shot serve (its readiness is the
+            // probe itself). Several → one server, requests issued in order so
+            // state carries across them.
+            let witnesses = if probe_list.len() == 1 {
+                vec![sandbox.serve_and_probe(&spec, &probe_list[0])]
+            } else {
+                sandbox.serve_and_probe_sequence(&spec, &probe_list)
+            };
+            let mut step_misses: Vec<String> = Vec::new();
+            for (i, ((probe, expect), witness)) in steps.iter().zip(witnesses.iter()).enumerate() {
+                if !service_matches(witness, expect) {
+                    step_misses.push(format!(
+                        "    step {} `{}:{}`: {}",
+                        i + 1,
+                        probe.method,
+                        probe.path,
+                        describe_step_miss(probe, expect, witness)
+                    ));
+                }
+            }
+            if step_misses.is_empty() && witnesses.len() == steps.len() {
                 observed.insert(WishFacet::service(key));
+            } else {
+                misses.push(format!("- `{key}`\n{}", step_misses.join("\n")));
             }
         }
     }
-    Ok(observed)
+    let diag = (!misses.is_empty()).then(|| {
+        format!(
+            "service probe(s) not satisfied — your binary is started as a server (its port in \
+             the KOSMO_PORT env var) and probed over HTTP. A probe may be a SEQUENCE of steps \
+             run in order against the SAME running server, so persist state in memory across \
+             requests. One server must satisfy ALL of the misses below:\n{}",
+            misses.join("\n")
+        )
+    });
+    Ok((observed, diag))
+}
+
+/// Why one service step missed, phrased so the model can act on it directly:
+/// never-ready points at the `KOSMO_PORT` contract; a wrong answer reports the
+/// status/body it got against what the step wanted.
+fn describe_step_miss(
+    probe: &kosmo_sandbox::HttpProbe,
+    expect: &ServiceExpect,
+    witness: &kosmo_sandbox::ServiceWitness,
+) -> String {
+    use kosmo_sandbox::ServiceVerdict;
+    match witness.verdict {
+        ServiceVerdict::SpawnFailed => "the server binary could not be started at all".to_string(),
+        ServiceVerdict::NeverReady => format!(
+            "nothing answered `{} {}` — the server must bind 127.0.0.1 on the port from \
+             KOSMO_PORT, keep serving, and answer unknown paths (e.g. with 404) so it reads as \
+             ready (a program that exits, ignores KOSMO_PORT, or binds another port never is)",
+            probe.method, probe.path
+        ),
+        ServiceVerdict::Probed => {
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(want) = expect.status {
+                if witness.status != Some(want) {
+                    parts.push(match witness.status {
+                        Some(got) => format!("returned HTTP {got}, expected {want}"),
+                        None => format!("returned no parseable status, expected {want}"),
+                    });
+                }
+            }
+            if let Some(sub) = &expect.body_contains {
+                if !witness.body.contains(sub) {
+                    parts.push(format!("body did not contain {sub:?}"));
+                }
+            }
+            if parts.is_empty() {
+                parts.push("did not match the expectation".to_string());
+            }
+            parts.join("; ")
+        }
+    }
 }
 
 // ─── Natural-language → Wish (the human front door) ─────────────────────────
@@ -2845,6 +2946,55 @@ mod tests {
             Some("GET:/health=>200".to_string())
         );
         assert_eq!(service_marker("// kosmo:run: a=>b"), None);
+    }
+
+    #[test]
+    fn service_miss_messages_point_the_model_at_the_fix() {
+        use kosmo_sandbox::{HttpProbe, ServiceVerdict, ServiceWitness};
+        let probe = HttpProbe {
+            method: "GET".into(),
+            path: "/health".into(),
+        };
+        let expect = ServiceExpect {
+            status: Some(200),
+            body_contains: Some("ok".into()),
+        };
+        let mk = |verdict: ServiceVerdict, status: Option<u16>, body: &str| ServiceWitness {
+            verdict,
+            status,
+            body: body.to_string(),
+            body_digest: Digest::ZERO,
+            startup: std::time::Duration::ZERO,
+        };
+        // Never ready → name the KOSMO_PORT contract the model must honour.
+        let m = describe_step_miss(&probe, &expect, &mk(ServiceVerdict::NeverReady, None, ""));
+        assert!(m.contains("KOSMO_PORT"), "{m}");
+        // Answered, wrong status → report what it got against what was wanted.
+        let m = describe_step_miss(&probe, &expect, &mk(ServiceVerdict::Probed, Some(404), "x"));
+        assert!(m.contains("404") && m.contains("200"), "{m}");
+        // Answered 200 but wrong body → call out the body.
+        let m = describe_step_miss(
+            &probe,
+            &expect,
+            &mk(ServiceVerdict::Probed, Some(200), "nope"),
+        );
+        assert!(m.to_lowercase().contains("body"), "{m}");
+    }
+
+    #[test]
+    fn parse_service_scenario_splits_ordered_steps() {
+        let steps =
+            parse_service_scenario("POST:/set?k=a&v=alpha=>200 ; GET:/get?k=a=>200,body~alpha")
+                .expect("two well-formed steps");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].0.method, "POST");
+        assert_eq!(steps[0].0.path, "/set?k=a&v=alpha");
+        assert_eq!(steps[1].0.path, "/get?k=a");
+        // A single step parses as a one-element scenario.
+        assert_eq!(parse_service_scenario("GET:/health=>200").unwrap().len(), 1);
+        // A malformed step rejects the whole scenario; so does an empty key.
+        assert!(parse_service_scenario("GET:/a=>200 ; garbage").is_none());
+        assert!(parse_service_scenario("   ").is_none());
     }
 
     #[test]
