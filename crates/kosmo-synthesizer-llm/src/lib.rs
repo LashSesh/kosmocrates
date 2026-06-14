@@ -578,12 +578,13 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
 
     if !request.repair_diagnostics.is_empty() {
         s.push_str(
-            "\n# Repair required — your previous patch left the workspace unbuildable\n\n\
-             Fix this before anything else. The toolchain could not build (or even \
-             read) the workspace. Resolve the error(s) below, deleting or renaming \
-             files as needed — emit `\"op\": \"delete\"` for any file that must go, \
-             and do not introduce extra binaries the action did not ask for. The \
-             current files are shown under source context.\n",
+            "\n# Repair required — your previous attempt did not pass the checks\n\n\
+             Fix this before anything else. The diagnostics below report either a \
+             build failure or a probe that ran but produced the wrong result. \
+             Correct the logic, and delete or rename files as needed — emit \
+             `\"op\": \"delete\"` for any file that must go, and do not add binaries \
+             the action did not ask for. The current files are shown under source \
+             context.\n",
         );
         for d in &request.repair_diagnostics {
             s.push_str(&format!("\n```\n{d}\n```\n"));

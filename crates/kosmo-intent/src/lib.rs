@@ -1074,7 +1074,7 @@ pub fn observe_workspace_runtime_diag(
     let root = root.into();
     let mut observed = observe_workspace_validated(&root)?;
     let probes = run_probes_from_dir(&root);
-    let mut build_error: Option<String> = None;
+    let mut diag: Option<String> = None;
     if !probes.is_empty() {
         let manifest = root.join("Cargo.toml").to_string_lossy().into_owned();
         let sandbox = Sandbox::new()
@@ -1095,12 +1095,18 @@ pub fn observe_workspace_runtime_diag(
             let witness = sandbox.run(&RunSpec::new("cargo", run_args));
             if run_matches(&witness, &expect) {
                 observed.insert(WishFacet::run(key));
-            } else if build_error.is_none() {
-                build_error = build_failure_from(&witness);
+            } else if diag.is_none() {
+                // The first failure becomes directed feedback: a build error if
+                // the code did not compile, otherwise an output mismatch (it
+                // built and ran, but a probe did not pass).
+                diag = Some(
+                    build_failure_from(&witness)
+                        .unwrap_or_else(|| mismatch_diagnostic(&key, &witness)),
+                );
             }
         }
     }
-    Ok((observed, build_error))
+    Ok((observed, diag))
 }
 
 /// A `cargo run` witness that shows a *build* failure (rather than a program that
@@ -1124,6 +1130,38 @@ fn build_failure_from(w: &kosmo_sandbox::RuntimeWitness) -> Option<String> {
         out.push_str("\n… (truncated)");
     }
     Some(out)
+}
+
+/// Directed feedback for a probe that *ran* but did not pass: the program built
+/// and executed, yet produced the wrong result. Shows the model what it actually
+/// emitted against the probe spec (args precede `=>`, expected result follows),
+/// so the next iteration fixes the logic instead of guessing. Bounded.
+fn mismatch_diagnostic(key: &str, w: &kosmo_sandbox::RuntimeWitness) -> String {
+    let clip = |s: &str, n: usize| -> String {
+        let s = s.trim();
+        if s.len() <= n {
+            return s.to_string();
+        }
+        let mut end = n;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &s[..end])
+    };
+    let mut msg = format!(
+        "run probe `{key}` did not pass: program stdout `{}` (exit {:?})",
+        clip(&w.stdout, 400),
+        w.exit_code
+    );
+    let err = clip(&w.stderr, 400);
+    if !err.is_empty() {
+        msg.push_str(&format!(", stderr `{err}`"));
+    }
+    msg.push_str(
+        ". The probe's arguments precede `=>` and its expected result follows it; \
+         fix the program so this probe passes.",
+    );
+    msg
 }
 
 // ─── Service observation (level 6 — start a server and probe it) ─────────────
@@ -2694,6 +2732,26 @@ mod tests {
         // failure — no false positive that would mislead the model into
         // "repairing" code that actually compiles.
         assert!(build_failure_from(&witness("some runtime log line\n")).is_none());
+    }
+
+    #[test]
+    fn output_mismatch_becomes_directed_feedback() {
+        use kosmo_sandbox::{RunVerdict, RuntimeWitness};
+        let w = RuntimeWitness {
+            verdict: RunVerdict::Exited,
+            exit_code: Some(0),
+            stdout: "xyz".into(),
+            stderr: String::new(),
+            stdout_digest: Digest::ZERO,
+            duration: std::time::Duration::from_secs(0),
+            truncated: false,
+        };
+        let d = mismatch_diagnostic("abc=>out~cba", &w);
+        assert!(d.contains("abc=>out~cba"), "names the probe: {d}");
+        assert!(
+            d.contains("xyz"),
+            "shows what the program actually produced: {d}"
+        );
     }
 
     #[test]

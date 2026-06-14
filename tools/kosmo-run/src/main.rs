@@ -3171,16 +3171,16 @@ fn descend_to_wish(
     // failure these drive the repair attempt (we have no fresh assessment then).
     let mut last_unmet: Vec<WishFacet> = Vec::new();
     loop {
-        // Compiler diagnostics from this observation (runtime wishes only): when
-        // the model's code does not build, feed the error back next iteration so
-        // it repairs directly instead of guessing blind.
-        let mut build_diag: Option<String> = None;
+        // Directed diagnostics from this observation (runtime wishes only): a
+        // build failure, or a probe that ran but produced the wrong result. Fed
+        // back next iteration so the model repairs directly instead of guessing.
+        let mut run_diag: Option<String> = None;
         let observation = if wish_needs_service(wish) {
             observe_workspace_service(path)
         } else if wish_needs_runtime(wish) {
             match observe_workspace_runtime_diag(path) {
                 Ok((observed, diag)) => {
-                    build_diag = diag;
+                    run_diag = diag;
                     Ok(observed)
                 }
                 Err(e) => Err(e),
@@ -3229,7 +3229,7 @@ fn descend_to_wish(
             break;
         }
         last_unmet = unmet.clone();
-        let written = apply_synthesis(Path::new(path), &unmet, fallback, build_diag.as_deref())
+        let written = apply_synthesis(Path::new(path), &unmet, fallback, run_diag.as_deref())
             .map_err(|e| e.to_string())?;
         if written == 0 {
             break; // nothing scaffoldable — can't make progress, fail-closed
