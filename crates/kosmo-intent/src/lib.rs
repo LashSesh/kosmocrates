@@ -1060,10 +1060,21 @@ fn run_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
 pub fn observe_workspace_runtime(
     root: impl Into<PathBuf>,
 ) -> Result<ObservedTopology, ParseBackError> {
+    observe_workspace_runtime_diag(root).map(|(observed, _)| observed)
+}
+
+/// Like [`observe_workspace_runtime`], but also returns the first *build* failure
+/// (compiler diagnostics) seen while exercising the run probes — so a descent can
+/// feed it back to the synthesizer for repair instead of iterating blind. `None`
+/// when the workspace built, whatever the probe outcome.
+pub fn observe_workspace_runtime_diag(
+    root: impl Into<PathBuf>,
+) -> Result<(ObservedTopology, Option<String>), ParseBackError> {
     use kosmo_sandbox::{RunSpec, Sandbox};
     let root = root.into();
     let mut observed = observe_workspace_validated(&root)?;
     let probes = run_probes_from_dir(&root);
+    let mut build_error: Option<String> = None;
     if !probes.is_empty() {
         let manifest = root.join("Cargo.toml").to_string_lossy().into_owned();
         let sandbox = Sandbox::new()
@@ -1084,10 +1095,35 @@ pub fn observe_workspace_runtime(
             let witness = sandbox.run(&RunSpec::new("cargo", run_args));
             if run_matches(&witness, &expect) {
                 observed.insert(WishFacet::run(key));
+            } else if build_error.is_none() {
+                build_error = build_failure_from(&witness);
             }
         }
     }
-    Ok(observed)
+    Ok((observed, build_error))
+}
+
+/// A `cargo run` witness that shows a *build* failure (rather than a program that
+/// ran and merely produced the wrong output) — keyed on cargo/rustc signatures
+/// unlikely to appear in a program's own stderr. Bounded so the diagnostics
+/// cannot blow up a downstream prompt.
+fn build_failure_from(w: &kosmo_sandbox::RuntimeWitness) -> Option<String> {
+    let s = &w.stderr;
+    let is_build_failure =
+        s.contains("could not compile") || s.contains("error[") || s.contains("aborting due to");
+    if !is_build_failure {
+        return None;
+    }
+    let mut out = s.trim().to_string();
+    if out.len() > 3000 {
+        let mut end = 3000;
+        while !out.is_char_boundary(end) {
+            end -= 1;
+        }
+        out.truncate(end);
+        out.push_str("\n… (truncated)");
+    }
+    Some(out)
 }
 
 // ─── Service observation (level 6 — start a server and probe it) ─────────────
@@ -2634,6 +2670,30 @@ mod tests {
             !run_matches(&witness(80), &e),
             "a blown budget is a miss, never a warning"
         );
+    }
+
+    #[test]
+    fn build_failure_is_detected_from_compiler_signatures() {
+        use kosmo_sandbox::{RunVerdict, RuntimeWitness};
+        let witness = |stderr: &str| RuntimeWitness {
+            verdict: RunVerdict::Exited,
+            exit_code: Some(101),
+            stdout: String::new(),
+            stderr: stderr.to_string(),
+            stdout_digest: Digest::ZERO,
+            duration: std::time::Duration::from_secs(0),
+            truncated: false,
+        };
+        // A real rustc/cargo build failure is surfaced so the descent can feed
+        // it back for repair…
+        assert!(build_failure_from(&witness(
+            "error[E0308]: mismatched types\nerror: could not compile `demo`"
+        ))
+        .is_some());
+        // …but a program that merely ran and logged to stderr is not a build
+        // failure — no false positive that would mislead the model into
+        // "repairing" code that actually compiles.
+        assert!(build_failure_from(&witness("some runtime log line\n")).is_none());
     }
 
     #[test]

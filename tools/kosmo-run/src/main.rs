@@ -51,9 +51,9 @@ use kosmo_hyphae::{
 use kosmo_intent::{
     companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms,
     is_reserved_wish_word, observe_workspace_deep, observe_workspace_runtime,
-    observe_workspace_service, observe_workspace_validated, parse_atelier_command, AtelierCommand,
-    ChatIntent, DraftSlot, IndexSelection, IntentExtractor, KeywordIntentExtractor, NormCatalog,
-    SuggestionSource, WishDraft, WishSession,
+    observe_workspace_runtime_diag, observe_workspace_service, observe_workspace_validated,
+    parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot, IndexSelection, IntentExtractor,
+    KeywordIntentExtractor, NormCatalog, SuggestionSource, WishDraft, WishSession,
 };
 use kosmo_intent_llm::{LlmIntentExtractor, LlmWishRefiner};
 use kosmo_kcube::KcubeExecutor;
@@ -3171,10 +3171,20 @@ fn descend_to_wish(
     // failure these drive the repair attempt (we have no fresh assessment then).
     let mut last_unmet: Vec<WishFacet> = Vec::new();
     loop {
+        // Compiler diagnostics from this observation (runtime wishes only): when
+        // the model's code does not build, feed the error back next iteration so
+        // it repairs directly instead of guessing blind.
+        let mut build_diag: Option<String> = None;
         let observation = if wish_needs_service(wish) {
             observe_workspace_service(path)
         } else if wish_needs_runtime(wish) {
-            observe_workspace_runtime(path)
+            match observe_workspace_runtime_diag(path) {
+                Ok((observed, diag)) => {
+                    build_diag = diag;
+                    Ok(observed)
+                }
+                Err(e) => Err(e),
+            }
         } else if validated {
             observe_workspace_validated(path)
         } else {
@@ -3219,8 +3229,8 @@ fn descend_to_wish(
             break;
         }
         last_unmet = unmet.clone();
-        let written =
-            apply_synthesis(Path::new(path), &unmet, fallback, None).map_err(|e| e.to_string())?;
+        let written = apply_synthesis(Path::new(path), &unmet, fallback, build_diag.as_deref())
+            .map_err(|e| e.to_string())?;
         if written == 0 {
             break; // nothing scaffoldable — can't make progress, fail-closed
         }
