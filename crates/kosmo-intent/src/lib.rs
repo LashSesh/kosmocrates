@@ -1173,17 +1173,24 @@ struct ServiceExpect {
     body_contains: Option<String>,
 }
 
-/// Parse a `Service` facet key `"method:path=>expect"` into a probe + its
-/// expectation. `expect` is an HTTP status and/or `body~<substr>`.
+/// Parse a `Service` facet key `"method:path[<<body]=>expect"` into a probe +
+/// its expectation. An optional request body follows the path after `<<` (the
+/// harness sends it with a `Content-Length` header); `expect` is an HTTP status
+/// and/or `body~<substr>`.
 fn parse_service_key(key: &str) -> Option<(kosmo_sandbox::HttpProbe, ServiceExpect)> {
     let (method, rest) = key.split_once(':')?;
-    let (path, exp) = rest.split_once("=>")?;
-    if method.trim().is_empty() || path.trim().is_empty() {
+    let (pathbody, exp) = rest.split_once("=>")?;
+    let (path, body) = match pathbody.split_once("<<") {
+        Some((p, b)) => (p.trim(), Some(b.trim().to_string())),
+        None => (pathbody.trim(), None),
+    };
+    if method.trim().is_empty() || path.is_empty() {
         return None;
     }
     let probe = kosmo_sandbox::HttpProbe {
         method: method.trim().to_string(),
-        path: path.trim().to_string(),
+        path: path.to_string(),
+        body,
     };
     Some((probe, parse_service_expect(exp.trim())?))
 }
@@ -2954,6 +2961,7 @@ mod tests {
         let probe = HttpProbe {
             method: "GET".into(),
             path: "/health".into(),
+            body: None,
         };
         let expect = ServiceExpect {
             status: Some(200),
@@ -2984,12 +2992,18 @@ mod tests {
     #[test]
     fn parse_service_scenario_splits_ordered_steps() {
         let steps =
-            parse_service_scenario("POST:/set?k=a&v=alpha=>200 ; GET:/get?k=a=>200,body~alpha")
+            parse_service_scenario("POST:/set?k=a<<alpha=>200 ; GET:/get?k=a=>200,body~alpha")
                 .expect("two well-formed steps");
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[0].0.method, "POST");
-        assert_eq!(steps[0].0.path, "/set?k=a&v=alpha");
+        assert_eq!(steps[0].0.path, "/set?k=a");
+        assert_eq!(
+            steps[0].0.body.as_deref(),
+            Some("alpha"),
+            "request body after <<"
+        );
         assert_eq!(steps[1].0.path, "/get?k=a");
+        assert!(steps[1].0.body.is_none(), "no body without <<");
         // A single step parses as a one-element scenario.
         assert_eq!(parse_service_scenario("GET:/health=>200").unwrap().len(), 1);
         // A malformed step rejects the whole scenario; so does an empty key.

@@ -543,19 +543,21 @@ pub fn run_realize_bench(
 /// A minimal **service-synthesis smoke**: drive ONE HTTP-service wish — a tiny
 /// STATEFUL key-value server — through the same provider-backed descent and
 /// report whether the *served* witness accepted it. The wish is a scenario:
-/// `POST /set?k&v` (twice) then `GET /get?k` (twice) are issued IN ORDER against
-/// one running server, so the server must hold state in memory across requests.
-/// Exercises the service dimension — state, routing, sequencing — the corpus,
-/// all `Run`, does not. Returns `(realized, iterations, tokens)`.
+/// `POST /set?k` with the value in the **request body** (twice), then
+/// `GET /get?k` (twice), issued IN ORDER against one running server — so the
+/// server must read request bodies AND hold state in memory across requests.
+/// Exercises the service dimension — bodies, state, routing, sequencing — the
+/// corpus, all `Run`, does not. Returns `(realized, iterations, tokens)`.
 pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (bool, usize, u32) {
-    // Set two keys, then read both back — one scenario, run in order against ONE
-    // server. Distinct values (alpha/beta) defeat a server that ignores the key
-    // and returns a constant; success means state truly persisted in memory.
-    let key = "POST:/set?k=a&v=alpha=>200 ; POST:/set?k=b&v=beta=>200 ; \
+    // Store two keys whose VALUE arrives in the request body (`<<alpha`), the key
+    // in the query, then read both back — one scenario, in order against ONE
+    // server. Distinct bodies prove the server reads the body AND persists state;
+    // a server that ignores either the body or the key fails a later step.
+    let key = "POST:/set?k=a<<alpha=>200 ; POST:/set?k=b<<beta=>200 ; \
                GET:/get?k=a=>200,body~alpha ; GET:/get?k=b=>200,body~beta";
     let evidence = Digest::of(&("service-smoke", key));
     let wish = Wish::new(
-        "realize a stateful key-value HTTP service: POST /set?k&v stores, GET /get?k returns it",
+        "realize a key-value HTTP service: POST /set?k with the value in the body, GET /get?k returns it",
         [WishPredicate::require(WishFacet::service(key))],
         Digest::ZERO,
         evidence,

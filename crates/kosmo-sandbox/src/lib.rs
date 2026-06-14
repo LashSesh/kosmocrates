@@ -320,6 +320,9 @@ fn kill_group(pid: u32) {
 pub struct HttpProbe {
     pub method: String,
     pub path: String,
+    /// Optional request body, sent with a `Content-Length` header. `None` for a
+    /// bodyless request (e.g. `GET`).
+    pub body: Option<String>,
 }
 
 impl HttpProbe {
@@ -327,6 +330,15 @@ impl HttpProbe {
         Self {
             method: "GET".into(),
             path: path.into(),
+            body: None,
+        }
+    }
+    /// A `POST` carrying a request body.
+    pub fn post(path: impl Into<String>, body: impl Into<String>) -> Self {
+        Self {
+            method: "POST".into(),
+            path: path.into(),
+            body: Some(body.into()),
         }
     }
 }
@@ -559,10 +571,19 @@ fn http_probe(port: u16, probe: &HttpProbe, cap: usize) -> Option<(u16, String)>
     stream
         .set_write_timeout(Some(Duration::from_secs(3)))
         .ok()?;
-    let req = format!(
-        "{} {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
-        probe.method, probe.path
-    );
+    let req = match probe.body.as_deref() {
+        Some(body) if !body.is_empty() => format!(
+            "{} {} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            probe.method,
+            probe.path,
+            body.len(),
+            body
+        ),
+        _ => format!(
+            "{} {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            probe.method, probe.path
+        ),
+    };
     stream.write_all(req.as_bytes()).ok()?;
     let mut resp = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -766,5 +787,13 @@ mod tests {
     fn serve_sequence_empty_probes_is_empty() {
         let ws = Sandbox::new().serve_and_probe_sequence(&sh("true"), &[]);
         assert!(ws.is_empty());
+    }
+
+    #[test]
+    fn http_probe_post_carries_a_body() {
+        let p = HttpProbe::post("/echo", "hello");
+        assert_eq!(p.method, "POST");
+        assert_eq!(p.body.as_deref(), Some("hello"));
+        assert!(HttpProbe::get("/").body.is_none(), "GET has no body");
     }
 }
