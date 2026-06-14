@@ -540,17 +540,23 @@ pub fn run_realize_bench(
     }
 }
 
-/// A minimal **service-synthesis smoke**: drive ONE HTTP-service wish through
-/// the same provider-backed descent and report whether the *served* witness
-/// accepted it — the artifact started as a server, probed over HTTP, judged by
-/// it actually answering. This exercises the service dimension the corpus (all
-/// `Run`) does not. Returns `(realized, iterations, tokens)`.
+/// A minimal **service-synthesis smoke**: drive ONE HTTP-service wish — a tiny
+/// server with two routed endpoints — through the same provider-backed descent
+/// and report whether the *served* witness accepted it: the artifact started as
+/// a server, probed over HTTP, judged by it actually answering. Exercises the
+/// service dimension (and routing) the corpus, all `Run`, does not. Returns
+/// `(realized, iterations, tokens)`.
 pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (bool, usize, u32) {
-    let key = "GET:/health=>200,body~ok";
-    let evidence = Digest::of(&("service-smoke", key));
+    // Two endpoints so the server must ROUTE — one canned reply cannot satisfy
+    // both: GET /health -> 200 "ok" and GET /ping -> 200 "pong". Each is checked
+    // by a real HTTP probe; directed service diagnostics let the descent add the
+    // second route without clobbering the first.
+    let keys = ["GET:/health=>200,body~ok", "GET:/ping=>200,body~pong"];
+    let evidence = Digest::of(&("service-smoke", &keys));
     let wish = Wish::new(
-        "realize a tiny HTTP service: GET /health answers 200 with a body containing ok",
-        [WishPredicate::require(WishFacet::service(key))],
+        "realize a tiny HTTP service: GET /health -> 200 ok and GET /ping -> 200 pong",
+        keys.iter()
+            .map(|k| WishPredicate::require(WishFacet::service(*k))),
         Digest::ZERO,
         evidence,
     );

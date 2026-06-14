@@ -51,9 +51,10 @@ use kosmo_hyphae::{
 use kosmo_intent::{
     companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms,
     is_reserved_wish_word, observe_workspace_deep, observe_workspace_runtime,
-    observe_workspace_runtime_diag, observe_workspace_service, observe_workspace_validated,
-    parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot, IndexSelection, IntentExtractor,
-    KeywordIntentExtractor, NormCatalog, SuggestionSource, WishDraft, WishSession,
+    observe_workspace_runtime_diag, observe_workspace_service, observe_workspace_service_diag,
+    observe_workspace_validated, parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot,
+    IndexSelection, IntentExtractor, KeywordIntentExtractor, NormCatalog, SuggestionSource,
+    WishDraft, WishSession,
 };
 use kosmo_intent_llm::{LlmIntentExtractor, LlmWishRefiner};
 use kosmo_kcube::KcubeExecutor;
@@ -3225,12 +3226,19 @@ fn descend_to_wish(
     // failure these drive the repair attempt (we have no fresh assessment then).
     let mut last_unmet: Vec<WishFacet> = Vec::new();
     loop {
-        // Directed diagnostics from this observation (runtime wishes only): a
-        // build failure, or a probe that ran but produced the wrong result. Fed
-        // back next iteration so the model repairs directly instead of guessing.
+        // Directed diagnostics from this observation: a build failure, a probe
+        // that ran but produced the wrong result, or a service that never
+        // answered (or answered wrong). Fed back next iteration so the model
+        // repairs directly instead of guessing.
         let mut run_diag: Option<String> = None;
         let observation = if wish_needs_service(wish) {
-            observe_workspace_service(path)
+            match observe_workspace_service_diag(path) {
+                Ok((observed, diag)) => {
+                    run_diag = diag;
+                    Ok(observed)
+                }
+                Err(e) => Err(e),
+            }
         } else if wish_needs_runtime(wish) {
             match observe_workspace_runtime_diag(path) {
                 Ok((observed, diag)) => {

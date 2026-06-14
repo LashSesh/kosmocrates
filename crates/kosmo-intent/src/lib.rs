@@ -1261,10 +1261,23 @@ fn service_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
 pub fn observe_workspace_service(
     root: impl Into<PathBuf>,
 ) -> Result<ObservedTopology, ParseBackError> {
+    observe_workspace_service_diag(root).map(|(observed, _)| observed)
+}
+
+/// Like [`observe_workspace_service`], and additionally a human diagnostic
+/// naming every service probe that did **not** match and why — the server
+/// never became ready, answered the wrong status, or returned a body missing
+/// the expected substring. Fed back into the next synthesis iteration so the
+/// model repairs the server directly instead of guessing: the service-dimension
+/// twin of [`observe_workspace_runtime_diag`]. `None` when every probe matched.
+pub fn observe_workspace_service_diag(
+    root: impl Into<PathBuf>,
+) -> Result<(ObservedTopology, Option<String>), ParseBackError> {
     use kosmo_sandbox::{RunSpec, Sandbox};
     let root = root.into();
     let mut observed = observe_workspace_runtime(&root)?;
     let probes = service_probes_from_dir(&root);
+    let mut misses: Vec<String> = Vec::new();
     if !probes.is_empty() {
         let manifest = root.join("Cargo.toml").to_string_lossy().into_owned();
         // Pre-build once so each serve starts fast (the readiness budget then
@@ -1290,10 +1303,68 @@ pub fn observe_workspace_service(
             let witness = sandbox.serve_and_probe(&spec, &probe);
             if service_matches(&witness, &expect) {
                 observed.insert(WishFacet::service(key));
+            } else {
+                misses.push(describe_service_miss(&key, &probe, &expect, &witness));
             }
         }
     }
-    Ok(observed)
+    let diag = (!misses.is_empty()).then(|| {
+        format!(
+            "service probe(s) not satisfied — the artifact is started as a server (its port \
+             in the KOSMO_PORT env var) and probed over HTTP. One server must answer ALL of \
+             these:\n{}",
+            misses.join("\n")
+        )
+    });
+    Ok((observed, diag))
+}
+
+/// One service probe's miss, phrased so the model can act on it directly:
+/// never-ready points at the `KOSMO_PORT` contract; a wrong answer reports the
+/// status/body it got against what the probe wanted.
+fn describe_service_miss(
+    key: &str,
+    probe: &kosmo_sandbox::HttpProbe,
+    expect: &ServiceExpect,
+    witness: &kosmo_sandbox::ServiceWitness,
+) -> String {
+    use kosmo_sandbox::ServiceVerdict;
+    match witness.verdict {
+        ServiceVerdict::SpawnFailed => {
+            format!("- `{key}`: the server binary could not be started at all")
+        }
+        ServiceVerdict::NeverReady => format!(
+            "- `{key}`: nothing answered `{} {}` before the timeout — the server must bind \
+             127.0.0.1 on the port from KOSMO_PORT and keep serving (a program that exits, \
+             ignores KOSMO_PORT, or binds a different port never becomes ready)",
+            probe.method, probe.path
+        ),
+        ServiceVerdict::Probed => {
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(want) = expect.status {
+                if witness.status != Some(want) {
+                    parts.push(match witness.status {
+                        Some(got) => format!("returned HTTP {got}, expected {want}"),
+                        None => format!("returned no parseable status, expected {want}"),
+                    });
+                }
+            }
+            if let Some(sub) = &expect.body_contains {
+                if !witness.body.contains(sub) {
+                    parts.push(format!("body did not contain {sub:?}"));
+                }
+            }
+            if parts.is_empty() {
+                parts.push("did not match the expectation".to_string());
+            }
+            format!(
+                "- `{key}`: `{} {}` {}",
+                probe.method,
+                probe.path,
+                parts.join("; ")
+            )
+        }
+    }
 }
 
 // ─── Natural-language → Wish (the human front door) ─────────────────────────
@@ -2845,6 +2916,51 @@ mod tests {
             Some("GET:/health=>200".to_string())
         );
         assert_eq!(service_marker("// kosmo:run: a=>b"), None);
+    }
+
+    #[test]
+    fn service_miss_messages_point_the_model_at_the_fix() {
+        use kosmo_sandbox::{HttpProbe, ServiceVerdict, ServiceWitness};
+        let probe = HttpProbe {
+            method: "GET".into(),
+            path: "/health".into(),
+        };
+        let expect = ServiceExpect {
+            status: Some(200),
+            body_contains: Some("ok".into()),
+        };
+        let mk = |verdict: ServiceVerdict, status: Option<u16>, body: &str| ServiceWitness {
+            verdict,
+            status,
+            body: body.to_string(),
+            body_digest: Digest::ZERO,
+            startup: std::time::Duration::ZERO,
+        };
+        let key = "GET:/health=>200,body~ok";
+        // Never ready → name the KOSMO_PORT contract the model must honour.
+        let m = describe_service_miss(
+            key,
+            &probe,
+            &expect,
+            &mk(ServiceVerdict::NeverReady, None, ""),
+        );
+        assert!(m.contains("KOSMO_PORT"), "{m}");
+        // Answered, wrong status → report what it got against what was wanted.
+        let m = describe_service_miss(
+            key,
+            &probe,
+            &expect,
+            &mk(ServiceVerdict::Probed, Some(404), "x"),
+        );
+        assert!(m.contains("404") && m.contains("200"), "{m}");
+        // Answered 200 but wrong body → call out the body.
+        let m = describe_service_miss(
+            key,
+            &probe,
+            &expect,
+            &mk(ServiceVerdict::Probed, Some(200), "nope"),
+        );
+        assert!(m.to_lowercase().contains("body"), "{m}");
     }
 
     #[test]
