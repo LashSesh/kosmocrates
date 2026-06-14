@@ -3137,6 +3137,9 @@ fn apply_synthesis(
     } else {
         Vec::new()
     };
+    // A wish opts into crate dependencies via KOSMO_DEPS_ALLOWED; off by default,
+    // so synthesis stays std-only (fast, no crates.io fetch).
+    let deps_allowed = std::env::var("KOSMO_DEPS_ALLOWED").is_ok();
     for facet in unmet {
         let action = ActionItem {
             action_id: Digest::ZERO,
@@ -3147,7 +3150,8 @@ fn apply_synthesis(
             description: format!("realize {:?} {}", facet.kind, facet.key),
             policy_id: Digest::ZERO,
         };
-        let mut req = SynthesisRequest::new(action, root.to_string_lossy().to_string());
+        let mut req = SynthesisRequest::new(action, root.to_string_lossy().to_string())
+            .with_deps_allowed(deps_allowed);
         if let Some(err) = repair {
             req = req
                 .with_repair_diagnostics(vec![err.to_string()])
