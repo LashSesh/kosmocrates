@@ -465,8 +465,24 @@ pub fn run_realize_bench(
     provider: &str,
     model: Option<String>,
 ) -> RealizeBenchReport {
+    // The per-task descent budget. Defaults to 8; overridable via
+    // KOSMO_REALIZE_MAX_ITERS for constrained environments (a lower budget
+    // yields a conservative, lower-bound realization rate).
+    let max_iters: u32 = std::env::var("KOSMO_REALIZE_MAX_ITERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(8);
+    // Optionally skip the first N tasks (KOSMO_REALIZE_SKIP) to run a slice of
+    // the corpus — e.g. just one tier, or to resume after an interruption.
+    let skip: usize = std::env::var("KOSMO_REALIZE_SKIP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let corpus = reference_corpus();
+    let total = corpus.len();
     let mut outcomes = Vec::new();
-    for task in reference_corpus() {
+    for (idx, task) in corpus.into_iter().enumerate().skip(skip) {
         let wish = wish_for(&task);
         let counter = Arc::new(CountingSynthesizer::new(armed.clone()));
         let (realized, iterations) = match scratch_workspace(task.name) {
@@ -476,7 +492,7 @@ pub fn run_realize_bench(
                     &wish,
                     wish.evidence_bundle_id,
                     false,
-                    8,
+                    max_iters,
                     Some(counter.as_ref()),
                     None,
                 );
@@ -493,6 +509,17 @@ pub fn run_realize_bench(
             }
             Err(_) => (false, 0),
         };
+        // Live progress so a long run is observable and partial results
+        // survive an interrupted run: one line per task as it resolves.
+        eprintln!(
+            "  [{:>2}/{}] {:<12} {}  ({} iter · {} tok)",
+            idx + 1,
+            total,
+            task.name,
+            if realized { "\u{2713}" } else { "\u{2717}" },
+            iterations,
+            counter.total(),
+        );
         outcomes.push(TaskOutcome {
             name: task.name,
             tier: task.tier,
