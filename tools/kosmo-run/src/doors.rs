@@ -224,6 +224,18 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--realize-service",
+            vec![],
+            "the service-dimension realization smoke: drive one HTTP-service \
+         wish through the real provider descent — the artifact is started as a \
+         server and probed over HTTP, judged by it answering — proving the loop \
+         realizes running services, not only CLIs; a measurement, not a gate",
+            [armament_inputs(), output_inputs()].concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Provider, DoorNeed::Network, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
             "--steward",
             vec![],
             "self-husbandry: survey the workspace's own landscape and, under \
