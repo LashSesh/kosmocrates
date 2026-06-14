@@ -576,6 +576,20 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
         request.workspace_path.to_string_lossy()
     ));
 
+    if !request.repair_diagnostics.is_empty() {
+        s.push_str(
+            "\n# Repair required — your previous patch left the workspace unbuildable\n\n\
+             Fix this before anything else. The toolchain could not build (or even \
+             read) the workspace. Resolve the error(s) below, deleting or renaming \
+             files as needed — emit `\"op\": \"delete\"` for any file that must go, \
+             and do not introduce extra binaries the action did not ask for. The \
+             current files are shown under source context.\n",
+        );
+        for d in &request.repair_diagnostics {
+            s.push_str(&format!("\n```\n{d}\n```\n"));
+        }
+    }
+
     if request.source_snippets.is_empty() {
         s.push_str("\n# Context\n\n(no source context was extracted for this action)\n");
     } else {

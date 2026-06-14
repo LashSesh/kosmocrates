@@ -66,8 +66,8 @@ use kosmo_pse_bridge::MemoryRecall;
 use kosmo_sandbox::{RunSpec, Sandbox};
 use kosmo_store::NormStore;
 use kosmo_synthesizer::{
-    ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, GroundedSynthesizer,
-    MockSynthesizer, SynthesisRequest,
+    ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, FileChangeKind, GroundedSynthesizer,
+    MockSynthesizer, SourceSnippet, SynthesisRequest,
 };
 use kosmo_synthesizer_llm::{LlmConfig, LlmSynthesizer, SwarmSynthesizer};
 use pse_adapter_kosmo::LedgerRecall;
@@ -3019,12 +3019,69 @@ fn scaffold_report(path: &str, unmet: &[WishFacet], color: bool) -> String {
 /// synthesizer is consulted — the LLM end of the same `Wish → Patch` contract.
 /// Returns the number of files written. The only place wish mode touches the
 /// filesystem, and only under `--apply`.
+/// Read the workspace's source files into snippets so a repair request can show
+/// the model exactly what exists — what to fix, rename, or delete. Bounded so a
+/// large tree cannot blow up the prompt; `target/` and dotfiles are skipped.
+fn workspace_snippets(root: &Path) -> Vec<SourceSnippet> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<SourceSnippet>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.path());
+        for e in entries {
+            if out.len() >= 24 {
+                return;
+            }
+            let p = e.path();
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name == "target" || name.starts_with('.') {
+                continue;
+            }
+            if p.is_dir() {
+                walk(&p, root, out);
+            } else if matches!(p.extension().and_then(|x| x.to_str()), Some("rs" | "toml")) {
+                if let Ok(text) = fs::read_to_string(&p) {
+                    let content = if text.len() > 4096 {
+                        let mut end = 4096;
+                        while !text.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        format!("{}\n… (truncated)", &text[..end])
+                    } else {
+                        text
+                    };
+                    let rel = p.strip_prefix(root).unwrap_or(&p).to_path_buf();
+                    out.push(SourceSnippet {
+                        path: rel,
+                        content,
+                        relevance_score: Q16::ONE,
+                    });
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out
+}
+
 fn apply_synthesis(
     root: &Path,
     unmet: &[WishFacet],
     fallback: Option<&dyn ActionSynthesizer>,
+    repair: Option<&str>,
 ) -> std::io::Result<usize> {
     let mut written = 0;
+    // During a repair, show the model the current files so it can see what to
+    // fix or delete. Normal iterations stay context-light to preserve the
+    // baseline behaviour the bench measures.
+    let repair_snippets = if repair.is_some() {
+        workspace_snippets(root)
+    } else {
+        Vec::new()
+    };
     for facet in unmet {
         let action = ActionItem {
             action_id: Digest::ZERO,
@@ -3035,13 +3092,24 @@ fn apply_synthesis(
             description: format!("realize {:?} {}", facet.kind, facet.key),
             policy_id: Digest::ZERO,
         };
-        let req = SynthesisRequest::new(action, root.to_string_lossy().to_string());
+        let mut req = SynthesisRequest::new(action, root.to_string_lossy().to_string());
+        if let Some(err) = repair {
+            req = req
+                .with_repair_diagnostics(vec![err.to_string()])
+                .with_snippets(repair_snippets.clone());
+        }
 
-        // Deterministic scaffolder first; consult the LLM only if it built nothing.
-        let mut changes = FacetScaffolder
-            .synthesize(&req)
-            .map(|r| r.patch.file_changes)
-            .unwrap_or_default();
+        // Deterministic scaffolder first; consult the model only if it built
+        // nothing — except in a repair, where only the model can clean up its
+        // own mess (delete a stray binary, rewrite a broken file).
+        let mut changes = if repair.is_some() {
+            Vec::new()
+        } else {
+            FacetScaffolder
+                .synthesize(&req)
+                .map(|r| r.patch.file_changes)
+                .unwrap_or_default()
+        };
         if changes.is_empty() {
             if let Some(synth) = fallback {
                 match synth.synthesize(&req) {
@@ -3061,10 +3129,20 @@ fn apply_synthesis(
         }
         for fc in &changes {
             let target = root.join(&fc.path);
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
+            match fc.kind {
+                // Honour delete ops — essential to a repair (removing the stray
+                // binary that collided). The old writer turned a delete into an
+                // empty file, which would not have resolved the collision.
+                FileChangeKind::Delete => {
+                    fs::remove_file(&target).ok();
+                }
+                _ => {
+                    if let Some(parent) = target.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    fs::write(&target, &fc.content)?;
+                }
             }
-            fs::write(&target, &fc.content)?;
             written += 1;
         }
     }
@@ -3089,6 +3167,9 @@ fn descend_to_wish(
 ) -> Result<WishSession, String> {
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
+    // The unmet facets from the last *successful* observation. On a later observe
+    // failure these drive the repair attempt (we have no fresh assessment then).
+    let mut last_unmet: Vec<WishFacet> = Vec::new();
     loop {
         let observation = if wish_needs_service(wish) {
             observe_workspace_service(path)
@@ -3102,16 +3183,28 @@ fn descend_to_wish(
         let observed = match observation {
             Ok(o) => o,
             Err(e) => {
-                // A prior synthesis iteration left the workspace unobservable
-                // — e.g. an unparseable Cargo.toml (duplicate binary names).
-                // A single bad layer must not void the whole descent: if a
-                // valid trajectory already exists, stop at the last good state
-                // instead of discarding everything. Only a failure on the very
-                // first observation (a genuinely unusable workspace) is fatal.
+                // A prior synthesis iteration left the workspace unobservable —
+                // e.g. an unparseable Cargo.toml (duplicate binary names). A
+                // failure on the very first observation (a workspace that was
+                // never usable) is fatal. Otherwise self-heal: feed the error
+                // back so the model repairs its own mess, and only give up —
+                // gracefully, at the last good state — once the budget is spent
+                // or there is nothing left to drive a repair.
                 if iter == 0 {
                     return Err(format!("could not observe {path}: {e}"));
                 }
-                break;
+                if iter >= max_iters || last_unmet.is_empty() {
+                    break;
+                }
+                let diag = format!("could not build/observe the workspace: {e}");
+                let repaired =
+                    apply_synthesis(Path::new(path), &last_unmet, fallback, Some(diag.as_str()))
+                        .map_err(|e| e.to_string())?;
+                if repaired == 0 {
+                    break;
+                }
+                iter += 1;
+                continue;
             }
         };
 
@@ -3125,8 +3218,9 @@ fn descend_to_wish(
         if done || unmet.is_empty() || iter >= max_iters {
             break;
         }
+        last_unmet = unmet.clone();
         let written =
-            apply_synthesis(Path::new(path), &unmet, fallback).map_err(|e| e.to_string())?;
+            apply_synthesis(Path::new(path), &unmet, fallback, None).map_err(|e| e.to_string())?;
         if written == 0 {
             break; // nothing scaffoldable — can't make progress, fail-closed
         }
@@ -3604,11 +3698,11 @@ mod tests {
         // A dependency edge is not deterministically scaffoldable.
         let dep = vec![WishFacet::dependency("a", "b")];
         // No fallback → the scaffolder builds nothing, so nothing is written.
-        assert_eq!(apply_synthesis(&root, &dep, None).unwrap(), 0);
+        assert_eq!(apply_synthesis(&root, &dep, None, None).unwrap(), 0);
         // With a synthesizer that proposes a change → the fallback is consulted.
         let mock =
             MockSynthesizer::confident().with_change(FileChange::create("FALLBACK.txt", "x\n"));
-        let n = apply_synthesis(&root, &dep, Some(&mock)).unwrap();
+        let n = apply_synthesis(&root, &dep, Some(&mock), None).unwrap();
         assert_eq!(n, 1);
         assert!(root.join("FALLBACK.txt").exists());
 
@@ -3661,7 +3755,7 @@ mod tests {
             &wish,
             evidence,
             false,
-            8,
+            3,
             Some(&saboteur),
             None,
         );
@@ -3676,10 +3770,13 @@ mod tests {
             root.join("src/bin/hello.rs").exists(),
             "the saboteur layer must actually have been applied"
         );
+        // Only the first observation succeeds; each later one fails because the
+        // saboteur re-breaks the manifest on every repair, so no further
+        // assessment is recorded. The point: the descent stays Ok and terminates
+        // (it neither errors out nor hangs) even when it cannot heal.
         assert!(
             session.iterations() <= 2,
-            "the descent should stop at the broken layer, not grind to max_iters \
-             (got {} iterations — the observation may not be failing as expected)",
+            "an unrecoverable break must still terminate cleanly (got {} iterations)",
             session.iterations()
         );
         let last = session.latest().expect("the first observation survives");
@@ -3687,6 +3784,97 @@ mod tests {
             !matches!(last.status, WishClosureStatus::Realized),
             "an unbuildable workspace is not a realized wish, got {:?}",
             last.status
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// Breaks the manifest on the first call (a duplicate binary), then — once
+    /// the build error is fed back as a repair — deletes the offending file, and
+    /// finally proposes nothing more.
+    struct BreakThenHeal {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    impl ActionSynthesizer for BreakThenHeal {
+        fn synthesize(
+            &self,
+            request: &SynthesisRequest,
+        ) -> Result<kosmo_synthesizer::SynthesisResult, kosmo_synthesizer::SynthesisError> {
+            use kosmo_synthesizer::{FileChange, Patch, SynthesisResult};
+            use std::sync::atomic::Ordering;
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            let changes = match n {
+                0 => vec![FileChange::create("src/bin/hello.rs", "fn main() {}\n")],
+                1 => vec![FileChange::delete("src/bin/hello.rs")],
+                _ => vec![],
+            };
+            let patch = Patch::new(request.request_id, changes, "break-then-heal");
+            Ok(SynthesisResult::new(patch, "test repair", Q16::ONE))
+        }
+        fn name(&self) -> &str {
+            "break-then-heal"
+        }
+    }
+
+    #[test]
+    fn descent_self_heals_a_broken_manifest_and_continues() {
+        use kosmo_core::WishPredicate;
+        let _g = heavy(); // the descent spawns cargo
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-selfheal-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+        let evidence = Digest::of_bytes(b"self-heal");
+        let wish = Wish::new(
+            "dependency a->b",
+            [WishPredicate::require(WishFacet::dependency("a", "b"))],
+            Digest::ZERO,
+            evidence,
+        );
+
+        // First layer breaks the manifest; when the build error is fed back, the
+        // second layer deletes the offending binary.
+        let healer = BreakThenHeal {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        };
+
+        let result = descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            Some(&healer),
+            None,
+        );
+        assert!(
+            result.is_ok(),
+            "a self-healing descent must not error: {:?}",
+            result.err()
+        );
+        let session = result.unwrap();
+
+        // The stray binary the first layer added was deleted by the repair…
+        assert!(
+            !root.join("src/bin/hello.rs").exists(),
+            "the repair layer should have deleted the colliding binary"
+        );
+        // …and the workspace became observable again, so the descent advanced
+        // past the break — a second assessment was recorded.
+        assert!(
+            session.iterations() >= 2,
+            "the descent should re-observe after healing (got {} iterations)",
+            session.iterations()
         );
 
         fs::remove_dir_all(&root).ok();

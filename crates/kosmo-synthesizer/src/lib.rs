@@ -74,6 +74,12 @@ pub struct SynthesisRequest {
     /// NOT part of `request_id`; empty outside multi-step descents.
     #[serde(default)]
     pub descent_context: Vec<String>,
+    /// Build/observe diagnostics from the previous descent layer that the model
+    /// must repair before anything else — e.g. a `cargo metadata` error from a
+    /// manifest the last patch broke. Advisory like the other context fields:
+    /// NOT part of `request_id`; empty outside a repair.
+    #[serde(default)]
+    pub repair_diagnostics: Vec<String>,
 }
 
 impl SynthesisRequest {
@@ -92,6 +98,7 @@ impl SynthesisRequest {
             source_snippets: vec![],
             memory_grounding: vec![],
             descent_context: vec![],
+            repair_diagnostics: vec![],
         }
     }
 
@@ -109,6 +116,12 @@ impl SynthesisRequest {
     /// Attach the symbols this descent already created (advisory).
     pub fn with_descent_context(mut self, lines: Vec<String>) -> Self {
         self.descent_context = lines;
+        self
+    }
+
+    /// Attach build/observe diagnostics the model must repair first (advisory).
+    pub fn with_repair_diagnostics(mut self, lines: Vec<String>) -> Self {
+        self.repair_diagnostics = lines;
         self
     }
 }
