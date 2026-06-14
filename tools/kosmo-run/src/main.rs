@@ -3090,7 +3090,7 @@ fn descend_to_wish(
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
     loop {
-        let observed = if wish_needs_service(wish) {
+        let observation = if wish_needs_service(wish) {
             observe_workspace_service(path)
         } else if wish_needs_runtime(wish) {
             observe_workspace_runtime(path)
@@ -3098,8 +3098,22 @@ fn descend_to_wish(
             observe_workspace_validated(path)
         } else {
             observe_workspace_deep(path)
-        }
-        .map_err(|e| format!("could not observe {path}: {e}"))?;
+        };
+        let observed = match observation {
+            Ok(o) => o,
+            Err(e) => {
+                // A prior synthesis iteration left the workspace unobservable
+                // — e.g. an unparseable Cargo.toml (duplicate binary names).
+                // A single bad layer must not void the whole descent: if a
+                // valid trajectory already exists, stop at the last good state
+                // instead of discarding everything. Only a failure on the very
+                // first observation (a genuinely unusable workspace) is fatal.
+                if iter == 0 {
+                    return Err(format!("could not observe {path}: {e}"));
+                }
+                break;
+            }
+        };
 
         let assessment = session.observe(&observed);
         let done = matches!(
@@ -3597,6 +3611,83 @@ mod tests {
         let n = apply_synthesis(&root, &dep, Some(&mock)).unwrap();
         assert_eq!(n, 1);
         assert!(root.join("FALLBACK.txt").exists());
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn descent_survives_a_layer_that_breaks_the_manifest() {
+        use kosmo_core::WishPredicate;
+        use kosmo_synthesizer::FileChange;
+        let _g = heavy(); // the descent spawns cargo
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-run-resilient-{nanos}"));
+        fs::create_dir_all(root.join("src")).unwrap();
+        // A package whose own default binary is named `hello` (package name +
+        // src/main.rs). Observable and buildable as it stands.
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+        // A lone dependency facet is not deterministically scaffoldable, so the
+        // fallback synthesizer is consulted (see
+        // `apply_synthesis_routes_unscaffoldable_facet_to_fallback`).
+        let evidence = Digest::of_bytes(b"resilient-descent");
+        let wish = Wish::new(
+            "dependency a->b",
+            [WishPredicate::require(WishFacet::dependency("a", "b"))],
+            Digest::ZERO,
+            evidence,
+        );
+
+        // The fallback plays a model that *also* sprays a second binary named
+        // `hello`; `cargo metadata` then refuses to parse the manifest, so the
+        // next observation fails partway through the descent.
+        let saboteur = MockSynthesizer::confident()
+            .with_change(FileChange::create("src/bin/hello.rs", "fn main() {}\n"));
+
+        // Before the fix this propagated `Err` and the whole descent — with any
+        // correct work inside it — was discarded. The descent must now survive:
+        // a single bad layer ends it at its last good state, it does not void it.
+        let result = descend_to_wish(
+            root.to_str().unwrap(),
+            &wish,
+            evidence,
+            false,
+            8,
+            Some(&saboteur),
+            None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "a mid-descent manifest break must not void the descent: {:?}",
+            result.err()
+        );
+        let session = result.unwrap();
+        assert!(
+            root.join("src/bin/hello.rs").exists(),
+            "the saboteur layer must actually have been applied"
+        );
+        assert!(
+            session.iterations() <= 2,
+            "the descent should stop at the broken layer, not grind to max_iters \
+             (got {} iterations — the observation may not be failing as expected)",
+            session.iterations()
+        );
+        let last = session.latest().expect("the first observation survives");
+        assert!(
+            !matches!(last.status, WishClosureStatus::Realized),
+            "an unbuildable workspace is not a realized wish, got {:?}",
+            last.status
+        );
 
         fs::remove_dir_all(&root).ok();
     }

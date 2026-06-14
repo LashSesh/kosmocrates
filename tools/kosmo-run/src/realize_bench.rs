@@ -504,7 +504,10 @@ pub fn run_realize_bench(
                             .is_some_and(|a| matches!(a.status, WishClosureStatus::Realized)),
                         session.iterations(),
                     ),
-                    Err(_) => (false, 0),
+                    Err(e) => {
+                        eprintln!("  !! {} setup error: {}", task.name, e);
+                        (false, 0)
+                    }
                 }
             }
             Err(_) => (false, 0),
