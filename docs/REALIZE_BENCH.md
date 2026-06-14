@@ -114,3 +114,19 @@ Successful tasks are cheap (the model realizes them in one to a few
 descent iterations); only tasks the model genuinely cannot do burn the
 full 8-iteration budget. So cost scales with difficulty, and a capable
 engine spends most of its tokens on the few rungs it can't yet reach.
+
+## One command (the fresh-session path)
+
+When the provider is configured in the environment (full egress + a secret
+`KOSMO_LLM_API_KEY`) and a **fresh session** has started so it takes effect:
+
+```sh
+scripts/fire-realize-bench.sh
+```
+
+It validates the key and model name with one tiny call first (so a typo
+costs nothing), then fires the full tiered benchmark and writes `bench.json`.
+Override the engine without editing anything: `KOSMO_LLM_MODEL`,
+`KOSMO_LLM_PROVIDER`, `KOSMO_LLM_BASE_URL` are read from the environment
+(defaults target OpenAI). The key is read from the environment and never
+printed.
