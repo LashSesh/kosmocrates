@@ -645,28 +645,37 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
     s
 }
 
-/// The witness contract for a `Service` facet — the one thing the model cannot
+/// The witness contract for a `Service` facet — the things the model cannot
 /// guess. The harness starts the binary as a long-running server with
-/// `KOSMO_PORT` set to a free loopback port, waits for it to answer one HTTP
-/// request, and tears it down. Without this, a model has no way to know which
-/// port to bind, so the served probe would never become ready.
+/// `KOSMO_PORT` set to a free loopback port and issues the probe(s) over HTTP
+/// against that one process; a key may be a `;`-separated SEQUENCE run in order,
+/// so state persists in memory across requests. Without this contract a model
+/// has no way to know which port to bind, that inputs arrive in the URL, or that
+/// steps share one server.
 fn service_contract(key: &str) -> String {
     format!(
         "\n# How this service wish is verified — your program is STARTED AS A SERVER\n\n\
          The harness builds your workspace and launches your binary with `cargo run`, with \
          the environment variable `KOSMO_PORT` set to a free TCP port on 127.0.0.1. It then \
-         waits briefly for your program to accept a connection and answer one HTTP request, \
-         then tears the process down. Your `fn main` MUST therefore:\n\
+         waits for your program to accept connections and issues the probe(s) below over HTTP \
+         against that one running process, then tears it down. Your `fn main` MUST therefore:\n\
          - read the port from the `KOSMO_PORT` environment variable \
          (`std::env::var(\"KOSMO_PORT\")`);\n\
          - bind a `std::net::TcpListener` on 127.0.0.1 at that port — use ONLY the standard \
          library, do NOT add dependencies — and keep accepting connections in a loop (the \
          server must never exit on its own);\n\
-         - for the probe `{key}` (a `METHOD:/path=>STATUS[,body~SUBSTR]` key), answer a \
-         request to that method and path with a raw HTTP/1.1 response whose status line \
-         carries the expected code (e.g. `HTTP/1.1 200 OK`), followed by a blank line and a \
-         response body that contains the `body~` substring when one is given;\n\
-         - keep a `// kosmo:service: {key}` marker comment on its own line in the source.\n\
+         - answer each request with a raw HTTP/1.1 response whose status line carries the \
+         expected code (e.g. `HTTP/1.1 200 OK`), then a blank line, then a body containing the \
+         `body~` substring when one is given; answer any UNKNOWN path with a 404 response so \
+         the server reads as ready;\n\
+         - take request inputs from the URL — path and query string, e.g. `/get?k=foo` — as \
+         no request body is sent;\n\
+         - keep the `// kosmo:service: {key}` marker comment on its own line in the source.\n\n\
+         The probe to satisfy (a `METHOD:/path=>STATUS[,body~SUBSTR]` key):\n\n    {key}\n\n\
+         If that key has several steps separated by ` ; ` it is a SCENARIO: the steps are \
+         issued IN ORDER against the same running server, so hold any state in memory (e.g. a \
+         `std::collections::HashMap`) across requests — a later step must see what an earlier \
+         step stored.\n\
          A program that exits immediately, ignores `KOSMO_PORT`, binds a different port, or \
          never loops will never be observed as ready, and the wish stays unrealized.\n"
     )

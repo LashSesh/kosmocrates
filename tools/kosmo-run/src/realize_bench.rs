@@ -541,22 +541,22 @@ pub fn run_realize_bench(
 }
 
 /// A minimal **service-synthesis smoke**: drive ONE HTTP-service wish — a tiny
-/// server with two routed endpoints — through the same provider-backed descent
-/// and report whether the *served* witness accepted it: the artifact started as
-/// a server, probed over HTTP, judged by it actually answering. Exercises the
-/// service dimension (and routing) the corpus, all `Run`, does not. Returns
-/// `(realized, iterations, tokens)`.
+/// STATEFUL key-value server — through the same provider-backed descent and
+/// report whether the *served* witness accepted it. The wish is a scenario:
+/// `POST /set?k&v` (twice) then `GET /get?k` (twice) are issued IN ORDER against
+/// one running server, so the server must hold state in memory across requests.
+/// Exercises the service dimension — state, routing, sequencing — the corpus,
+/// all `Run`, does not. Returns `(realized, iterations, tokens)`.
 pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (bool, usize, u32) {
-    // Two endpoints so the server must ROUTE — one canned reply cannot satisfy
-    // both: GET /health -> 200 "ok" and GET /ping -> 200 "pong". Each is checked
-    // by a real HTTP probe; directed service diagnostics let the descent add the
-    // second route without clobbering the first.
-    let keys = ["GET:/health=>200,body~ok", "GET:/ping=>200,body~pong"];
-    let evidence = Digest::of(&("service-smoke", &keys));
+    // Set two keys, then read both back — one scenario, run in order against ONE
+    // server. Distinct values (alpha/beta) defeat a server that ignores the key
+    // and returns a constant; success means state truly persisted in memory.
+    let key = "POST:/set?k=a&v=alpha=>200 ; POST:/set?k=b&v=beta=>200 ; \
+               GET:/get?k=a=>200,body~alpha ; GET:/get?k=b=>200,body~beta";
+    let evidence = Digest::of(&("service-smoke", key));
     let wish = Wish::new(
-        "realize a tiny HTTP service: GET /health -> 200 ok and GET /ping -> 200 pong",
-        keys.iter()
-            .map(|k| WishPredicate::require(WishFacet::service(*k))),
+        "realize a stateful key-value HTTP service: POST /set?k&v stores, GET /get?k returns it",
+        [WishPredicate::require(WishFacet::service(key))],
         Digest::ZERO,
         evidence,
     );
