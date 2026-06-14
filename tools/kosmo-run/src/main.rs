@@ -3044,8 +3044,18 @@ fn apply_synthesis(
             .unwrap_or_default();
         if changes.is_empty() {
             if let Some(synth) = fallback {
-                if let Ok(result) = synth.synthesize(&req) {
-                    changes = result.patch.file_changes;
+                match synth.synthesize(&req) {
+                    Ok(result) => changes = result.patch.file_changes,
+                    // Surface the error instead of silently swallowing it: a
+                    // swallowed transport error is indistinguishable from "the
+                    // model produced nothing", which is exactly what masked the
+                    // provider misconfiguration this benchmark is meant to catch.
+                    Err(e) => {
+                        eprintln!(
+                            "  fallback synthesis failed for {}: {}",
+                            facet.key, e.message
+                        )
+                    }
                 }
             }
         }

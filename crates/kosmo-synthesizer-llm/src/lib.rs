@@ -43,6 +43,8 @@
 //! `confidence_pct` is an integer 0–100 (no floats cross our boundary —
 //! it is mapped via [`Q16::ratio`]); `op` is `create` | `modify` | `delete`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -86,6 +88,13 @@ pub struct LlmConfig {
     /// Short human tag for the synthesizer name / patch `model_hint`
     /// (`"claude"`, `"cerebras"`, `"openai"`).
     pub tag: String,
+    /// Learned at runtime from the endpoint's *own* 400 responses (never from a
+    /// hard-coded host name): some OpenAI models require `max_completion_tokens`
+    /// in place of `max_tokens` and accept only the default `temperature`. Each
+    /// flag flips once on the first rejection and is then remembered, so the
+    /// corrective probe is paid at most once. `Arc` so clones share the lesson.
+    use_max_completion_tokens: Arc<AtomicBool>,
+    omit_temperature: Arc<AtomicBool>,
 }
 
 impl LlmConfig {
@@ -102,6 +111,8 @@ impl LlmConfig {
             temperature_milli: 0,
             timeout_secs: 120,
             tag: "claude".into(),
+            use_max_completion_tokens: Arc::new(AtomicBool::new(false)),
+            omit_temperature: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -118,6 +129,8 @@ impl LlmConfig {
             temperature_milli: 0,
             timeout_secs: 120,
             tag: "cerebras".into(),
+            use_max_completion_tokens: Arc::new(AtomicBool::new(false)),
+            omit_temperature: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -136,6 +149,8 @@ impl LlmConfig {
             temperature_milli: 0,
             timeout_secs: 120,
             tag: "openai".into(),
+            use_max_completion_tokens: Arc::new(AtomicBool::new(false)),
+            omit_temperature: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -181,15 +196,31 @@ impl LlmConfig {
                 "system": system,
                 "messages": [{ "role": "user", "content": user }],
             }),
-            LlmProvider::OpenAiCompatible => json!({
-                "model": self.model,
-                "max_tokens": self.max_tokens,
-                "temperature": temperature,
-                "messages": [
-                    { "role": "system", "content": system },
-                    { "role": "user", "content": user },
-                ],
-            }),
+            LlmProvider::OpenAiCompatible => {
+                let mut body = json!({
+                    "model": self.model,
+                    "messages": [
+                        { "role": "system", "content": system },
+                        { "role": "user", "content": user },
+                    ],
+                });
+                // Default to the classic `max_tokens`; switch to
+                // `max_completion_tokens` only once the endpoint has told us it
+                // requires it (learned in `call`). Keeps Cerebras / Ollama / any
+                // OpenAI-compatible server working unchanged.
+                let token_field = if self.use_max_completion_tokens.load(Ordering::Relaxed) {
+                    "max_completion_tokens"
+                } else {
+                    "max_tokens"
+                };
+                body[token_field] = json!(self.max_tokens);
+                // Some models accept only the default temperature; omit the
+                // field entirely once the endpoint has rejected an explicit one.
+                if !self.omit_temperature.load(Ordering::Relaxed) {
+                    body["temperature"] = json!(temperature);
+                }
+                body
+            }
         }
     }
 
@@ -372,11 +403,14 @@ impl LlmSynthesizer {
     /// exponential backoff. Returns `(assistant_text, output_tokens)`.
     pub(crate) fn call(&self, system: &str, user: &str) -> Result<(String, u32), SynthesisError> {
         let url = self.config.endpoint();
-        let body = self.config.request_body(system, user);
         let retry_delays = [4u64, 8, 16];
         let mut attempt = 0usize;
+        let mut adapt_attempts = 0usize;
 
         loop {
+            // Rebuilt each pass so a parameter lesson learned below (see the 400
+            // handling) takes effect on the retry.
+            let body = self.config.request_body(system, user);
             let req = self
                 .config
                 .apply_headers(self.client.post(&url).json(&body));
@@ -402,6 +436,37 @@ impl LlmSynthesizer {
 
             if !status.is_success() {
                 let text = resp.text().unwrap_or_default();
+                // Endpoint-agnostic parameter correction: some OpenAI-compatible
+                // models reject parameters this client sends by default — newer
+                // OpenAI models want `max_completion_tokens` instead of
+                // `max_tokens`, and accept only the default `temperature`. Learn
+                // the requirement from the endpoint's own 400, flip the flag, and
+                // retry. Each lesson is remembered (Arc<AtomicBool>), so the probe
+                // is paid at most once per parameter rather than on every call.
+                if self.config.provider == LlmProvider::OpenAiCompatible
+                    && status.as_u16() == 400
+                    && adapt_attempts < 2
+                {
+                    let lower = text.to_ascii_lowercase();
+                    if lower.contains("max_completion_tokens")
+                        && !self
+                            .config
+                            .use_max_completion_tokens
+                            .swap(true, Ordering::Relaxed)
+                    {
+                        adapt_attempts += 1;
+                        continue;
+                    }
+                    if lower.contains("temperature")
+                        && (lower.contains("does not support")
+                            || lower.contains("unsupported value")
+                            || lower.contains("only the default"))
+                        && !self.config.omit_temperature.swap(true, Ordering::Relaxed)
+                    {
+                        adapt_attempts += 1;
+                        continue;
+                    }
+                }
                 return Err(SynthesisError::permanent(format!(
                     "HTTP {status}: {}",
                     truncate(&text, 300)
@@ -917,5 +982,55 @@ mod tests {
     fn prompt_omits_memory_section_without_grounding() {
         let prompt = build_user_prompt(&make_request());
         assert!(!prompt.contains("# Anchored knowledge"));
+    }
+
+    #[test]
+    fn openai_body_defaults_classic_then_adapts_when_endpoint_requires_it() {
+        let c = LlmConfig::openai_compatible("https://example.test/v1", "some-model", "k");
+        // Default: the classic OpenAI body — `max_tokens` + `temperature`, so
+        // Cerebras / Ollama / vLLM keep working untouched.
+        let b = c.request_body("S", "U");
+        assert_eq!(b["max_tokens"], 4096);
+        assert!(b.get("temperature").is_some());
+        assert!(b.get("max_completion_tokens").is_none());
+        assert_eq!(b["messages"][0]["role"], "system");
+
+        // After learning the endpoint's requirements from its own 400 responses:
+        c.use_max_completion_tokens.store(true, Ordering::Relaxed);
+        c.omit_temperature.store(true, Ordering::Relaxed);
+        let b = c.request_body("S", "U");
+        assert_eq!(b["max_completion_tokens"], 4096);
+        assert!(b.get("max_tokens").is_none());
+        assert!(b.get("temperature").is_none());
+        // The system prompt still leads the messages array.
+        assert_eq!(b["messages"][0]["role"], "system");
+    }
+
+    /// Live smoke test against whatever the environment configures
+    /// (`KOSMO_LLM_*` or a provider key) — exercises the *exact* path the
+    /// realization benchmark uses, including the adaptive parameter probe, and
+    /// asserts the call reports tokens. Zero tokens means the request never
+    /// reached the model — the silent failure this guards against. Ignored by
+    /// default; run with the env set:
+    /// `cargo test -p kosmo-synthesizer-llm live_env -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_env_synthesizes_with_nonzero_tokens() {
+        let synth = LlmSynthesizer::from_env().expect("env provider must be configured");
+        let req = make_request();
+        let result = synth
+            .synthesize(&req)
+            .expect("a live synthesis must succeed");
+        eprintln!(
+            "live: tokens={} files={} confidence={:?}",
+            result.tokens_used,
+            result.patch.file_changes.len(),
+            result.confidence
+        );
+        assert!(
+            result.tokens_used > 0,
+            "a real provider call must report tokens; 0 means the request never \
+             reached the model"
+        );
     }
 }

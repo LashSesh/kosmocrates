@@ -35,3 +35,7 @@ eval_bundle.json
 /nxalien.manifest.json
 /nxalien.replay.json
 /nxalien.signal.json
+
+# realization benchmark runtime artifact
+/bench.json
+/bench*.json
