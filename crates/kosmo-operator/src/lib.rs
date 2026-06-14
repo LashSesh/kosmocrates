@@ -90,15 +90,16 @@ struct ReportContent<'a> {
     foundry_report_id: &'a Digest,
     parseback_report_id: &'a Digest,
     closure_report_id: &'a Digest,
-    elapsed_ms: u64,
     persisted: bool,
 }
 
 /// The complete, content-addressed record of one operator cycle.
 ///
 /// Chains `FoundryExecutionReport` → `ParseBackReport` → `ValidationClosureReport`
-/// into a single auditable artefact. `report_id` is the content digest of all
-/// sub-report ids and metadata (INVARIANT-007: identical inputs → identical id).
+/// into a single auditable artefact. `report_id` is the content digest of the
+/// plan id, the three sub-report ids and `persisted` — deliberately NOT the
+/// wall-clock `elapsed_ms`, which is observational, varies run to run, and would
+/// break INVARIANT-007 (identical inputs → identical id).
 ///
 /// `persisted` is `true` only when the closure payload digest was appended to the
 /// JSONL cartography store under `OperatorApproved` policy.
@@ -127,7 +128,6 @@ impl OperationReport {
             foundry_report_id: &foundry_report.id,
             parseback_report_id: &parseback_report.id,
             closure_report_id: &closure_report.id,
-            elapsed_ms,
             persisted,
         });
         Self {
@@ -147,7 +147,6 @@ impl OperationReport {
             foundry_report_id: &self.foundry_report.id,
             parseback_report_id: &self.parseback_report.id,
             closure_report_id: &self.closure_report.id,
-            elapsed_ms: self.elapsed_ms,
             persisted: self.persisted,
         });
         self.report_id == expected
@@ -516,6 +515,30 @@ mod tests {
             "INVARIANT-007: identical inputs must produce identical ids"
         );
         assert_ne!(r1.report_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn report_id_excludes_wall_clock_elapsed() {
+        // INVARIANT-007: the content address must depend only on the inputs and
+        // sub-reports, never on how long the run took. Same sub-reports, a
+        // wildly different elapsed_ms → identical report_id. (Including the
+        // wall clock made the digest flaky under slow/instrumented runs.)
+        let executor = OperatorExecutor::new(PathBuf::from("/nonexistent"));
+        let plan = make_plan(ParseBackScanScope::FullWorkspace);
+        let policy = PolicyProfile::default_report_only();
+        let r = executor.execute(&plan, &policy, bundle_id());
+        let slow = OperationReport::build(
+            r.plan_id,
+            r.foundry_report.clone(),
+            r.parseback_report.clone(),
+            r.closure_report.clone(),
+            r.elapsed_ms + 999_999,
+            r.persisted,
+        );
+        assert_eq!(
+            r.report_id, slow.report_id,
+            "report_id must not depend on wall-clock elapsed_ms (INVARIANT-007)"
+        );
     }
 
     #[test]
