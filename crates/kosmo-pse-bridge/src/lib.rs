@@ -408,7 +408,6 @@ struct RecordContent<'a> {
     request_id: &'a Digest,
     outcome: &'a PromotionOutcome,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl PromotionRequestRecord {
@@ -446,7 +445,6 @@ impl PromotionRequestRecord {
             request_id: &self.request_id,
             outcome: &self.outcome,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 

@@ -275,7 +275,6 @@ struct RunReportContent<'a> {
     metrics_id: &'a Digest,
     diagnostics: &'a Vec<String>,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl EvaluationRunReport {
@@ -322,7 +321,6 @@ impl EvaluationRunReport {
             metrics_id: &self.metrics.id,
             diagnostics: &self.diagnostics,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 
@@ -384,7 +382,6 @@ struct SuiteReportContent<'a> {
     failed_count: u64,
     skipped_count: u64,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl EvaluationSuiteReport {
@@ -448,7 +445,6 @@ impl EvaluationSuiteReport {
             failed_count: self.failed_count,
             skipped_count: self.skipped_count,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 

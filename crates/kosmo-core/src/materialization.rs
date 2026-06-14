@@ -385,7 +385,6 @@ struct MatReportContent<'a> {
     validation_closure_report_id: &'a Option<Digest>,
     diagnostics: &'a Vec<String>,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl MaterializationExecutionReport {
@@ -447,7 +446,6 @@ impl MaterializationExecutionReport {
             validation_closure_report_id: &self.validation_closure_report_id,
             diagnostics: &self.diagnostics,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 

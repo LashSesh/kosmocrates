@@ -351,7 +351,6 @@ struct WriteReportContent<'a> {
     roundtrip_id: Option<&'a Digest>,
     diagnostics: &'a Vec<String>,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl KcubeWriteReport {
@@ -414,7 +413,6 @@ impl KcubeWriteReport {
             roundtrip_id,
             diagnostics: &self.diagnostics,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 
