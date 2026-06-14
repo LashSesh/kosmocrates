@@ -650,8 +650,8 @@ pub fn build_user_prompt(request: &SynthesisRequest) -> String {
 /// `KOSMO_PORT` set to a free loopback port and issues the probe(s) over HTTP
 /// against that one process; a key may be a `;`-separated SEQUENCE run in order,
 /// so state persists in memory across requests. Without this contract a model
-/// has no way to know which port to bind, that inputs arrive in the URL, or that
-/// steps share one server.
+/// has no way to know which port to bind, that inputs arrive in the URL or a
+/// request body, or that steps share one server.
 fn service_contract(key: &str) -> String {
     format!(
         "\n# How this service wish is verified — your program is STARTED AS A SERVER\n\n\
@@ -668,10 +668,15 @@ fn service_contract(key: &str) -> String {
          expected code (e.g. `HTTP/1.1 200 OK`), then a blank line, then a body containing the \
          `body~` substring when one is given; answer any UNKNOWN path with a 404 response so \
          the server reads as ready;\n\
-         - take request inputs from the URL — path and query string, e.g. `/get?k=foo` — as \
-         no request body is sent;\n\
+         - take request inputs from the URL (path and query string, e.g. `/get?k=foo`); a step \
+         may ALSO carry a REQUEST BODY (the `<<body` part of its key), sent after the headers \
+         with a `Content-Length` header. Read it PRECISELY: read bytes until you have the \
+         `\\r\\n\\r\\n` that ends the headers, parse the integer N from `Content-Length`, then \
+         read exactly N more bytes for the body. Do NOT read until end-of-stream — the client \
+         keeps the connection open waiting for your response, so reading past the body will \
+         hang until timeout (the server then looks dead and the probe fails);\n\
          - keep the `// kosmo:service: {key}` marker comment on its own line in the source.\n\n\
-         The probe to satisfy (a `METHOD:/path=>STATUS[,body~SUBSTR]` key):\n\n    {key}\n\n\
+         The probe to satisfy (a `METHOD:/path[<<REQUEST_BODY]=>STATUS[,body~SUBSTR]` key):\n\n    {key}\n\n\
          If that key has several steps separated by ` ; ` it is a SCENARIO: the steps are \
          issued IN ORDER against the same running server, so hold any state in memory (e.g. a \
          `std::collections::HashMap`) across requests — a later step must see what an earlier \
