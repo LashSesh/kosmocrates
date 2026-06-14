@@ -540,24 +540,24 @@ pub fn run_realize_bench(
     }
 }
 
-/// A minimal **service-synthesis smoke**: drive ONE HTTP-service wish — a tiny
-/// STATEFUL key-value server — through the same provider-backed descent and
-/// report whether the *served* witness accepted it. The wish is a scenario:
-/// `POST /set?k` with the value in the **request body** (twice), then
-/// `GET /get?k` (twice), issued IN ORDER against one running server — so the
-/// server must read request bodies AND hold state in memory across requests.
-/// Exercises the service dimension — bodies, state, routing, sequencing — the
-/// corpus, all `Run`, does not. Returns `(realized, iterations, tokens)`.
+/// A minimal **fullstack-app smoke**: drive ONE HTTP-service wish — a counter
+/// web app with an HTML frontend and a small API over shared state — through the
+/// same provider-backed descent. The scenario (one server, steps in order)
+/// checks the served HTML page, two increments, and the resulting count, so the
+/// artifact must serve a frontend, route an API, and hold state at once. With
+/// `KOSMO_DEPS_ALLOWED` it may use a framework (e.g. axum); else std-only.
+/// Returns `(realized, iterations, tokens)`.
 pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (bool, usize, u32) {
-    // Store two keys whose VALUE arrives in the request body (`<<alpha`), the key
-    // in the query, then read both back — one scenario, in order against ONE
-    // server. Distinct bodies prove the server reads the body AND persists state;
-    // a server that ignores either the body or the key fails a later step.
-    let key = "POST:/set?k=a<<alpha=>200 ; POST:/set?k=b<<beta=>200 ; \
-               GET:/get?k=a=>200,body~alpha ; GET:/get?k=b=>200,body~beta";
-    let evidence = Digest::of(&("service-smoke", key));
+    // A counter web app, one server, steps in order: GET / is the HTML frontend
+    // (must carry an `<h1>Counter` heading — real markup, not bare text),
+    // POST /api/inc mutates a shared counter, and GET /api/count reports it. Two
+    // increments then a read prove real routing and persisted state.
+    let key = "GET:/=>200,body~<h1>Counter ; POST:/api/inc=>200 ; POST:/api/inc=>200 ; \
+               GET:/api/count=>200,body~2";
+    let evidence = Digest::of(&("fullstack-smoke", key));
     let wish = Wish::new(
-        "realize a key-value HTTP service: POST /set?k with the value in the body, GET /get?k returns it",
+        "realize a counter web app: GET / serves an HTML page with an <h1>Counter heading, \
+         POST /api/inc increments shared state, GET /api/count returns the current count",
         [WishPredicate::require(WishFacet::service(key))],
         Digest::ZERO,
         evidence,
@@ -574,7 +574,13 @@ pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (
                 Some(counter.as_ref()),
                 None,
             );
-            std::fs::remove_dir_all(&root).ok();
+            // Keep the realized workspace for inspection when asked; otherwise
+            // clean it up (the default).
+            if std::env::var("KOSMO_KEEP_WS").is_ok() {
+                eprintln!("  workspace kept: {}", root.display());
+            } else {
+                std::fs::remove_dir_all(&root).ok();
+            }
             match descent {
                 Ok(session) => (
                     session
@@ -591,7 +597,7 @@ pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (
         Err(_) => (false, 0),
     };
     eprintln!(
-        "  service-smoke {}  ({} iter · {} tok)",
+        "  fullstack-app {}  ({} iter · {} tok)",
         if realized { "\u{2713}" } else { "\u{2717}" },
         iterations,
         counter.total(),
