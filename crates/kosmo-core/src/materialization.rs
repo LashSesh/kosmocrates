@@ -883,6 +883,28 @@ mod tests {
     }
 
     #[test]
+    fn mat_report_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let mk = |ms: u64| {
+            MaterializationExecutionReport::new(
+                plan_id(),
+                MaterializationOutcome::SkippedByReportOnly,
+                vec![],
+                None,
+                None,
+                vec![],
+                bundle_id(),
+                ms,
+            )
+        };
+        assert_eq!(
+            mk(100).id,
+            mk(200).id,
+            "report id must not depend on elapsed_ms"
+        );
+    }
+
+    #[test]
     fn mat_report_no_floats_in_elapsed() {
         let r = MaterializationExecutionReport::skipped_by_report_only(plan_id(), bundle_id());
         assert_eq!(r.elapsed_ms, 0u64);

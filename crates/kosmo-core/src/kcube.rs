@@ -731,6 +731,29 @@ mod tests {
     }
 
     #[test]
+    fn write_report_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let mk = |ms: u64| {
+            KcubeWriteReport::new(
+                d(b"pkg"),
+                d(b"ep"),
+                KcubeWriteOutcome::SkippedByReportOnly,
+                None,
+                0,
+                None,
+                vec![],
+                bundle_id(),
+                ms,
+            )
+        };
+        assert_eq!(
+            mk(100).id,
+            mk(200).id,
+            "report id must not depend on elapsed_ms"
+        );
+    }
+
+    #[test]
     fn write_report_new_deterministic() {
         let r1 = KcubeWriteReport::new(
             d(b"pkg"),

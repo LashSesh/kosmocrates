@@ -854,6 +854,24 @@ mod tests {
     }
 
     #[test]
+    fn record_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let mk = |ms: u64| {
+            PromotionRequestRecord::new(
+                d(b"req"),
+                PromotionOutcome::SkippedByReportOnly,
+                bundle_id(),
+                ms,
+            )
+        };
+        assert_eq!(
+            mk(100).id,
+            mk(200).id,
+            "report id must not depend on elapsed_ms"
+        );
+    }
+
+    #[test]
     fn record_new_deterministic() {
         let r1 =
             PromotionRequestRecord::new(d(b"req"), PromotionOutcome::Accepted, bundle_id(), 42);

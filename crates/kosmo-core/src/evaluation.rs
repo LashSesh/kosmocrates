@@ -775,6 +775,27 @@ mod tests {
     }
 
     #[test]
+    fn run_report_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let s = d(b"s");
+        let mk = |ms: u64| {
+            EvaluationRunReport::new(
+                s,
+                EvaluationOutcome::SkippedByReportOnly,
+                EvaluationMetrics::new(s, Q16::ZERO, Q16::ZERO, Q16::ZERO, false),
+                vec![],
+                bundle_id(),
+                ms,
+            )
+        };
+        assert_eq!(
+            mk(100).id,
+            mk(200).id,
+            "report id must not depend on elapsed_ms"
+        );
+    }
+
+    #[test]
     fn run_report_new_deterministic() {
         let s = basic_scenario();
         let m = passing_metrics(s.id);
@@ -938,6 +959,14 @@ mod tests {
         );
         assert!(!suite.suite_outcome.is_failure_class());
         assert!(suite.verify_id());
+    }
+
+    #[test]
+    fn suite_report_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let a = EvaluationSuiteReport::from_run_reports(&[], bundle_id(), 100);
+        let b = EvaluationSuiteReport::from_run_reports(&[], bundle_id(), 200);
+        assert_eq!(a.id, b.id, "report id must not depend on elapsed_ms");
     }
 
     #[test]
