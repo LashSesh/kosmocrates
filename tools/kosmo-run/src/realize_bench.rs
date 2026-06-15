@@ -22,9 +22,12 @@
 //! model clear trivial targets?), the *rung* (palindrome, base conversion,
 //! ROT13 — moderate logic), and the *ceiling* (Roman numerals, precedence
 //! expression evaluation, run-length encoding — where a real engine is
-//! discriminated from a weak one). Every task carries **multiple probes**
-//! that resist hard-coding: a program that prints one memorized answer
-//! fails the others, so the model must generalize.
+//! discriminated from a weak one). A fourth **service** tier crosses
+//! dimensions: HTTP wishes realized by *serving* — bind the port, route,
+//! read request bodies, hold state — judged over the socket, not stdout.
+//! Each CLI task carries **multiple probes** that resist hard-coding: a
+//! program that prints one memorized answer fails the others, so the model
+//! must generalize.
 //!
 //! What this measures: synthesis-to-spec — given a precise, multi-probe
 //! behavioural target, can the model produce code that an executing witness
@@ -80,6 +83,8 @@ pub enum Tier {
     Rung,
     /// Hard — discriminates a real engine from a weak one.
     Ceiling,
+    /// A served HTTP wish — the artifact is started as a server and probed.
+    Service,
 }
 
 impl Tier {
@@ -88,6 +93,7 @@ impl Tier {
             Tier::Floor => "floor",
             Tier::Rung => "rung",
             Tier::Ceiling => "ceiling",
+            Tier::Service => "service",
         }
     }
 }
@@ -320,6 +326,58 @@ pub fn wish_for(task: &RealizeTask) -> Wish {
     )
 }
 
+/// One service task: a named intent and a `Service`-facet scenario key (a
+/// `" ; "`-separated sequence run in order against one server). Realized by
+/// *serving*, judged over HTTP — a different dimension from the CLI corpus.
+pub struct ServiceTask {
+    pub name: &'static str,
+    pub intent: &'static str,
+    /// The Service facet key: `method:path[<<body]=>status[,body~substr]`,
+    /// optionally several steps separated by `" ; "`.
+    pub scenario: &'static str,
+}
+
+/// The service corpus — graduated like the CLI tiers, but served over HTTP:
+/// bind a port, route, read request bodies, hold state. Each is a budgeted
+/// `Service` wish the scaffolder cannot satisfy, so the descent must call the
+/// real provider.
+pub fn service_corpus() -> Vec<ServiceTask> {
+    vec![
+        ServiceTask {
+            name: "health",
+            intent: "answer GET /health with 200 and a body containing ok",
+            scenario: "GET:/health=>200,body~ok",
+        },
+        ServiceTask {
+            name: "kv-store",
+            intent: "store a value (in the request body) under a query key, read it back",
+            scenario: "POST:/set?k=a<<alpha=>200 ; GET:/get?k=a=>200,body~alpha",
+        },
+        ServiceTask {
+            name: "echo",
+            intent: "echo the request body — distinct bodies prove it is read, not canned",
+            scenario: "POST:/echo<<ping=>200,body~ping ; POST:/echo<<pong=>200,body~pong",
+        },
+        ServiceTask {
+            name: "counter-app",
+            intent: "a counter web app: HTML frontend, an increment API, a read API over state",
+            scenario: "GET:/=>200,body~<h1>Counter ; POST:/api/inc=>200 ; POST:/api/inc=>200 ; GET:/api/count=>200,body~2",
+        },
+    ]
+}
+
+/// Build a service task's wish: one budgeted `Service` facet carrying the
+/// scenario, evidence-bound to the task's name and scenario (deterministic).
+pub fn service_wish_for(task: &ServiceTask) -> Wish {
+    let evidence = Digest::of(&(task.name, task.scenario));
+    Wish::new(
+        format!("realize service {}: {}", task.name, task.intent),
+        [WishPredicate::require(WishFacet::service(task.scenario))],
+        Digest::ZERO,
+        evidence,
+    )
+}
+
 /// One task's measured outcome.
 #[derive(Debug, serde::Serialize)]
 pub struct TaskOutcome {
@@ -375,7 +433,7 @@ impl RealizeBenchReport {
     pub fn to_json(&self) -> String {
         let body = serde_json::to_value(self).unwrap_or_default();
         let report_id = Digest::of(&body);
-        let tiers: Vec<serde_json::Value> = [Tier::Floor, Tier::Rung, Tier::Ceiling]
+        let tiers: Vec<serde_json::Value> = [Tier::Floor, Tier::Rung, Tier::Ceiling, Tier::Service]
             .iter()
             .map(|t| {
                 let (r, a) = self.tier_counts(*t);
@@ -406,7 +464,7 @@ impl RealizeBenchReport {
             self.provider, model
         );
         let pct = |bp: u32| format!("{}.{:02}%", bp / 100, bp % 100);
-        for tier in [Tier::Floor, Tier::Rung, Tier::Ceiling] {
+        for tier in [Tier::Floor, Tier::Rung, Tier::Ceiling, Tier::Service] {
             let (r, a) = self.tier_counts(tier);
             if a == 0 {
                 continue;
@@ -457,6 +515,45 @@ fn scratch_workspace(name: &str) -> std::io::Result<std::path::PathBuf> {
     Ok(root)
 }
 
+/// Forge one wish onto a blank workspace via the provider-backed descent and
+/// report `(realized, iterations, tokens)`. Shared by the CLI and service runs.
+fn realize_one(
+    armed: &Arc<dyn ActionSynthesizer>,
+    name: &str,
+    wish: &Wish,
+    max_iters: u32,
+) -> (bool, usize, u32) {
+    let counter = Arc::new(CountingSynthesizer::new(armed.clone()));
+    let (realized, iterations) = match scratch_workspace(name) {
+        Ok(root) => {
+            let descent = descend_to_wish(
+                root.to_str().unwrap_or("."),
+                wish,
+                wish.evidence_bundle_id,
+                false,
+                max_iters,
+                Some(counter.as_ref()),
+                None,
+            );
+            std::fs::remove_dir_all(&root).ok();
+            match descent {
+                Ok(session) => (
+                    session
+                        .latest()
+                        .is_some_and(|a| matches!(a.status, WishClosureStatus::Realized)),
+                    session.iterations(),
+                ),
+                Err(e) => {
+                    eprintln!("  !! {name} setup error: {e}");
+                    (false, 0)
+                }
+            }
+        }
+        Err(_) => (false, 0),
+    };
+    (realized, iterations, counter.total())
+}
+
 /// Run the benchmark: per task, build the wish, forge it onto a blank
 /// workspace via the provider-backed descent, and record whether the
 /// executing witness accepted it — with the real token cost.
@@ -484,36 +581,9 @@ pub fn run_realize_bench(
     let mut outcomes = Vec::new();
     for (idx, task) in corpus.into_iter().enumerate().skip(skip) {
         let wish = wish_for(&task);
-        let counter = Arc::new(CountingSynthesizer::new(armed.clone()));
-        let (realized, iterations) = match scratch_workspace(task.name) {
-            Ok(root) => {
-                let descent = descend_to_wish(
-                    root.to_str().unwrap_or("."),
-                    &wish,
-                    wish.evidence_bundle_id,
-                    false,
-                    max_iters,
-                    Some(counter.as_ref()),
-                    None,
-                );
-                std::fs::remove_dir_all(&root).ok();
-                match descent {
-                    Ok(session) => (
-                        session
-                            .latest()
-                            .is_some_and(|a| matches!(a.status, WishClosureStatus::Realized)),
-                        session.iterations(),
-                    ),
-                    Err(e) => {
-                        eprintln!("  !! {} setup error: {}", task.name, e);
-                        (false, 0)
-                    }
-                }
-            }
-            Err(_) => (false, 0),
-        };
-        // Live progress so a long run is observable and partial results
-        // survive an interrupted run: one line per task as it resolves.
+        let (realized, iterations, tokens) = realize_one(&armed, task.name, &wish, max_iters);
+        // Live progress so a long run is observable and partial results survive
+        // an interrupted run: one line per task as it resolves.
         eprintln!(
             "  [{:>2}/{}] {:<12} {}  ({} iter · {} tok)",
             idx + 1,
@@ -521,7 +591,7 @@ pub fn run_realize_bench(
             task.name,
             if realized { "\u{2713}" } else { "\u{2717}" },
             iterations,
-            counter.total(),
+            tokens,
         );
         outcomes.push(TaskOutcome {
             name: task.name,
@@ -530,7 +600,33 @@ pub fn run_realize_bench(
             realized,
             iterations,
             probes: task.probes.len(),
-            tokens: counter.total(),
+            tokens,
+        });
+    }
+    // The service tier — realized by serving over HTTP. Appended after the CLI
+    // corpus so KOSMO_REALIZE_SKIP slices the CLI tasks; the services always run.
+    let services = service_corpus();
+    let service_total = services.len();
+    for (idx, task) in services.iter().enumerate() {
+        let wish = service_wish_for(task);
+        let (realized, iterations, tokens) = realize_one(&armed, task.name, &wish, max_iters);
+        eprintln!(
+            "  [svc {:>2}/{}] {:<12} {}  ({} iter · {} tok)",
+            idx + 1,
+            service_total,
+            task.name,
+            if realized { "\u{2713}" } else { "\u{2717}" },
+            iterations,
+            tokens,
+        );
+        outcomes.push(TaskOutcome {
+            name: task.name,
+            tier: Tier::Service,
+            wish_id: wish.id.to_hex(),
+            realized,
+            iterations,
+            probes: task.scenario.split(" ; ").count(),
+            tokens,
         });
     }
     RealizeBenchReport {
@@ -650,6 +746,38 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn service_corpus_is_wellformed_and_scenarios_parse() {
+        let corpus = service_corpus();
+        assert!(corpus.len() >= 3, "a service corpus worth measuring");
+        let mut names: Vec<&str> = corpus.iter().map(|t| t.name).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), corpus.len(), "service task names are unique");
+        for t in &corpus {
+            assert!(!t.scenario.is_empty(), "{}: has a scenario", t.name);
+            // Each step is a parseable METHOD:/path[<<body]=>expect.
+            for step in t.scenario.split(" ; ") {
+                let (method, rest) = step.split_once(':').expect("step has method:rest");
+                assert!(!method.trim().is_empty(), "{}: step has a method", t.name);
+                assert!(rest.contains("=>"), "{}: step has an expectation", t.name);
+            }
+        }
+        // The wish is one budgeted Service facet, evidence-bound and deterministic.
+        let task = corpus
+            .iter()
+            .find(|t| t.name == "health")
+            .expect("health task");
+        let wish = service_wish_for(task);
+        assert_eq!(wish.predicate_count(), 1);
+        assert!(wish.is_evidence_bound(), "bound to the scenario");
+        assert_eq!(
+            service_wish_for(task).id,
+            wish.id,
+            "same scenario, same wish id"
+        );
     }
 
     #[test]

@@ -1999,9 +1999,10 @@ fn run_realize_bench_mode(args: &Args) -> Result<ExitCode, String> {
     )?;
     if !args.json {
         eprintln!(
-            "kosmo-run: firing {} task(s) through the real loop — this calls the provider \
-             repeatedly and may take a while…",
-            realize_bench::reference_corpus().len()
+            "kosmo-run: firing {} CLI + {} service task(s) through the real loop — this \
+             calls the provider repeatedly and may take a while…",
+            realize_bench::reference_corpus().len(),
+            realize_bench::service_corpus().len()
         );
     }
     let report = realize_bench::run_realize_bench(armed, &args.provider, args.model.clone());
