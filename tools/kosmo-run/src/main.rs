@@ -162,6 +162,9 @@ struct Args {
     /// Prose→spec benchmark: run natural-language utterances through the intent
     /// extractor + compiler and score the facets against a hand-written truth.
     prose_bench: bool,
+    /// Multi-crate smoke: drive a Run wish onto a two-crate workspace (a bin +
+    /// a library it calls), realized across the crate boundary.
+    realize_multicrate: bool,
     /// Doors mode: print this binary's complete docking surface — every
     /// door with inputs, governance and needs, content-addressed.
     doors: bool,
@@ -242,6 +245,7 @@ impl Default for Args {
             realize_bench_report: None,
             realize_service: false,
             prose_bench: false,
+            realize_multicrate: false,
             doors: false,
             doors_merge: None,
             foundry: None,
@@ -401,6 +405,10 @@ OPTIONS:\n\
                           utterances -> intent extractor + compiler -> facets,\n\
                           scored against ground truth. Offline (keyword router),\n\
                           or via the LLM extractor with --provider. Exits 0.\n\
+    --realize-multicrate  drive ONE Run wish onto a two-crate workspace (a bin +\n\
+                          the library it calls): the logic is realized in the\n\
+                          engine crate, reached across the boundary, judged by\n\
+                          execution. Real provider; a measurement, exits 0.\n\
 \n\
   STEWARD (self-husbandry — the machine proposes, the operator disposes):\n\
     --steward             survey the workspace's own wish landscape and name\n\
@@ -569,6 +577,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--realize-bench" => args.realize_bench = true,
             "--realize-service" => args.realize_service = true,
             "--prose-bench" => args.prose_bench = true,
+            "--realize-multicrate" => args.realize_multicrate = true,
             "--realize-bench-report" => {
                 args.realize_bench_report = Some(
                     argv.next()
@@ -2096,6 +2105,51 @@ fn run_prose_bench_mode(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `--realize-multicrate`: the multi-crate counterpart to `--realize-service`.
+/// Drive one Run wish onto a two-crate workspace (a bin + the library it calls)
+/// and report whether the loop realized the logic *across the crate boundary*,
+/// judged by executing the bin. Requires a real provider. A measurement, exits 0.
+fn run_multicrate_smoke_mode(args: &Args) -> Result<ExitCode, String> {
+    if args.provider == "mock" {
+        return Err(
+            "--realize-multicrate needs a real provider (claude | cerebras | env): the mock \
+             synthesizer cannot implement the library logic"
+                .to_string(),
+        );
+    }
+    let synthesizer = build_synthesizer(args)?;
+    let armed = arm_fallback(args, Some(synthesizer))?.ok_or(
+        "--realize-multicrate needs a real provider (claude | cerebras | env) — set a key or \
+         KOSMO_LLM_BASE_URL for a local model",
+    )?;
+    let max_iters: u32 = std::env::var("KOSMO_REALIZE_MAX_ITERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(8);
+    if !args.json {
+        eprintln!(
+            "kosmo-run: firing 1 multi-crate wish through the real loop — the logic must land \
+             in the engine crate, reached across the boundary…"
+        );
+    }
+    let (realized, iterations, tokens) = realize_bench::run_multicrate_smoke(armed, max_iters);
+    if args.json {
+        println!(
+            "{{\"multicrate_smoke\":{{\"realized\":{realized},\"iterations\":{iterations},\"tokens\":{tokens}}}}}"
+        );
+    } else {
+        println!(
+            "multi-crate realization: {} · {} iterations · {} tokens",
+            if realized { "REALIZED" } else { "unrealized" },
+            iterations,
+            tokens
+        );
+    }
+    // A measurement, not a gate: completion is success; the verdict is the finding.
+    Ok(ExitCode::SUCCESS)
+}
+
 // ─── Steward (self-husbandry under an operator-named fence) ─────────────────
 
 /// `--steward`: survey the workspace's wish landscape, name the open chores
@@ -3509,6 +3563,12 @@ fn run() -> Result<ExitCode, String> {
     // through the LLM extractor with --provider). A measurement, exits 0.
     if args.prose_bench {
         return run_prose_bench_mode(&args);
+    }
+
+    // The multi-crate smoke: realize logic in a library crate, reached across
+    // the boundary by the bin — the frontier of "umfang".
+    if args.realize_multicrate {
+        return run_multicrate_smoke_mode(&args);
     }
 
     // Steward: self-husbandry. Survey the workspace's own landscape; under

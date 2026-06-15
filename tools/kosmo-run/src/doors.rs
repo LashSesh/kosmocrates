@@ -248,6 +248,18 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--realize-multicrate",
+            vec![],
+            "the multi-crate realization smoke: drive one Run wish onto a \
+         two-crate workspace (a bin plus the library it calls) and realize the \
+         logic across the crate boundary, judged by executing the bin; a real \
+         provider, a measurement, not a gate",
+            [armament_inputs(), output_inputs()].concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Provider, DoorNeed::Network, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
             "--steward",
             vec![],
             "self-husbandry: survey the workspace's own landscape and, under \
