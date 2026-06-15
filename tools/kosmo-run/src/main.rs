@@ -3037,8 +3037,20 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 println!("{json}");
             }
         } else {
+            // The topology gear: one read-only re-observation after the descent,
+            // shared by the cube-mode honesty verdict (Run 9) and --mesh (Run 8).
+            let mesh_density = if args.layers || args.staged || args.mesh {
+                observe_workspace_deep(&args.path)
+                    .ok()
+                    .map(|o| topology_density(&o, args.capacity))
+            } else {
+                None
+            };
             if args.layers {
-                print!("{}", layered_descent_report(&session, args.color));
+                print!(
+                    "{}",
+                    layered_descent_report(&session, mesh_density, args.color)
+                );
                 if args.staged {
                     let report = StagedClosureReport::from_descent(
                         session.cubes(),
@@ -3051,11 +3063,9 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 print!("{}", descent_report(&session, args.color));
             }
             if args.mesh {
-                let d = observe_workspace_deep(&args.path)
-                    .map(|o| topology_density(&o, args.capacity))
-                    .unwrap_or(Q16::ZERO);
                 if let Some(c) = session.latest_cube() {
-                    let reading = CubeMeshReading::read(c, d, evidence);
+                    let reading =
+                        CubeMeshReading::read(c, mesh_density.unwrap_or(Q16::ZERO), evidence);
                     print!("{}", mesh_report(&reading, args.color));
                 }
             }
@@ -3126,15 +3136,21 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         }
     } else {
         print!("{}", wish_report(&wish, &assessment, args.color));
+        // The topology gear, computed once from this observation (free — no
+        // re-observe), drives both the cube-mode honesty verdict and --mesh.
+        let mesh_density = if args.layers || args.mesh {
+            Some(topology_density(&observed, args.capacity))
+        } else {
+            None
+        };
         if args.layers {
             let mut one = WishSession::new(wish.clone(), evidence);
             one.observe_layered(&observed);
-            print!("{}", layered_descent_report(&one, args.color));
+            print!("{}", layered_descent_report(&one, mesh_density, args.color));
         }
         if args.mesh {
             let cube = assess_wish_layered(&wish, &observed, evidence);
-            let d = topology_density(&observed, args.capacity);
-            let reading = CubeMeshReading::read(&cube, d, evidence);
+            let reading = CubeMeshReading::read(&cube, mesh_density.unwrap_or(Q16::ZERO), evidence);
             print!("{}", mesh_report(&reading, args.color));
         }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
@@ -3662,8 +3678,15 @@ fn layer_state_word(view: &kosmo_core::WishLayerView) -> &'static str {
 
 /// Render the latest cube as a 3-D-printer: one bar per stratum, filled to its
 /// opacity, plus the geomean-solidity gauge and the per-layer convergence
-/// verdict — the human watches the hologram become a solid diamond.
-fn layered_descent_report(session: &WishSession, color: bool) -> String {
+/// verdict — the human watches the hologram become a solid diamond. When
+/// `mesh_density` is `Some` and the wish has fully solidified, the topology gear
+/// judges it (Run 9 — the gears interlock): a solid wish over a sparse topology
+/// is a hologram, not a diamond. Advisory (CROSS-010).
+fn layered_descent_report(
+    session: &WishSession,
+    mesh_density: Option<Q16>,
+    color: bool,
+) -> String {
     let c = |code: &'static str| if color { code } else { "" };
     let mut out = String::new();
     out.push_str(&format!(
@@ -3764,6 +3787,29 @@ fn layered_descent_report(session: &WishSession, color: bool) -> String {
             c(GREEN),
             c(RESET)
         ));
+    }
+    // Run 9 — the cybernetic interlock: once the wish has fully solidified, the
+    // topology gear judges the realization. A solid wish over a sparse topology
+    // is a hologram, not a diamond (over-fit). Advisory only (CROSS-010).
+    if let (Some(d), Some(cube)) = (mesh_density, session.latest_cube()) {
+        if cube.structural_solidity == Q16::ONE {
+            let q = Q16::ratio(1, 4).unwrap_or(Q16::ZERO);
+            if d.at_least(q) {
+                out.push_str(&format!(
+                    "  {}\u{2713} genuine \u{2014} wish solid and topology dense ({:.3}): a cut diamond{}\n",
+                    c(GREEN),
+                    d.to_f64(),
+                    c(RESET)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "  {}\u{26a0} over-fit \u{2014} wish solid but topology sparse ({:.3}): a hologram, not a diamond{}\n",
+                    c(YELLOW),
+                    d.to_f64(),
+                    c(RESET)
+                ));
+            }
+        }
     }
     out
 }
@@ -4208,7 +4254,7 @@ mod tests {
         observed.insert(WishFacet::crate_("kosmo-api")); // existence solid
         session.observe_layered(&observed);
 
-        let out = layered_descent_report(&session, false);
+        let out = layered_descent_report(&session, None, false);
         for label in ["existence", "shape", "wiring", "verified", "live"] {
             assert!(out.contains(label), "missing stratum {label}: {out}");
         }
@@ -4224,7 +4270,7 @@ mod tests {
         observed.insert(WishFacet::new(WishFacetKind::Run, "ping=>out~pong")); // live over hollow base
         session.observe_layered(&observed);
 
-        let out = layered_descent_report(&session, false);
+        let out = layered_descent_report(&session, None, false);
         assert!(
             out.contains("over-fit suspect"),
             "should warn about a floating layer: {out}"
@@ -4273,7 +4319,7 @@ mod tests {
         // the lens focuses on its foundation (the crate).
         let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
         session.observe_layered(&ObservedTopology::empty());
-        let out = layered_descent_report(&session, false);
+        let out = layered_descent_report(&session, None, false);
         assert!(out.contains("focus \u{2192}"), "render shows the lens focus: {out}");
         assert!(out.contains("kosmo-api"), "focal foundation is the crate: {out}");
     }
@@ -4301,6 +4347,27 @@ mod tests {
         let meshed =
             CubeMeshReading::read(&cube, Q16::ratio(80, 100).unwrap(), Digest::of_bytes(b"ev"));
         assert!(mesh_report(&meshed, false).contains("meshed"));
+    }
+
+    #[test]
+    fn layered_report_judges_overfit_vs_genuine() {
+        // A fully-solid wish (every facet observed present) → the topology gear
+        // judges the realization (Run 9, the cybernetic interlock).
+        let wish = layered_test_wish();
+        let observed =
+            ObservedTopology::from_facets(wish.predicates.iter().map(|p| p.facet.clone()));
+        let mut session = WishSession::new(wish, Digest::of_bytes(b"ev"));
+        session.observe_layered(&observed);
+
+        // Sparse topology under a solid wish → over-fit (a hologram).
+        let overfit = layered_descent_report(&session, Some(Q16::ratio(5, 100).unwrap()), false);
+        assert!(overfit.contains("over-fit"), "sparse topology, solid wish: {overfit}");
+        // Dense topology → genuine (a cut diamond).
+        let genuine = layered_descent_report(&session, Some(Q16::ratio(80, 100).unwrap()), false);
+        assert!(genuine.contains("genuine"), "dense topology, solid wish: {genuine}");
+        // No topology gear read → no verdict at all.
+        let silent = layered_descent_report(&session, None, false);
+        assert!(!silent.contains("over-fit") && !silent.contains("genuine"));
     }
 
     #[test]
