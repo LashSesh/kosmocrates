@@ -236,6 +236,18 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--prose-bench",
+            vec![],
+            "the prose->spec benchmark: run natural-language utterances through \
+         the intent extractor and wish compiler and score the facets against a \
+         ground truth — offline via the keyword router, or via the LLM extractor \
+         with a provider; a measurement, not a gate",
+            [armament_inputs(), output_inputs()].concat(),
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
             "--steward",
             vec![],
             "self-husbandry: survey the workspace's own landscape and, under \

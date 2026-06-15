@@ -25,6 +25,7 @@
 //! ```
 
 mod doors;
+mod prose_bench;
 mod pruefstand;
 mod realize_bench;
 mod reforge;
@@ -158,6 +159,9 @@ struct Args {
     /// Service-synthesis smoke: drive ONE HTTP-service wish through the real
     /// loop — the artifact is started as a server and probed over HTTP.
     realize_service: bool,
+    /// Prose→spec benchmark: run natural-language utterances through the intent
+    /// extractor + compiler and score the facets against a hand-written truth.
+    prose_bench: bool,
     /// Doors mode: print this binary's complete docking surface — every
     /// door with inputs, governance and needs, content-addressed.
     doors: bool,
@@ -237,6 +241,7 @@ impl Default for Args {
             realize_bench: false,
             realize_bench_report: None,
             realize_service: false,
+            prose_bench: false,
             doors: false,
             doors_merge: None,
             foundry: None,
@@ -392,6 +397,10 @@ OPTIONS:\n\
                           artifact is started as a SERVER and probed over HTTP\n\
                           (the served witness), proving the loop realizes more\n\
                           than CLIs. Real provider; a measurement, exits 0.\n\
+    --prose-bench         measure the prose->spec front door: natural-language\n\
+                          utterances -> intent extractor + compiler -> facets,\n\
+                          scored against ground truth. Offline (keyword router),\n\
+                          or via the LLM extractor with --provider. Exits 0.\n\
 \n\
   STEWARD (self-husbandry — the machine proposes, the operator disposes):\n\
     --steward             survey the workspace's own wish landscape and name\n\
@@ -559,6 +568,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--realize-bench" => args.realize_bench = true,
             "--realize-service" => args.realize_service = true,
+            "--prose-bench" => args.prose_bench = true,
             "--realize-bench-report" => {
                 args.realize_bench_report = Some(
                     argv.next()
@@ -2066,6 +2076,26 @@ fn run_service_smoke_mode(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `--prose-bench`: measure the prose→spec front door. Run natural-language
+/// utterances through the intent extractor (the LLM router under `--provider`,
+/// else the deterministic keyword router) and `compile_wish`, scoring the facets
+/// against a hand-written ground truth. No workspace, no realization — a cheap
+/// single-call probe of the *other* axis. A measurement, exits 0.
+fn run_prose_bench_mode(args: &Args) -> Result<ExitCode, String> {
+    let extractor = chat_extractor(args);
+    if !args.json {
+        eprintln!(
+            "kosmo-run: firing {} prose task(s) through the {} extractor…",
+            prose_bench::prose_corpus().len(),
+            extractor.name()
+        );
+    }
+    let report = prose_bench::run_prose_bench(extractor.as_ref());
+    print!("{}", report.render(args.color));
+    // A measurement, not a gate: completion is success; the rate is the finding.
+    Ok(ExitCode::SUCCESS)
+}
+
 // ─── Steward (self-husbandry under an operator-named fence) ─────────────────
 
 /// `--steward`: survey the workspace's wish landscape, name the open chores
@@ -3473,6 +3503,12 @@ fn run() -> Result<ExitCode, String> {
     // server, probed over HTTP) — proving the loop reaches past CLIs.
     if args.realize_service {
         return run_service_smoke_mode(&args);
+    }
+
+    // The prose→spec benchmark: natural language → facets, scored offline (or
+    // through the LLM extractor with --provider). A measurement, exits 0.
+    if args.prose_bench {
+        return run_prose_bench_mode(&args);
     }
 
     // Steward: self-husbandry. Survey the workspace's own landscape; under
