@@ -76,13 +76,15 @@ pub fn catalog() -> DoorCatalog {
          (offline, deterministic); under --apply, descend until realized. \
          --layers renders it as a hypercube whose strata fill from transparent \
          to solid; --staged descends Solve\u{2192}Gate\u{2192}Coagula, coagulating \
-         stratum by stratum",
+         stratum by stratum; --mesh reads the two gears (wish solidity vs. the \
+         workspace's observed structural density), surfacing over-fit",
             [
                 vec![
                     DoorInput::switch("--validated"),
                     DoorInput::switch("--scaffold"),
                     DoorInput::switch("--layers"),
                     DoorInput::switch("--staged"),
+                    DoorInput::switch("--mesh"),
                     DoorInput::valued("--wish-session", "<file>"),
                     DoorInput::switch("--apply"),
                     DoorInput::valued("--norms", "<dir>"),

@@ -41,10 +41,10 @@ use kosmo_core::{
     assess_wish, assess_wish_layered, Digest, FoundryCheckKind, FoundryCheckSpec,
     FoundryCommandPolicy, FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan,
     FoundryOutcome, FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult,
-    KcubeArtifactKind, KcubeExportPolicy, KcubeWriteOutcome, ParseBackScanScope, PolicyProfile,
-    PrecedenceOrder, RenderAnomaly, StagedClosureReport, StageStanding, StratumClosure,
-    VentureSession, Wish, WishAssessment, WishClosureStatus, WishCube, WishFacet, WishFacetKind,
-    Q16,
+    KcubeArtifactKind, KcubeExportPolicy, KcubeWriteOutcome, ObservedTopology, ParseBackScanScope,
+    PolicyProfile, PrecedenceOrder, RenderAnomaly, StagedClosureReport, StageStanding,
+    StratumClosure, VentureSession, Wish, WishAssessment, WishClosureStatus, WishCube, WishFacet,
+    WishFacetKind, Q16,
 };
 use kosmo_foundry::FoundryExecutor;
 use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
@@ -52,7 +52,7 @@ use kosmo_hyphae::{
     promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
 };
 use kosmo_intent::{
-    companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms,
+    companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms, CubeMeshReading,
     is_reserved_wish_word, observe_workspace_deep, observe_workspace_runtime,
     observe_workspace_runtime_diag, observe_workspace_service, observe_workspace_service_diag,
     observe_workspace_validated, parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot,
@@ -109,6 +109,10 @@ struct Args {
     /// Drive the descent as a staged closure pipeline (Solve→Gate→Coagula),
     /// solidifying stratum by stratum bottom-up (Run 4). Implies `--layers`.
     staged: bool,
+    /// Mesh the wish-cube against the workspace's real SystemCube D-Density
+    /// (Run 8): the two gears — wish solidity vs. topology density — read
+    /// side by side, surfacing over-fit (wish solid, topology sparse).
+    mesh: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
@@ -233,6 +237,7 @@ impl Default for Args {
             validated: false,
             layers: false,
             staged: false,
+            mesh: false,
             provider_set: false,
             wish_session: None,
             pruefstand: false,
@@ -308,6 +313,8 @@ OPTIONS:\n\
     --staged              descend as a staged closure pipeline (Solve\u{2192}Gate\u{2192}\n\
                           Coagula), solidifying stratum by stratum bottom-up\n\
                           (Run 4; implies --layers)\n\
+    --mesh                read the two gears: wish solidity vs. the workspace's\n\
+                          observed structural density \u{2014} surfaces over-fit (Run 8)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\
                           from the prior session (auditable, replayable)\n\
@@ -537,6 +544,7 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.staged = true;
                 args.layers = true; // staged descent always renders its strata
             }
+            "--mesh" => args.mesh = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
@@ -3000,7 +3008,17 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             save_session(sp, &session)?;
         }
         if args.json {
-            if args.staged {
+            if args.mesh {
+                let d = observe_workspace_deep(&args.path)
+                    .map(|o| topology_density(&o, args.capacity))
+                    .unwrap_or(Q16::ZERO);
+                let reading = session
+                    .latest_cube()
+                    .map(|c| CubeMeshReading::read(c, d, evidence));
+                let json = serde_json::to_string_pretty(&reading)
+                    .map_err(|e| format!("failed to serialize mesh reading: {e}"))?;
+                println!("{json}");
+            } else if args.staged {
                 let report = StagedClosureReport::from_descent(
                     session.cubes(),
                     &session.layered_trace(),
@@ -3018,18 +3036,29 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                     .map_err(|e| format!("failed to serialize assessments: {e}"))?;
                 println!("{json}");
             }
-        } else if args.layers {
-            print!("{}", layered_descent_report(&session, args.color));
-            if args.staged {
-                let report = StagedClosureReport::from_descent(
-                    session.cubes(),
-                    &session.layered_trace(),
-                    evidence,
-                );
-                print!("{}", staged_closure_render(&report, args.color));
-            }
         } else {
-            print!("{}", descent_report(&session, args.color));
+            if args.layers {
+                print!("{}", layered_descent_report(&session, args.color));
+                if args.staged {
+                    let report = StagedClosureReport::from_descent(
+                        session.cubes(),
+                        &session.layered_trace(),
+                        evidence,
+                    );
+                    print!("{}", staged_closure_render(&report, args.color));
+                }
+            } else {
+                print!("{}", descent_report(&session, args.color));
+            }
+            if args.mesh {
+                let d = observe_workspace_deep(&args.path)
+                    .map(|o| topology_density(&o, args.capacity))
+                    .unwrap_or(Q16::ZERO);
+                if let Some(c) = session.latest_cube() {
+                    let reading = CubeMeshReading::read(c, d, evidence);
+                    print!("{}", mesh_report(&reading, args.color));
+                }
+            }
         }
         let realized = session.latest().is_some_and(|a| {
             matches!(
@@ -3078,7 +3107,14 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     }
 
     if args.json {
-        if args.layers {
+        if args.mesh {
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let d = topology_density(&observed, args.capacity);
+            let reading = CubeMeshReading::read(&cube, d, evidence);
+            let json = serde_json::to_string_pretty(&reading)
+                .map_err(|e| format!("failed to serialize mesh reading: {e}"))?;
+            println!("{json}");
+        } else if args.layers {
             let cube = assess_wish_layered(&wish, &observed, evidence);
             let json = serde_json::to_string_pretty(&cube)
                 .map_err(|e| format!("failed to serialize cube: {e}"))?;
@@ -3094,6 +3130,12 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             let mut one = WishSession::new(wish.clone(), evidence);
             one.observe_layered(&observed);
             print!("{}", layered_descent_report(&one, args.color));
+        }
+        if args.mesh {
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let d = topology_density(&observed, args.capacity);
+            let reading = CubeMeshReading::read(&cube, d, evidence);
+            print!("{}", mesh_report(&reading, args.color));
         }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
             print!(
@@ -3771,6 +3813,74 @@ fn staged_closure_render(report: &StagedClosureReport, color: bool) -> String {
     out
 }
 
+/// Run 8 — the topology gear: the workspace's structural density, the count of
+/// structural facets the parser observed over `capacity`, clamped to `ONE`. Read
+/// straight from the observation — no analysis pipeline, no host writes — so a
+/// read-only mesh never mutates the workspace. (The SystemCube's void-fill
+/// D-density needs a host-write-enabled, operator-approved analysis, unsafe for
+/// a read-only mesh; this is the safe, wish-independent topology measure: it
+/// counts ALL observed structure, so a wish that reads solid over a sparse
+/// topology stands out as an over-fit shell.)
+fn topology_density(observed: &ObservedTopology, capacity: u32) -> Q16 {
+    let count = observed.facets().count() as u64;
+    let raw = Q16::ratio(count, capacity.max(1) as u64).unwrap_or(Q16::ZERO);
+    if raw.at_least(Q16::ONE) {
+        Q16::ONE
+    } else {
+        raw
+    }
+}
+
+/// Render the two gears (Zahnräder) in contact: the wish-cube's structural
+/// solidity against the system-cube's D-Density. Meshed when both have turned
+/// past the threshold together; divergent when the wish reads solid while the
+/// topology stays sparse — an over-fit shell. Advisory only (CROSS-010).
+fn mesh_report(reading: &CubeMeshReading, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let q = Q16::ratio(1, 4).unwrap_or(Q16::ZERO);
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates \u{2014} two gears (wish \u{27f7} topology){}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!(
+        "  wish solidity   {}{}{}  {:.3}\n",
+        c(CYAN),
+        opacity_bar(reading.wish_solidity, 12),
+        c(RESET),
+        reading.wish_solidity.to_f64()
+    ));
+    out.push_str(&format!(
+        "  topology dense  {}{}{}  {:.3}\n",
+        c(CYAN),
+        opacity_bar(reading.system_d_density, 12),
+        c(RESET),
+        reading.system_d_density.to_f64()
+    ));
+    if reading.in_mesh(q) {
+        out.push_str(&format!(
+            "  {}\u{2699} meshed \u{2014} both gears turning toward the diamond{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
+    } else if reading.wish_solidity.at_least(q) && !reading.system_d_density.at_least(q) {
+        out.push_str(&format!(
+            "  {}\u{2699} divergent \u{2014} wish solid but topology sparse (over-fit suspect){}\n",
+            c(YELLOW),
+            c(RESET)
+        ));
+    } else {
+        out.push_str(&format!(
+            "  {}\u{2699} turning \u{2014} gears not yet meshed{}\n",
+            c(DIM),
+            c(RESET)
+        ));
+    }
+    out
+}
+
 fn run() -> Result<ExitCode, String> {
     let args = match parse_args()? {
         Some(a) => a,
@@ -4166,6 +4276,31 @@ mod tests {
         let out = layered_descent_report(&session, false);
         assert!(out.contains("focus \u{2192}"), "render shows the lens focus: {out}");
         assert!(out.contains("kosmo-api"), "focal foundation is the crate: {out}");
+    }
+
+    #[test]
+    fn mesh_report_flags_overfit_and_mesh() {
+        // A fully-solid wish cube (every facet observed present).
+        let wish = layered_test_wish();
+        let observed =
+            ObservedTopology::from_facets(wish.predicates.iter().map(|p| p.facet.clone()));
+        let cube = assess_wish_layered(&wish, &observed, Digest::of_bytes(b"ev"));
+        assert_eq!(cube.structural_solidity, Q16::ONE, "the wish gear is solid");
+
+        // Wish solid (1.0) but topology sparse (0.05) → over-fit divergence.
+        let overfit =
+            CubeMeshReading::read(&cube, Q16::ratio(5, 100).unwrap(), Digest::of_bytes(b"ev"));
+        let out = mesh_report(&overfit, false);
+        assert!(out.contains("two gears"));
+        assert!(
+            out.contains("over-fit suspect"),
+            "a sparse topology under a solid wish is over-fit: {out}"
+        );
+
+        // Both gears past the threshold → meshed.
+        let meshed =
+            CubeMeshReading::read(&cube, Q16::ratio(80, 100).unwrap(), Digest::of_bytes(b"ev"));
+        assert!(mesh_report(&meshed, false).contains("meshed"));
     }
 
     #[test]
