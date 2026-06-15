@@ -342,7 +342,9 @@ OPTIONS:\n\
                           (Run 13; read-only, same wish required)\n\
     --wishlist <path>     measure a file of prose wishes (one per line, # comments)\n\
                           against the workspace as a project definition-of-done;\n\
-                          aggregate gauge, exit 0 only if all realized (Run 15)\n\
+                          aggregate gauge, exit 0 only if all realized (Run 15);\n\
+                          pair with --since <reading> (a prior --json snapshot) for\n\
+                          the project delta \u{2014} exits 2 on any regression (Run 16)\n\
 \n\
     (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
      realized; add --provider to let the LLM build facets the scaffolder can't)\n\
@@ -2998,16 +3000,20 @@ fn record_norm_observation(
 }
 
 /// One wish's standing in a wishlist measurement (Run 15) — the machine row.
-#[derive(serde::Serialize)]
+/// Carries the content-addressed `wish_id` so a reading can be a baseline that a
+/// later `--since` matches against (Run 16), even if the prose is re-edited.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct WishlistEntry {
+    wish_id: Digest,
     wish: String,
     realized: bool,
     met: u32,
     total: u32,
 }
 
-/// A whole wishlist measured against the workspace: the aggregate project gauge.
-#[derive(serde::Serialize)]
+/// A whole wishlist measured against the workspace: the aggregate project gauge,
+/// and — once persisted via `--json` — the baseline a later run diffs against.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct WishlistReading {
     realized: usize,
     total: usize,
@@ -3059,6 +3065,120 @@ fn wishlist_report(path: &str, items: &[(Wish, WishAssessment)], color: bool) ->
     out
 }
 
+/// The project-level delta between a prior wishlist reading and the current one
+/// (Run 16): which whole wishes newly realized and which regressed (were
+/// realized, now not), matched by content-addressed `wish_id`. The project analog
+/// of [`WishDelta`] — "did this change regress any wish in the project?".
+#[derive(Debug, Clone, serde::Serialize)]
+struct WishlistDelta {
+    realized_now: usize,
+    realized_before: usize,
+    total_now: usize,
+    /// Wishes unrealized at the baseline, realized now.
+    newly_realized: Vec<String>,
+    /// Wishes realized at the baseline, unrealized now — the project alarm.
+    regressed: Vec<String>,
+    held: usize,
+    still_unrealized: usize,
+}
+
+impl WishlistDelta {
+    fn compute(baseline: &WishlistReading, current: &[(Wish, WishAssessment)]) -> Self {
+        use std::collections::HashMap;
+        let was_realized: HashMap<Digest, bool> = baseline
+            .wishes
+            .iter()
+            .map(|e| (e.wish_id, e.realized))
+            .collect();
+        let mut newly_realized = Vec::new();
+        let mut regressed = Vec::new();
+        let (mut held, mut still_unrealized) = (0usize, 0usize);
+        // Iterate current in wishlist-file order, so the lists are deterministic.
+        for (w, a) in current {
+            let now = is_realized(&a.status);
+            match was_realized.get(&w.id) {
+                Some(true) if now => held += 1,
+                Some(true) => regressed.push(w.label.clone()),
+                Some(false) if now => newly_realized.push(w.label.clone()),
+                Some(false) => still_unrealized += 1,
+                None => {} // a wish absent from the baseline — aggregate only
+            }
+        }
+        WishlistDelta {
+            realized_now: current.iter().filter(|(_, a)| is_realized(&a.status)).count(),
+            realized_before: baseline.realized,
+            total_now: current.len(),
+            newly_realized,
+            regressed,
+            held,
+            still_unrealized,
+        }
+    }
+
+    /// A change broke a previously-realized wish — the project regression.
+    fn has_regression(&self) -> bool {
+        !self.regressed.is_empty()
+    }
+}
+
+/// Render a project-level wishlist delta for a human (Run 16).
+fn wishlist_delta_report(delta: &WishlistDelta, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wishlist{} {}\u{2014} delta since baseline{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!(
+        "  realized {}/{} {}(baseline {}){}\n",
+        delta.realized_now,
+        delta.total_now,
+        c(DIM),
+        delta.realized_before,
+        c(RESET)
+    ));
+    if delta.newly_realized.is_empty() && delta.regressed.is_empty() {
+        out.push_str(&format!(
+            "  {}unchanged since baseline (held {} \u{00b7} still unrealized {}){}\n",
+            c(DIM),
+            delta.held,
+            delta.still_unrealized,
+            c(RESET)
+        ));
+        return out;
+    }
+    if !delta.newly_realized.is_empty() {
+        out.push_str(&format!(
+            "  {}+ newly realized {}{}: {}\n",
+            c(GREEN),
+            delta.newly_realized.len(),
+            c(RESET),
+            delta.newly_realized.join(", ")
+        ));
+    }
+    if !delta.regressed.is_empty() {
+        out.push_str(&format!(
+            "  {}\u{2717} regressed {} \u{2014} wishes that were realized are no longer{}: {}\n",
+            c(RED),
+            delta.regressed.len(),
+            c(RESET),
+            delta.regressed.join(", ")
+        ));
+    }
+    out.push_str(&format!(
+        "  {}= held {} \u{00b7} still unrealized {}{}\n",
+        c(DIM),
+        delta.held,
+        delta.still_unrealized,
+        c(RESET)
+    ));
+    out
+}
+
 /// Measure a file of prose wishes — the project's definition-of-done — against
 /// the workspace at once (Run 15). One wish per non-empty, non-`#` line. Observes
 /// once at the deepest level any wish needs (a deeper observation still answers
@@ -3103,28 +3223,60 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
         .collect();
     let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
 
+    // Run 16 — the project delta: diff against a prior wishlist reading (the
+    // --json output of an earlier run), matched per wish by content-addressed id.
+    let baseline: Option<WishlistReading> = args.since.as_deref().and_then(|p| {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|s| serde_json::from_str::<WishlistReading>(&s).ok())
+    });
+    let delta = baseline.as_ref().map(|b| WishlistDelta::compute(b, &items));
+
     if args.json {
-        let reading = WishlistReading {
-            realized,
-            total: items.len(),
-            wishes: items
-                .iter()
-                .map(|(w, a)| WishlistEntry {
-                    wish: w.label.clone(),
-                    realized: is_realized(&a.status),
-                    met: a.met_count,
-                    total: a.total_count,
-                })
-                .collect(),
-        };
-        let json = serde_json::to_string_pretty(&reading)
-            .map_err(|e| format!("failed to serialize wishlist reading: {e}"))?;
-        println!("{json}");
+        if let Some(d) = &delta {
+            let json = serde_json::to_string_pretty(d)
+                .map_err(|e| format!("failed to serialize wishlist delta: {e}"))?;
+            println!("{json}");
+        } else {
+            // The reading IS the baseline artifact — persist it with --json.
+            let reading = WishlistReading {
+                realized,
+                total: items.len(),
+                wishes: items
+                    .iter()
+                    .map(|(w, a)| WishlistEntry {
+                        wish_id: w.id,
+                        wish: w.label.clone(),
+                        realized: is_realized(&a.status),
+                        met: a.met_count,
+                        total: a.total_count,
+                    })
+                    .collect(),
+            };
+            let json = serde_json::to_string_pretty(&reading)
+                .map_err(|e| format!("failed to serialize wishlist reading: {e}"))?;
+            println!("{json}");
+        }
+    } else if let Some(d) = &delta {
+        print!("{}", wishlist_delta_report(d, args.color));
     } else {
+        if args.since.is_some() {
+            println!(
+                "  {}no readable wishlist baseline at {} (snapshot one first: --wishlist <file> --json > baseline){}",
+                if args.color { DIM } else { "" },
+                args.since.as_deref().unwrap_or(""),
+                if args.color { RESET } else { "" }
+            );
+        }
         print!("{}", wishlist_report(path, &items, args.color));
     }
 
-    // Exit 0 only when every wish is realized — the project gate.
+    // A project regression (a wish that was realized no longer is) exits 2 — the
+    // CI gate for "this change broke the project". Otherwise exit 0 only when
+    // every wish is realized. The realization status gates, nothing else (CROSS-010).
+    if delta.as_ref().is_some_and(WishlistDelta::has_regression) {
+        return Ok(ExitCode::from(2));
+    }
     Ok(if realized == items.len() {
         ExitCode::SUCCESS
     } else {
@@ -4828,6 +4980,61 @@ mod tests {
         assert!(out.contains("realized 1/2"), "the aggregate gauge: {out}");
         assert!(out.contains("a crate solo") && out.contains("a crate ghost"), "{out}");
         assert!(out.contains("spec.txt"), "names the source: {out}");
+    }
+
+    #[test]
+    fn wishlist_delta_flags_project_regression() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let w_a = Wish::new(
+            "a crate aa",
+            [WishPredicate::require(WishFacet::crate_("aa"))],
+            Digest::ZERO,
+            ev,
+        );
+        let w_b = Wish::new(
+            "a crate bb",
+            [WishPredicate::require(WishFacet::crate_("bb"))],
+            Digest::ZERO,
+            ev,
+        );
+        // Baseline reading: aa realized, bb not (matched later by content id).
+        let baseline = WishlistReading {
+            realized: 1,
+            total: 2,
+            wishes: vec![
+                WishlistEntry {
+                    wish_id: w_a.id,
+                    wish: w_a.label.clone(),
+                    realized: true,
+                    met: 1,
+                    total: 1,
+                },
+                WishlistEntry {
+                    wish_id: w_b.id,
+                    wish: w_b.label.clone(),
+                    realized: false,
+                    met: 0,
+                    total: 1,
+                },
+            ],
+        };
+        // Current: aa broke (regressed), bb now realized (newly realized).
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::crate_("bb"));
+        let a_a = assess_wish(&w_a, &obs, ev);
+        let a_b = assess_wish(&w_b, &obs, ev);
+        let items = vec![(w_a, a_a), (w_b, a_b)];
+
+        let delta = WishlistDelta::compute(&baseline, &items);
+        assert!(delta.has_regression(), "aa was realized, now is not");
+        assert_eq!(delta.regressed.len(), 1);
+        assert!(delta.regressed[0].contains("aa"), "{:?}", delta.regressed);
+        assert_eq!(delta.newly_realized.len(), 1);
+        assert!(delta.newly_realized[0].contains("bb"), "{:?}", delta.newly_realized);
+        let out = wishlist_delta_report(&delta, false);
+        assert!(out.contains("regressed 1") && out.contains("newly realized 1"), "{out}");
+        assert!(out.contains("baseline 1"), "shows the prior aggregate: {out}");
     }
 
     #[test]

@@ -107,6 +107,92 @@ fn wishlist_json_emits_a_project_gauge() {
 }
 
 #[test]
+fn wishlist_since_gates_a_project_regression() {
+    let root = workspace(); // module alpha + function f present
+    let list = root.join("p.wishes");
+    fs::write(&list, "a module alpha\na function f\n").unwrap(); // both realized
+    let base = root.join("base.json");
+
+    // Snapshot the baseline reading (all realized) via --json.
+    let snap = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--json",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (snapshot)");
+    let snap_out = String::from_utf8_lossy(&snap.stdout);
+    if snap_out.contains("could not observe") {
+        return;
+    }
+    assert_eq!(snap.status.code(), Some(0), "baseline all realized: {snap_out}");
+    fs::write(&base, snap_out.as_ref()).unwrap();
+
+    // The change breaks module alpha. --since detects the project regression.
+    fs::write(root.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+    fs::remove_file(root.join("src/alpha.rs")).unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--since",
+            base.to_str().unwrap(),
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (--since)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("delta since baseline"), "{stdout}");
+    assert!(stdout.contains("regressed 1"), "{stdout}");
+    assert!(stdout.contains("a module alpha"), "names the broken wish: {stdout}");
+    assert_eq!(out.status.code(), Some(2), "a project regression exits 2: {stdout}");
+}
+
+#[test]
+fn wishlist_since_reports_progress_without_regression() {
+    let root = workspace(); // alpha + f present; beta absent
+    let list = root.join("p.wishes");
+    fs::write(&list, "a module alpha\na module beta\n").unwrap();
+    let base = root.join("base.json");
+    let snap = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--json",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (snapshot)");
+    let snap_out = String::from_utf8_lossy(&snap.stdout);
+    if snap_out.contains("could not observe") {
+        return;
+    }
+    fs::write(&base, snap_out.as_ref()).unwrap();
+
+    // Add beta → newly realized, nothing broke → all realized → exit 0.
+    fs::write(root.join("src/lib.rs"), "pub mod alpha;\npub mod beta;\npub fn f() {}\n").unwrap();
+    fs::write(root.join("src/beta.rs"), "pub fn b() {}\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--since",
+            base.to_str().unwrap(),
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (--since)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("newly realized 1"), "{stdout}");
+    assert!(stdout.contains("a module beta"), "{stdout}");
+    assert_eq!(out.status.code(), Some(0), "progress, no regression → exit 0: {stdout}");
+}
+
+#[test]
 fn wishlist_is_exclusive_with_wish() {
     let root = workspace();
     let list = root.join("x.wishes");
