@@ -42,8 +42,9 @@ use kosmo_core::{
     FoundryCommandPolicy, FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan,
     FoundryOutcome, FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult,
     KcubeArtifactKind, KcubeExportPolicy, KcubeWriteOutcome, ParseBackScanScope, PolicyProfile,
-    RenderAnomaly, StagedClosureReport, StageStanding, StratumClosure, VentureSession, Wish,
-    WishAssessment, WishClosureStatus, WishCube, WishFacet, WishFacetKind, Q16,
+    PrecedenceOrder, RenderAnomaly, StagedClosureReport, StageStanding, StratumClosure,
+    VentureSession, Wish, WishAssessment, WishClosureStatus, WishCube, WishFacet, WishFacetKind,
+    Q16,
 };
 use kosmo_foundry::FoundryExecutor;
 use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
@@ -3346,13 +3347,6 @@ fn apply_synthesis(
     Ok(written)
 }
 
-/// Drive the workspace toward `wish` by repeated observe → assess → scaffold →
-/// apply, until it is realized, no further progress is possible, or `max_iters`
-/// is reached. Returns the [`WishSession`] carrying the full convergence
-/// trajectory — the attractor descent, executed.
-///
-/// `prior` resumes an earlier descent: the loaded session's assessments are
-/// prepended to the trajectory and the loop continues from the current state.
 /// The curriculum target for a staged descent: the unmet facets of the
 /// *shallowest* non-solid stratum (solidify Existence before chasing a Run
 /// probe). Falls back to the flat unmet set when there is no cube yet or every
@@ -3401,6 +3395,11 @@ fn descend_staged(
     descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, true)
 }
 
+/// Drive the workspace toward `wish` by repeated observe → assess → scaffold →
+/// apply, until it is realized, no further progress is possible, or `max_iters`
+/// is reached. Returns the [`WishSession`] carrying the full convergence
+/// trajectory — the attractor descent, executed. `prior` resumes an earlier
+/// descent; `staged` selects the bottom-up curriculum (see [`staged_target`]).
 #[allow(clippy::too_many_arguments)]
 fn descend_inner(
     path: &str,
@@ -3486,15 +3485,22 @@ fn descend_inner(
             break;
         }
         last_unmet = unmet.clone();
-        // Staged descent solidifies the shallowest non-solid stratum first; the
-        // flat descent attacks the whole unmet set. Either way an empty target
-        // falls back to the full set (fail-safe).
+        // Staged descent solidifies the shallowest non-solid stratum first, then
+        // focuses it foundation-first via the precedence lens (Run 5: realize the
+        // crate before its modules, both endpoints before a dependency edge). The
+        // flat descent attacks the whole unmet set in its existing order, so the
+        // bench-measured path stays byte-identical.
         let target = if staged {
-            staged_target(session.latest_cube(), &unmet)
+            let stratum = staged_target(session.latest_cube(), &unmet);
+            let stratum = if stratum.is_empty() {
+                unmet.clone()
+            } else {
+                stratum
+            };
+            PrecedenceOrder::focus(&stratum, wish.id, evidence).ordered_facets()
         } else {
             unmet.clone()
         };
-        let target = if target.is_empty() { unmet } else { target };
         let written = apply_synthesis(Path::new(path), &target, fallback, run_diag.as_deref())
             .map_err(|e| e.to_string())?;
         if written == 0 {
@@ -3644,6 +3650,27 @@ fn layered_descent_report(session: &WishSession, color: bool) -> String {
             c(YELLOW),
             c(RESET)
         ));
+    }
+    // The descent-side Konus: the foundation facet the Solve stage targets next.
+    if let Some(next_stratum) = cube
+        .layers
+        .iter()
+        .find(|l| !l.is_empty_layer() && !l.is_solid())
+    {
+        let focus = PrecedenceOrder::focus(
+            &next_stratum.unmet_facets,
+            cube.wish_id,
+            cube.evidence_bundle_id,
+        );
+        if let Some(f) = focus.focal() {
+            out.push_str(&format!(
+                "  {}focus \u{2192} {:?} {}{}\n",
+                c(CYAN),
+                f.kind,
+                f.key,
+                c(RESET)
+            ));
+        }
     }
     // Per-layer convergence verdict — the resolution a flat scalar cannot give.
     let trace = session.layered_trace();
@@ -4104,6 +4131,17 @@ mod tests {
         assert!(out.contains("Solve"), "header names the pipeline: {out}");
         assert!(out.contains("existence"));
         assert!(out.contains("coagulated"), "existence coagulated: {out}");
+    }
+
+    #[test]
+    fn layered_report_shows_konus_focus() {
+        // Nothing observed → the shallowest non-solid stratum is existence, and
+        // the lens focuses on its foundation (the crate).
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        session.observe_layered(&ObservedTopology::empty());
+        let out = layered_descent_report(&session, false);
+        assert!(out.contains("focus \u{2192}"), "render shows the lens focus: {out}");
+        assert!(out.contains("kosmo-api"), "focal foundation is the crate: {out}");
     }
 
     #[test]

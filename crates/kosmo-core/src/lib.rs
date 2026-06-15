@@ -22,6 +22,7 @@ pub mod kcube;
 pub mod materialization;
 pub mod parseback;
 pub mod policy;
+pub mod precedence;
 pub mod promotion_feedback;
 pub mod run;
 pub mod validation;
@@ -74,6 +75,7 @@ pub use parseback::{
     ParseBackTopologyDelta, TopologyChangeKind,
 };
 pub use policy::{ImplementationMode, PolicyProfile, PolicyViolation};
+pub use precedence::{depends_on, FacetLeverage, PrecedenceOrder};
 pub use promotion_feedback::{FeedbackOutcome, PromotionFeedback};
 pub use run::{
     FoundryCheckKind, FoundryCheckResult, FoundryOutcome, GateResult, LedgerEvent, LedgerEventKind,
