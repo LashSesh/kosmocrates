@@ -25,7 +25,7 @@
 
 use crate::digest::Digest;
 use crate::fixed_point::{Q16, Q16_SCALE};
-use crate::wish::WishAssessment;
+use crate::wish::{WishAssessment, WishCube, WishLayer};
 use serde::{Deserialize, Serialize};
 
 /// The maximum length of a *strictly* contracting trajectory over the unit
@@ -237,6 +237,251 @@ impl WishConvergenceTrace {
                 }
             })
             .collect()
+    }
+}
+
+// ─── Run 3: the per-layer (tensor) descent ──────────────────────────────────────
+
+/// One stratum's Lyapunov sequence within a layered descent (oldest first), with
+/// its own derived status — the per-layer analogue of [`WishConvergenceTrace`].
+///
+/// `distances[i] = ONE − (layer opacity at iteration i)`, so the same
+/// contraction doctrine applies one stratum at a time: a *rising* layer distance
+/// is a fail-closed regression of that layer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayerTrajectory {
+    pub layer: WishLayer,
+    /// Per-iteration layer distance `V_layer`, oldest first.
+    pub distances: Vec<Q16>,
+    pub status: AttractorStatus,
+    /// Index into `distances` of the first step that increased `V_layer`, if any.
+    pub first_divergence: Option<u32>,
+}
+
+/// A render-order violation a *flat* scalar trajectory cannot see. Every variant
+/// is a ranking / warning signal (CROSS-010), never a gate: it informs the loop,
+/// it never un-meets a facet or bypasses a policy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RenderAnomaly {
+    /// A deeper stratum is solid while a shallower non-empty stratum is not —
+    /// sintered before debind. The wish "set" out of order (suspect an over-fit
+    /// shell). Detected on the most recent cube.
+    SetOutOfOrder {
+        deeper: WishLayer,
+        ungrounded_below: WishLayer,
+    },
+    /// On a step where the *flat* opacity rose or held (the scalar trace looks
+    /// healthy), a deeper stratum's opacity fell — a deep regression the
+    /// headline number masked. Carries the stratum and the step index.
+    MaskedDeepRegression { layer: WishLayer, step: u32 },
+}
+
+/// Content for the deterministic per-layer trajectory id fragment.
+#[derive(Serialize)]
+struct LayerTrajectoryContent<'a> {
+    rank: u8,
+    distances_raw: Vec<i64>,
+    status: &'a AttractorStatus,
+    first_divergence: Option<u32>,
+}
+
+/// Content for the deterministic `LayeredConvergenceTrace` id.
+#[derive(Serialize)]
+struct LayeredTraceContent<'a> {
+    wish_id: &'a Digest,
+    layers: Vec<LayerTrajectoryContent<'a>>,
+    anomalies: &'a Vec<RenderAnomaly>,
+    evidence_bundle_id: &'a Digest,
+}
+
+/// A content-addressed record of a workspace's **per-layer** trajectory toward a
+/// wish-attractor — the precision instrument the scalar [`WishConvergenceTrace`]
+/// cannot be. Built from a sequence of [`WishCube`]s (oldest first), it runs the
+/// same contraction doctrine ([`derive_status`]) one stratum at a time and flags
+/// the regressions a single scalar masks.
+///
+/// Invariants:
+/// - `id = SHA-256(JCS(content))` — INVARIANT-007
+/// - `evidence_bundle_id ≠ ZERO` — CROSS-006
+/// - the flat trace remains the headline; this refines it, and it gates nothing
+///   (CROSS-010)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayeredConvergenceTrace {
+    pub id: Digest,
+    /// Identity of the attractor `x*` (the wish this trajectory descends toward).
+    pub wish_id: Digest,
+    /// One trajectory per **non-empty** stratum, ascending by rank.
+    pub layers: Vec<LayerTrajectory>,
+    /// Render-order anomalies found across the descent (deterministically ordered).
+    pub anomalies: Vec<RenderAnomaly>,
+    pub evidence_bundle_id: Digest,
+}
+
+impl LayeredConvergenceTrace {
+    /// Build the per-layer trace from a descent film of cubes (oldest first).
+    ///
+    /// All cubes must concern the same wish; a mixed-wish slice describes no
+    /// single attractor and yields an empty, anomaly-free trace (fail-closed),
+    /// mirroring [`WishConvergenceTrace::from_assessments`].
+    pub fn from_cubes(cubes: &[WishCube], evidence_bundle_id: Digest) -> Self {
+        let Some(first) = cubes.first() else {
+            return Self::seal(Digest::ZERO, vec![], vec![], evidence_bundle_id);
+        };
+        let wish_id = first.wish_id;
+        if cubes.iter().any(|c| c.wish_id != wish_id) {
+            return Self::seal(Digest::ZERO, vec![], vec![], evidence_bundle_id);
+        }
+
+        // One trajectory per non-empty stratum (the wish is fixed across the
+        // descent, so emptiness is invariant — read it from the first cube).
+        let mut layers: Vec<LayerTrajectory> = Vec::new();
+        for view in &first.layers {
+            if view.is_empty_layer() {
+                continue;
+            }
+            let layer = view.layer;
+            let distances: Vec<Q16> = cubes
+                .iter()
+                .map(|c| {
+                    let op = c
+                        .layer(layer)
+                        .map(|l| l.opacity)
+                        .unwrap_or(Q16::ZERO);
+                    Q16::ONE.saturating_sub(op)
+                })
+                .collect();
+            let (status, first_divergence) = derive_status(&distances);
+            layers.push(LayerTrajectory {
+                layer,
+                distances,
+                status,
+                first_divergence,
+            });
+        }
+
+        let anomalies = Self::detect_anomalies(cubes);
+        Self::seal(wish_id, layers, anomalies, evidence_bundle_id)
+    }
+
+    /// Masked deep regressions (across the descent) + set-out-of-order (on the
+    /// latest cube). Deterministically ordered: regressions by step then rank,
+    /// then structural anomalies by deeper rank.
+    fn detect_anomalies(cubes: &[WishCube]) -> Vec<RenderAnomaly> {
+        let mut out: Vec<RenderAnomaly> = Vec::new();
+
+        // Masked deep regression: the flat opacity did not worsen, yet a layer's
+        // opacity strictly fell.
+        for i in 1..cubes.len() {
+            let prev = &cubes[i - 1];
+            let cur = &cubes[i];
+            if cur.overall_opacity < prev.overall_opacity {
+                continue; // the scalar already shows a regression — not masked
+            }
+            for view in &cur.layers {
+                if view.is_empty_layer() {
+                    continue;
+                }
+                let prev_op = prev.layer(view.layer).map(|l| l.opacity).unwrap_or(Q16::ZERO);
+                if view.opacity < prev_op {
+                    out.push(RenderAnomaly::MaskedDeepRegression {
+                        layer: view.layer,
+                        step: i as u32,
+                    });
+                }
+            }
+        }
+
+        // Set-out-of-order on the latest cube: a solid stratum floating above the
+        // shallowest still-hollow non-empty stratum.
+        if let Some(last) = cubes.last() {
+            let first_gap = last
+                .layers
+                .iter()
+                .find(|l| !l.is_empty_layer() && !l.is_solid())
+                .map(|l| l.layer);
+            if let Some(gap) = first_gap {
+                for view in &last.layers {
+                    if !view.is_empty_layer() && view.is_solid() && view.layer.rank() > gap.rank() {
+                        out.push(RenderAnomaly::SetOutOfOrder {
+                            deeper: view.layer,
+                            ungrounded_below: gap,
+                        });
+                    }
+                }
+            }
+        }
+
+        out
+    }
+
+    fn seal(
+        wish_id: Digest,
+        layers: Vec<LayerTrajectory>,
+        anomalies: Vec<RenderAnomaly>,
+        evidence_bundle_id: Digest,
+    ) -> Self {
+        let mut t = Self {
+            id: Digest::ZERO,
+            wish_id,
+            layers,
+            anomalies,
+            evidence_bundle_id,
+        };
+        t.id = t.compute_id();
+        t
+    }
+
+    fn compute_id(&self) -> Digest {
+        let layers: Vec<LayerTrajectoryContent> = self
+            .layers
+            .iter()
+            .map(|l| LayerTrajectoryContent {
+                rank: l.layer.rank(),
+                distances_raw: l.distances.iter().map(|q| q.raw()).collect(),
+                status: &l.status,
+                first_divergence: l.first_divergence,
+            })
+            .collect();
+        Digest::of(&LayeredTraceContent {
+            wish_id: &self.wish_id,
+            layers,
+            anomalies: &self.anomalies,
+            evidence_bundle_id: &self.evidence_bundle_id,
+        })
+    }
+
+    pub fn verify_id(&self) -> bool {
+        self.id == self.compute_id()
+    }
+
+    /// CROSS-006.
+    pub fn is_evidence_bound(&self) -> bool {
+        self.evidence_bundle_id != Digest::ZERO
+    }
+
+    /// A strictly stronger contraction claim than the scalar trace alone: every
+    /// stratum is contractive **and** no render anomaly was found. A masked deep
+    /// regression makes its stratum `Diverging`, so this is `false` exactly when
+    /// the layered view caught something the headline number hid.
+    pub fn is_strictly_contractive(&self) -> bool {
+        !self.layers.is_empty()
+            && self.layers.iter().all(|l| l.status.is_contractive())
+            && self.anomalies.is_empty()
+    }
+
+    /// The deepest stratum of the *contiguous converged base*: the highest layer
+    /// such that it and every (non-empty) stratum below it has `Converged`
+    /// (fully solid and never regressed). The frontier the staged pipeline climbs.
+    pub fn solid_frontier(&self) -> Option<WishLayer> {
+        let mut frontier = None;
+        for l in &self.layers {
+            if l.status.is_converged() {
+                frontier = Some(l.layer);
+            } else {
+                break;
+            }
+        }
+        frontier
     }
 }
 
@@ -467,5 +712,167 @@ mod tests {
     #[test]
     fn max_strict_contraction_steps_is_q16_resolution_plus_one() {
         assert_eq!(MAX_STRICT_CONTRACTION_STEPS, 65537);
+    }
+
+    // ── Run 3: LayeredConvergenceTrace ─────────────────────────────────────
+
+    use crate::wish::{assess_wish_layered, WishFacetKind};
+
+    /// A wish spanning Existence (crate `a`) + Wiring (a contract).
+    fn two_layer_wish() -> Wish {
+        Wish::new(
+            "two strata",
+            [
+                WishPredicate::require(WishFacet::crate_("a")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Contract, "f(A)->B")),
+            ],
+            d(b"p"),
+            ev(),
+        )
+    }
+
+    /// Two existence crates + one wiring contract — for masked-regression tests.
+    fn masked_wish() -> Wish {
+        Wish::new(
+            "masked",
+            [
+                WishPredicate::require(WishFacet::crate_("a")),
+                WishPredicate::require(WishFacet::crate_("b")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Contract, "f(A)->B")),
+            ],
+            d(b"p"),
+            ev(),
+        )
+    }
+
+    fn cube_at(w: &Wish, facets: &[WishFacet]) -> WishCube {
+        assess_wish_layered(
+            w,
+            &ObservedTopology::from_facets(facets.iter().cloned()),
+            ev(),
+        )
+    }
+
+    #[test]
+    fn layered_trace_from_cubes_tracks_each_layer_independently() {
+        let w = two_layer_wish();
+        let contract = WishFacet::new(WishFacetKind::Contract, "f(A)->B");
+        let c0 = cube_at(&w, &[]);
+        let c1 = cube_at(&w, &[WishFacet::crate_("a")]);
+        let c2 = cube_at(&w, &[WishFacet::crate_("a"), contract]);
+        let trace = LayeredConvergenceTrace::from_cubes(&[c0, c1, c2], ev());
+
+        assert_eq!(trace.layers.len(), 2, "only the two non-empty strata");
+        let existence = trace
+            .layers
+            .iter()
+            .find(|l| l.layer == WishLayer::Existence)
+            .unwrap();
+        assert_eq!(existence.distances, vec![Q16::ONE, Q16::ZERO, Q16::ZERO]);
+        assert_eq!(existence.status, AttractorStatus::Converged);
+        let wiring = trace
+            .layers
+            .iter()
+            .find(|l| l.layer == WishLayer::Wiring)
+            .unwrap();
+        assert_eq!(wiring.distances, vec![Q16::ONE, Q16::ONE, Q16::ZERO]);
+        assert_eq!(wiring.status, AttractorStatus::Converged);
+
+        assert!(trace.is_strictly_contractive());
+        assert!(trace.anomalies.is_empty());
+        assert_eq!(trace.solid_frontier(), Some(WishLayer::Wiring));
+    }
+
+    #[test]
+    fn masked_deep_regression_is_detected_when_scalar_improves() {
+        let w = masked_wish();
+        let contract = WishFacet::new(WishFacetKind::Contract, "f(A)->B");
+        // c0: wiring solid, existence hollow. c1: existence solid, wiring LOST.
+        let c0 = cube_at(&w, &[contract]);
+        let c1 = cube_at(&w, &[WishFacet::crate_("a"), WishFacet::crate_("b")]);
+        assert!(
+            c1.overall_opacity > c0.overall_opacity,
+            "the flat opacity rises 1/3 → 2/3"
+        );
+        let scalar_distances = vec![
+            Q16::ONE.saturating_sub(c0.overall_opacity),
+            Q16::ONE.saturating_sub(c1.overall_opacity),
+        ];
+        let cubes = vec![c0, c1];
+        let trace = LayeredConvergenceTrace::from_cubes(&cubes, ev());
+
+        assert!(
+            trace.anomalies.contains(&RenderAnomaly::MaskedDeepRegression {
+                layer: WishLayer::Wiring,
+                step: 1,
+            }),
+            "the layered view catches the deep regression"
+        );
+        assert!(!trace.is_strictly_contractive());
+
+        // The SCALAR trace over the very same run is fooled into 'Converging'.
+        let scalar = WishConvergenceTrace::new(cubes[0].wish_id, scalar_distances, ev());
+        assert_eq!(
+            scalar.status,
+            AttractorStatus::Converging,
+            "a single number cannot see the masked regression"
+        );
+    }
+
+    #[test]
+    fn set_out_of_order_when_deep_solid_over_hollow_shallow() {
+        let w = two_layer_wish();
+        let contract = WishFacet::new(WishFacetKind::Contract, "f(A)->B");
+        let c = cube_at(&w, &[contract]); // wiring solid, existence hollow
+        let trace = LayeredConvergenceTrace::from_cubes(&[c], ev());
+        assert!(trace.anomalies.contains(&RenderAnomaly::SetOutOfOrder {
+            deeper: WishLayer::Wiring,
+            ungrounded_below: WishLayer::Existence,
+        }));
+    }
+
+    #[test]
+    fn solid_frontier_stops_at_first_unconverged_layer() {
+        let w = two_layer_wish();
+        let c0 = cube_at(&w, &[]);
+        let c1 = cube_at(&w, &[WishFacet::crate_("a")]); // existence solid, wiring never met
+        let trace = LayeredConvergenceTrace::from_cubes(&[c0, c1], ev());
+        assert_eq!(trace.solid_frontier(), Some(WishLayer::Existence));
+    }
+
+    #[test]
+    fn empty_layered_trace_is_not_strictly_contractive() {
+        let trace = LayeredConvergenceTrace::from_cubes(&[], ev());
+        assert!(trace.layers.is_empty());
+        assert!(!trace.is_strictly_contractive());
+        assert_eq!(trace.wish_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn layered_trace_mixed_wish_is_empty() {
+        let wa = two_layer_wish();
+        let wb = masked_wish();
+        let trace = LayeredConvergenceTrace::from_cubes(&[cube_at(&wa, &[]), cube_at(&wb, &[])], ev());
+        assert!(trace.layers.is_empty());
+        assert_eq!(trace.wish_id, Digest::ZERO);
+        assert!(trace.anomalies.is_empty());
+    }
+
+    #[test]
+    fn layered_trace_id_deterministic_and_verifies() {
+        let w = two_layer_wish();
+        let cubes = vec![cube_at(&w, &[]), cube_at(&w, &[WishFacet::crate_("a")])];
+        let t1 = LayeredConvergenceTrace::from_cubes(&cubes, ev());
+        let t2 = LayeredConvergenceTrace::from_cubes(&cubes, ev());
+        assert_eq!(t1.id, t2.id);
+        assert!(t1.verify_id());
+    }
+
+    #[test]
+    fn layered_trace_evidence_mandatory() {
+        let w = two_layer_wish();
+        let trace = LayeredConvergenceTrace::from_cubes(&[cube_at(&w, &[])], ev());
+        assert!(trace.is_evidence_bound());
+        assert_ne!(trace.evidence_bundle_id, Digest::ZERO);
     }
 }

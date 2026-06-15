@@ -73,11 +73,16 @@ pub fn catalog() -> DoorCatalog {
             "--wish",
             vec![],
             "compile a plain-prose wish and measure the workspace against it \
-         (offline, deterministic); under --apply, descend until realized",
+         (offline, deterministic); under --apply, descend until realized. \
+         --layers renders it as a hypercube whose strata fill from transparent \
+         to solid; --staged descends Solve\u{2192}Gate\u{2192}Coagula, coagulating \
+         stratum by stratum",
             [
                 vec![
                     DoorInput::switch("--validated"),
                     DoorInput::switch("--scaffold"),
+                    DoorInput::switch("--layers"),
+                    DoorInput::switch("--staged"),
                     DoorInput::valued("--wish-session", "<file>"),
                     DoorInput::switch("--apply"),
                     DoorInput::valued("--norms", "<dir>"),
@@ -595,6 +600,19 @@ mod tests {
              a door without a description is a hole in the docking surface: \
              {undescribed:?}"
         );
+    }
+
+    #[test]
+    fn wish_door_speaks_layers_and_staged_flags() {
+        let catalog = catalog();
+        let wish = catalog
+            .doors
+            .iter()
+            .find(|d| d.name == "--wish")
+            .expect("a --wish door");
+        let inputs: BTreeSet<&str> = wish.inputs.iter().map(|i| i.name.as_str()).collect();
+        assert!(inputs.contains("--layers"), "the wish door renders strata");
+        assert!(inputs.contains("--staged"), "the wish door descends staged");
     }
 
     #[test]

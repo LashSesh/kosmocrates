@@ -38,11 +38,12 @@ use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
-    assess_wish, Digest, FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
-    FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan, FoundryOutcome,
-    FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult, KcubeArtifactKind,
-    KcubeExportPolicy, KcubeWriteOutcome, ParseBackScanScope, PolicyProfile, StageStanding,
-    VentureSession, Wish, WishAssessment, WishClosureStatus, WishFacet, WishFacetKind, Q16,
+    assess_wish, assess_wish_layered, Digest, FoundryCheckKind, FoundryCheckSpec,
+    FoundryCommandPolicy, FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan,
+    FoundryOutcome, FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult,
+    KcubeArtifactKind, KcubeExportPolicy, KcubeWriteOutcome, ParseBackScanScope, PolicyProfile,
+    RenderAnomaly, StagedClosureReport, StageStanding, StratumClosure, VentureSession, Wish,
+    WishAssessment, WishClosureStatus, WishCube, WishFacet, WishFacetKind, Q16,
 };
 use kosmo_foundry::FoundryExecutor;
 use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
@@ -99,6 +100,13 @@ struct Args {
     wish: Option<String>,
     scaffold: bool,
     validated: bool,
+    /// Render the wish as a layered hypercube whose strata fill from transparent
+    /// to solid (Run 3). A modifier on `--wish`; with `--apply`, one render block
+    /// per descent iteration — the 3-D-printer film.
+    layers: bool,
+    /// Drive the descent as a staged closure pipeline (Solve→Gate→Coagula),
+    /// solidifying stratum by stratum bottom-up (Run 4). Implies `--layers`.
+    staged: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
@@ -221,6 +229,8 @@ impl Default for Args {
             wish: None,
             scaffold: false,
             validated: false,
+            layers: false,
+            staged: false,
             provider_set: false,
             wish_session: None,
             pruefstand: false,
@@ -291,6 +301,11 @@ OPTIONS:\n\
                           (run probes accept a tail budget: \"hi=>out~hi,ms<50\"\n\
                           — the program must answer AND stay under 50ms)\n\
     --scaffold            also print the file changes that would close the gap\n\
+    --layers              render the wish as a hypercube: 5 strata whose opacity\n\
+                          fills from transparent to solid (Run 3; a --wish modifier)\n\
+    --staged              descend as a staged closure pipeline (Solve\u{2192}Gate\u{2192}\n\
+                          Coagula), solidifying stratum by stratum bottom-up\n\
+                          (Run 4; implies --layers)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\
                           from the prior session (auditable, replayable)\n\
@@ -515,6 +530,11 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--scaffold" => args.scaffold = true,
             "--validated" => args.validated = true,
+            "--layers" => args.layers = true,
+            "--staged" => {
+                args.staged = true;
+                args.layers = true; // staged descent always renders its strata
+            }
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
@@ -2969,22 +2989,43 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             .wish_session
             .as_deref()
             .and_then(|p| load_prior_session(p, &wish));
-        let session = descend_to_wish(
-            &args.path,
-            &wish,
-            evidence,
-            validated,
-            8,
-            fallback.as_deref(),
-            prior,
-        )?;
+        let session = if args.staged {
+            descend_staged(&args.path, &wish, evidence, validated, 8, fallback.as_deref(), prior)?
+        } else {
+            descend_to_wish(&args.path, &wish, evidence, validated, 8, fallback.as_deref(), prior)?
+        };
         if let Some(ref sp) = args.wish_session {
             save_session(sp, &session)?;
         }
         if args.json {
-            let json = serde_json::to_string_pretty(session.assessments())
-                .map_err(|e| format!("failed to serialize assessments: {e}"))?;
-            println!("{json}");
+            if args.staged {
+                let report = StagedClosureReport::from_descent(
+                    session.cubes(),
+                    &session.layered_trace(),
+                    evidence,
+                );
+                let json = serde_json::to_string_pretty(&report)
+                    .map_err(|e| format!("failed to serialize staged report: {e}"))?;
+                println!("{json}");
+            } else if args.layers {
+                let json = serde_json::to_string_pretty(session.cubes())
+                    .map_err(|e| format!("failed to serialize cubes: {e}"))?;
+                println!("{json}");
+            } else {
+                let json = serde_json::to_string_pretty(session.assessments())
+                    .map_err(|e| format!("failed to serialize assessments: {e}"))?;
+                println!("{json}");
+            }
+        } else if args.layers {
+            print!("{}", layered_descent_report(&session, args.color));
+            if args.staged {
+                let report = StagedClosureReport::from_descent(
+                    session.cubes(),
+                    &session.layered_trace(),
+                    evidence,
+                );
+                print!("{}", staged_closure_render(&report, args.color));
+            }
         } else {
             print!("{}", descent_report(&session, args.color));
         }
@@ -3035,11 +3076,23 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     }
 
     if args.json {
-        let json = serde_json::to_string_pretty(&assessment)
-            .map_err(|e| format!("failed to serialize assessment: {e}"))?;
-        println!("{json}");
+        if args.layers {
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let json = serde_json::to_string_pretty(&cube)
+                .map_err(|e| format!("failed to serialize cube: {e}"))?;
+            println!("{json}");
+        } else {
+            let json = serde_json::to_string_pretty(&assessment)
+                .map_err(|e| format!("failed to serialize assessment: {e}"))?;
+            println!("{json}");
+        }
     } else {
         print!("{}", wish_report(&wish, &assessment, args.color));
+        if args.layers {
+            let mut one = WishSession::new(wish.clone(), evidence);
+            one.observe_layered(&observed);
+            print!("{}", layered_descent_report(&one, args.color));
+        }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
             print!(
                 "{}",
@@ -3300,6 +3353,25 @@ fn apply_synthesis(
 ///
 /// `prior` resumes an earlier descent: the loaded session's assessments are
 /// prepended to the trajectory and the loop continues from the current state.
+/// The curriculum target for a staged descent: the unmet facets of the
+/// *shallowest* non-solid stratum (solidify Existence before chasing a Run
+/// probe). Falls back to the flat unmet set when there is no cube yet or every
+/// non-empty stratum is already solid. Ranks/orders effort; it never forbids a
+/// facet (CROSS-010).
+fn staged_target(cube: Option<&WishCube>, flat_unmet: &[WishFacet]) -> Vec<WishFacet> {
+    if let Some(c) = cube {
+        for view in &c.layers {
+            if !view.is_empty_layer() && !view.is_solid() {
+                return view.unmet_facets.clone();
+            }
+        }
+    }
+    flat_unmet.to_vec()
+}
+
+/// Descend toward a wish: observe → scaffold/synthesize → re-observe until
+/// realized (flat targeting — the established loop). See [`descend_staged`] for
+/// the layered Solve→Gate→Coagula variant.
 fn descend_to_wish(
     path: &str,
     wish: &Wish,
@@ -3308,6 +3380,37 @@ fn descend_to_wish(
     max_iters: u32,
     fallback: Option<&dyn ActionSynthesizer>,
     prior: Option<WishSession>,
+) -> Result<WishSession, String> {
+    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, false)
+}
+
+/// Descend as a **staged closure pipeline** (Run 4): synthesis targets the
+/// shallowest non-solid stratum first, so the wish coagulates bottom-up (the
+/// "print → debind → sinter" curriculum). Same observation/contraction contract
+/// as [`descend_to_wish`]; only the targeting order differs. The session it
+/// returns carries the cube film [`StagedClosureReport::from_descent`] folds.
+fn descend_staged(
+    path: &str,
+    wish: &Wish,
+    evidence: Digest,
+    validated: bool,
+    max_iters: u32,
+    fallback: Option<&dyn ActionSynthesizer>,
+    prior: Option<WishSession>,
+) -> Result<WishSession, String> {
+    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn descend_inner(
+    path: &str,
+    wish: &Wish,
+    evidence: Digest,
+    validated: bool,
+    max_iters: u32,
+    fallback: Option<&dyn ActionSynthesizer>,
+    prior: Option<WishSession>,
+    staged: bool,
 ) -> Result<WishSession, String> {
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
@@ -3369,7 +3472,10 @@ fn descend_to_wish(
             }
         };
 
-        let assessment = session.observe(&observed);
+        // Always render the layered cube alongside the flat assessment — cubes
+        // are cheap and give every descent a replayable per-stratum film.
+        session.observe_layered(&observed);
+        let assessment = session.latest().expect("just observed").clone();
         let done = matches!(
             assessment.status,
             WishClosureStatus::Realized | WishClosureStatus::Vacuous
@@ -3380,7 +3486,16 @@ fn descend_to_wish(
             break;
         }
         last_unmet = unmet.clone();
-        let written = apply_synthesis(Path::new(path), &unmet, fallback, run_diag.as_deref())
+        // Staged descent solidifies the shallowest non-solid stratum first; the
+        // flat descent attacks the whole unmet set. Either way an empty target
+        // falls back to the full set (fail-safe).
+        let target = if staged {
+            staged_target(session.latest_cube(), &unmet)
+        } else {
+            unmet.clone()
+        };
+        let target = if target.is_empty() { unmet } else { target };
+        let written = apply_synthesis(Path::new(path), &target, fallback, run_diag.as_deref())
             .map_err(|e| e.to_string())?;
         if written == 0 {
             break; // nothing scaffoldable — can't make progress, fail-closed
@@ -3443,6 +3558,164 @@ fn descent_report(session: &WishSession, color: bool) -> String {
                 ));
             }
         }
+    }
+    out
+}
+
+/// A unicode bar filled to `opacity` (0 → empty, ONE → full) over `width` cells.
+fn opacity_bar(opacity: Q16, width: usize) -> String {
+    let filled = ((opacity.to_f64() * width as f64).round() as usize).min(width);
+    let mut s = String::with_capacity(width * 3);
+    for _ in 0..filled {
+        s.push('\u{2588}'); // █
+    }
+    for _ in filled..width {
+        s.push('\u{2591}'); // ░
+    }
+    s
+}
+
+/// The render word for one stratum: solid / rendering / transparent / empty.
+fn layer_state_word(view: &kosmo_core::WishLayerView) -> &'static str {
+    if view.is_empty_layer() {
+        "—"
+    } else if view.is_solid() {
+        "solid"
+    } else if view.met_count > 0 {
+        "rendering"
+    } else {
+        "transparent"
+    }
+}
+
+/// Render the latest cube as a 3-D-printer: one bar per stratum, filled to its
+/// opacity, plus the geomean-solidity gauge and the per-layer convergence
+/// verdict — the human watches the hologram become a solid diamond.
+fn layered_descent_report(session: &WishSession, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish \u{2014} hypercube render{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", session.wish().label));
+    let Some(cube) = session.latest_cube() else {
+        out.push_str("  (no render yet)\n");
+        return out;
+    };
+    for view in &cube.layers {
+        let col = if view.is_solid() {
+            c(GREEN)
+        } else if view.met_count > 0 {
+            c(YELLOW)
+        } else {
+            c(DIM)
+        };
+        out.push_str(&format!(
+            "  {:<10} {}{}{}  {}{:<11}{} {}/{}  {}(opacity {:.3}){}\n",
+            view.layer.label(),
+            col,
+            opacity_bar(view.opacity, 12),
+            c(RESET),
+            col,
+            layer_state_word(view),
+            c(RESET),
+            view.met_count,
+            view.total_count,
+            c(DIM),
+            view.opacity.to_f64(),
+            c(RESET),
+        ));
+    }
+    let frontier = cube.solid_frontier().map(|l| l.label()).unwrap_or("none");
+    out.push_str(&format!(
+        "  {}\u{2500}\u{2500} solidity(geomean) {:.3} \u{00b7} overall {:.3} \u{00b7} frontier: {}{}\n",
+        c(DIM),
+        cube.structural_solidity.to_f64(),
+        cube.overall_opacity.to_f64(),
+        frontier,
+        c(RESET)
+    ));
+    if cube.has_floating_layer() {
+        out.push_str(&format!(
+            "  {}\u{26a0} a stratum renders above a still-transparent base (over-fit suspect){}\n",
+            c(YELLOW),
+            c(RESET)
+        ));
+    }
+    // Per-layer convergence verdict — the resolution a flat scalar cannot give.
+    let trace = session.layered_trace();
+    for a in &trace.anomalies {
+        let msg = match a {
+            RenderAnomaly::MaskedDeepRegression { layer, step } => format!(
+                "masked deep regression in {} at iter {}",
+                layer.label(),
+                step
+            ),
+            RenderAnomaly::SetOutOfOrder {
+                deeper,
+                ungrounded_below,
+            } => format!(
+                "{} set before {} is solid",
+                deeper.label(),
+                ungrounded_below.label()
+            ),
+        };
+        out.push_str(&format!("  {}\u{2717} {}{}\n", c(RED), msg, c(RESET)));
+    }
+    if trace.is_strictly_contractive() {
+        out.push_str(&format!(
+            "  {}\u{2713} every stratum contractive \u{2014} the cut is clean{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
+    }
+    out
+}
+
+/// Render a staged closure report: the Solve→Gate→Coagula state of each stratum
+/// and where the print head has set (Run 4).
+fn staged_closure_render(report: &StagedClosureReport, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}staged closure \u{2014} Solve\u{2192}Gate\u{2192}Coagula{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    for (layer, state) in &report.strata {
+        let (word, col) = match state {
+            StratumClosure::Coagulated => ("coagulated", c(GREEN)),
+            StratumClosure::Gated { .. } => ("gated", c(YELLOW)),
+            StratumClosure::Solving { .. } => ("solving", c(YELLOW)),
+            StratumClosure::Pending => ("pending", c(DIM)),
+            StratumClosure::Fractured { .. } => ("fractured", c(RED)),
+        };
+        out.push_str(&format!(
+            "  {:<10} {}{}{}\n",
+            layer.label(),
+            col,
+            word,
+            c(RESET)
+        ));
+    }
+    if report.fully_coagulated {
+        out.push_str(&format!(
+            "  {}\u{2713} fully coagulated \u{2014} the diamond is cut{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
+    } else {
+        let frontier = report.frontier.map(|l| l.label()).unwrap_or("none");
+        out.push_str(&format!(
+            "  {}print head at: {}{}\n",
+            c(DIM),
+            frontier,
+            c(RESET)
+        ));
     }
     out
 }
@@ -3745,6 +4018,92 @@ mod tests {
         let out = wish_report(&w, &a, false);
         assert!(out.contains("missing"));
         assert!(out.contains("foo"));
+    }
+
+    // ── Run 3 / Run 4: hypercube render + staged closure ──────────────────
+
+    /// A wish spanning Existence (crate), Wiring (contract) and Live (run).
+    fn layered_test_wish() -> Wish {
+        use kosmo_core::WishPredicate;
+        Wish::new(
+            "spanning",
+            [
+                WishPredicate::require(WishFacet::crate_("kosmo-api")),
+                WishPredicate::require(WishFacet::new(
+                    WishFacetKind::Contract,
+                    "handle(Req)->Resp",
+                )),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Run, "ping=>out~pong")),
+            ],
+            Digest::ZERO,
+            Digest::of_bytes(b"ev"),
+        )
+    }
+
+    #[test]
+    fn layered_descent_report_renders_all_five_strata() {
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("kosmo-api")); // existence solid
+        session.observe_layered(&observed);
+
+        let out = layered_descent_report(&session, false);
+        for label in ["existence", "shape", "wiring", "verified", "live"] {
+            assert!(out.contains(label), "missing stratum {label}: {out}");
+        }
+        assert!(out.contains("opacity"));
+        assert!(out.contains("solid"), "existence should read solid: {out}");
+        assert!(out.contains("frontier: existence"), "got: {out}");
+    }
+
+    #[test]
+    fn layered_report_flags_floating_layer() {
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::new(WishFacetKind::Run, "ping=>out~pong")); // live over hollow base
+        session.observe_layered(&observed);
+
+        let out = layered_descent_report(&session, false);
+        assert!(
+            out.contains("over-fit suspect"),
+            "should warn about a floating layer: {out}"
+        );
+    }
+
+    #[test]
+    fn staged_target_picks_shallowest_unsolid_stratum() {
+        let wish = layered_test_wish();
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("kosmo-api")); // existence solid; wiring+live unmet
+        let cube = assess_wish_layered(&wish, &observed, Digest::of_bytes(b"ev"));
+        let flat_unmet = vec![
+            WishFacet::new(WishFacetKind::Contract, "handle(Req)->Resp"),
+            WishFacet::new(WishFacetKind::Run, "ping=>out~pong"),
+        ];
+        let target = staged_target(Some(&cube), &flat_unmet);
+        assert_eq!(
+            target,
+            vec![WishFacet::new(WishFacetKind::Contract, "handle(Req)->Resp")],
+            "the curriculum targets wiring (the contract) before the live run probe"
+        );
+    }
+
+    #[test]
+    fn staged_closure_render_shows_coagulation() {
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("kosmo-api"));
+        session.observe_layered(&observed);
+        let report = StagedClosureReport::from_descent(
+            session.cubes(),
+            &session.layered_trace(),
+            Digest::of_bytes(b"ev"),
+        );
+
+        let out = staged_closure_render(&report, false);
+        assert!(out.contains("Solve"), "header names the pipeline: {out}");
+        assert!(out.contains("existence"));
+        assert!(out.contains("coagulated"), "existence coagulated: {out}");
     }
 
     #[test]

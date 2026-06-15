@@ -22,8 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use kosmo_core::{
-    assess_wish, Digest, ObservedTopology, ParseBackScanScope, Wish, WishAssessment,
-    WishConvergenceTrace, WishFacet, WishFacetKind, WishPredicate,
+    assess_wish, assess_wish_layered, Digest, LayeredConvergenceTrace, ObservedTopology,
+    ParseBackScanScope, Q16, Wish, WishAssessment, WishConvergenceTrace, WishCube, WishFacet,
+    WishFacetKind, WishPredicate,
 };
 use kosmo_hyphae::xlang::{symbol_sets, SourceLanguage};
 use kosmo_hyphae::Norm;
@@ -1811,6 +1812,10 @@ pub struct WishSession {
     wish: Wish,
     evidence_bundle_id: Digest,
     assessments: Vec<WishAssessment>,
+    /// The per-layer render film (Run 3), accumulated by [`WishSession::observe_layered`].
+    /// `#[serde(default)]` so descents persisted before the cube existed still load.
+    #[serde(default)]
+    cubes: Vec<WishCube>,
 }
 
 impl WishSession {
@@ -1821,6 +1826,7 @@ impl WishSession {
             wish,
             evidence_bundle_id,
             assessments: vec![],
+            cubes: vec![],
         }
     }
 
@@ -1856,6 +1862,38 @@ impl WishSession {
         WishConvergenceTrace::from_assessments(&self.assessments, self.evidence_bundle_id)
     }
 
+    /// Like [`WishSession::observe`], but also renders the *layered* hypercube
+    /// for this step (Run 3) and retains it, so the descent accumulates a film of
+    /// the wish solidifying stratum by stratum. The flat assessment is recorded
+    /// too (the headline trajectory stays intact). Returns the rendered cube.
+    pub fn observe_layered(&mut self, observed: &ObservedTopology) -> &WishCube {
+        let assessment = assess_wish(&self.wish, observed, self.evidence_bundle_id);
+        self.assessments.push(assessment);
+        let cube = assess_wish_layered(&self.wish, observed, self.evidence_bundle_id);
+        self.cubes.push(cube);
+        self.cubes.last().expect("just pushed a cube")
+    }
+
+    /// The per-layer render film recorded so far, oldest first.
+    pub fn cubes(&self) -> &[WishCube] {
+        &self.cubes
+    }
+
+    /// The most recently rendered cube, if any.
+    pub fn latest_cube(&self) -> Option<&WishCube> {
+        self.cubes.last()
+    }
+
+    /// The per-layer attractor contract accumulated so far (Run 3) — the
+    /// precision instrument that catches deep regressions the scalar [`trace`]
+    /// masks. Empty until [`observe_layered`] has been called.
+    ///
+    /// [`trace`]: WishSession::trace
+    /// [`observe_layered`]: WishSession::observe_layered
+    pub fn layered_trace(&self) -> LayeredConvergenceTrace {
+        LayeredConvergenceTrace::from_cubes(&self.cubes, self.evidence_bundle_id)
+    }
+
     /// The system is at the wish-attractor: the latest observation realized the wish.
     pub fn at_attractor(&self) -> bool {
         self.trace().at_attractor()
@@ -1869,6 +1907,81 @@ impl WishSession {
     /// The wish is realized and the descent never diverged.
     pub fn is_converged(&self) -> bool {
         self.trace().is_converged()
+    }
+}
+
+/// Content for the deterministic `CubeMeshReading` id.
+#[derive(Serialize)]
+struct MeshContent<'a> {
+    wish_cube_id: &'a Digest,
+    wish_opacity_raw: i64,
+    wish_solidity_raw: i64,
+    system_d_density_raw: i64,
+    evidence_bundle_id: &'a Digest,
+}
+
+/// A side-by-side reading of the two cubes at one instant: the wish-cube's
+/// structural solidity vs. the system-cube's D-Density — the two gear teeth
+/// (Zahnräder) in contact, the intent gear meshing with the topology gear.
+///
+/// Purely advisory: it ranks how aligned intent and topology are; it authorises
+/// nothing (CROSS-010). A wish that reads near-solid while the topology stays
+/// sparse is the over-fit signal. Content-addressed (INVARIANT-007),
+/// evidence-bound (CROSS-006).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CubeMeshReading {
+    pub id: Digest,
+    pub wish_cube_id: Digest,
+    /// [`WishCube`]`::overall_opacity` — the intent gear (mean opacity).
+    pub wish_opacity: Q16,
+    /// [`WishCube`]`::structural_solidity` — the intent gear's geomean solidity.
+    pub wish_solidity: Q16,
+    /// `DDensityReport::density` from `kosmo-systemcube` — the topology gear.
+    pub system_d_density: Q16,
+    pub evidence_bundle_id: Digest,
+}
+
+impl CubeMeshReading {
+    /// Read the two gears at one instant. `d_density` is the caller's
+    /// `SystemCube::export_dry_run(..).d_density.density` (kosmo-systemcube),
+    /// passed as a bare [`Q16`] so the gears mesh at the *data* level — no new
+    /// crate-dependency edge, no structural coupling.
+    pub fn read(cube: &WishCube, d_density: Q16, evidence_bundle_id: Digest) -> Self {
+        let mut m = Self {
+            id: Digest::ZERO,
+            wish_cube_id: cube.id,
+            wish_opacity: cube.overall_opacity,
+            wish_solidity: cube.structural_solidity,
+            system_d_density: d_density,
+            evidence_bundle_id,
+        };
+        m.id = m.compute_id();
+        m
+    }
+
+    fn compute_id(&self) -> Digest {
+        Digest::of(&MeshContent {
+            wish_cube_id: &self.wish_cube_id,
+            wish_opacity_raw: self.wish_opacity.raw(),
+            wish_solidity_raw: self.wish_solidity.raw(),
+            system_d_density_raw: self.system_d_density.raw(),
+            evidence_bundle_id: &self.evidence_bundle_id,
+        })
+    }
+
+    pub fn verify_id(&self) -> bool {
+        self.id == self.compute_id()
+    }
+
+    /// CROSS-006.
+    pub fn is_evidence_bound(&self) -> bool {
+        self.evidence_bundle_id != Digest::ZERO
+    }
+
+    /// Both gears have crossed `threshold` — meshed and turning toward solid
+    /// together. Advisory only (CROSS-010).
+    pub fn in_mesh(&self, threshold: Q16) -> bool {
+        self.wish_solidity.at_least(threshold) && self.system_d_density.at_least(threshold)
     }
 }
 
@@ -1984,6 +2097,101 @@ mod tests {
         assert_eq!(back.iterations(), 1);
         assert_eq!(back.wish().id, s.wish().id);
         assert_eq!(back.latest().unwrap().distance, Q16::HALF);
+    }
+
+    // ── Run 3 / Run 4 plumbing: layered session + the two gears ────────────
+
+    /// A wish spanning Existence (crate) + Wiring (contract).
+    fn layered_wish_intent() -> Wish {
+        Wish::new(
+            "a crate and a contract",
+            [
+                WishPredicate::require(WishFacet::crate_("kosmo-api")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Contract, "f(A)->B")),
+            ],
+            d(b"policy"),
+            d(b"evidence"),
+        )
+    }
+
+    #[test]
+    fn observe_layered_accumulates_cubes_and_keeps_flat_trace() {
+        let mut session = WishSession::new(layered_wish_intent(), d(b"evidence"));
+        session.observe_layered(&ObservedTopology::empty());
+        session.observe_layered(&ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]));
+
+        assert_eq!(session.cubes().len(), 2);
+        assert_eq!(
+            session.assessments().len(),
+            2,
+            "the flat trajectory is kept alongside the cubes"
+        );
+        assert_eq!(session.trace().distances.len(), 2);
+        let lt = session.layered_trace();
+        let existence = lt
+            .layers
+            .iter()
+            .find(|l| l.layer == kosmo_core::WishLayer::Existence)
+            .unwrap();
+        assert_eq!(existence.distances, vec![Q16::ONE, Q16::ZERO]);
+        assert!(session.latest_cube().is_some());
+    }
+
+    #[test]
+    fn old_session_without_cubes_still_deserializes() {
+        // A session persisted before the `cubes` field existed (key absent).
+        let json = serde_json::json!({
+            "wish": layered_wish_intent(),
+            "evidence_bundle_id": d(b"evidence"),
+            "assessments": [],
+        });
+        let session: WishSession =
+            serde_json::from_value(json).expect("serde(default) fills cubes");
+        assert!(session.cubes().is_empty());
+        assert_eq!(session.iterations(), 0);
+    }
+
+    #[test]
+    fn layered_session_round_trips_through_serde() {
+        let mut session = WishSession::new(layered_wish_intent(), d(b"evidence"));
+        session.observe_layered(&ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]));
+        let json = serde_json::to_string(&session).unwrap();
+        let back: WishSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.cubes().len(), 1);
+        assert_eq!(
+            back.latest_cube().unwrap().id,
+            session.latest_cube().unwrap().id
+        );
+    }
+
+    #[test]
+    fn mesh_reading_pairs_wish_solidity_with_d_density() {
+        let cube = assess_wish_layered(
+            &layered_wish_intent(),
+            &ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]),
+            d(b"evidence"),
+        );
+        let mesh = CubeMeshReading::read(&cube, Q16::HALF, d(b"evidence"));
+        assert_eq!(mesh.wish_cube_id, cube.id);
+        assert_eq!(mesh.wish_opacity, cube.overall_opacity);
+        assert_eq!(mesh.wish_solidity, cube.structural_solidity);
+        assert_eq!(mesh.system_d_density, Q16::HALF);
+        assert!(mesh.verify_id());
+        assert!(mesh.is_evidence_bound());
+    }
+
+    #[test]
+    fn mesh_reading_id_tracks_d_density() {
+        let cube = assess_wish_layered(
+            &layered_wish_intent(),
+            &ObservedTopology::empty(),
+            d(b"evidence"),
+        );
+        let m1 = CubeMeshReading::read(&cube, Q16::HALF, d(b"evidence"));
+        let m2 = CubeMeshReading::read(&cube, Q16::HALF, d(b"evidence"));
+        assert_eq!(m1.id, m2.id, "deterministic");
+        let m3 = CubeMeshReading::read(&cube, Q16::ONE, d(b"evidence"));
+        assert_ne!(m1.id, m3.id, "a different topology gear → a different reading");
     }
 
     // ── real-workspace observation (graceful skip if cargo unavailable) ────

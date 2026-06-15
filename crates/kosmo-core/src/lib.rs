@@ -10,6 +10,7 @@ pub mod acquisition;
 pub mod attractor;
 pub mod authority;
 pub mod cartography;
+pub mod closure;
 pub mod digest;
 pub mod doors;
 pub mod energy;
@@ -32,7 +33,8 @@ pub use acquisition::{
     LicenseCheckOutcome, SecretScanOutcome, SourceAcquisitionCapability,
 };
 pub use attractor::{
-    AttractorStatus, ConvergenceStep, WishConvergenceTrace, MAX_STRICT_CONTRACTION_STEPS,
+    AttractorStatus, ConvergenceStep, LayerTrajectory, LayeredConvergenceTrace, RenderAnomaly,
+    WishConvergenceTrace, MAX_STRICT_CONTRACTION_STEPS,
 };
 pub use authority::{AuthorityLabel, Capability, CapabilityLock, LicenseStatus, TaintLabel};
 pub use cartography::{
@@ -40,6 +42,7 @@ pub use cartography::{
     CartographyStorageManifest, CartographyStoreCommit, CartographyStoreError,
     CorpusCartographyStore, CorpusScope, InMemoryCartographyStore,
 };
+pub use closure::{ClosureStage, StagedClosureReport, StratumClosure};
 pub use digest::{canonical_bytes, Digest};
 pub use doors::{Door, DoorCatalog, DoorGovernance, DoorInput, DoorNeed, DoorSurface};
 pub use energy::{
@@ -79,6 +82,6 @@ pub use run::{
 pub use validation::{determine_closure_status, ValidationClosureReport, ValidationClosureStatus};
 pub use venture::{StageStanding, Venture, VentureError, VentureSession, VentureStage};
 pub use wish::{
-    assess_wish, ObservedTopology, Wish, WishAssessment, WishClosureStatus, WishFacet,
-    WishFacetKind, WishPredicate,
+    assess_wish, assess_wish_layered, ObservedTopology, Wish, WishAssessment, WishClosureStatus,
+    WishCube, WishFacet, WishFacetKind, WishLayer, WishLayerView, WishPredicate, WISH_LAYER_COUNT,
 };
