@@ -113,6 +113,11 @@ struct Args {
     /// (Run 8): the two gears — wish solidity vs. topology density — read
     /// side by side, surfacing over-fit (wish solid, topology sparse).
     mesh: bool,
+    /// Opt out of the graduated default human render (Run 10): print only the
+    /// terse verdict — the flat assessment (read-only) or the descent summary
+    /// (`--apply`) — without the layered hypercube, Konus focus, or staged film.
+    /// Human render only; the `--json` machine contract is unaffected.
+    flat: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
@@ -238,6 +243,7 @@ impl Default for Args {
             layers: false,
             staged: false,
             mesh: false,
+            flat: false,
             provider_set: false,
             wish_session: None,
             pruefstand: false,
@@ -315,6 +321,8 @@ OPTIONS:\n\
                           (Run 4; implies --layers)\n\
     --mesh                read the two gears: wish solidity vs. the workspace's\n\
                           observed structural density \u{2014} surfaces over-fit (Run 8)\n\
+    --flat                opt out of the default cube view: print only the terse\n\
+                          verdict, no layered hypercube/Konus/staged film (Run 10)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\
                           from the prior session (auditable, replayable)\n\
@@ -545,6 +553,7 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.layers = true; // staged descent always renders its strata
             }
             "--mesh" => args.mesh = true,
+            "--flat" => args.flat = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
@@ -2989,6 +2998,16 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     // not --validated was given — the keystone demands it.
     let validated = args.validated || wish_needs_validation(&wish);
 
+    // Run 10 — graduate the cube view to the default human render. The layered
+    // hypercube (with its Konus focus and Run 9 honesty verdict) and the
+    // staged-closure film now ride every human wish-run; `--flat` is the opt-out
+    // to the terse verdict that used to be the default. The headline summary
+    // (flat assessment / descent report) always prints either way, so scripts
+    // and the verdict strings keep their contract. The machine channel (--json)
+    // is untouched — it still selects serialization by explicit flag.
+    let show_layers = args.layers || args.staged || !args.flat;
+    let show_staged = args.staged || !args.flat;
+
     // --apply turns wish mode into a descent: observe → scaffold → apply →
     // re-observe, until the wish is realized. This WRITES to the workspace.
     if args.apply {
@@ -3039,19 +3058,24 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         } else {
             // The topology gear: one read-only re-observation after the descent,
             // shared by the cube-mode honesty verdict (Run 9) and --mesh (Run 8).
-            let mesh_density = if args.layers || args.staged || args.mesh {
+            let mesh_density = if show_layers || args.mesh {
                 observe_workspace_deep(&args.path)
                     .ok()
                     .map(|o| topology_density(&o, args.capacity))
             } else {
                 None
             };
-            if args.layers {
+            // The descent summary is the headline scripts gate on — always shown.
+            print!("{}", descent_report(&session, args.color));
+            // Run 10 — the cube view rides every human descent by default: the
+            // layered hypercube (Konus focus + Run 9 honesty verdict) and, atop a
+            // staged descent, the Solve→Gate→Coagula film. --flat suppresses both.
+            if show_layers {
                 print!(
                     "{}",
                     layered_descent_report(&session, mesh_density, args.color)
                 );
-                if args.staged {
+                if show_staged {
                     let report = StagedClosureReport::from_descent(
                         session.cubes(),
                         &session.layered_trace(),
@@ -3059,8 +3083,6 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                     );
                     print!("{}", staged_closure_render(&report, args.color));
                 }
-            } else {
-                print!("{}", descent_report(&session, args.color));
             }
             if args.mesh {
                 if let Some(c) = session.latest_cube() {
@@ -3135,15 +3157,18 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             println!("{json}");
         }
     } else {
+        // The flat verdict is the headline scripts gate on — always shown.
         print!("{}", wish_report(&wish, &assessment, args.color));
         // The topology gear, computed once from this observation (free — no
         // re-observe), drives both the cube-mode honesty verdict and --mesh.
-        let mesh_density = if args.layers || args.mesh {
+        let mesh_density = if show_layers || args.mesh {
             Some(topology_density(&observed, args.capacity))
         } else {
             None
         };
-        if args.layers {
+        // Run 10 — the layered hypercube (Konus + Run 9 honesty verdict) rides
+        // every human read-only run by default; --flat falls back to the verdict.
+        if show_layers {
             let mut one = WishSession::new(wish.clone(), evidence);
             one.observe_layered(&observed);
             print!("{}", layered_descent_report(&one, mesh_density, args.color));

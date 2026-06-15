@@ -85,6 +85,7 @@ pub fn catalog() -> DoorCatalog {
                     DoorInput::switch("--layers"),
                     DoorInput::switch("--staged"),
                     DoorInput::switch("--mesh"),
+                    DoorInput::switch("--flat"),
                     DoorInput::valued("--wish-session", "<file>"),
                     DoorInput::switch("--apply"),
                     DoorInput::valued("--norms", "<dir>"),
