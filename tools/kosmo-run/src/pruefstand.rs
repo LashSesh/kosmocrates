@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use kosmo_core::{Digest, WishClosureStatus};
+use kosmo_core::{Digest, WishClosureStatus, Q16};
 use kosmo_intent::compile_wish;
 
 use crate::descend_to_wish;
@@ -62,6 +62,12 @@ pub struct Outcome {
     /// `Some(true)` realized, `Some(false)` rejected, `None` if skipped.
     pub realized: Option<bool>,
     pub verdict: Verdict,
+    /// Run 7 — the layered cube reached full solidity (the diamond is cut:
+    /// every stratum's geomean opacity is `ONE`). `None` when skipped.
+    pub cube_solid: Option<bool>,
+    /// Run 7 — the per-layer trace stayed strictly contractive: no masked deep
+    /// regression across the descent. `None` when skipped.
+    pub contractive: Option<bool>,
 }
 
 /// The fidelity report over a whole corpus.
@@ -85,6 +91,28 @@ impl Report {
     /// Faithful iff no scenario reached the wrong verdict. Skips are tolerated.
     pub fn is_faithful(&self) -> bool {
         self.mismatched() == 0
+    }
+
+    /// Run 7 — the layered machinery tracks realization exactly: every realized
+    /// scenario cut a solid diamond, every rejected one correctly stayed a
+    /// hologram (`structural_solidity < ONE`). Skips are tolerated. This ties
+    /// Run 3's opacity↔realization identity to the real descents end-to-end.
+    pub fn cube_faithful(&self) -> bool {
+        self.outcomes.iter().all(|o| match (o.realized, o.cube_solid) {
+            (Some(true), Some(solid)) => solid,
+            (Some(false), Some(solid)) => !solid,
+            _ => true, // skipped (or no cube): tolerated
+        })
+    }
+
+    /// Run 7 — realized descents whose layered trace was *not* strictly
+    /// contractive: a deep stratum regressed under a successful descent (a
+    /// masked deep regression). Should be `0` on a faithful substrate.
+    pub fn masked_regressions(&self) -> usize {
+        self.outcomes
+            .iter()
+            .filter(|o| o.realized == Some(true) && o.contractive == Some(false))
+            .count()
     }
 }
 
@@ -255,6 +283,8 @@ pub fn run_scenario(s: &Scenario, allow_cargo: bool) -> Outcome {
         expect: s.expect,
         realized: None,
         verdict: Verdict::Skipped,
+        cube_solid: None,
+        contractive: None,
     };
     if s.needs_cargo && !allow_cargo {
         return skip();
@@ -284,6 +314,12 @@ pub fn run_scenario(s: &Scenario, allow_cargo: bool) -> Outcome {
                 )
             });
             let want = matches!(s.expect, Expectation::Realized);
+            // Run 7: the cube film the descent accumulated (observe_layered) lets
+            // us read the layered verdict for free — no second descent.
+            let cube_solid = session
+                .latest_cube()
+                .map(|c| c.structural_solidity == Q16::ONE);
+            let contractive = Some(session.layered_trace().is_strictly_contractive());
             Outcome {
                 name: s.name,
                 expect: s.expect,
@@ -293,6 +329,8 @@ pub fn run_scenario(s: &Scenario, allow_cargo: bool) -> Outcome {
                 } else {
                     Verdict::Mismatch
                 },
+                cube_solid,
+                contractive,
             }
         }
         // Observation unavailable (e.g. cargo metadata can't run) — skip.
@@ -342,14 +380,21 @@ pub fn render(report: &Report, color: bool) -> String {
             Some(false) => "rejected",
             None => "skipped",
         };
+        // Run 7: ◆ a solid diamond, ◇ still a hologram, – not descended.
+        let cube = match o.cube_solid {
+            Some(true) => "\u{25c6}",
+            Some(false) => "\u{25c7}",
+            None => "\u{2013}",
+        };
         out.push_str(&format!(
-            "  {col}{mark}{reset} {name:<18} expect {want:<8}  got {got}\n",
+            "  {col}{mark}{reset} {name:<18} expect {want:<8}  got {got:<8}  cube {cube}\n",
             col = col,
             mark = mark,
             reset = c(RESET),
             name = o.name,
             want = want,
             got = got,
+            cube = cube,
         ));
     }
     let faithful = report.is_faithful();
@@ -362,6 +407,29 @@ pub fn render(report: &Report, color: bool) -> String {
         c(RESET),
         report.mismatched(),
         report.skipped(),
+    ));
+    let cube_col = if report.cube_faithful() {
+        c(GREEN)
+    } else {
+        c(RED)
+    };
+    out.push_str(&format!(
+        "  {}cube: solidity {} realization (\u{25c6} realized = solid diamond, \u{25c7} rejected = hologram){}\n",
+        cube_col,
+        if report.cube_faithful() {
+            "tracks"
+        } else {
+            "DIVERGED from"
+        },
+        c(RESET),
+    ));
+    let masked = report.masked_regressions();
+    let masked_col = if masked == 0 { c(GREEN) } else { c(RED) };
+    out.push_str(&format!(
+        "  {}layered: {} masked deep regression(s) under a realized descent{}\n",
+        masked_col,
+        masked,
+        c(RESET),
     ));
     out
 }
@@ -383,6 +451,66 @@ mod tests {
         );
         // The 6 cargo-gated scenarios (2 behaviour, 2 runtime, 2 service) skip.
         assert!(report.mismatched() == 0);
+
+        // Run 7: the layered cube tracks realization exactly — realized ⇒ solid
+        // diamond, rejected ⇒ hologram — and every realized descent stayed
+        // strictly contractive (no masked deep regression). Read for free off
+        // the same descents.
+        assert!(
+            report.cube_faithful(),
+            "cube solidity must track realization:\n{}",
+            render(&report, false)
+        );
+        assert_eq!(
+            report.masked_regressions(),
+            0,
+            "a realized descent suffered a masked deep regression:\n{}",
+            render(&report, false)
+        );
+    }
+
+    #[test]
+    fn staged_descent_coagulates_the_structural_corpus() {
+        // Run 7: the staged Solve→Gate→Coagula pipeline (Run 4 + the Konus
+        // precedence lens of Run 5) realizes the offline corpus and coagulates
+        // every non-empty stratum — the diamond is cut, bottom-up. Proven on the
+        // real descents; gracefully skips when offline observation is unavailable.
+        use crate::descend_staged;
+        use kosmo_core::StagedClosureReport;
+
+        for s in reference_corpus()
+            .iter()
+            .filter(|s| !s.needs_cargo && s.expect == Expectation::Realized)
+        {
+            let Ok(root) = make_workspace(s.name, s.lib, s.bin, s.python) else {
+                continue;
+            };
+            let evidence = Digest::of_bytes(s.wish.as_bytes());
+            let wish = compile_wish(s.wish, Digest::ZERO, evidence);
+            let descent =
+                descend_staged(root.to_str().unwrap_or("."), &wish, evidence, false, 8, None, None);
+            std::fs::remove_dir_all(&root).ok();
+            let Ok(session) = descent else { continue };
+            let realized = session.latest().is_some_and(|a| {
+                matches!(
+                    a.status,
+                    WishClosureStatus::Realized | WishClosureStatus::Vacuous
+                )
+            });
+            if !realized {
+                continue; // offline observation unavailable for this case — skip
+            }
+            let report = StagedClosureReport::from_descent(
+                session.cubes(),
+                &session.layered_trace(),
+                evidence,
+            );
+            assert!(
+                report.fully_coagulated,
+                "{}: staged descent realized the wish but did not coagulate every stratum: {:?}",
+                s.name, report.strata
+            );
+        }
     }
 
     #[test]
@@ -394,12 +522,16 @@ mod tests {
                     expect: Expectation::Realized,
                     realized: Some(true),
                     verdict: Verdict::Match,
+                    cube_solid: Some(true),
+                    contractive: Some(true),
                 },
                 Outcome {
                     name: "b",
                     expect: Expectation::Rejected,
                     realized: Some(true),
                     verdict: Verdict::Mismatch,
+                    cube_solid: Some(true),
+                    contractive: Some(true),
                 },
             ],
         };
