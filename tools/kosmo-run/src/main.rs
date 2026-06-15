@@ -69,6 +69,7 @@ use kosmo_pipeline::{
 use kosmo_pse_bridge::MemoryRecall;
 use kosmo_sandbox::{RunSpec, Sandbox};
 use kosmo_store::NormStore;
+use kosmo_synthesizer::consensus::{ConsensusConfig, ResonanceReading};
 use kosmo_synthesizer::{
     ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, FileChangeKind, GroundedSynthesizer,
     MockSynthesizer, SourceSnippet, SynthesisRequest,
@@ -3311,7 +3312,30 @@ fn apply_synthesis(
         if changes.is_empty() {
             if let Some(synth) = fallback {
                 match synth.synthesize(&req) {
-                    Ok(result) => changes = result.patch.file_changes,
+                    Ok(result) => {
+                        // Run 6: when a swarm chose this patch, surface the
+                        // Ophanim/Konus/Monolith resonance — the operator watches
+                        // the ensemble converge (sealed as a replayable reading).
+                        if let Some(report) = &result.consensus {
+                            let reading = ResonanceReading::seal(
+                                report,
+                                &ConsensusConfig::default(),
+                                Digest::of_bytes(facet.key.as_bytes()),
+                            );
+                            eprintln!(
+                                "  \u{2299} ophanim resonance: {} perspectives \u{00b7} d_total={:.3} \u{03b8}={:.3} \u{21d2} {}",
+                                reading.perspectives(),
+                                reading.d_total.to_f64(),
+                                reading.theta.to_f64(),
+                                if reading.convergent {
+                                    "CONVERGENT"
+                                } else {
+                                    "DIVERGENT"
+                                }
+                            );
+                        }
+                        changes = result.patch.file_changes;
+                    }
                     // Surface the error instead of silently swallowing it: a
                     // swallowed transport error is indistinguishable from "the
                     // model produced nothing", which is exactly what masked the

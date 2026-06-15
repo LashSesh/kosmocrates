@@ -33,9 +33,10 @@
 
 use std::collections::BTreeSet;
 
-use kosmo_core::Q16;
+use kosmo_core::{Digest, Q16};
 use kosmo_hyphae::codematrix::pooled_symbol_sets;
 use kosmo_hyphae::xlang::SourceLanguage;
+use serde::{Deserialize, Serialize};
 
 use crate::{FileChange, FileChangeKind, Patch, SynthesisResult};
 
@@ -127,7 +128,7 @@ impl Default for ConsensusConfig {
 }
 
 /// One candidate's tripolar consensus score.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidateScore {
     pub psi: Q16,
     pub rho: Q16,
@@ -137,7 +138,7 @@ pub struct CandidateScore {
 
 /// The ensemble verdict — advisory numbers; delivery policy lives with the
 /// caller (the synthesizer folds `d_total` into the result confidence).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConsensusReport {
     pub scores: Vec<CandidateScore>,
     /// `geomean(max(D_k, ε)) ⊗ Ω` — the ensemble's agreement-weighted total.
@@ -153,6 +154,89 @@ impl ConsensusReport {
     /// `true` when the ensemble agrees at or above the configured Θ.
     pub fn convergent(&self, cfg: &ConsensusConfig) -> bool {
         self.d_total.at_least(cfg.theta)
+    }
+}
+
+/// Content for the deterministic `ResonanceReading` id.
+#[derive(Serialize)]
+struct ResonanceContent<'a> {
+    /// Per-candidate `(ψ, ρ, ω, D)` raws — the Ophanim array.
+    scores: &'a Vec<(i64, i64, i64, i64)>,
+    d_total_raw: i64,
+    theta_raw: i64,
+    convergent: bool,
+    evidence_bundle_id: &'a Digest,
+}
+
+/// A content-addressed reading of the Ophanim/Konus/Monolith ensemble at one
+/// Solve step — the swarm's convergence made first-class and replayable.
+///
+/// - `scores` are the per-candidate tripolar scores (ψ·ρ·ω·D — the **Ophanim**
+///   array, one row per oracle perspective).
+/// - `d_total` is the **Konus** ensemble lens: `geomean(max(D_k, ε)) ⊗ Ω`.
+/// - `theta` is the **Monolith** threshold Θ, and `convergent` is its collapse
+///   gate (`d_total ≥ Θ` ⇒ the ensemble coagulated into one patch).
+///
+/// Advisory like everything in the consensus path: it ranks how strongly the
+/// perspectives agree; it authorises nothing (CROSS-010). Content-addressed
+/// (INVARIANT-007), evidence-bound (CROSS-006).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResonanceReading {
+    pub id: Digest,
+    pub scores: Vec<CandidateScore>,
+    pub d_total: Q16,
+    pub theta: Q16,
+    pub convergent: bool,
+    pub evidence_bundle_id: Digest,
+}
+
+impl ResonanceReading {
+    /// Seal an ensemble verdict against its config — recording the Monolith
+    /// collapse gate (`convergent`) at this Θ.
+    pub fn seal(
+        report: &ConsensusReport,
+        cfg: &ConsensusConfig,
+        evidence_bundle_id: Digest,
+    ) -> Self {
+        let mut r = Self {
+            id: Digest::ZERO,
+            scores: report.scores.clone(),
+            d_total: report.d_total,
+            theta: cfg.theta,
+            convergent: report.convergent(cfg),
+            evidence_bundle_id,
+        };
+        r.id = r.compute_id();
+        r
+    }
+
+    fn compute_id(&self) -> Digest {
+        let scores: Vec<(i64, i64, i64, i64)> = self
+            .scores
+            .iter()
+            .map(|s| (s.psi.raw(), s.rho.raw(), s.omega.raw(), s.d.raw()))
+            .collect();
+        Digest::of(&ResonanceContent {
+            scores: &scores,
+            d_total_raw: self.d_total.raw(),
+            theta_raw: self.theta.raw(),
+            convergent: self.convergent,
+            evidence_bundle_id: &self.evidence_bundle_id,
+        })
+    }
+
+    pub fn verify_id(&self) -> bool {
+        self.id == self.compute_id()
+    }
+
+    /// CROSS-006.
+    pub fn is_evidence_bound(&self) -> bool {
+        self.evidence_bundle_id != Digest::ZERO
+    }
+
+    /// The number of oracle perspectives in the ensemble.
+    pub fn perspectives(&self) -> usize {
+        self.scores.len()
     }
 }
 
@@ -504,5 +588,70 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── Run 6: ResonanceReading (the Ophanim/Konus/Monolith verdict, sealed) ──
+
+    #[test]
+    fn resonance_reading_seals_a_convergent_ensemble() {
+        let report = ConsensusReport {
+            scores: vec![
+                CandidateScore {
+                    psi: Q16::ONE,
+                    rho: Q16::HALF,
+                    omega: Q16::ONE,
+                    d: Q16::HALF,
+                },
+                CandidateScore {
+                    psi: Q16::HALF,
+                    rho: Q16::HALF,
+                    omega: Q16::HALF,
+                    d: Q16::ratio(1, 8).unwrap(),
+                },
+            ],
+            d_total: Q16::ratio(30, 100).unwrap(),
+            best_index: 0,
+            repair_targets: vec![],
+        };
+        let reading =
+            ResonanceReading::seal(&report, &ConsensusConfig::default(), Digest::of_bytes(b"ev"));
+        assert_eq!(reading.perspectives(), 2);
+        assert!(reading.convergent, "d_total 0.30 ≥ θ 0.20 → the Monolith collapses");
+        assert!(reading.verify_id());
+        assert!(reading.is_evidence_bound());
+    }
+
+    #[test]
+    fn resonance_reading_is_divergent_below_theta() {
+        let report = ConsensusReport {
+            scores: vec![CandidateScore {
+                psi: Q16::ratio(1, 10).unwrap(),
+                rho: Q16::HALF,
+                omega: Q16::HALF,
+                d: Q16::ratio(5, 100).unwrap(),
+            }],
+            d_total: Q16::ratio(10, 100).unwrap(),
+            best_index: 0,
+            repair_targets: vec![],
+        };
+        let reading =
+            ResonanceReading::seal(&report, &ConsensusConfig::default(), Digest::of_bytes(b"ev"));
+        assert!(!reading.convergent, "d_total 0.10 < θ 0.20 → no collapse");
+    }
+
+    #[test]
+    fn resonance_reading_id_deterministic_and_evidence_bound() {
+        let report = ConsensusReport {
+            scores: vec![],
+            d_total: Q16::HALF,
+            best_index: 0,
+            repair_targets: vec![],
+        };
+        let cfg = ConsensusConfig::default();
+        let a = ResonanceReading::seal(&report, &cfg, Digest::of_bytes(b"ev"));
+        let b = ResonanceReading::seal(&report, &cfg, Digest::of_bytes(b"ev"));
+        assert_eq!(a.id, b.id);
+        assert!(a.verify_id());
+        assert_ne!(a.evidence_bundle_id, Digest::ZERO);
     }
 }
