@@ -112,6 +112,22 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--wishlist",
+            vec![],
+            "measure a file of prose wishes (one per line; # comments and blank \
+         lines ignored) against the workspace as a project definition-of-done, \
+         into an aggregate realization gauge; read-only and deterministic, \
+         exit 0 only when every wish is realized",
+            [
+                vec![DoorInput::switch("--validated"), workspace_input()],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
             "--landscape",
             vec![],
             "project every substrate finding into a ranked wish-proposal \

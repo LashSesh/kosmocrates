@@ -127,6 +127,10 @@ struct Args {
     /// newly broken, still missing — the regression/progress view (Run 13).
     /// Human render only, read-only; the baseline must be the same wish.
     since: Option<String>,
+    /// Path to a wishlist file — many prose wishes (one per non-`#` line) measured
+    /// against the workspace as a project's definition-of-done, into an aggregate
+    /// realization gauge (Run 15). Its own read-only mode; exclusive with --wish.
+    wishlist: Option<String>,
     /// Run the empirical Prüfstand: descend a reference corpus of known-good
     /// (and deliberately broken) systems and report the fidelity.
     pruefstand: bool,
@@ -252,6 +256,7 @@ impl Default for Args {
             provider_set: false,
             wish_session: None,
             since: None,
+            wishlist: None,
             pruefstand: false,
             ledger: None,
             ground_top: 5,
@@ -335,6 +340,9 @@ OPTIONS:\n\
     --since <path>        measure against a prior --wish-session snapshot: render\n\
                           what moved \u{2014} facets gained, regressed, still missing\n\
                           (Run 13; read-only, same wish required)\n\
+    --wishlist <path>     measure a file of prose wishes (one per line, # comments)\n\
+                          against the workspace as a project definition-of-done;\n\
+                          aggregate gauge, exit 0 only if all realized (Run 15)\n\
 \n\
     (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
      realized; add --provider to let the LLM build facets the scaffolder can't)\n\
@@ -568,6 +576,9 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--since" => {
                 args.since = Some(argv.next().ok_or("--since needs a value")?);
+            }
+            "--wishlist" => {
+                args.wishlist = Some(argv.next().ok_or("--wishlist needs a file path")?);
             }
             "--pruefstand" | "--testbench" => args.pruefstand = true,
             "--swarm" => {
@@ -2986,6 +2997,141 @@ fn record_norm_observation(
     }
 }
 
+/// One wish's standing in a wishlist measurement (Run 15) — the machine row.
+#[derive(serde::Serialize)]
+struct WishlistEntry {
+    wish: String,
+    realized: bool,
+    met: u32,
+    total: u32,
+}
+
+/// A whole wishlist measured against the workspace: the aggregate project gauge.
+#[derive(serde::Serialize)]
+struct WishlistReading {
+    realized: usize,
+    total: usize,
+    wishes: Vec<WishlistEntry>,
+}
+
+fn is_realized(status: &WishClosureStatus) -> bool {
+    matches!(
+        status,
+        WishClosureStatus::Realized | WishClosureStatus::Vacuous
+    )
+}
+
+/// Render a wishlist measurement for a human: the aggregate `realized N/M` gauge
+/// and one marked line per wish with its met/total.
+fn wishlist_report(path: &str, items: &[(Wish, WishAssessment)], color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wishlist{} {}\u{2014} {}{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(DIM),
+        path,
+        c(RESET)
+    ));
+    out.push_str(&format!("  realized {}/{}\n", realized, items.len()));
+    for (w, a) in items {
+        let (mark, col) = match a.status {
+            WishClosureStatus::Realized => ("\u{2713}", c(GREEN)),
+            WishClosureStatus::Vacuous => ("\u{00b7}", c(DIM)),
+            WishClosureStatus::Approaching => ("\u{25d0}", c(YELLOW)),
+            WishClosureStatus::Unstarted => ("\u{2717}", c(RED)),
+        };
+        out.push_str(&format!(
+            "  {}{}{} {} {}({}/{}){}\n",
+            col,
+            mark,
+            c(RESET),
+            w.label,
+            c(DIM),
+            a.met_count,
+            a.total_count,
+            c(RESET)
+        ));
+    }
+    out
+}
+
+/// Measure a file of prose wishes — the project's definition-of-done — against
+/// the workspace at once (Run 15). One wish per non-empty, non-`#` line. Observes
+/// once at the deepest level any wish needs (a deeper observation still answers
+/// shallower facets). Read-only and deterministic; exit 0 only when every wish is
+/// realized — the realization status gates, nothing else (CROSS-010).
+fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("could not read wishlist {path}: {e}"))?;
+    let proses: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    if proses.is_empty() {
+        return Err(format!(
+            "wishlist {path} has no wishes (one prose wish per line, # for comments)"
+        ));
+    }
+    let wishes: Vec<Wish> = proses
+        .iter()
+        .map(|p| compile_wish(p, Digest::ZERO, Digest::of_bytes(p.as_bytes())))
+        .collect();
+
+    // Observe once, at the deepest level any wish in the list requires.
+    let observed = if wishes.iter().any(wish_needs_service) {
+        observe_workspace_service(args.path.as_str())
+    } else if wishes.iter().any(wish_needs_runtime) {
+        observe_workspace_runtime(args.path.as_str())
+    } else if args.validated || wishes.iter().any(wish_needs_validation) {
+        observe_workspace_validated(args.path.as_str())
+    } else {
+        observe_workspace_deep(args.path.as_str())
+    }
+    .map_err(|e| format!("could not observe {}: {e}", args.path))?;
+
+    let items: Vec<(Wish, WishAssessment)> = wishes
+        .into_iter()
+        .map(|w| {
+            let a = assess_wish(&w, &observed, w.evidence_bundle_id);
+            (w, a)
+        })
+        .collect();
+    let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
+
+    if args.json {
+        let reading = WishlistReading {
+            realized,
+            total: items.len(),
+            wishes: items
+                .iter()
+                .map(|(w, a)| WishlistEntry {
+                    wish: w.label.clone(),
+                    realized: is_realized(&a.status),
+                    met: a.met_count,
+                    total: a.total_count,
+                })
+                .collect(),
+        };
+        let json = serde_json::to_string_pretty(&reading)
+            .map_err(|e| format!("failed to serialize wishlist reading: {e}"))?;
+        println!("{json}");
+    } else {
+        print!("{}", wishlist_report(path, &items, args.color));
+    }
+
+    // Exit 0 only when every wish is realized — the project gate.
+    Ok(if realized == items.len() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
 fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let prose = args.wish.as_deref().unwrap_or("");
     // Bind the wish's identity to its prose — content-addressed, deterministic.
@@ -4181,6 +4327,7 @@ fn run() -> Result<ExitCode, String> {
             || args.steward
             || args.landscape
             || args.wish.is_some()
+            || args.wishlist.is_some()
             || args.chat.is_some()
             || args.atelier.is_some()
             || args.venture.is_some()
@@ -4310,6 +4457,15 @@ fn run() -> Result<ExitCode, String> {
     // (+ --apply) turns the top of the landscape into a descent.
     if args.landscape {
         return run_landscape_mode(&args);
+    }
+
+    // Wishlist: a file of wishes — the project's definition-of-done — measured
+    // all at once into an aggregate realization gauge. Exclusive with --wish.
+    if let Some(path) = args.wishlist.as_deref() {
+        if args.wish.is_some() {
+            return Err("--wishlist and --wish are mutually exclusive (one door per run)".into());
+        }
+        return run_wishlist_mode(&args, path);
     }
 
     // Wish mode is deterministic and offline (no LLM, no key): compile the
@@ -4645,6 +4801,33 @@ mod tests {
         let same = WishDelta::compute(&wish, &curr, &curr);
         assert!(!same.has_regression() && same.gained.is_empty());
         assert!(delta_report(&same, &wish.label, false).contains("unchanged"));
+    }
+
+    #[test]
+    fn wishlist_report_aggregates_per_wish_standing() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let met = Wish::new(
+            "a crate solo",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            ev,
+        );
+        let unmet = Wish::new(
+            "a crate ghost",
+            [WishPredicate::require(WishFacet::crate_("ghost"))],
+            Digest::ZERO,
+            ev,
+        );
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::crate_("solo")); // only the first wish is met
+        let a_met = assess_wish(&met, &obs, ev);
+        let a_unmet = assess_wish(&unmet, &obs, ev);
+        let items = vec![(met, a_met), (unmet, a_unmet)];
+        let out = wishlist_report("spec.txt", &items, false);
+        assert!(out.contains("realized 1/2"), "the aggregate gauge: {out}");
+        assert!(out.contains("a crate solo") && out.contains("a crate ghost"), "{out}");
+        assert!(out.contains("spec.txt"), "names the source: {out}");
     }
 
     #[test]
