@@ -122,6 +122,11 @@ struct Args {
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
     wish_session: Option<String>,
+    /// Path to a prior session (a `--wish-session` snapshot) to measure against:
+    /// `--since <path>` renders what moved for this wish — facets newly met,
+    /// newly broken, still missing — the regression/progress view (Run 13).
+    /// Human render only, read-only; the baseline must be the same wish.
+    since: Option<String>,
     /// Run the empirical Prüfstand: descend a reference corpus of known-good
     /// (and deliberately broken) systems and report the fidelity.
     pruefstand: bool,
@@ -246,6 +251,7 @@ impl Default for Args {
             flat: false,
             provider_set: false,
             wish_session: None,
+            since: None,
             pruefstand: false,
             ledger: None,
             ground_top: 5,
@@ -326,6 +332,9 @@ OPTIONS:\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\
                           from the prior session (auditable, replayable)\n\
+    --since <path>        measure against a prior --wish-session snapshot: render\n\
+                          what moved \u{2014} facets gained, regressed, still missing\n\
+                          (Run 13; read-only, same wish required)\n\
 \n\
     (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
      realized; add --provider to let the LLM build facets the scaffolder can't)\n\
@@ -556,6 +565,9 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--flat" => args.flat = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
+            }
+            "--since" => {
+                args.since = Some(argv.next().ok_or("--since needs a value")?);
             }
             "--pruefstand" | "--testbench" => args.pruefstand = true,
             "--swarm" => {
@@ -3173,6 +3185,22 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             one.observe_layered(&observed);
             print!("{}", layered_descent_report(&one, mesh_density, args.color));
         }
+        // Run 13 — the delta: measure this wish against a prior snapshot and show
+        // what moved. Read-only, advisory; the baseline must be the same wish.
+        if let Some(since) = args.since.as_deref() {
+            if let Some(prior) = load_prior_session(since, &wish) {
+                if let Some(base) = prior.latest() {
+                    print!("{}", delta_report(&wish, base, &assessment, args.color));
+                }
+            } else {
+                println!(
+                    "  {}no matching baseline at {} (same wish required){}",
+                    if args.color { DIM } else { "" },
+                    since,
+                    if args.color { RESET } else { "" }
+                );
+            }
+        }
         if args.mesh {
             let cube = assess_wish_layered(&wish, &observed, evidence);
             let reading = CubeMeshReading::read(&cube, mesh_density.unwrap_or(Q16::ZERO), evidence);
@@ -3237,6 +3265,74 @@ fn wish_report(wish: &Wish, a: &WishAssessment, color: bool) -> String {
             ));
         }
     }
+    out
+}
+
+/// Render what moved for this wish since a baseline observation (Run 13): the
+/// facets newly met (gained), newly unmet (regressed — the alarm), the held and
+/// still-missing counts. The temporal companion to the snapshot render — "an AI
+/// changed the workspace; what did it realize, what did it break?". Deterministic
+/// (facets ordered by their rendered label, no wall clock) and advisory.
+fn delta_report(
+    wish: &Wish,
+    baseline: &WishAssessment,
+    current: &WishAssessment,
+    color: bool,
+) -> String {
+    use std::collections::BTreeSet;
+    let c = |code: &'static str| if color { code } else { "" };
+    let label = |f: &WishFacet| format!("{:?} {}", f.kind, f.key);
+    let base_unmet: BTreeSet<String> = baseline.unmet_facets.iter().map(label).collect();
+    let curr_unmet: BTreeSet<String> = current.unmet_facets.iter().map(label).collect();
+    let gained: Vec<&str> = base_unmet.difference(&curr_unmet).map(String::as_str).collect();
+    let regressed: Vec<&str> = curr_unmet.difference(&base_unmet).map(String::as_str).collect();
+    let still_missing = base_unmet.intersection(&curr_unmet).count();
+    // Held = currently met minus the ones only just gained.
+    let held = current.met_count.saturating_sub(gained.len() as u32);
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish \u{2014} delta since baseline{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", wish.label));
+    if gained.is_empty() && regressed.is_empty() {
+        out.push_str(&format!(
+            "  {}unchanged since baseline (met {}/{}){}\n",
+            c(DIM),
+            current.met_count,
+            current.total_count,
+            c(RESET)
+        ));
+        return out;
+    }
+    if !gained.is_empty() {
+        out.push_str(&format!(
+            "  {}+ gained {}{}: {}\n",
+            c(GREEN),
+            gained.len(),
+            c(RESET),
+            gained.join(", ")
+        ));
+    }
+    if !regressed.is_empty() {
+        out.push_str(&format!(
+            "  {}\u{2717} regressed {} \u{2014} the change broke a met facet{}: {}\n",
+            c(RED),
+            regressed.len(),
+            c(RESET),
+            regressed.join(", ")
+        ));
+    }
+    out.push_str(&format!(
+        "  {}= held {} \u{00b7} still missing {}{}\n",
+        c(DIM),
+        held,
+        still_missing,
+        c(RESET)
+    ));
     out
 }
 
@@ -4468,6 +4564,37 @@ mod tests {
         ));
         assert!(layered_descent_report(&s, Some(Q16::ratio(5, 100).unwrap()), false)
             .contains("over-fit suspect"));
+    }
+
+    #[test]
+    fn delta_report_tracks_progress_and_regression() {
+        let wish = layered_test_wish(); // crate (existence) + contract (wiring) + run (live)
+        let ev = Digest::of_bytes(b"ev");
+        // Baseline: only the crate exists.
+        let mut base_obs = ObservedTopology::empty();
+        base_obs.insert(WishFacet::crate_("kosmo-api"));
+        let base = assess_wish(&wish, &base_obs, ev);
+        // Current: crate + contract — the contract was newly realized; run unmet.
+        let mut curr_obs = ObservedTopology::empty();
+        curr_obs.insert(WishFacet::crate_("kosmo-api"));
+        curr_obs.insert(WishFacet::new(WishFacetKind::Contract, "handle(Req)->Resp"));
+        let curr = assess_wish(&wish, &curr_obs, ev);
+
+        // Progress: the contract was gained, the run is still missing.
+        let fwd = delta_report(&wish, &base, &curr, false);
+        assert!(fwd.contains("gained 1"), "{fwd}");
+        assert!(fwd.contains("Contract"), "names the gained facet: {fwd}");
+        assert!(fwd.contains("still missing 1"), "the run is still unmet: {fwd}");
+
+        // Regression: the same two states reversed — the contract was broken.
+        let back = delta_report(&wish, &curr, &base, false);
+        assert!(back.contains("regressed 1"), "{back}");
+        assert!(back.contains("broke a met facet"), "{back}");
+        assert!(back.contains("Contract"), "names the broken facet: {back}");
+
+        // Unchanged: identical states.
+        let same = delta_report(&wish, &curr, &curr, false);
+        assert!(same.contains("unchanged since baseline"), "{same}");
     }
 
     #[test]
