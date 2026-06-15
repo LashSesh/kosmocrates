@@ -701,6 +701,112 @@ pub fn run_service_smoke(armed: Arc<dyn ActionSynthesizer>, max_iters: u32) -> (
     (realized, iterations, counter.total())
 }
 
+/// A throwaway **multi-crate** workspace: a root bin whose `main` forwards to
+/// `engine::compute(args)` in a sibling *library* crate (left `todo!()`). The
+/// wiring is the point — the wish's logic must be realized in the `engine`
+/// crate and reached across the crate boundary, judged by running the bin.
+fn scratch_multicrate_workspace(name: &str) -> std::io::Result<std::path::PathBuf> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("kosmo-realize-{name}-{nanos}"));
+    std::fs::create_dir_all(root.join("src"))?;
+    std::fs::create_dir_all(root.join("engine/src"))?;
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"realized\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+         [dependencies]\nengine = { path = \"engine\" }\n\n\
+         [workspace]\nmembers = [\"engine\"]\n",
+    )?;
+    std::fs::write(
+        root.join("src/main.rs"),
+        "fn main() {\n    let args: Vec<String> = std::env::args().skip(1).collect();\n    \
+         println!(\"{}\", engine::compute(&args));\n}\n",
+    )?;
+    std::fs::write(
+        root.join("engine/Cargo.toml"),
+        "[package]\nname = \"engine\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )?;
+    std::fs::write(
+        root.join("engine/src/lib.rs"),
+        "/// The wish's logic lives here, called from the bin across the crate\n\
+         /// boundary. Fill it so the bin satisfies its run probes.\n\
+         pub fn compute(args: &[String]) -> String {\n    todo!(\"engine::compute is unimplemented\")\n}\n",
+    )?;
+    Ok(root)
+}
+
+/// A minimal **multi-crate smoke**: drive ONE `Run` wish onto a two-crate
+/// workspace (a bin + the library it calls) through the same descent. The bin is
+/// pre-wired to `engine::compute`, so the logic must be realized in the engine
+/// crate and reached across the boundary — judged by executing the bin. The
+/// `todo!()` panics on the first run, so the directed diagnostic points the
+/// model straight at the engine gap. Returns `(realized, iterations, tokens)`.
+pub fn run_multicrate_smoke(
+    armed: Arc<dyn ActionSynthesizer>,
+    max_iters: u32,
+) -> (bool, usize, u32) {
+    // Sum the integer arguments — but the logic must land in the engine crate,
+    // since `main` only forwards to `engine::compute`. Multiple probes resist a
+    // memorized answer.
+    let probes: &[(&[&str], &str)] = &[(&["2", "3"], "5"), (&["10", "20"], "30"), (&["5"], "5")];
+    let evidence = Digest::of(&"multicrate-smoke: sum via engine crate");
+    let predicates = probes.iter().map(|(argv, exp)| {
+        WishPredicate::require(WishFacet::run(format!(
+            "{}=>exit:0,out~{},ms<60000",
+            argv.join(","),
+            exp
+        )))
+    });
+    let wish = Wish::new(
+        "realize a multi-crate CLI: main forwards to engine::compute, which sums the integer args"
+            .to_string(),
+        predicates,
+        Digest::ZERO,
+        evidence,
+    );
+    let counter = Arc::new(CountingSynthesizer::new(armed));
+    let (realized, iterations) = match scratch_multicrate_workspace("multicrate-smoke") {
+        Ok(root) => {
+            let descent = descend_to_wish(
+                root.to_str().unwrap_or("."),
+                &wish,
+                wish.evidence_bundle_id,
+                false,
+                max_iters,
+                Some(counter.as_ref()),
+                None,
+            );
+            if std::env::var("KOSMO_KEEP_WS").is_ok() {
+                eprintln!("  workspace kept: {}", root.display());
+            } else {
+                std::fs::remove_dir_all(&root).ok();
+            }
+            match descent {
+                Ok(session) => (
+                    session
+                        .latest()
+                        .is_some_and(|a| matches!(a.status, WishClosureStatus::Realized)),
+                    session.iterations(),
+                ),
+                Err(e) => {
+                    eprintln!("  !! multicrate-smoke setup error: {e}");
+                    (false, 0)
+                }
+            }
+        }
+        Err(_) => (false, 0),
+    };
+    eprintln!(
+        "  multicrate-smoke {}  ({} iter · {} tok)",
+        if realized { "\u{2713}" } else { "\u{2717}" },
+        iterations,
+        counter.total(),
+    );
+    (realized, iterations, counter.total())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
