@@ -219,7 +219,6 @@ struct ReportContent<'a> {
     post_topology_id: &'a Digest,
     diagnostics: &'a Vec<String>,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl ParseBackReport {
@@ -299,7 +298,6 @@ impl ParseBackReport {
             post_topology_id: &self.post_topology_id,
             diagnostics: &self.diagnostics,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 
@@ -670,10 +668,14 @@ mod tests {
     }
 
     #[test]
-    fn report_different_elapsed_differs() {
+    fn report_id_is_independent_of_elapsed() {
         let r1 = ParseBackReport::topology_unchanged(mat_plan_id(), topo_id(), bundle_id(), 100);
         let r2 = ParseBackReport::topology_unchanged(mat_plan_id(), topo_id(), bundle_id(), 200);
-        assert_ne!(r1.id, r2.id);
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        assert_eq!(
+            r1.id, r2.id,
+            "report id must not depend on wall-clock elapsed_ms"
+        );
     }
 
     #[test]

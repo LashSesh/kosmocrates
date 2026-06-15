@@ -458,7 +458,6 @@ struct ReportContent<'a> {
     check_result_ids: Vec<&'a Digest>,
     diagnostics: &'a Vec<String>,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl FoundryExecutionReport {
@@ -506,7 +505,6 @@ impl FoundryExecutionReport {
             check_result_ids,
             diagnostics: &self.diagnostics,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 
@@ -852,7 +850,7 @@ mod tests {
     }
 
     #[test]
-    fn report_different_elapsed_differs() {
+    fn report_id_is_independent_of_elapsed() {
         let plan_id = dummy_digest(b"plan");
         let bundle_id = dummy_digest(b"bundle");
         let r1 = FoundryExecutionReport::new(
@@ -871,7 +869,11 @@ mod tests {
             bundle_id,
             200,
         );
-        assert_ne!(r1.id, r2.id);
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        assert_eq!(
+            r1.id, r2.id,
+            "report id must not depend on wall-clock elapsed_ms"
+        );
     }
 
     #[test]

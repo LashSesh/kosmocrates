@@ -385,7 +385,6 @@ struct MatReportContent<'a> {
     validation_closure_report_id: &'a Option<Digest>,
     diagnostics: &'a Vec<String>,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl MaterializationExecutionReport {
@@ -447,7 +446,6 @@ impl MaterializationExecutionReport {
             validation_closure_report_id: &self.validation_closure_report_id,
             diagnostics: &self.diagnostics,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 
@@ -882,6 +880,28 @@ mod tests {
     fn mat_report_evidence_bundle_mandatory() {
         let r = MaterializationExecutionReport::skipped_by_report_only(plan_id(), bundle_id());
         assert_ne!(r.evidence_bundle_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn mat_report_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let mk = |ms: u64| {
+            MaterializationExecutionReport::new(
+                plan_id(),
+                MaterializationOutcome::SkippedByReportOnly,
+                vec![],
+                None,
+                None,
+                vec![],
+                bundle_id(),
+                ms,
+            )
+        };
+        assert_eq!(
+            mk(100).id,
+            mk(200).id,
+            "report id must not depend on elapsed_ms"
+        );
     }
 
     #[test]

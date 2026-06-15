@@ -408,7 +408,6 @@ struct RecordContent<'a> {
     request_id: &'a Digest,
     outcome: &'a PromotionOutcome,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl PromotionRequestRecord {
@@ -446,7 +445,6 @@ impl PromotionRequestRecord {
             request_id: &self.request_id,
             outcome: &self.outcome,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 
@@ -853,6 +851,24 @@ mod tests {
         assert!(r.verify_id());
         assert!(r.outcome.is_skipped());
         assert_eq!(r.elapsed_ms, 0u64);
+    }
+
+    #[test]
+    fn record_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let mk = |ms: u64| {
+            PromotionRequestRecord::new(
+                d(b"req"),
+                PromotionOutcome::SkippedByReportOnly,
+                bundle_id(),
+                ms,
+            )
+        };
+        assert_eq!(
+            mk(100).id,
+            mk(200).id,
+            "report id must not depend on elapsed_ms"
+        );
     }
 
     #[test]

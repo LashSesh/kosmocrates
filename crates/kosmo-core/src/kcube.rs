@@ -351,7 +351,6 @@ struct WriteReportContent<'a> {
     roundtrip_id: Option<&'a Digest>,
     diagnostics: &'a Vec<String>,
     evidence_bundle_id: &'a Digest,
-    elapsed_ms: u64,
 }
 
 impl KcubeWriteReport {
@@ -414,7 +413,6 @@ impl KcubeWriteReport {
             roundtrip_id,
             diagnostics: &self.diagnostics,
             evidence_bundle_id: &self.evidence_bundle_id,
-            elapsed_ms: self.elapsed_ms,
         })
     }
 
@@ -730,6 +728,29 @@ mod tests {
         assert!(r.verify_id());
         assert!(r.outcome.is_failure_class());
         assert!(!r.roundtrip_passed());
+    }
+
+    #[test]
+    fn write_report_id_is_independent_of_elapsed() {
+        // INVARIANT-007: identical inputs, different wall-clock → identical id.
+        let mk = |ms: u64| {
+            KcubeWriteReport::new(
+                d(b"pkg"),
+                d(b"ep"),
+                KcubeWriteOutcome::SkippedByReportOnly,
+                None,
+                0,
+                None,
+                vec![],
+                bundle_id(),
+                ms,
+            )
+        };
+        assert_eq!(
+            mk(100).id,
+            mk(200).id,
+            "report id must not depend on elapsed_ms"
+        );
     }
 
     #[test]
