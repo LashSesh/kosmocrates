@@ -3705,8 +3705,10 @@ fn layer_state_word(view: &kosmo_core::WishLayerView) -> &'static str {
 /// opacity, plus the geomean-solidity gauge and the per-layer convergence
 /// verdict — the human watches the hologram become a solid diamond. When
 /// `mesh_density` is `Some` and the wish has fully solidified, the topology gear
-/// judges it (Run 9 — the gears interlock): a solid wish over a sparse topology
-/// is a hologram, not a diamond. Advisory (CROSS-010).
+/// judges it (Run 9 — the gears interlock), graded by depth (Run 11): a solid
+/// *earned* stratum (verified/live) over a sparse topology is a hologram, while
+/// a solid *declarative* stratum over the same sparse topology is honest — thin
+/// but shallow, not over-fit. Advisory (CROSS-010).
 fn layered_descent_report(
     session: &WishSession,
     mesh_density: Option<Q16>,
@@ -3814,11 +3816,20 @@ fn layered_descent_report(
         ));
     }
     // Run 9 — the cybernetic interlock: once the wish has fully solidified, the
-    // topology gear judges the realization. A solid wish over a sparse topology
-    // is a hologram, not a diamond (over-fit). Advisory only (CROSS-010).
+    // topology gear judges the realization. Run 11 grades that judgement by
+    // depth: Verified/Live are the *earned* strata — a solid claim there must be
+    // backed by exercised structure, so solidity over a sparse topology is the
+    // dangerous hologram (a probe passing against a shell). A solid *declarative*
+    // stratum (existence/shape/wiring) over a sparse topology is honest, not an
+    // over-fit — a small wish in a small workspace. Advisory only (CROSS-010).
     if let (Some(d), Some(cube)) = (mesh_density, session.latest_cube()) {
         if cube.structural_solidity == Q16::ONE {
             let q = Q16::ratio(1, 4).unwrap_or(Q16::ZERO);
+            let deepest = cube.solid_frontier();
+            let deep = deepest
+                .map(|l| l.rank() >= kosmo_core::WishLayer::Verified.rank())
+                .unwrap_or(false);
+            let claim = deepest.map(|l| l.label()).unwrap_or("nothing");
             if d.at_least(q) {
                 out.push_str(&format!(
                     "  {}\u{2713} genuine \u{2014} wish solid and topology dense ({:.3}): a cut diamond{}\n",
@@ -3826,10 +3837,19 @@ fn layered_descent_report(
                     d.to_f64(),
                     c(RESET)
                 ));
+            } else if deep {
+                out.push_str(&format!(
+                    "  {}\u{26a0} over-fit at depth \u{2014} a {} claim stands over a sparse topology ({:.3}): a hologram, not a diamond{}\n",
+                    c(YELLOW),
+                    claim,
+                    d.to_f64(),
+                    c(RESET)
+                ));
             } else {
                 out.push_str(&format!(
-                    "  {}\u{26a0} over-fit \u{2014} wish solid but topology sparse ({:.3}): a hologram, not a diamond{}\n",
-                    c(YELLOW),
+                    "  {}\u{00b7} thin but shallow \u{2014} only {} was claimed; a sparse topology ({:.3}) is honest for so shallow a wish{}\n",
+                    c(DIM),
+                    claim,
                     d.to_f64(),
                     c(RESET)
                 ));
@@ -4375,24 +4395,44 @@ mod tests {
     }
 
     #[test]
-    fn layered_report_judges_overfit_vs_genuine() {
-        // A fully-solid wish (every facet observed present) → the topology gear
-        // judges the realization (Run 9, the cybernetic interlock).
-        let wish = layered_test_wish();
-        let observed =
-            ObservedTopology::from_facets(wish.predicates.iter().map(|p| p.facet.clone()));
-        let mut session = WishSession::new(wish, Digest::of_bytes(b"ev"));
-        session.observe_layered(&observed);
+    fn layered_report_grades_overfit_by_depth() {
+        use kosmo_core::WishPredicate;
+        // A DEEP wish (claims Live) solid over a sparse topology is the dangerous
+        // hologram — the verdict cries over-fit at depth and names the claim.
+        let deep = layered_test_wish(); // existence + wiring + live
+        let obs = ObservedTopology::from_facets(deep.predicates.iter().map(|p| p.facet.clone()));
+        let mut s = WishSession::new(deep, Digest::of_bytes(b"ev"));
+        s.observe_layered(&obs);
+        let sparse = layered_descent_report(&s, Some(Q16::ratio(5, 100).unwrap()), false);
+        assert!(sparse.contains("over-fit at depth"), "deep + sparse: {sparse}");
+        assert!(sparse.contains("live"), "names the deep claim: {sparse}");
+        // Dense topology → genuine, regardless of depth.
+        let dense = layered_descent_report(&s, Some(Q16::ratio(80, 100).unwrap()), false);
+        assert!(dense.contains("genuine"), "deep + dense: {dense}");
 
-        // Sparse topology under a solid wish → over-fit (a hologram).
-        let overfit = layered_descent_report(&session, Some(Q16::ratio(5, 100).unwrap()), false);
-        assert!(overfit.contains("over-fit"), "sparse topology, solid wish: {overfit}");
-        // Dense topology → genuine (a cut diamond).
-        let genuine = layered_descent_report(&session, Some(Q16::ratio(80, 100).unwrap()), false);
-        assert!(genuine.contains("genuine"), "dense topology, solid wish: {genuine}");
+        // A SHALLOW wish (existence only) solid over the SAME sparse topology is
+        // honest — a small wish in a small workspace, no hologram alarm.
+        let shallow = Wish::new(
+            "shallow",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            Digest::of_bytes(b"ev"),
+        );
+        let obs2 =
+            ObservedTopology::from_facets(shallow.predicates.iter().map(|p| p.facet.clone()));
+        let mut s2 = WishSession::new(shallow, Digest::of_bytes(b"ev"));
+        s2.observe_layered(&obs2);
+        let thin = layered_descent_report(&s2, Some(Q16::ratio(5, 100).unwrap()), false);
+        assert!(thin.contains("thin but shallow"), "shallow + sparse is honest: {thin}");
+        assert!(!thin.contains("over-fit"), "no hologram alarm for a shallow wish: {thin}");
+
         // No topology gear read → no verdict at all.
-        let silent = layered_descent_report(&session, None, false);
-        assert!(!silent.contains("over-fit") && !silent.contains("genuine"));
+        let silent = layered_descent_report(&s2, None, false);
+        assert!(
+            !silent.contains("over-fit")
+                && !silent.contains("genuine")
+                && !silent.contains("thin but shallow")
+        );
     }
 
     #[test]
