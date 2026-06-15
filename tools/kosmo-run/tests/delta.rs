@@ -77,6 +77,96 @@ fn since_names_the_newly_realized_facet() {
     assert!(out.contains("delta since baseline"), "{out}");
     assert!(out.contains("gained 1"), "beta was newly realized: {out}");
     assert!(out.contains("Module beta"), "the delta names the facet: {out}");
+    // A pure gain to a now-realized wish exits 0 — no regression.
+    assert_eq!(delta.status.code(), Some(0), "realized, no regression: {out}");
+}
+
+#[test]
+fn since_regression_exits_2() {
+    let root = workspace();
+    // Add beta so the wish is fully realized, then snapshot that baseline.
+    fs::write(root.join("src/lib.rs"), "pub mod alpha;\npub mod beta;\n").unwrap();
+    fs::write(root.join("src/beta.rs"), "pub fn g() {}\n").unwrap();
+    let base = root.join("base.json");
+    let wish = "a module alpha and a module beta";
+    let snap = kosmo_run()
+        .args([
+            "--wish",
+            wish,
+            "--wish-session",
+            base.to_str().unwrap(),
+            "--flat",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (snapshot)");
+    let snap_out = String::from_utf8_lossy(&snap.stdout);
+    if snap_out.contains("could not observe") {
+        return;
+    }
+    assert_eq!(snap.status.code(), Some(0), "both modules present → realized: {snap_out}");
+
+    // The change breaks beta. --since detects the regression → exit 2.
+    fs::write(root.join("src/lib.rs"), "pub mod alpha;\n").unwrap();
+    fs::remove_file(root.join("src/beta.rs")).unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wish",
+            wish,
+            "--since",
+            base.to_str().unwrap(),
+            "--flat",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (--since)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(2), "a regression exits 2: {stdout}");
+    assert!(stdout.contains("regressed 1"), "{stdout}");
+    assert!(stdout.contains("Module beta"), "names the broken facet: {stdout}");
+}
+
+#[test]
+fn since_json_emits_a_self_describing_machine_delta() {
+    let root = workspace();
+    let base = root.join("base.json");
+    let wish = "a module alpha and a module beta";
+    let snap = kosmo_run()
+        .args([
+            "--wish",
+            wish,
+            "--wish-session",
+            base.to_str().unwrap(),
+            "--flat",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (snapshot)");
+    if String::from_utf8_lossy(&snap.stdout).contains("could not observe") {
+        return;
+    }
+    fs::write(root.join("src/lib.rs"), "pub mod alpha;\npub mod beta;\n").unwrap();
+    fs::write(root.join("src/beta.rs"), "pub fn g() {}\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wish",
+            wish,
+            "--since",
+            base.to_str().unwrap(),
+            "--json",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (--since --json)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("valid JSON ({e}): {stdout}"));
+    assert!(v.get("gained").is_some(), "machine delta carries gained: {stdout}");
+    assert!(v.get("regressed").is_some(), "and regressed: {stdout}");
+    assert!(v.get("wish_id").is_some(), "self-describing by wish id: {stdout}");
 }
 
 #[test]

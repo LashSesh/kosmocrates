@@ -3150,8 +3150,22 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         save_session(sp, &one_step)?;
     }
 
+    // Run 13/14 — the delta: diff this wish against a prior --wish-session
+    // snapshot. Computed once here, shared by --json, the human render, and the
+    // regression exit code. `None` when --since is absent or the baseline file
+    // is missing / for a different wish.
+    let delta = args.since.as_deref().and_then(|since| {
+        load_prior_session(since, &wish)
+            .and_then(|prior| prior.latest().map(|base| WishDelta::compute(&wish, base, &assessment)))
+    });
+
     if args.json {
-        if args.mesh {
+        if args.since.is_some() {
+            // The machine delta — `null` when there was no matching baseline.
+            let json = serde_json::to_string_pretty(&delta)
+                .map_err(|e| format!("failed to serialize delta: {e}"))?;
+            println!("{json}");
+        } else if args.mesh {
             let cube = assess_wish_layered(&wish, &observed, evidence);
             let d = topology_density(&observed, args.capacity);
             let reading = CubeMeshReading::read(&cube, d, evidence);
@@ -3185,21 +3199,16 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             one.observe_layered(&observed);
             print!("{}", layered_descent_report(&one, mesh_density, args.color));
         }
-        // Run 13 — the delta: measure this wish against a prior snapshot and show
-        // what moved. Read-only, advisory; the baseline must be the same wish.
-        if let Some(since) = args.since.as_deref() {
-            if let Some(prior) = load_prior_session(since, &wish) {
-                if let Some(base) = prior.latest() {
-                    print!("{}", delta_report(&wish, base, &assessment, args.color));
-                }
-            } else {
-                println!(
-                    "  {}no matching baseline at {} (same wish required){}",
-                    if args.color { DIM } else { "" },
-                    since,
-                    if args.color { RESET } else { "" }
-                );
-            }
+        // Run 13 — the delta: what moved since the baseline (read-only, advisory).
+        if let Some(d) = &delta {
+            print!("{}", delta_report(d, &wish.label, args.color));
+        } else if let Some(since) = args.since.as_deref() {
+            println!(
+                "  {}no matching baseline at {} (same wish required){}",
+                if args.color { DIM } else { "" },
+                since,
+                if args.color { RESET } else { "" }
+            );
         }
         if args.mesh {
             let cube = assess_wish_layered(&wish, &observed, evidence);
@@ -3214,6 +3223,13 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         }
     }
 
+    // Run 14 — a regression (a change broke a previously-met facet) is the more
+    // specific failure: exit 2 so CI can gate on "you broke something that
+    // worked", distinct from exit 1 ("still incomplete"). Only the realization
+    // status gates (CROSS-010); --since merely refines the unrealized code.
+    if delta.as_ref().is_some_and(WishDelta::has_regression) {
+        return Ok(ExitCode::from(2));
+    }
     // Exit 0 only when the wish is realized — so scripts can gate on it.
     match assessment.status {
         WishClosureStatus::Realized | WishClosureStatus::Vacuous => Ok(ExitCode::SUCCESS),
@@ -3268,28 +3284,56 @@ fn wish_report(wish: &Wish, a: &WishAssessment, color: bool) -> String {
     out
 }
 
-/// Render what moved for this wish since a baseline observation (Run 13): the
-/// facets newly met (gained), newly unmet (regressed — the alarm), the held and
-/// still-missing counts. The temporal companion to the snapshot render — "an AI
-/// changed the workspace; what did it realize, what did it break?". Deterministic
-/// (facets ordered by their rendered label, no wall clock) and advisory.
-fn delta_report(
-    wish: &Wish,
-    baseline: &WishAssessment,
-    current: &WishAssessment,
-    color: bool,
-) -> String {
-    use std::collections::BTreeSet;
-    let c = |code: &'static str| if color { code } else { "" };
-    let label = |f: &WishFacet| format!("{:?} {}", f.kind, f.key);
-    let base_unmet: BTreeSet<String> = baseline.unmet_facets.iter().map(label).collect();
-    let curr_unmet: BTreeSet<String> = current.unmet_facets.iter().map(label).collect();
-    let gained: Vec<&str> = base_unmet.difference(&curr_unmet).map(String::as_str).collect();
-    let regressed: Vec<&str> = curr_unmet.difference(&base_unmet).map(String::as_str).collect();
-    let still_missing = base_unmet.intersection(&curr_unmet).count();
-    // Held = currently met minus the ones only just gained.
-    let held = current.met_count.saturating_sub(gained.len() as u32);
+/// What moved for a wish between a baseline observation and the current one
+/// (Run 13/14): a pure, serializable diff. Facet lists are ordered by their
+/// rendered label, so the value is byte-stable — no `HashSet` order, no wall
+/// clock (CROSS-006-friendly). Carries the content-addressed `wish_id` so a
+/// `--since --json` reading is self-describing.
+#[derive(Debug, Clone, serde::Serialize)]
+struct WishDelta {
+    wish_id: Digest,
+    /// Facets unmet at the baseline, met now.
+    gained: Vec<String>,
+    /// Facets met at the baseline, unmet now — the regression alarm.
+    regressed: Vec<String>,
+    /// Met at the baseline and still met.
+    held: u32,
+    /// Unmet at the baseline and still unmet.
+    still_missing: u32,
+}
 
+impl WishDelta {
+    fn compute(wish: &Wish, baseline: &WishAssessment, current: &WishAssessment) -> Self {
+        use std::collections::BTreeSet;
+        let label = |f: &WishFacet| format!("{:?} {}", f.kind, f.key);
+        let base_unmet: BTreeSet<String> = baseline.unmet_facets.iter().map(label).collect();
+        let curr_unmet: BTreeSet<String> = current.unmet_facets.iter().map(label).collect();
+        let gained: Vec<String> = base_unmet.difference(&curr_unmet).cloned().collect();
+        let regressed: Vec<String> = curr_unmet.difference(&base_unmet).cloned().collect();
+        let still_missing = base_unmet.intersection(&curr_unmet).count() as u32;
+        // Held = currently met minus the ones only just gained.
+        let held = current.met_count.saturating_sub(gained.len() as u32);
+        Self {
+            wish_id: wish.id,
+            gained,
+            regressed,
+            held,
+            still_missing,
+        }
+    }
+
+    /// A change broke a previously-met facet — the more specific failure.
+    fn has_regression(&self) -> bool {
+        !self.regressed.is_empty()
+    }
+}
+
+/// Render a [`WishDelta`] for a human (Run 13): facets gained, regressed (the
+/// alarm), and the held / still-missing counts. The temporal companion to the
+/// snapshot render — "an AI changed the workspace; what did it realize, what did
+/// it break?". Advisory.
+fn delta_report(delta: &WishDelta, wish_label: &str, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
     let mut out = String::new();
     out.push_str(&format!(
         "{}{}Kosmocrates wish \u{2014} delta since baseline{}\n",
@@ -3297,40 +3341,40 @@ fn delta_report(
         c(CYAN),
         c(RESET)
     ));
-    out.push_str(&format!("  \u{201c}{}\u{201d}\n", wish.label));
-    if gained.is_empty() && regressed.is_empty() {
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", wish_label));
+    if delta.gained.is_empty() && delta.regressed.is_empty() {
         out.push_str(&format!(
-            "  {}unchanged since baseline (met {}/{}){}\n",
+            "  {}unchanged since baseline (held {} \u{00b7} still missing {}){}\n",
             c(DIM),
-            current.met_count,
-            current.total_count,
+            delta.held,
+            delta.still_missing,
             c(RESET)
         ));
         return out;
     }
-    if !gained.is_empty() {
+    if !delta.gained.is_empty() {
         out.push_str(&format!(
             "  {}+ gained {}{}: {}\n",
             c(GREEN),
-            gained.len(),
+            delta.gained.len(),
             c(RESET),
-            gained.join(", ")
+            delta.gained.join(", ")
         ));
     }
-    if !regressed.is_empty() {
+    if !delta.regressed.is_empty() {
         out.push_str(&format!(
             "  {}\u{2717} regressed {} \u{2014} the change broke a met facet{}: {}\n",
             c(RED),
-            regressed.len(),
+            delta.regressed.len(),
             c(RESET),
-            regressed.join(", ")
+            delta.regressed.join(", ")
         ));
     }
     out.push_str(&format!(
         "  {}= held {} \u{00b7} still missing {}{}\n",
         c(DIM),
-        held,
-        still_missing,
+        delta.held,
+        delta.still_missing,
         c(RESET)
     ));
     out
@@ -4567,7 +4611,7 @@ mod tests {
     }
 
     #[test]
-    fn delta_report_tracks_progress_and_regression() {
+    fn wish_delta_tracks_progress_and_regression() {
         let wish = layered_test_wish(); // crate (existence) + contract (wiring) + run (live)
         let ev = Digest::of_bytes(b"ev");
         // Baseline: only the crate exists.
@@ -4580,21 +4624,27 @@ mod tests {
         curr_obs.insert(WishFacet::new(WishFacetKind::Contract, "handle(Req)->Resp"));
         let curr = assess_wish(&wish, &curr_obs, ev);
 
-        // Progress: the contract was gained, the run is still missing.
-        let fwd = delta_report(&wish, &base, &curr, false);
-        assert!(fwd.contains("gained 1"), "{fwd}");
-        assert!(fwd.contains("Contract"), "names the gained facet: {fwd}");
-        assert!(fwd.contains("still missing 1"), "the run is still unmet: {fwd}");
+        // Progress: the contract was gained, the run is still missing, no break.
+        let fwd = WishDelta::compute(&wish, &base, &curr);
+        assert_eq!(fwd.gained.len(), 1);
+        assert!(fwd.gained[0].contains("Contract"), "{:?}", fwd.gained);
+        assert_eq!(fwd.still_missing, 1);
+        assert!(!fwd.has_regression());
+        assert_eq!(fwd.wish_id, wish.id, "the delta is self-describing");
+        assert!(delta_report(&fwd, &wish.label, false).contains("gained 1"));
 
         // Regression: the same two states reversed — the contract was broken.
-        let back = delta_report(&wish, &curr, &base, false);
-        assert!(back.contains("regressed 1"), "{back}");
-        assert!(back.contains("broke a met facet"), "{back}");
-        assert!(back.contains("Contract"), "names the broken facet: {back}");
+        let back = WishDelta::compute(&wish, &curr, &base);
+        assert!(back.has_regression());
+        assert_eq!(back.regressed.len(), 1);
+        assert!(back.regressed[0].contains("Contract"));
+        let r = delta_report(&back, &wish.label, false);
+        assert!(r.contains("regressed 1") && r.contains("broke a met facet"), "{r}");
 
         // Unchanged: identical states.
-        let same = delta_report(&wish, &curr, &curr, false);
-        assert!(same.contains("unchanged since baseline"), "{same}");
+        let same = WishDelta::compute(&wish, &curr, &curr);
+        assert!(!same.has_regression() && same.gained.is_empty());
+        assert!(delta_report(&same, &wish.label, false).contains("unchanged"));
     }
 
     #[test]
