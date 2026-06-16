@@ -1228,6 +1228,59 @@ fn run_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
     out
 }
 
+/// Extract a `# kosmo:run:` probe key from a Python source line.
+fn python_run_marker(trimmed: &str) -> Option<String> {
+    let rest = trimmed.strip_prefix('#')?.trim_start();
+    let key = rest.strip_prefix("kosmo:run:")?.trim();
+    (!key.is_empty()).then(|| key.to_string())
+}
+
+/// Read all `# kosmo:run:` probe keys under `dir`, each paired with the `.py`
+/// file that carries it (the script to execute). Read-only.
+fn python_run_probes_from_dir(dir: impl AsRef<Path>) -> Vec<(PathBuf, String)> {
+    let mut files = Vec::new();
+    collect_py(dir.as_ref(), &mut files);
+    files.sort();
+    let mut out = Vec::new();
+    for file in files {
+        if let Ok(content) = std::fs::read_to_string(&file) {
+            for line in content.lines() {
+                if let Some(key) = python_run_marker(line.trim()) {
+                    out.push((file.clone(), key));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The Live door for Python: structural facets plus, for each `# kosmo:run:`
+/// marker, the carrying script *executed* under the same sandbox (`python3
+/// <file> <args>`) with its witness matched against the probe — emitting the
+/// `Run` facet only on a clean, matching exit (fail-closed, like the Rust path).
+fn observe_python_runtime(root: &Path) -> Result<ObservedTopology, ParseBackError> {
+    use kosmo_sandbox::{RunSpec, Sandbox};
+    let mut observed = observe_workspace_deep(root)?;
+    let probes = python_run_probes_from_dir(root);
+    if !probes.is_empty() {
+        let sandbox = Sandbox::new()
+            .with_cwd(root)
+            .with_timeout(std::time::Duration::from_secs(60));
+        for (file, key) in probes {
+            let Some((args, expect)) = parse_run_key(&key) else {
+                continue;
+            };
+            let mut run_args = vec![file.to_string_lossy().into_owned()];
+            run_args.extend(args);
+            let witness = sandbox.run(&RunSpec::new("python3", run_args));
+            if run_matches(&witness, &expect) {
+                observed.insert(WishFacet::run(key));
+            }
+        }
+    }
+    Ok(observed)
+}
+
 /// Observe a workspace **with runtime probes**: everything
 /// [`observe_workspace_validated`] sees, plus — for each `// kosmo:run:` marker
 /// — the built artifact is *executed* under the sandbox and the `Run` facet is
@@ -1250,6 +1303,11 @@ pub fn observe_workspace_runtime_diag(
 ) -> Result<(ObservedTopology, Option<String>), ParseBackError> {
     use kosmo_sandbox::{RunSpec, Sandbox};
     let root = root.into();
+    // Polyglot runtime: a cargo-less workspace runs its script probes directly
+    // (`python3 <file> <args>`) under the same sandbox — the Live door for Python.
+    if is_cargoless_polyglot(&root) {
+        return Ok((observe_python_runtime(&root)?, None));
+    }
     let mut observed = observe_workspace_validated(&root)?;
     let probes = run_probes_from_dir(&root);
     let mut diag: Option<String> = None;

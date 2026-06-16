@@ -4,8 +4,8 @@
 //! language-agnostic; only the observation backend differs.
 //!
 //! (This corrects Run 31's "Rust-only" framing — a lexical Python backend was
-//! already present and live; the deeper strata that need a toolchain — behaviour,
-//! run — remain Rust-specific.)
+//! already present and live; Run 35 adds the Python *Live* door — a script probe
+//! executed under the sandbox — so behaviour-by-execution reaches Python too.)
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -163,4 +163,35 @@ fn the_instrument_measures_clike_workspaces() {
     if let Some(ok) = realizes(&c, "a module calc and a function square") {
         assert!(ok, "C facets realize");
     }
+}
+
+#[test]
+fn python_live_runs_a_probe_under_the_sandbox() {
+    // The Live door needs the interpreter; skip where python3 is unavailable.
+    let have_py = Command::new("python3")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !have_py {
+        eprintln!("python3 unavailable, skipping");
+        return;
+    }
+    let root = lang_workspace(
+        "pyrun",
+        "greeter.py",
+        "import sys\n\ndef greet(name):\n    return \"hi-\" + name\n\n# kosmo:run: World=>out~hi-World\nif __name__ == \"__main__\":\n    print(greet(sys.argv[1]))\n",
+    );
+    // The script runs under the sandbox; a matching probe realizes the Run facet.
+    assert_eq!(
+        realizes(&root, "a run World=>out~hi-World"),
+        Some(true),
+        "the python run probe realizes by execution"
+    );
+    // Fail-closed: a wrong expectation never realizes.
+    assert_eq!(
+        realizes(&root, "a run World=>out~WRONG"),
+        Some(false),
+        "a wrong expectation is fail-closed"
+    );
 }
