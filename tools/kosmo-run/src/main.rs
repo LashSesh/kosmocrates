@@ -343,9 +343,10 @@ OPTIONS:\n\
     --wishlist <path>     measure a file of prose wishes (one per line, # comments)\n\
                           against the workspace as a project definition-of-done;\n\
                           aggregate gauge, exit 0 only if all realized (Run 15);\n\
-                          --apply descends every wish to close the project (Run 18);\n\
-                          pair with --since <reading> (a prior --json snapshot) for\n\
-                          the project delta \u{2014} exits 2 on any regression (Run 16)\n\
+                          --scaffold previews the closure plan, --apply builds it\n\
+                          (Run 18/20); pair with --since <reading> (a prior --json\n\
+                          snapshot) for the project delta, exiting 2 on a regression\n\
+                          (Run 16)\n\
 \n\
     (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
      realized; add --provider to let the LLM build facets the scaffolder can't)\n\
@@ -3376,6 +3377,25 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             );
         }
         print!("{}", wishlist_report(path, &items, &grades, args.color));
+    }
+
+    // Run 20 — the project closure PLAN (dry run): with --scaffold (and without
+    // --apply), show the file changes that would realize every unmet wish — the
+    // read-only companion to --apply. The union of unmet facets, deduped in
+    // file order, fed to the same FacetScaffolder dry run as a single wish.
+    if args.scaffold && !args.apply && !args.json {
+        let mut seen = std::collections::HashSet::new();
+        let mut unmet: Vec<WishFacet> = Vec::new();
+        for (_, a) in &items {
+            for f in &a.unmet_facets {
+                if seen.insert(format!("{:?} {}", f.kind, f.key)) {
+                    unmet.push(f.clone());
+                }
+            }
+        }
+        if !unmet.is_empty() {
+            print!("{}", scaffold_report(&args.path, &unmet, args.color));
+        }
     }
 
     // A project regression (a wish that was realized no longer is) exits 2 — the

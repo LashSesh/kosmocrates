@@ -123,6 +123,7 @@ pub fn catalog() -> DoorCatalog {
             [
                 vec![
                     DoorInput::switch("--validated"),
+                    DoorInput::switch("--scaffold"),
                     DoorInput::switch("--apply"),
                     DoorInput::valued("--since", "<reading>"),
                     workspace_input(),

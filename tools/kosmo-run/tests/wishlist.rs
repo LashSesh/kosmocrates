@@ -193,6 +193,37 @@ fn wishlist_since_reports_progress_without_regression() {
 }
 
 #[test]
+fn wishlist_scaffold_previews_the_plan_without_writing() {
+    let root = workspace(); // module alpha + function f present
+    let list = root.join("p.wishes");
+    fs::write(&list, "a module alpha\na module delta\n").unwrap(); // delta missing
+    let before = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--scaffold",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (--scaffold)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        return;
+    }
+    assert!(stdout.contains("realized 1/2"), "{stdout}");
+    assert!(stdout.contains("scaffold"), "the closure plan is previewed: {stdout}");
+    // A dry run writes nothing.
+    assert_eq!(
+        fs::read_to_string(root.join("src/lib.rs")).unwrap(),
+        before,
+        "scaffold must not write"
+    );
+    assert!(!root.join("src/delta.rs").exists(), "no files created by a dry run");
+}
+
+#[test]
 fn wishlist_apply_closes_the_project() {
     let root = workspace(); // module alpha + function f present
     let list = root.join("p.wishes");
