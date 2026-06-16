@@ -77,6 +77,47 @@ fn doc_shape_is_unmet_for_an_undocumented_function() {
 }
 
 #[test]
+fn signature_shape_checks_arity() {
+    let root = workspace(); // alpha(n: i32) has arity 1; beta() has arity 0
+    // The correct arity realizes the signature wish — a genuine shape check.
+    let ok = kosmo_run()
+        .args([
+            "--wish",
+            "a signature alpha/1",
+            "--flat",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let s = String::from_utf8_lossy(&ok.stdout);
+    if s.contains("could not observe") {
+        return;
+    }
+    assert!(s.contains("REALIZED"), "alpha has arity 1: {s}");
+    assert_eq!(ok.status.code(), Some(0), "{s}");
+
+    // The wrong arity is unmet ("exists but wrong shape"), and Run 25's bridge
+    // suggests the real arity-keyed form.
+    let wrong = kosmo_run()
+        .args([
+            "--wish",
+            "a signature alpha/2",
+            "--flat",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let w = String::from_utf8_lossy(&wrong.stdout);
+    assert_eq!(wrong.status.code(), Some(1), "wrong arity fails: {w}");
+    assert!(
+        w.contains("did you mean Signature alpha/1"),
+        "the real arity is suggested: {w}"
+    );
+}
+
+#[test]
 fn doc_shape_gap_is_closed_by_apply() {
     let root = workspace(); // beta is undocumented
     let out = kosmo_run()
