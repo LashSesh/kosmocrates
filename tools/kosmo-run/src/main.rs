@@ -3052,6 +3052,91 @@ fn closure_hint(unmet: &[WishFacet]) -> &'static str {
     }
 }
 
+/// Damerau edit distance (optimal string alignment) over chars — deterministic.
+/// Counts an *adjacent transposition* as one edit (the commonest typo: `stoer`→
+/// `store`, `enigne`→`engine`), so near-misses survive a tight threshold even on
+/// short names. Used only to spot near-miss names (Run 23); keys are short.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut d = vec![vec![0usize; m + 1]; n + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=n {
+        for j in 1..=m {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            let mut v = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                v = v.min(d[i - 2][j - 2] + 1);
+            }
+            d[i][j] = v;
+        }
+    }
+    d[n][m]
+}
+
+/// The nearest *existing* structure of the same kind to an unmet facet's key,
+/// within a length-scaled edit-distance threshold (Run 23) — the "did you mean?"
+/// candidate. Deterministic: minimum distance, ties broken lexicographically.
+/// `None` when nothing is close (the wish is a genuine gap, not a typo).
+fn nearest_existing(facet: &WishFacet, observed: &ObservedTopology) -> Option<String> {
+    let key = &facet.key;
+    let len = key.chars().count();
+    let threshold = (len / 3).max(1);
+    let mut best: Option<(usize, String)> = None;
+    for f in observed.facets() {
+        if f.kind != facet.kind || f.key == *key {
+            continue;
+        }
+        let d = edit_distance(key, &f.key);
+        if d > threshold || d >= len {
+            continue;
+        }
+        let better = match &best {
+            None => true,
+            Some((bd, bk)) => d < *bd || (d == *bd && f.key < *bk),
+        };
+        if better {
+            best = Some((d, f.key.clone()));
+        }
+    }
+    best.map(|(_, k)| k)
+}
+
+/// For every unmet facet that has a near-miss in the workspace, suggest it — most
+/// unmet wishes in practice are typos or naming drift, not real gaps (Run 23).
+/// Empty when nothing is close. Advisory.
+fn did_you_mean_report(unmet: &[WishFacet], observed: &ObservedTopology, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    for f in unmet {
+        if let Some(near) = nearest_existing(f, observed) {
+            out.push_str(&format!(
+                "  {}\u{2192} did you mean {:?} {}? (you wished {}){}\n",
+                c(CYAN),
+                f.kind,
+                near,
+                f.key,
+                c(RESET)
+            ));
+        }
+    }
+    out
+}
+
 /// Render a wishlist measurement for a human (Runs 15/17): the aggregate
 /// `realized N/M` gauge — flagged `· K over-fit suspect` when realized wishes are
 /// holograms (the project gauge tells the deep truth, not just the binary) — and
@@ -3408,11 +3493,10 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
         print!("{}", wishlist_report(path, &items, &grades, args.color));
     }
 
-    // Run 20 — the project closure PLAN (dry run): with --scaffold (and without
-    // --apply), show the file changes that would realize every unmet wish — the
-    // read-only companion to --apply. The union of unmet facets, deduped in
-    // file order, fed to the same FacetScaffolder dry run as a single wish.
-    if args.scaffold && !args.apply && !args.json {
+    // The union of every unmet facet, deduped in file order — fed read-only to
+    // the "did you mean?" near-miss hint (Run 23, always) and, under --scaffold,
+    // the same FacetScaffolder dry run as a single wish (Run 20, the closure plan).
+    if !args.apply && !args.json {
         let mut seen = std::collections::HashSet::new();
         let mut unmet: Vec<WishFacet> = Vec::new();
         for (_, a) in &items {
@@ -3423,7 +3507,10 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             }
         }
         if !unmet.is_empty() {
-            print!("{}", scaffold_report(&args.path, &unmet, args.color));
+            print!("{}", did_you_mean_report(&unmet, &observed, args.color));
+            if args.scaffold {
+                print!("{}", scaffold_report(&args.path, &unmet, args.color));
+            }
         }
     }
 
@@ -3668,6 +3755,14 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             let cube = assess_wish_layered(&wish, &observed, evidence);
             let reading = CubeMeshReading::read(&cube, mesh_density.unwrap_or(Q16::ZERO), evidence);
             print!("{}", mesh_report(&reading, args.color));
+        }
+        // Run 23 — a typo or naming drift is the commonest cause of an unmet
+        // wish; suggest the nearest existing structure of the same kind.
+        if !assessment.unmet_facets.is_empty() {
+            print!(
+                "{}",
+                did_you_mean_report(&assessment.unmet_facets, &observed, args.color)
+            );
         }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
             print!(
@@ -5213,6 +5308,28 @@ mod tests {
             ]),
             "needs evidence (a passing test/run)"
         );
+    }
+
+    #[test]
+    fn nearest_existing_spots_typos() {
+        assert_eq!(edit_distance("engine", "enigne"), 1); // adjacent transposition
+        assert_eq!(edit_distance("store", "stoer"), 1); // and on a short name
+        assert_eq!(edit_distance("module", "module"), 0);
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::new(WishFacetKind::Module, "engine"));
+        obs.insert(WishFacet::new(WishFacetKind::Module, "store"));
+        // A near-miss of the same kind is suggested.
+        let typo = WishFacet::new(WishFacetKind::Module, "enigne");
+        assert_eq!(nearest_existing(&typo, &obs).as_deref(), Some("engine"));
+        // A genuine gap (nothing close) → no suggestion.
+        let gap = WishFacet::new(WishFacetKind::Module, "telemetry");
+        assert_eq!(nearest_existing(&gap, &obs), None);
+        // Same string, wrong kind → not a match (kind matters).
+        let wrong_kind = WishFacet::new(WishFacetKind::Symbol, "enigne");
+        assert_eq!(nearest_existing(&wrong_kind, &obs), None);
+        // The report names the candidate.
+        let out = did_you_mean_report(&[typo], &obs, false);
+        assert!(out.contains("did you mean") && out.contains("engine"), "{out}");
     }
 
     #[test]
