@@ -3088,10 +3088,17 @@ fn edit_distance(a: &str, b: &str) -> usize {
     d[n][m]
 }
 
-/// The nearest *existing* structure of the same kind to an unmet facet's key,
-/// within a length-scaled edit-distance threshold (Run 23) — the "did you mean?"
-/// candidate. Deterministic: minimum distance, ties broken lexicographically.
-/// `None` when nothing is close (the wish is a genuine gap, not a typo).
+/// The nearest *existing* structure of the same kind to an unmet facet's key —
+/// the "did you mean?" candidate (Runs 23/25). Two near-miss families:
+///
+/// - a **typo / naming drift**, within a length-scaled Damerau threshold; and
+/// - a **format near-miss** (Run 25): the observed key is the wished key plus a
+///   format suffix — a signature's `name/arity`, a contract's `name(..)->R`. The
+///   user keyed the stem (`add`); the workspace keys the full form (`add/2`).
+///   Treated as the closest possible match (distance 0), bridging the keying gap.
+///
+/// Deterministic: minimum distance, ties broken lexicographically. `None` when
+/// nothing is close (a genuine gap, not a typo or a format mismatch).
 fn nearest_existing(facet: &WishFacet, observed: &ObservedTopology) -> Option<String> {
     let key = &facet.key;
     let len = key.chars().count();
@@ -3101,10 +3108,16 @@ fn nearest_existing(facet: &WishFacet, observed: &ObservedTopology) -> Option<St
         if f.kind != facet.kind || f.key == *key {
             continue;
         }
-        let d = edit_distance(key, &f.key);
-        if d > threshold || d >= len {
-            continue;
-        }
+        let stem = f.key.split(['/', '(']).next().unwrap_or(f.key.as_str());
+        let d = if stem == key.as_str() {
+            0
+        } else {
+            let e = edit_distance(key, &f.key);
+            if e > threshold || e >= len {
+                continue;
+            }
+            e
+        };
         let better = match &best {
             None => true,
             Some((bd, bk)) => d < *bd || (d == *bd && f.key < *bk),
@@ -5330,6 +5343,23 @@ mod tests {
         // The report names the candidate.
         let out = did_you_mean_report(&[typo], &obs, false);
         assert!(out.contains("did you mean") && out.contains("engine"), "{out}");
+    }
+
+    #[test]
+    fn nearest_existing_bridges_format_keys() {
+        // The observation keys a signature by arity; the prose keys the stem.
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::new(WishFacetKind::Signature, "add/2"));
+        obs.insert(WishFacet::new(WishFacetKind::Signature, "other/1"));
+        let wished = WishFacet::new(WishFacetKind::Signature, "add");
+        assert_eq!(
+            nearest_existing(&wished, &obs).as_deref(),
+            Some("add/2"),
+            "the stem matches the arity-keyed form"
+        );
+        // No stem match and not close → no false bridge.
+        let gap = WishFacet::new(WishFacetKind::Signature, "telemetry");
+        assert_eq!(nearest_existing(&gap, &obs), None);
     }
 
     #[test]
