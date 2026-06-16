@@ -131,6 +131,9 @@ struct Args {
     /// against the workspace as a project's definition-of-done, into an aggregate
     /// realization gauge (Run 15). Its own read-only mode; exclusive with --wish.
     wishlist: Option<String>,
+    /// Print the wish vocabulary — the prose forms for each stratum, by example
+    /// (Run 30). A standalone informational mode; needs no workspace.
+    vocab: bool,
     /// Run the empirical Prüfstand: descend a reference corpus of known-good
     /// (and deliberately broken) systems and report the fidelity.
     pruefstand: bool,
@@ -257,6 +260,7 @@ impl Default for Args {
             wish_session: None,
             since: None,
             wishlist: None,
+            vocab: false,
             pruefstand: false,
             ledger: None,
             ground_top: 5,
@@ -334,6 +338,8 @@ OPTIONS:\n\
                           observed structural density \u{2014} surfaces over-fit (Run 8)\n\
     --flat                opt out of the default cube view: print only the terse\n\
                           verdict, no layered hypercube/Konus/staged film (Run 10)\n\
+    --vocab               print the wish vocabulary: the prose forms for each\n\
+                          stratum, by example \u{2014} how to phrase a wish (Run 30)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\
                           from the prior session (auditable, replayable)\n\
@@ -584,6 +590,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--wishlist" => {
                 args.wishlist = Some(argv.next().ok_or("--wishlist needs a file path")?);
             }
+            "--vocab" => args.vocab = true,
             "--pruefstand" | "--testbench" => args.pruefstand = true,
             "--swarm" => {
                 args.swarm = argv
@@ -3427,6 +3434,60 @@ fn wishlist_delta_report(delta: &WishlistDelta, title: &str, color: bool) -> Str
     out
 }
 
+/// Print the wish vocabulary (Run 30): the prose forms for each stratum, by
+/// example, grounded in the actual grammar — so phrasing a wish is discoverable
+/// from the tool itself, not guessed (the gap that tripped Run 26's `--mesh`
+/// probe and would trip any newcomer). Existence → Live, shallow to deep.
+fn vocab_report(color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish vocabulary{} {}\u{2014} how to phrase a wish{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(DIM),
+        c(RESET)
+    ));
+    let head = |out: &mut String, name: &str, gloss: &str| {
+        out.push_str(&format!(
+            "  {}{}{} {}({}){}\n",
+            c(BOLD),
+            name,
+            c(RESET),
+            c(DIM),
+            gloss,
+            c(RESET)
+        ));
+    };
+    let entry = |out: &mut String, pat: &str, eg: &str| {
+        out.push_str(&format!("    {:<34} {}e.g. {}{}\n", pat, c(DIM), eg, c(RESET)));
+    };
+    head(&mut out, "Existence", "is it there?");
+    entry(&mut out, "a crate <name>", "a crate kosmo-run");
+    entry(&mut out, "a module <name>", "a module parser");
+    entry(&mut out, "a function <name>", "a function add  (also: type/struct/trait)");
+    entry(&mut out, "a capability <name>", "a capability login");
+    head(&mut out, "Shape", "is it formed?");
+    entry(&mut out, "a doc for <fn>", "a doc for add");
+    entry(&mut out, "a signature <fn>/<arity>", "a signature add/2");
+    entry(&mut out, "a dependency <name>", "a dependency serde");
+    head(&mut out, "Wiring", "does it interlock by type?");
+    entry(&mut out, "a contract <fn>(<T>,..)-><R>", "a contract add(i32,i32)->i32");
+    head(&mut out, "Verified", "does it behave?");
+    entry(&mut out, "a behaviour <fn>(<args>)=><result>", "a behaviour add(2,3)=>5");
+    entry(&mut out, "a test <name>", "a test parser_smoke");
+    head(&mut out, "Live", "does it run / serve?");
+    entry(&mut out, "a run <fn>,<args>=>out~<expected>", "a run add,2,3=>out~5");
+    entry(&mut out, "a service <METHOD>:/<path>=><status>", "a service GET:/health=>200");
+    out.push_str(&format!(
+        "  {}join with \"and\"; measure many at once with a .wishes file via --wishlist{}\n",
+        c(DIM),
+        c(RESET)
+    ));
+    out
+}
+
 /// Observe the workspace at the deepest level any wish in a list requires (a
 /// deeper observation still answers shallower facets). Shared by the wishlist's
 /// measurement and its before/after build account (Run 26).
@@ -4818,6 +4879,13 @@ fn run() -> Result<ExitCode, String> {
         Some(a) => a,
         None => return Ok(ExitCode::SUCCESS),
     };
+
+    // Vocabulary: how to phrase a wish. A standalone informational door — needs
+    // no workspace, runs and exits before any mode.
+    if args.vocab {
+        print!("{}", vocab_report(args.color));
+        return Ok(ExitCode::SUCCESS);
+    }
 
     // Doors: the binary's self-description — the machine-true catalog of
     // its own docking surface. With --doors-merge, other surfaces' emitted

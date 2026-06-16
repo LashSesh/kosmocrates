@@ -137,6 +137,17 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--vocab",
+            vec![],
+            "print the wish vocabulary \u{2014} the prose forms for each stratum \
+         (existence, shape, wiring, verified, live), by example; how to phrase a \
+         wish. Needs no workspace",
+            output_inputs(),
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
             "--landscape",
             vec![],
             "project every substrate finding into a ranked wish-proposal \
