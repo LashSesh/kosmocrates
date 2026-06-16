@@ -146,7 +146,11 @@ elements from the workspace (deduped by the same cross-language novelty gate) an
 drives `combine` to a fixpoint — the reachable catalog of structural profiles,
 `--threshold <0..1>` its grain. The operator's "Doodle God" move over real code:
 `seeded from N sources → D distinct elements · combine → X discoveries · catalog
-T · fixpoint reached`.
+T · fixpoint reached`. `--certify` arms the *validity gate*: an element must
+define substance (functions or types), not be pure scaffolding (imports/tests
+that define nothing) — the structural analogue of the cascade's evidence/void
+gates, so a discovery is *novel **and** valid*. Substance is closed under
+`combine`, so only invalid seeds are ever turned away.
 
 ## Principles
 

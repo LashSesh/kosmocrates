@@ -33,6 +33,26 @@ impl StructuralCounts {
         self.functions + self.types + self.imports + self.tests
     }
 
+    /// Definitional substance: the structure this bundle *defines* — its
+    /// functions and types, the things other code can use. (Imports and tests
+    /// are scaffolding: they consume and verify substance, they do not
+    /// constitute it.)
+    pub fn substance(self) -> u64 {
+        self.functions + self.types
+    }
+
+    /// Is this a structurally valid element — does it *define* something? The
+    /// structural analogue of the cascade's evidence/void gates: an element that
+    /// defines no substance (pure imports/tests) carries no reusable structure,
+    /// as the empty bundle carries none. Substance is closed under [`pooled`]
+    /// (superposition never loses it), so validity, once held, survives every
+    /// combination. (Consulted only when an inventory's validity gate is armed.)
+    ///
+    /// [`pooled`]: StructuralCounts::pooled
+    pub fn defines_substance(self) -> bool {
+        self.substance() > 0
+    }
+
     /// Pool two bundles — the substance of [`combine`]. Commutative and
     /// associative: superposition never loses substance.
     pub fn pooled(self, other: Self) -> Self {
@@ -148,16 +168,41 @@ pub fn combine(a: &Element, b: &Element) -> Element {
 pub struct Inventory {
     elements: Vec<Element>,
     threshold: Q16,
+    /// When armed, admission also requires [`StructuralCounts::defines_substance`]
+    /// — an offspring must be *novel and valid*, not merely novel.
+    require_valid: bool,
+    /// How many candidates the validity gate has turned away (pure scaffolding).
+    /// Because substance is closed under combination, only invalid *seeds* are
+    /// ever counted here — every offspring of a valid element is valid.
+    invalid_rejections: u64,
 }
 
 impl Inventory {
     /// An empty inventory whose novelty gate rejects a candidate at or above
-    /// `threshold` similarity to a held element.
+    /// `threshold` similarity to a held element. The validity gate is unarmed
+    /// (novelty-only) — arm it with [`with_validity_gate`].
+    ///
+    /// [`with_validity_gate`]: Inventory::with_validity_gate
     pub fn new(threshold: Q16) -> Self {
         Self {
             elements: Vec::new(),
             threshold,
+            require_valid: false,
+            invalid_rejections: 0,
         }
+    }
+
+    /// Arm (or disarm) the validity gate: when `on`, admission requires the
+    /// candidate to define substance as well as be novel. Returns `self` for
+    /// chaining after [`new`](Inventory::new).
+    pub fn with_validity_gate(mut self, on: bool) -> Self {
+        self.require_valid = on;
+        self
+    }
+
+    /// How many candidates the validity gate has turned away.
+    pub fn invalid_rejections(&self) -> u64 {
+        self.invalid_rejections
     }
 
     /// Seed with `prims`, admitting each as novel (deduping the seeds themselves).
@@ -193,8 +238,17 @@ impl Inventory {
             .any(|e| e.similarity(cand).raw() >= self.threshold.raw())
     }
 
-    /// Admit `cand` iff novel; `true` when it was a discovery (added).
+    /// Admit `cand` iff it clears every armed gate — always novelty, and, when
+    /// the validity gate is armed, definitional substance too (*novel and
+    /// valid*). `true` when it was a discovery (added). A candidate turned away
+    /// for defining nothing is tallied in [`invalid_rejections`].
+    ///
+    /// [`invalid_rejections`]: Inventory::invalid_rejections
     pub fn admit(&mut self, cand: Element) -> bool {
+        if self.require_valid && !cand.counts.defines_substance() {
+            self.invalid_rejections += 1;
+            return false;
+        }
         if self.is_novel(&cand) {
             self.elements.push(cand);
             true
@@ -326,6 +380,53 @@ mod tests {
             "a finer novelty threshold resolves more distinct elements: fine={} coarse={}",
             fine.len(),
             coarse.len()
+        );
+    }
+
+    #[test]
+    fn substance_counts_only_definitions() {
+        assert_eq!(elem("def", 2, 1, 5, 3).counts.substance(), 3);
+        assert!(elem("def", 1, 0, 0, 0).counts.defines_substance());
+        assert!(elem("ty", 0, 1, 9, 9).counts.defines_substance());
+        // pure scaffolding: imports and/or tests, nothing defined.
+        assert!(!elem("imp", 0, 0, 1, 0).counts.defines_substance());
+        assert!(!elem("test", 0, 0, 0, 1).counts.defines_substance());
+        assert!(!elem("shim", 0, 0, 3, 2).counts.defines_substance());
+    }
+
+    #[test]
+    fn validity_gate_off_by_default_admits_scaffolding() {
+        let mut inv = Inventory::new(thresh(9, 10));
+        assert!(inv.admit(elem("import", 0, 0, 1, 0)), "novelty-only admits scaffolding");
+        assert_eq!(inv.invalid_rejections(), 0);
+    }
+
+    #[test]
+    fn armed_validity_gate_rejects_pure_scaffolding() {
+        let mut inv = Inventory::new(thresh(9, 10)).with_validity_gate(true);
+        assert!(!inv.admit(elem("import", 0, 0, 1, 0)), "defines nothing → rejected");
+        assert!(!inv.admit(elem("test", 0, 0, 0, 1)), "defines nothing → rejected");
+        assert!(inv.admit(elem("func", 1, 0, 0, 0)), "defines a function → admitted");
+        assert!(inv.admit(elem("mixed", 1, 0, 2, 3)), "substance + scaffolding → admitted");
+        assert_eq!(inv.len(), 2);
+        assert_eq!(inv.invalid_rejections(), 2);
+    }
+
+    #[test]
+    fn validity_is_closed_under_combination() {
+        // Every offspring of substantive elements is substantive, so a saturated
+        // run with the gate armed rejects nothing beyond the invalid seeds.
+        let mut inv = Inventory::new(thresh(9, 10)).with_validity_gate(true);
+        inv.admit(elem("f", 1, 0, 1, 1));
+        inv.admit(elem("t", 0, 1, 1, 1));
+        inv.admit(elem("scaffold", 0, 0, 1, 1)); // the one invalid seed
+        let before = inv.invalid_rejections();
+        inv.saturate(16, 256);
+        assert_eq!(before, 1, "one invalid seed turned away");
+        assert_eq!(
+            inv.invalid_rejections(),
+            before,
+            "combination never produces an invalid offspring"
         );
     }
 }

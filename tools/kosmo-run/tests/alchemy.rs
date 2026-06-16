@@ -96,6 +96,41 @@ fn alchemy_falls_back_to_primitives_without_source() {
 }
 
 #[test]
+fn alchemy_certify_arms_the_validity_gate() {
+    // A workspace with one substantive file and one pure-scaffolding shim.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("kosmo-lab-certify-{nanos}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("lib.rs"), "pub fn a() {}\npub fn b() {}\n").unwrap();
+    fs::write(root.join("shim.js"), "import x from \"y\";\nimport z from \"w\";\n").unwrap();
+
+    let path = root.to_str().unwrap();
+    let plain = alchemy_json(&root, None);
+    let certified: serde_json::Value = {
+        let out = kosmo_run()
+            .args(["--alchemy", "--certify", "--json", path])
+            .output()
+            .expect("spawn kosmo-run");
+        serde_json::from_slice(&out.stdout).expect("valid JSON")
+    };
+
+    assert_eq!(certified["certify"], true);
+    assert!(
+        certified["invalid_rejections"].as_u64().unwrap() >= 1,
+        "the pure-scaffolding shim is turned away: {certified}"
+    );
+    assert!(
+        certified["distinct_elements"].as_u64().unwrap()
+            < plain["distinct_elements"].as_u64().unwrap(),
+        "the validity gate admits fewer seeds than novelty alone: \
+         certified={certified} plain={plain}"
+    );
+}
+
+#[test]
 fn alchemy_is_one_door_per_run() {
     let root = workspace();
     let out = kosmo_run()

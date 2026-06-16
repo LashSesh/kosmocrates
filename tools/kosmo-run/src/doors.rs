@@ -445,10 +445,13 @@ pub fn catalog() -> DoorCatalog {
             "the combine lab: seed structural elements from the workspace \
          (deduped by the cross-language novelty gate), drive combine() to a \
          fixpoint, and report the discovered catalog and its frontier — the \
-         alchemy / \"Doodle God\" laboratory over real code; strictly advisory",
+         alchemy / \"Doodle God\" laboratory over real code; --certify arms the \
+         validity gate so an element must define substance (novel AND valid); \
+         strictly advisory",
             [
                 vec![
                     workspace_input(),
+                    DoorInput::switch("--certify"),
                     DoorInput::valued("--threshold", "<0..1>"),
                 ],
                 output_inputs(),

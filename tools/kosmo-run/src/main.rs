@@ -223,6 +223,7 @@ struct Args {
     codematrix: bool,
     alchemy: bool,
     threshold: Option<f64>,
+    certify: bool,
     /// Steward mode: self-husbandry — survey the workspace's own landscape
     /// and, under --apply, descend the open chores inside the fence.
     steward: bool,
@@ -297,6 +298,7 @@ impl Default for Args {
             codematrix: false,
             alchemy: false,
             threshold: None,
+            certify: false,
             steward: false,
             fence: None,
             steward_max: 0,
@@ -519,6 +521,9 @@ OPTIONS:\n\
     --alchemy             the combine lab: seed structural elements from the\n\
                           workspace, drive combine() to a fixpoint, report the\n\
                           discovered catalog + frontier. Advisory.\n\
+    --certify             arm the validity gate for --alchemy: an element must\n\
+                          define substance (functions/types), not be pure\n\
+                          scaffolding (imports/tests) \u{2014} novel AND valid.\n\
     --threshold <0..1>    novelty resolution for --alchemy (default 0.90).\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
@@ -701,6 +706,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--codematrix" => args.codematrix = true,
             "--alchemy" => args.alchemy = true,
+            "--certify" => args.certify = true,
             "--threshold" => {
                 let v = argv.next().ok_or("--threshold needs a value in 0..=1")?;
                 args.threshold = Some(v.parse().map_err(|_| "--threshold must be a number")?);
@@ -2979,10 +2985,14 @@ fn run_alchemy_mode(args: &Args) -> Result<ExitCode, String> {
     };
 
     let sources_seen = prints.len();
-    let mut inv = Inventory::seeded(seeds, threshold);
+    let mut inv = Inventory::new(threshold).with_validity_gate(args.certify);
+    for seed in seeds {
+        inv.admit(seed);
+    }
     let distinct = inv.len();
     let discovered = inv.saturate(32, 4096);
     let total = inv.len();
+    let rejected = inv.invalid_rejections();
     let fixpoint = {
         let mut probe = inv.clone();
         probe.expand_once() == 0
@@ -2998,6 +3008,8 @@ fn run_alchemy_mode(args: &Args) -> Result<ExitCode, String> {
                 "discovered": discovered,
                 "catalog": total,
                 "threshold": thr_f,
+                "certify": args.certify,
+                "invalid_rejections": rejected,
                 "fixpoint": fixpoint,
                 "elements": inv.elements().iter().take(64).map(|e| {
                     let [f, t, i, x] = e.counts.densities();
@@ -3029,16 +3041,29 @@ fn run_alchemy_mode(args: &Args) -> Result<ExitCode, String> {
             args.path, distinct, thr_f
         );
     }
+    if args.certify {
+        println!(
+            "  {}validity gate armed{} \u{2014} an element must define substance (functions/types), not pure scaffolding",
+            c(GREEN),
+            c(RESET)
+        );
+    }
     let close = if fixpoint {
         "fixpoint reached"
     } else {
         "bounded (cap/rounds)"
     };
+    let rejected_note = if args.certify {
+        format!(" \u{b7} {rejected} rejected invalid")
+    } else {
+        String::new()
+    };
     println!(
-        "  {}\u{2728} combine \u{2192} {} discoveries \u{b7} catalog {} element(s) \u{b7} {}{}",
+        "  {}\u{2728} combine \u{2192} {} discoveries \u{b7} catalog {} element(s){} \u{b7} {}{}",
         c(CYAN),
         discovered,
         total,
+        rejected_note,
         close,
         c(RESET)
     );
