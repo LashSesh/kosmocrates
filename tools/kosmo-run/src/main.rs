@@ -221,6 +221,8 @@ struct Args {
     /// Codematrix door: per-source 5D fingerprints + most resonant pairs
     /// (advisory — ranks, never gates).
     codematrix: bool,
+    alchemy: bool,
+    threshold: Option<f64>,
     /// Steward mode: self-husbandry — survey the workspace's own landscape
     /// and, under --apply, descend the open chores inside the fence.
     steward: bool,
@@ -293,6 +295,8 @@ impl Default for Args {
             parseback_baseline: None,
             kcube: None,
             codematrix: false,
+            alchemy: false,
+            threshold: None,
             steward: false,
             fence: None,
             steward_max: 0,
@@ -511,7 +515,11 @@ OPTIONS:\n\
                           silent overwrite). Exit 8 if not written.\n\
     --codematrix          per-source 5D fingerprints (relationality, cohesion,\n\
                           topology, symmetry, entropy) + most resonant pairs.\n\
-                          Advisory: ranks, never gates.\n\n\
+                          Advisory: ranks, never gates.\n\
+    --alchemy             the combine lab: seed structural elements from the\n\
+                          workspace, drive combine() to a fixpoint, report the\n\
+                          discovered catalog + frontier. Advisory.\n\
+    --threshold <0..1>    novelty resolution for --alchemy (default 0.90).\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -692,6 +700,11 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.kcube = Some(argv.next().ok_or("--kcube needs an output directory")?);
             }
             "--codematrix" => args.codematrix = true,
+            "--alchemy" => args.alchemy = true,
+            "--threshold" => {
+                let v = argv.next().ok_or("--threshold needs a value in 0..=1")?;
+                args.threshold = Some(v.parse().map_err(|_| "--threshold must be a number")?);
+            }
             "--steward" => args.steward = true,
             "--fence" => {
                 args.fence = Some(argv.next().ok_or("--fence needs facet classes")?);
@@ -2925,6 +2938,138 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `--alchemy`: the combine lab as a door. Seed the inventory from the
+/// workspace's source-level structural elements — deduped by the CROSS-007
+/// novelty gate, so equivalent sources (any language) collapse to one — then
+/// drive [`kosmo_hyphae::alchemy::combine`] to a fixpoint and report the
+/// discovered catalog. The operator's "Doodle God" laboratory, over real code.
+/// Advisory: it discovers reachable structural *profiles*, it never gates. Falls
+/// back to the four primitives when no source is fingerprintable.
+fn run_alchemy_mode(args: &Args) -> Result<ExitCode, String> {
+    use kosmo_hyphae::alchemy::{self, Element, Inventory, StructuralCounts};
+    let root = Path::new(&args.path);
+    let mut prints: Vec<SourcePrint> = Vec::new();
+    collect_fingerprints(root, root, 0, &mut prints);
+
+    let thr_f = args.threshold.unwrap_or(0.9).clamp(0.0, 1.0);
+    let threshold = Q16::ratio((thr_f * 10_000.0).round() as u64, 10_000).unwrap_or(Q16::ONE);
+
+    let from_workspace = !prints.is_empty();
+    // An element per source — counts recovered from the fingerprint's densities
+    // and structural total (CROSS-007); empty sources fold to nothing.
+    let seeds: Vec<Element> = if from_workspace {
+        prints
+            .iter()
+            .map(|sp| {
+                let total = sp.xlang.structural_count;
+                let n = |d: Q16| (d.to_f64() * total as f64).round() as u64;
+                Element::new(
+                    sp.loc.clone(),
+                    StructuralCounts {
+                        functions: n(sp.xlang.function_density),
+                        types: n(sp.xlang.type_density),
+                        imports: n(sp.xlang.import_density),
+                        tests: n(sp.xlang.test_density),
+                    },
+                )
+            })
+            .collect()
+    } else {
+        alchemy::primitives()
+    };
+
+    let sources_seen = prints.len();
+    let mut inv = Inventory::seeded(seeds, threshold);
+    let distinct = inv.len();
+    let discovered = inv.saturate(32, 4096);
+    let total = inv.len();
+    let fixpoint = {
+        let mut probe = inv.clone();
+        probe.expand_once() == 0
+    };
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "seeded_from": if from_workspace { "workspace" } else { "primitives" },
+                "sources_seen": sources_seen,
+                "distinct_elements": distinct,
+                "discovered": discovered,
+                "catalog": total,
+                "threshold": thr_f,
+                "fixpoint": fixpoint,
+                "elements": inv.elements().iter().take(64).map(|e| {
+                    let [f, t, i, x] = e.counts.densities();
+                    serde_json::json!({
+                        "name": e.name,
+                        "densities": [f.to_f64(), t.to_f64(), i.to_f64(), x.to_f64()],
+                        "total": e.counts.total(),
+                    })
+                }).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let c = |code: &'static str| if args.color { code } else { "" };
+    println!(
+        "{}Kosmocrates alchemy \u{2014} the combine lab (advisory){}",
+        c(BOLD),
+        c(RESET)
+    );
+    if from_workspace {
+        println!(
+            "  seeded from {sources_seen} workspace source(s) \u{2192} {distinct} distinct structural element(s) (threshold {thr_f:.2})"
+        );
+    } else {
+        println!(
+            "  no fingerprintable source under {} \u{2014} seeded from {} primitives (threshold {:.2})",
+            args.path, distinct, thr_f
+        );
+    }
+    let close = if fixpoint {
+        "fixpoint reached"
+    } else {
+        "bounded (cap/rounds)"
+    };
+    println!(
+        "  {}\u{2728} combine \u{2192} {} discoveries \u{b7} catalog {} element(s) \u{b7} {}{}",
+        c(CYAN),
+        discovered,
+        total,
+        close,
+        c(RESET)
+    );
+    println!("  elements (axes: function \u{b7} type \u{b7} import \u{b7} test):");
+    for e in inv.elements().iter().take(16) {
+        let [f, t, i, x] = e.counts.densities();
+        let name: String = if e.name.chars().count() > 56 {
+            format!("{}\u{2026}", e.name.chars().take(56).collect::<String>())
+        } else {
+            e.name.clone()
+        };
+        println!(
+            "    {:.2} {:.2} {:.2} {:.2}  {}",
+            f.to_f64(),
+            t.to_f64(),
+            i.to_f64(),
+            x.to_f64(),
+            name
+        );
+    }
+    if inv.len() > 16 {
+        println!(
+            "    {}\u{2026} and {} more{}",
+            c(DIM),
+            inv.len() - 16,
+            c(RESET)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 /// Bounded, deterministic source walk for the codematrix lens (the same
 /// skip list as the language detector; entries sorted; capped).
 fn collect_fingerprints(base: &Path, dir: &Path, depth: u32, out: &mut Vec<SourcePrint>) {
@@ -5068,7 +5213,8 @@ fn run() -> Result<ExitCode, String> {
         + usize::from(args.witness.is_some())
         + usize::from(args.parseback)
         + usize::from(args.kcube.is_some())
-        + usize::from(args.codematrix);
+        + usize::from(args.codematrix)
+        + usize::from(args.alchemy);
     if organ_doors > 0 {
         let other_door = args.pruefstand
             || args.reforge
@@ -5083,8 +5229,8 @@ fn run() -> Result<ExitCode, String> {
             || args.promote_norm.is_some();
         if organ_doors > 1 || other_door {
             return Err(
-                "--foundry / --witness / --parseback / --kcube / --codematrix are one door \
-                 per run (and exclusive with the other doors)"
+                "--foundry / --witness / --parseback / --kcube / --codematrix / --alchemy are \
+                 one door per run (and exclusive with the other doors)"
                     .into(),
             );
         }
@@ -5100,7 +5246,10 @@ fn run() -> Result<ExitCode, String> {
         if args.kcube.is_some() {
             return run_kcube_mode(&args);
         }
-        return run_codematrix_mode(&args);
+        if args.codematrix {
+            return run_codematrix_mode(&args);
+        }
+        return run_alchemy_mode(&args);
     }
 
     // The Prüfstand descends a built-in reference corpus and reports fidelity:

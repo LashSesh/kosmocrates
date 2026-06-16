@@ -141,6 +141,13 @@ fingerprint (CROSS-007) lands the *same structure* on the *same point* across
 languages (a Rust `fn` and a Python `def` of the same shape register `≡` at 1.00,
 functions-vs-classes at 0.50): the same behaviour anywhere → one point.
 
+And `--alchemy` turns that inventory into a **laboratory**: it seeds structural
+elements from the workspace (deduped by the same cross-language novelty gate) and
+drives `combine` to a fixpoint — the reachable catalog of structural profiles,
+`--threshold <0..1>` its grain. The operator's "Doodle God" move over real code:
+`seeded from N sources → D distinct elements · combine → X discoveries · catalog
+T · fixpoint reached`.
+
 ## Principles
 
 - **Deterministic & offline** — same inputs, same bytes; no LLM, no key.

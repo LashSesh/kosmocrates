@@ -440,6 +440,25 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--alchemy",
+            vec![],
+            "the combine lab: seed structural elements from the workspace \
+         (deduped by the cross-language novelty gate), drive combine() to a \
+         fixpoint, and report the discovered catalog and its frontier — the \
+         alchemy / \"Doodle God\" laboratory over real code; strictly advisory",
+            [
+                vec![
+                    workspace_input(),
+                    DoorInput::valued("--threshold", "<0..1>"),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace],
+        ),
+        Door::new(
+            here(),
             "--doors",
             vec![],
             "this catalog: the binary's complete docking surface, spoken by the \
