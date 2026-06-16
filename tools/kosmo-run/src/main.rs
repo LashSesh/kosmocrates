@@ -343,6 +343,7 @@ OPTIONS:\n\
     --wishlist <path>     measure a file of prose wishes (one per line, # comments)\n\
                           against the workspace as a project definition-of-done;\n\
                           aggregate gauge, exit 0 only if all realized (Run 15);\n\
+                          --apply descends every wish to close the project (Run 18);\n\
                           pair with --since <reading> (a prior --json snapshot) for\n\
                           the project delta \u{2014} exits 2 on any regression (Run 16)\n\
 \n\
@@ -3237,6 +3238,27 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
         .iter()
         .map(|p| compile_wish(p, Digest::ZERO, Digest::of_bytes(p.as_bytes())))
         .collect();
+
+    // Run 18 — close the project: under --apply, descend every wish (writing the
+    // workspace), accumulating, before the final measurement. The deterministic
+    // scaffolder builds structural facets offline; deep facets fall to the
+    // provider (wish_fallback) when one is armed, else stay honestly unmet. Each
+    // descent re-observes, so later wishes see what earlier ones erected.
+    if args.apply {
+        let fallback = wish_fallback(args)?;
+        for w in &wishes {
+            let validated = args.validated || wish_needs_validation(w);
+            descend_to_wish(
+                &args.path,
+                w,
+                w.evidence_bundle_id,
+                validated,
+                8,
+                fallback.as_deref(),
+                None,
+            )?;
+        }
+    }
 
     // Observe once, at the deepest level any wish in the list requires.
     let observed = if wishes.iter().any(wish_needs_service) {

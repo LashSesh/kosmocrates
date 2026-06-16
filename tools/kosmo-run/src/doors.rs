@@ -116,19 +116,22 @@ pub fn catalog() -> DoorCatalog {
             vec![],
             "measure a file of prose wishes (one per line; # comments and blank \
          lines ignored) against the workspace as a project definition-of-done, \
-         into an aggregate realization gauge; read-only and deterministic, \
-         exit 0 only when every wish is realized; --since <reading> diffs against \
-         a prior --json snapshot and exits 2 on any project regression",
+         into an aggregate realization gauge; read-only unless --apply, which \
+         descends every wish to close the project (writes the workspace); exit 0 \
+         only when every wish is realized; --since <reading> diffs against a prior \
+         --json snapshot and exits 2 on any project regression",
             [
                 vec![
                     DoorInput::switch("--validated"),
+                    DoorInput::switch("--apply"),
                     DoorInput::valued("--since", "<reading>"),
                     workspace_input(),
                 ],
+                armament_inputs(),
                 output_inputs(),
             ]
             .concat(),
-            DoorGovernance::ReadOnly,
+            DoorGovernance::WritesWorkspace,
             vec![DoorNeed::Workspace, DoorNeed::Cargo],
         ),
         Door::new(

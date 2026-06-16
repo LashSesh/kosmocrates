@@ -193,6 +193,36 @@ fn wishlist_since_reports_progress_without_regression() {
 }
 
 #[test]
+fn wishlist_apply_closes_the_project() {
+    let root = workspace(); // module alpha + function f present
+    let list = root.join("p.wishes");
+    // gamma is missing; --apply should scaffold it (a structural facet, offline).
+    fs::write(&list, "a module alpha\na module gamma\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--apply",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (--apply)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    assert!(stdout.contains("realized 2/2"), "the project was closed: {stdout}");
+    assert_eq!(out.status.code(), Some(0), "all realized after --apply → exit 0: {stdout}");
+    let lib = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+    assert!(
+        lib.contains("gamma") || root.join("src/gamma.rs").exists(),
+        "gamma was erected: {stdout}"
+    );
+}
+
+#[test]
 fn wishlist_is_exclusive_with_wish() {
     let root = workspace();
     let list = root.join("x.wishes");
