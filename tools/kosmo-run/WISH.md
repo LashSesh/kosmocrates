@@ -117,10 +117,12 @@ $ kosmo-run --wish "a module greeter and a function greet and a doc for greet" .
   status REALIZED ✓   met 3/3
 ```
 
-Existence and Shape are observed lexically across Rust, Python, and JavaScript
-(via the shared xlang extractor — Go/Java/C/C++ are recognized too). The deeper
-strata that need a toolchain — Verified (behaviour) and Live (run/serve) — are
-Rust-specific today.
+Existence and Shape are observed lexically across **seven languages** — Rust,
+Python, JavaScript, Go, Java, C, and C++ — through one shared xlang extractor
+(`a function Add` against a `.go` file, `a type Calculator` against a `.java`
+file, all work). The deeper strata that need a toolchain — Verified (behaviour)
+and Live (run/serve) — are Rust-specific today; Python docstrings also satisfy
+`a doc for f`.
 
 ## Principles
 

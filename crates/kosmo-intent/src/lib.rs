@@ -864,6 +864,65 @@ pub fn facets_from_js_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
     facets
 }
 
+/// Module + symbol/signature/type/test facets for one xlang source file, via
+/// the shared extractor. The `module` is the caller's chosen name.
+fn xlang_facets(file: &Path, lang: SourceLanguage, module: &str, facets: &mut BTreeSet<WishFacet>) {
+    let Ok(content) = std::fs::read_to_string(file) else {
+        return;
+    };
+    facets.insert(WishFacet::module(module.to_string()));
+    let sets = symbol_sets(lang, &content);
+    for key in &sets.functions {
+        if let Some((name, _arity)) = key.split_once('/') {
+            facets.insert(WishFacet::symbol(name));
+        }
+        facets.insert(WishFacet::signature(key.clone()));
+    }
+    for t in &sets.types {
+        facets.insert(WishFacet::symbol(t.clone()));
+    }
+    for t in &sets.tests {
+        facets.insert(WishFacet::test(t.clone()));
+    }
+}
+
+/// Lexical facets of every Go / Java / C / C++ file under `dir`, via the shared
+/// xlang extractor — completing the polyglot door alongside the Rust/Python/JS
+/// backends. Module = file stem. Read-only; needs no toolchain.
+pub fn facets_from_clike_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
+    fn walk(dir: &Path, facets: &mut BTreeSet<WishFacet>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if matches!(
+                    name,
+                    "target" | ".git" | "node_modules" | "dist" | "build" | ".venv"
+                        | "__pycache__" | "vendor"
+                ) {
+                    continue;
+                }
+                walk(&path, facets);
+            } else if let Some(lang) = path.to_str().and_then(SourceLanguage::from_path) {
+                if matches!(
+                    lang,
+                    SourceLanguage::Go | SourceLanguage::Java | SourceLanguage::C | SourceLanguage::Cpp
+                ) {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(String::from) {
+                        xlang_facets(&path, lang, &stem, facets);
+                    }
+                }
+            }
+        }
+    }
+    let mut facets = BTreeSet::new();
+    walk(dir.as_ref(), &mut facets);
+    facets
+}
+
 /// A cargo-less workspace that carries observable source (Python or JavaScript)
 /// — observed by the file = module law, without `cargo metadata`: the polyglot
 /// door.
@@ -871,17 +930,44 @@ fn is_cargoless_polyglot(root: &Path) -> bool {
     if root.join("Cargo.toml").exists() {
         return false;
     }
-    if root.join("pyproject.toml").exists() || root.join("package.json").exists() {
+    if root.join("pyproject.toml").exists()
+        || root.join("package.json").exists()
+        || root.join("go.mod").exists()
+    {
         return true;
     }
-    let mut py = Vec::new();
-    collect_py(root, &mut py);
-    if !py.is_empty() {
-        return true;
+    has_non_rust_source(root)
+}
+
+/// True if any recognized non-Rust source file lives under `dir` (the signal
+/// that a Cargo-less directory is still an observable polyglot workspace).
+fn has_non_rust_source(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(
+                name,
+                "target" | ".git" | "node_modules" | "dist" | "build" | ".venv" | "__pycache__"
+                    | "vendor"
+            ) {
+                continue;
+            }
+            if has_non_rust_source(&path) {
+                return true;
+            }
+        } else if path
+            .to_str()
+            .and_then(SourceLanguage::from_path)
+            .is_some_and(|l| l != SourceLanguage::Rust)
+        {
+            return true;
+        }
     }
-    let mut js = Vec::new();
-    collect_js(root, &mut js);
-    !js.is_empty()
+    false
 }
 
 /// Walk every `.rs` file under `dir` and collect the `(test_fn_name, spec)`
@@ -918,18 +1004,24 @@ pub fn observe_workspace_deep(
         for facet in facets_from_js_dir(&root) {
             observed.insert(facet);
         }
+        for facet in facets_from_clike_dir(&root) {
+            observed.insert(facet);
+        }
         return Ok(observed);
     }
     let mut observed = observe_workspace(root.clone())?;
     for facet in facets_from_rust_dir(&root) {
         observed.insert(facet);
     }
-    // Polyglot observation: Python and JavaScript files inside a cargo workspace
-    // are measurable targets too, not blind spots.
+    // Polyglot observation: Python, JavaScript, and Go/Java/C/C++ files inside a
+    // cargo workspace are measurable targets too, not blind spots.
     for facet in facets_from_python_dir(&root) {
         observed.insert(facet);
     }
     for facet in facets_from_js_dir(&root) {
+        observed.insert(facet);
+    }
+    for facet in facets_from_clike_dir(&root) {
         observed.insert(facet);
     }
     Ok(observed)

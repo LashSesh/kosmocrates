@@ -8,7 +8,7 @@
 //! run — remain Rust-specific.)
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn kosmo_run() -> Command {
@@ -121,4 +121,46 @@ fn the_instrument_measures_a_javascript_workspace() {
     }
     assert!(stdout.contains("REALIZED"), "the JavaScript facets are present: {stdout}");
     assert_eq!(out.status.code(), Some(0), "a realized JS wish exits 0: {stdout}");
+}
+
+/// A bare single-file workspace in language `tag` (no manifest, no toolchain).
+fn lang_workspace(tag: &str, file: &str, content: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("kosmo-{tag}-{nanos}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join(file), content).unwrap();
+    root
+}
+
+fn realizes(root: &Path, wish: &str) -> Option<bool> {
+    let out = kosmo_run()
+        .args(["--wish", wish, "--flat", "--no-color", root.to_str().unwrap()])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        return None;
+    }
+    Some(out.status.code() == Some(0) && stdout.contains("REALIZED"))
+}
+
+#[test]
+fn the_instrument_measures_clike_workspaces() {
+    // Go — module = file stem, `func` → symbol, `type` → symbol.
+    let go = lang_workspace(
+        "go",
+        "math.go",
+        "package math\n\nfunc Add(a int, b int) int { return a + b }\n\ntype Calculator struct{}\n",
+    );
+    if let Some(ok) = realizes(&go, "a module math and a function Add and a type Calculator") {
+        assert!(ok, "Go facets realize");
+    }
+    // C — `int square(...)` → function symbol.
+    let c = lang_workspace("c", "calc.c", "int square(int x) { return x * x; }\n");
+    if let Some(ok) = realizes(&c, "a module calc and a function square") {
+        assert!(ok, "C facets realize");
+    }
 }
