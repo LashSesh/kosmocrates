@@ -280,6 +280,32 @@ fn wishlist_apply_shows_a_build_account() {
 }
 
 #[test]
+fn wishlist_coverage_flags_a_structure_only_dod() {
+    let root = workspace(); // module alpha + function f — existence only
+    let list = root.join("p.wishes");
+    fs::write(&list, "a module alpha\na function f\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        return;
+    }
+    assert!(stdout.contains("coverage:"), "the DoD coverage is shown: {stdout}");
+    assert!(stdout.contains("existence"), "{stdout}");
+    assert!(
+        stdout.contains("no behaviour or run"),
+        "an existence-only DoD is honestly flagged: {stdout}"
+    );
+}
+
+#[test]
 fn wishlist_is_exclusive_with_wish() {
     let root = workspace();
     let list = root.join("x.wishes");

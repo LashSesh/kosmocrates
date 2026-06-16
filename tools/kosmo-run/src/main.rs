@@ -44,7 +44,7 @@ use kosmo_core::{
     KcubeArtifactKind, KcubeExportPolicy, KcubeWriteOutcome, ObservedTopology, ParseBackScanScope,
     PolicyProfile, PrecedenceOrder, RenderAnomaly, StagedClosureReport, StageStanding,
     StratumClosure, VentureSession, Wish, WishAssessment, WishClosureStatus, WishCube, WishFacet,
-    WishFacetKind, Q16,
+    WishFacetKind, WishLayer, Q16,
 };
 use kosmo_foundry::FoundryExecutor;
 use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
@@ -3230,6 +3230,56 @@ fn wishlist_report(
     out
 }
 
+/// Aggregate which strata a wishlist's wishes touch and realize (Run 29), one
+/// `(layer, touched, met)` per stratum shallowest-first — the project DoD's own
+/// coverage, the meta-honesty companion to its realization.
+fn stratum_coverage(cubes: &[WishCube]) -> [(WishLayer, u32, u32); 5] {
+    let mut acc = [(0u32, 0u32); 5];
+    for cube in cubes {
+        for view in &cube.layers {
+            let i = view.layer.rank() as usize;
+            acc[i].0 += view.total_count;
+            acc[i].1 += view.met_count;
+        }
+    }
+    WishLayer::all().map(|l| {
+        let (t, m) = acc[l.rank() as usize];
+        (l, t, m)
+    })
+}
+
+/// Render a wishlist's stratum coverage (Run 29): which dimensions the DoD checks
+/// at all, and — the insight — an honest flag when it never reaches behaviour or
+/// run, so it verifies structure but not that the project actually *works*.
+fn coverage_report(cov: &[(WishLayer, u32, u32)], color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let touched: Vec<String> = cov
+        .iter()
+        .filter(|(_, t, _)| *t > 0)
+        .map(|(l, t, m)| format!("{} {}/{}", l.label(), m, t))
+        .collect();
+    if touched.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "  {}coverage:{} {}\n",
+        c(DIM),
+        c(RESET),
+        touched.join(" \u{00b7} ")
+    );
+    let checks_behaviour = cov
+        .iter()
+        .any(|(l, t, _)| *t > 0 && l.rank() >= WishLayer::Verified.rank());
+    if !checks_behaviour {
+        out.push_str(&format!(
+            "  {}\u{26a0} no behaviour or run wish \u{2014} this DoD checks structure, not that it works{}\n",
+            c(YELLOW),
+            c(RESET)
+        ));
+    }
+    out
+}
+
 /// The project-level delta between a prior wishlist reading and the current one
 /// (Run 16): which whole wishes newly realized and which regressed (were
 /// realized, now not), matched by content-addressed `wish_id`. The project analog
@@ -3481,15 +3531,13 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
     // the gauge can flag holograms, not just count realizations. One topology
     // reading for the whole workspace; one cube per wish (no re-observation).
     let density = topology_density(&observed, args.capacity);
-    let grades: Vec<Option<HonestyGrade>> = items
+    let cubes: Vec<WishCube> = items
         .iter()
-        .map(|(w, _)| {
-            honesty_grade(
-                &assess_wish_layered(w, &observed, w.evidence_bundle_id),
-                density,
-            )
-        })
+        .map(|(w, _)| assess_wish_layered(w, &observed, w.evidence_bundle_id))
         .collect();
+    let grades: Vec<Option<HonestyGrade>> =
+        cubes.iter().map(|c| honesty_grade(c, density)).collect();
+    let coverage = stratum_coverage(&cubes);
 
     // Run 16 — the project delta: diff against a prior wishlist reading (the
     // --json output of an earlier run), matched per wish by content-addressed id.
@@ -3541,6 +3589,7 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             );
         }
         print!("{}", wishlist_report(path, &items, &grades, args.color));
+        print!("{}", coverage_report(&coverage, args.color));
     }
 
     // Run 26 — the build account: after --apply, the before→after delta of the
@@ -5410,6 +5459,49 @@ mod tests {
         // No stem match and not close → no false bridge.
         let gap = WishFacet::new(WishFacetKind::Signature, "telemetry");
         assert_eq!(nearest_existing(&gap, &obs), None);
+    }
+
+    #[test]
+    fn coverage_flags_a_structure_only_dod() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        // An existence-only DoD: a single crate wish.
+        let existence = Wish::new(
+            "a crate solo",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            ev,
+        );
+        let cov = stratum_coverage(&[assess_wish_layered(&existence, &obs, ev)]);
+        let report = coverage_report(&cov, false);
+        assert!(report.contains("coverage:") && report.contains("existence"), "{report}");
+        assert!(
+            report.contains("no behaviour or run"),
+            "a structure-only DoD is flagged: {report}"
+        );
+
+        // Add a behaviour wish — now the DoD reaches the Verified stratum, so it
+        // checks that it works; the flag clears and `verified` is shown.
+        let behaviour = Wish::new(
+            "a behaviour add(2,3)=>5",
+            [WishPredicate::require(WishFacet::new(
+                WishFacetKind::Behavior,
+                "add(2,3)=>5",
+            ))],
+            Digest::ZERO,
+            ev,
+        );
+        let cubes = vec![
+            assess_wish_layered(&existence, &obs, ev),
+            assess_wish_layered(&behaviour, &obs, ev),
+        ];
+        let report2 = coverage_report(&stratum_coverage(&cubes), false);
+        assert!(report2.contains("verified"), "the verified stratum is shown: {report2}");
+        assert!(
+            !report2.contains("no behaviour or run"),
+            "behaviour coverage clears the flag: {report2}"
+        );
     }
 
     #[test]
