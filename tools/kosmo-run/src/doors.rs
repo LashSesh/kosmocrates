@@ -462,6 +462,28 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--behaviour",
+            vec![],
+            "the behavioural lattice: combine real runnable functions over a \
+         finite domain by *executed* composition, dedup by observational \
+         equality (the same behaviour, however expressed, is one point), and \
+         bridge back to structure — synonyms (different code, same behaviour) \
+         and false friends (similar structure, different behaviour); \
+         workspace-independent, --certify arms the informativeness gate; \
+         strictly advisory",
+            [
+                vec![
+                    DoorInput::switch("--certify"),
+                    DoorInput::valued("--threshold", "<0..1>"),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
             "--doors",
             vec![],
             "this catalog: the binary's complete docking surface, spoken by the \

@@ -152,6 +152,20 @@ that define nothing) — the structural analogue of the cascade's evidence/void
 gates, so a discovery is *novel **and** valid*. Substance is closed under
 `combine`, so only invalid seeds are ever turned away.
 
+And `--behaviour` goes all the way down to *executed* ground truth. Its elements
+carry real runnable code — functions over a finite value-domain — and combine by
+**composition that is actually run**; two are equal iff they agree on every
+input ("the same behaviour, however expressed → one point", no longer a
+structural guess). Saturation discovers the generated transformation monoid;
+`--certify` arms the *informativeness* gate (a constant is the behavioural void,
+and — unlike structural substance — informativeness is not closed under
+composition). The payoff is the **bridge** back to structure: every behaviour
+also carries its expression's structural fingerprint, so the lattice measures
+where the structural proxy fails — **synonyms** (different code, one behaviour,
+which the proxy under-merges) and **false friends** (similar structure, divergent
+behaviour, which it over-merges). The executed yardstick against which the whole
+structural enterprise can finally be checked.
+
 ## Principles
 
 - **Deterministic & offline** — same inputs, same bytes; no LLM, no key.

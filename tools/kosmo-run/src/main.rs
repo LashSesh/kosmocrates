@@ -222,6 +222,7 @@ struct Args {
     /// (advisory — ranks, never gates).
     codematrix: bool,
     alchemy: bool,
+    behaviour: bool,
     threshold: Option<f64>,
     certify: bool,
     /// Steward mode: self-husbandry — survey the workspace's own landscape
@@ -297,6 +298,7 @@ impl Default for Args {
             kcube: None,
             codematrix: false,
             alchemy: false,
+            behaviour: false,
             threshold: None,
             certify: false,
             steward: false,
@@ -524,7 +526,13 @@ OPTIONS:\n\
     --certify             arm the validity gate for --alchemy: an element must\n\
                           define substance (functions/types), not be pure\n\
                           scaffolding (imports/tests) \u{2014} novel AND valid.\n\
-    --threshold <0..1>    novelty resolution for --alchemy (default 0.90).\n\n\
+    --threshold <0..1>    novelty resolution for --alchemy; structural\n\
+                          similarity cutoff for --behaviour (default 0.90).\n\
+    --behaviour           the behavioural lattice: combine real runnable\n\
+                          functions by executed composition, dedup by\n\
+                          observational equality, and bridge back to structure\n\
+                          (synonyms + false friends). Workspace-independent.\n\
+                          --certify arms the informativeness gate. Advisory.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -706,6 +714,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--codematrix" => args.codematrix = true,
             "--alchemy" => args.alchemy = true,
+            "--behaviour" => args.behaviour = true,
             "--certify" => args.certify = true,
             "--threshold" => {
                 let v = argv.next().ok_or("--threshold needs a value in 0..=1")?;
@@ -3095,6 +3104,136 @@ fn run_alchemy_mode(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `--behaviour`: the behavioural lattice — the executed maximum. Combine real
+/// runnable functions by composition (genuinely run over the finite domain),
+/// dedup by observational equality, saturate to the generated transformation
+/// monoid, then bridge back to structure: the synonyms execution collapsed
+/// (different code, one behaviour — the structural proxy under-merges) and the
+/// false friends it would over-merge (similar shape, different behaviour).
+/// Workspace-independent — a closed, total value-algebra, never host code.
+fn run_behaviour_mode(args: &Args) -> Result<ExitCode, String> {
+    use kosmo_hyphae::behaviour::{generators, Monoid, DOMAIN};
+
+    let tau_f = args.threshold.unwrap_or(0.9).clamp(0.0, 1.0);
+    let tau = Q16::ratio((tau_f * 10_000.0).round() as u64, 10_000).unwrap_or(Q16::ONE);
+
+    let mut m = Monoid::seeded(generators(), args.certify);
+    let seeded = m.len();
+    let discovered = m.saturate(64, 4096);
+    let total = m.len();
+    let explored = m.explored();
+    let synonyms = m.synonyms();
+    let rejected = m.rejected_constant();
+    let (false_friends, pairs) = m.false_friends(tau);
+    let fixpoint = {
+        let mut probe = m.clone();
+        probe.expand_once() == 0
+    };
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "domain": DOMAIN,
+                "generators": seeded,
+                "discovered": discovered,
+                "monoid": total,
+                "explored": explored,
+                "synonyms": synonyms,
+                "certify": args.certify,
+                "rejected_constant": rejected,
+                "structural_threshold": tau_f,
+                "false_friends": false_friends,
+                "pairs": pairs,
+                "fixpoint": fixpoint,
+                "behaviours": m.elements().iter().take(64).map(|b| {
+                    serde_json::json!({ "name": b.name, "table": b.table.to_vec() })
+                }).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let c = |code: &'static str| if args.color { code } else { "" };
+    println!(
+        "{}Kosmocrates behaviour \u{2014} the executed lattice (advisory){}",
+        c(BOLD),
+        c(RESET)
+    );
+    println!(
+        "  domain D = {{0..{}}} \u{b7} {} generators \u{2192} executed composition",
+        DOMAIN - 1,
+        seeded
+    );
+    if args.certify {
+        println!(
+            "  {}informativeness gate armed{} \u{2014} a constant transmits nothing (the behavioural void)",
+            c(GREEN),
+            c(RESET)
+        );
+    }
+    let close = if fixpoint {
+        "monoid closed (fixpoint)"
+    } else {
+        "bounded (cap/rounds)"
+    };
+    let rej = if args.certify {
+        format!(" \u{b7} {rejected} constants rejected")
+    } else {
+        String::new()
+    };
+    println!(
+        "  {}\u{2728} {} compositions executed \u{2192} {} distinct behaviours{} \u{b7} {}{}",
+        c(CYAN),
+        explored,
+        total,
+        rej,
+        close,
+        c(RESET)
+    );
+    println!(
+        "  {}bridge to structure (executed ground truth):{}",
+        c(BOLD),
+        c(RESET)
+    );
+    println!(
+        "    {}\u{2261} synonyms{}: {} compositions collapsed onto a held behaviour \u{2014} \
+         different code, one behaviour (the proxy under-merges)",
+        c(DIM),
+        c(RESET),
+        synonyms
+    );
+    println!(
+        "    {}\u{2248} false friends{}: {} of {} pairs are structurally \u{2265} {:.2} yet behave \
+         differently (the proxy over-merges)",
+        c(DIM),
+        c(RESET),
+        false_friends,
+        pairs,
+        tau_f
+    );
+    println!("  behaviours (table over 0..{}):", DOMAIN - 1);
+    for b in m.elements().iter().take(8) {
+        let name: String = if b.name.chars().count() > 28 {
+            format!("{}\u{2026}", b.name.chars().take(28).collect::<String>())
+        } else {
+            b.name.clone()
+        };
+        let table: Vec<String> = b.table.iter().map(|v| v.to_string()).collect();
+        println!("    {:<29} [{}]", name, table.join(" "));
+    }
+    if m.len() > 8 {
+        println!(
+            "    {}\u{2026} and {} more{}",
+            c(DIM),
+            m.len() - 8,
+            c(RESET)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 /// Bounded, deterministic source walk for the codematrix lens (the same
 /// skip list as the language detector; entries sorted; capped).
 fn collect_fingerprints(base: &Path, dir: &Path, depth: u32, out: &mut Vec<SourcePrint>) {
@@ -5239,7 +5378,8 @@ fn run() -> Result<ExitCode, String> {
         + usize::from(args.parseback)
         + usize::from(args.kcube.is_some())
         + usize::from(args.codematrix)
-        + usize::from(args.alchemy);
+        + usize::from(args.alchemy)
+        + usize::from(args.behaviour);
     if organ_doors > 0 {
         let other_door = args.pruefstand
             || args.reforge
@@ -5254,8 +5394,8 @@ fn run() -> Result<ExitCode, String> {
             || args.promote_norm.is_some();
         if organ_doors > 1 || other_door {
             return Err(
-                "--foundry / --witness / --parseback / --kcube / --codematrix / --alchemy are \
-                 one door per run (and exclusive with the other doors)"
+                "--foundry / --witness / --parseback / --kcube / --codematrix / --alchemy / \
+                 --behaviour are one door per run (and exclusive with the other doors)"
                     .into(),
             );
         }
@@ -5274,7 +5414,10 @@ fn run() -> Result<ExitCode, String> {
         if args.codematrix {
             return run_codematrix_mode(&args);
         }
-        return run_alchemy_mode(&args);
+        if args.alchemy {
+            return run_alchemy_mode(&args);
+        }
+        return run_behaviour_mode(&args);
     }
 
     // The Prüfstand descends a built-in reference corpus and reports fidelity:

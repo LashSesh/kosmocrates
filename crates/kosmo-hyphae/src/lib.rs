@@ -16,6 +16,7 @@
 
 pub mod alchemy;
 pub mod assimilation;
+pub mod behaviour;
 pub mod code_hdag;
 pub mod codematrix;
 pub mod collapse;
