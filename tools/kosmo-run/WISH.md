@@ -135,7 +135,11 @@ non-Rust; Live for C/C++/Java, which need a compile step first).
 And for the *whole* polyglot tree as one shape: `kosmo-run --codematrix` pools
 every source's 5-axis code-fingerprint — any language — into one **holistic
 cube** (a language-blind centroid) plus a **homogeneity** scalar (how unified the
-topology is): all languages compressed into a single hypercube.
+topology is): all languages compressed into a single hypercube. It also reports
+the **cross-language structural agreement** — the language-*independent*
+fingerprint (CROSS-007) lands the *same structure* on the *same point* across
+languages (a Rust `fn` and a Python `def` of the same shape register `≡` at 1.00,
+functions-vs-classes at 0.50): the same behaviour anywhere → one point.
 
 ## Principles
 

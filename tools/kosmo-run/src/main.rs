@@ -49,7 +49,8 @@ use kosmo_core::{
 use kosmo_foundry::FoundryExecutor;
 use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
 use kosmo_hyphae::{
-    promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
+    promotable, CrossLanguageFingerprint, FacetBundleObservation, NormInjectionSpec,
+    NormLearningConfig, SourceLanguage,
 };
 use kosmo_intent::{
     companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms, CubeMeshReading,
@@ -2708,15 +2709,83 @@ fn run_kcube_mode(args: &Args) -> Result<ExitCode, String> {
     })
 }
 
+/// One source's two fingerprints, collected in a single walk: the 5-axis
+/// `CodeMatrixFingerprint` (shape) and the language-INDEPENDENT
+/// `CrossLanguageFingerprint` (structural densities, CROSS-007), with the
+/// detected language.
+struct SourcePrint {
+    loc: String,
+    matrix: CodeMatrixFingerprint,
+    lang: SourceLanguage,
+    xlang: CrossLanguageFingerprint,
+}
+
+/// The cross-language reading: how strongly the structural fingerprint agrees
+/// *across* language boundaries (the operator's "same structure in any language →
+/// the same point"), plus the most equivalent cross-language pair.
+struct CrossReading {
+    agreement: f64,
+    languages: usize,
+    top: Option<(String, &'static str, String, &'static str, f64)>,
+}
+
+/// Mean `CrossLanguageFingerprint` similarity over pairs of sources in *different*
+/// languages (bounded, deterministic). `None` unless ≥2 languages and 2..=64
+/// sources are present — the language-independent agreement only means something
+/// across a boundary.
+fn cross_language_agreement(prints: &[SourcePrint]) -> Option<CrossReading> {
+    if !(2..=64).contains(&prints.len()) {
+        return None;
+    }
+    let distinct: std::collections::BTreeSet<&str> =
+        prints.iter().map(|sp| sp.lang.as_str()).collect();
+    if distinct.len() < 2 {
+        return None;
+    }
+    let mut sum = 0.0f64;
+    let mut count = 0u32;
+    let mut top: Option<(usize, usize, f64)> = None;
+    for i in 0..prints.len() {
+        for j in (i + 1)..prints.len() {
+            if prints[i].lang == prints[j].lang {
+                continue;
+            }
+            let sim = prints[i].xlang.similarity(&prints[j].xlang).to_f64();
+            sum += sim;
+            count += 1;
+            if top.is_none_or(|(_, _, best)| sim > best) {
+                top = Some((i, j, sim));
+            }
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+    let top = top.map(|(i, j, sim)| {
+        (
+            prints[i].loc.clone(),
+            prints[i].lang.as_str(),
+            prints[j].loc.clone(),
+            prints[j].lang.as_str(),
+            sim,
+        )
+    });
+    Some(CrossReading {
+        agreement: sum / f64::from(count),
+        languages: distinct.len(),
+        top,
+    })
+}
+
 /// `--codematrix`: the 5D fingerprint lens as a door — per-source axes
 /// (relationality, functional cohesion, topology, symmetry, entropy) and
 /// the most resonant pairs. Strictly advisory: it ranks, it never gates
 /// (CROSS-010); the floats below are display-only.
 fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
     let root = Path::new(&args.path);
-    let mut prints: Vec<(String, CodeMatrixFingerprint)> = Vec::new();
+    let mut prints: Vec<SourcePrint> = Vec::new();
     collect_fingerprints(root, root, 0, &mut prints);
-    prints.sort_by(|a, b| a.0.cmp(&b.0));
+    prints.sort_by(|a, b| a.loc.cmp(&b.loc));
 
     // Run 37 — the holistic polyglot cube: every per-source code-cube (any of the
     // recognized languages, via `from_auto`) pooled into ONE by the axis-wise mean
@@ -2726,8 +2795,8 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
     let holistic: Option<[f64; 5]> = (!prints.is_empty()).then(|| {
         let n = prints.len() as f64;
         let mut sums = [0.0f64; 5];
-        for (_, fp) in &prints {
-            for (k, a) in fp.axes().iter().enumerate() {
+        for sp in &prints {
+            for (k, a) in sp.matrix.axes().iter().enumerate() {
                 sums[k] += a.to_f64();
             }
         }
@@ -2738,9 +2807,9 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
         for i in 0..prints.len() {
             for j in (i + 1)..prints.len() {
                 p.push((
-                    prints[i].1.resonance(&prints[j].1),
-                    prints[i].0.as_str(),
-                    prints[j].0.as_str(),
+                    prints[i].matrix.resonance(&prints[j].matrix),
+                    prints[i].loc.as_str(),
+                    prints[j].loc.as_str(),
                 ));
             }
         }
@@ -2751,19 +2820,26 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
     };
     let homogeneity: Option<f64> = (!pairs.is_empty())
         .then(|| pairs.iter().map(|(r, _, _)| r.to_f64()).sum::<f64>() / pairs.len() as f64);
+    // Run 38 — the language-INDEPENDENT structural agreement across languages.
+    let cross = cross_language_agreement(&prints);
 
     if args.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "sources": prints.iter().map(|(loc, fp)| serde_json::json!({
-                    "location": loc,
-                    "axes_raw": fp.axes().map(|q| q.raw()),
-                    "richness_raw": fp.richness().raw(),
+                "sources": prints.iter().map(|sp| serde_json::json!({
+                    "location": sp.loc,
+                    "language": sp.lang.as_str(),
+                    "axes_raw": sp.matrix.axes().map(|q| q.raw()),
+                    "richness_raw": sp.matrix.richness().raw(),
                 })).collect::<Vec<_>>(),
                 "holistic": holistic.map(|h| serde_json::json!({
                     "axes": h,
                     "homogeneity": homogeneity,
+                })),
+                "cross_language": cross.as_ref().map(|cr| serde_json::json!({
+                    "agreement": cr.agreement,
+                    "languages": cr.languages,
                 })),
             }))
             .map_err(|e| e.to_string())?
@@ -2784,10 +2860,11 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
         "  {} source(s) \u{b7} axes: relationality \u{b7} cohesion \u{b7} topology \u{b7} symmetry \u{b7} entropy",
         prints.len()
     );
-    for (loc, fp) in &prints {
-        let [r, f, t, s, e] = fp.axes();
+    for sp in &prints {
+        let [r, f, t, s, e] = sp.matrix.axes();
         println!(
-            "  {loc}  r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}",
+            "  {}  r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}",
+            sp.loc,
             r.to_f64(),
             f.to_f64(),
             t.to_f64(),
@@ -2826,17 +2903,31 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
             c(RESET)
         );
     }
+    // Run 38 — the cross-language agreement: the same structure recognized across
+    // language boundaries (the operator's "same behaviour anywhere → one point").
+    if let Some(cr) = &cross {
+        let top = cr
+            .top
+            .as_ref()
+            .map(|(al, alg, bl, blg, sim)| {
+                format!("  \u{00b7} top {al} ({alg}) \u{2261} {bl} ({blg}) {sim:.2}")
+            })
+            .unwrap_or_default();
+        println!(
+            "  {}\u{2726} cross-language structural agreement ({} languages): {:.2}{}{}",
+            c(CYAN),
+            cr.languages,
+            cr.agreement,
+            top,
+            c(RESET)
+        );
+    }
     Ok(ExitCode::SUCCESS)
 }
 
 /// Bounded, deterministic source walk for the codematrix lens (the same
 /// skip list as the language detector; entries sorted; capped).
-fn collect_fingerprints(
-    base: &Path,
-    dir: &Path,
-    depth: u32,
-    out: &mut Vec<(String, CodeMatrixFingerprint)>,
-) {
+fn collect_fingerprints(base: &Path, dir: &Path, depth: u32, out: &mut Vec<SourcePrint>) {
     const SKIP: &[&str] = &[
         ".git",
         "target",
@@ -2870,21 +2961,24 @@ fn collect_fingerprints(
                 .unwrap_or(&p)
                 .to_string_lossy()
                 .into_owned();
-            if SourceLanguage::from_path(&loc).is_none() {
+            let Some(lang) = SourceLanguage::from_path(&loc) else {
                 continue;
-            }
+            };
             let Ok(content) = fs::read_to_string(&p) else {
                 continue;
             };
             if content.len() > 512 * 1024 {
                 continue;
             }
-            if let Some(fp) = CodeMatrixFingerprint::from_auto(
-                Digest::of_bytes(content.as_bytes()),
-                &loc,
-                &content,
-            ) {
-                out.push((loc, fp));
+            let ev = Digest::of_bytes(content.as_bytes());
+            if let Some(matrix) = CodeMatrixFingerprint::from_auto(ev, &loc, &content) {
+                let xlang = CrossLanguageFingerprint::from_source(lang, ev, &content);
+                out.push(SourcePrint {
+                    loc,
+                    matrix,
+                    lang,
+                    xlang,
+                });
             }
         }
     }
