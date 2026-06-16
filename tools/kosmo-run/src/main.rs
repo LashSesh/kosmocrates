@@ -3033,6 +3033,25 @@ fn is_realized(status: &WishClosureStatus) -> bool {
     )
 }
 
+/// How an unmet wish can be closed (Run 22): the offline scaffolder can erect
+/// declarative facets (existence/shape/wiring), but a Verified/Live facet needs
+/// execution *evidence* — a passing test or a running program — which only a
+/// provider (or a real implementation) can supply. Honest triage for "what will
+/// --apply do for me?"; `""` when nothing is unmet.
+fn closure_hint(unmet: &[WishFacet]) -> &'static str {
+    if unmet.is_empty() {
+        return "";
+    }
+    let needs_evidence = unmet
+        .iter()
+        .any(|f| f.kind.layer().rank() >= kosmo_core::WishLayer::Verified.rank());
+    if needs_evidence {
+        "needs evidence (a passing test/run)"
+    } else {
+        "scaffoldable offline"
+    }
+}
+
 /// Render a wishlist measurement for a human (Runs 15/17): the aggregate
 /// `realized N/M` gauge — flagged `· K over-fit suspect` when realized wishes are
 /// holograms (the project gauge tells the deep truth, not just the binary) — and
@@ -3087,8 +3106,17 @@ fn wishlist_report(
         } else {
             String::new()
         };
+        // Run 22 — for an unmet wish, say how it closes: offline or with evidence.
+        let closure_tag = if is_realized(&a.status) {
+            String::new()
+        } else {
+            match closure_hint(&a.unmet_facets) {
+                "" => String::new(),
+                h => format!(" {}\u{2014} {}{}", c(DIM), h, c(RESET)),
+            }
+        };
         out.push_str(&format!(
-            "  {}{}{} {} {}({}/{}){}{}\n",
+            "  {}{}{} {} {}({}/{}){}{}{}\n",
             col,
             mark,
             c(RESET),
@@ -3097,7 +3125,8 @@ fn wishlist_report(
             a.met_count,
             a.total_count,
             c(RESET),
-            suspect_tag
+            suspect_tag,
+            closure_tag
         ));
     }
     out
@@ -5132,6 +5161,10 @@ mod tests {
         assert!(out.contains("a crate solo") && out.contains("a crate ghost"), "{out}");
         assert!(out.contains("spec.txt"), "names the source: {out}");
         assert!(!out.contains("suspect"), "no honesty flag without a grade: {out}");
+        assert!(
+            out.contains("scaffoldable offline"),
+            "the unmet crate is triaged as scaffoldable: {out}"
+        );
 
         // Run 17 — a realized wish graded an over-fit suspect flags the gauge.
         let suspect_items = vec![(
@@ -5160,6 +5193,26 @@ mod tests {
         );
         assert!(flagged.contains("1 over-fit suspect"), "aggregate flag: {flagged}");
         assert!(flagged.contains("\u{26a0} suspect"), "per-wish tag: {flagged}");
+    }
+
+    #[test]
+    fn closure_hint_triages_by_evidence() {
+        assert_eq!(closure_hint(&[]), "");
+        // Existence/shape/wiring → the offline scaffolder can erect them.
+        assert_eq!(closure_hint(&[WishFacet::crate_("x")]), "scaffoldable offline");
+        // A Run/Behaviour facet needs execution evidence, not just scaffolding.
+        assert_eq!(
+            closure_hint(&[WishFacet::new(WishFacetKind::Run, "p=>out~q")]),
+            "needs evidence (a passing test/run)"
+        );
+        // Any deep facet in the set tips the whole wish to "needs evidence".
+        assert_eq!(
+            closure_hint(&[
+                WishFacet::crate_("x"),
+                WishFacet::new(WishFacetKind::Behavior, "f(1)=>1"),
+            ]),
+            "needs evidence (a passing test/run)"
+        );
     }
 
     #[test]
