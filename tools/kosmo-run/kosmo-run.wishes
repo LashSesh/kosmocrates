@@ -1,0 +1,16 @@
+# kosmocrates' own definition-of-done — the instrument measures itself.
+#
+# This is the spiral through its own centre: the kosmo-run tool, expressed as a
+# wishlist of its declared structural skeleton, checked by the suite against the
+# live source (tests/dogfood.rs). A self-referential regression guard — if the
+# backbone is ever cut, the project stops realizing itself.
+#
+# Scope note (an honest reach-map the instrument drew of itself): the wish
+# vocabulary's structural surface is the existence stratum — crates and modules.
+# A binary crate's private functions are not a public contract, and Cargo
+# dependency edges are not code facets, so neither is wished for here; that is
+# the instrument correctly reporting its own surface, not a gap papered over.
+
+a crate kosmo-run
+a module doors
+a module reforge
