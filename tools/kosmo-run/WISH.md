@@ -107,17 +107,19 @@ coverage, did-you-mean) **rank, never gate** — they inform; you decide.
 ## Polyglot
 
 The wish prose is language-agnostic; only the observation backend differs. Point
-it at a Python package and the same wishes work — modules are `.py` files
-(`__init__.py` standing for its package), functions and classes are `def`/`class`,
-and docstrings satisfy `a doc for f`:
+it at a **Python** or **JavaScript** package and the same wishes work — modules
+are files (`__init__.py` / `index.js` standing for their package), functions and
+classes are `def`/`class` or `function`/`class`, and Python docstrings satisfy
+`a doc for f`:
 
 ```text
 $ kosmo-run --wish "a module greeter and a function greet and a doc for greet" ./pkg
   status REALIZED ✓   met 3/3
 ```
 
-Existence and Shape are observed lexically in both languages. The deeper strata
-that need a toolchain — Verified (behaviour) and Live (run/serve) — are
+Existence and Shape are observed lexically across Rust, Python, and JavaScript
+(via the shared xlang extractor — Go/Java/C/C++ are recognized too). The deeper
+strata that need a toolchain — Verified (behaviour) and Live (run/serve) — are
 Rust-specific today.
 
 ## Principles

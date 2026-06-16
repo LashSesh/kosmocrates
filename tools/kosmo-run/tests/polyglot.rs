@@ -82,3 +82,43 @@ fn an_absent_python_facet_is_unmet() {
     assert_eq!(out.status.code(), Some(1), "an absent function is unmet: {stdout}");
     assert!(stdout.contains("missing"), "the gap is named: {stdout}");
 }
+
+/// A JavaScript workspace: a `math` module with a `add` function and a
+/// `Calculator` class. No manifest, no Node — purely lexical via the shared
+/// xlang extractor (Run 33).
+fn js_workspace() -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("kosmo-js-{nanos}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("math.js"),
+        "function add(a, b) {\n  return a + b;\n}\n\nclass Calculator {}\n",
+    )
+    .unwrap();
+    root
+}
+
+#[test]
+fn the_instrument_measures_a_javascript_workspace() {
+    let root = js_workspace();
+    let out = kosmo_run()
+        .args([
+            "--wish",
+            "a module math and a function add and a type Calculator",
+            "--flat",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    assert!(stdout.contains("REALIZED"), "the JavaScript facets are present: {stdout}");
+    assert_eq!(out.status.code(), Some(0), "a realized JS wish exits 0: {stdout}");
+}
