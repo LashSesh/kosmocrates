@@ -104,6 +104,22 @@ esac
 Only the **realization status** gates. The honesty signals (genuine/suspect,
 coverage, did-you-mean) **rank, never gate** — they inform; you decide.
 
+## Polyglot
+
+The wish prose is language-agnostic; only the observation backend differs. Point
+it at a Python package and the same wishes work — modules are `.py` files
+(`__init__.py` standing for its package), functions and classes are `def`/`class`,
+and docstrings satisfy `a doc for f`:
+
+```text
+$ kosmo-run --wish "a module greeter and a function greet and a doc for greet" ./pkg
+  status REALIZED ✓   met 3/3
+```
+
+Existence and Shape are observed lexically in both languages. The deeper strata
+that need a toolchain — Verified (behaviour) and Live (run/serve) — are
+Rust-specific today.
+
 ## Principles
 
 - **Deterministic & offline** — same inputs, same bytes; no LLM, no key.
