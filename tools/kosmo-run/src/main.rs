@@ -3115,23 +3115,37 @@ struct WishlistDelta {
     newly_realized: Vec<String>,
     /// Wishes realized at the baseline, unrealized now — the project alarm.
     regressed: Vec<String>,
+    /// Wishes that are over-fit suspects now but were not at the baseline (Run 19)
+    /// — a hologram introduced by this change: a counterfeit fix (unrealized →
+    /// suspect-realized) or quality erosion (genuine → suspect). Advisory.
+    new_suspects: Vec<String>,
     held: usize,
     still_unrealized: usize,
 }
 
 impl WishlistDelta {
-    fn compute(baseline: &WishlistReading, current: &[(Wish, WishAssessment)]) -> Self {
+    fn compute(
+        baseline: &WishlistReading,
+        current: &[(Wish, WishAssessment)],
+        grades: &[Option<HonestyGrade>],
+    ) -> Self {
         use std::collections::HashMap;
         let was_realized: HashMap<Digest, bool> = baseline
             .wishes
             .iter()
             .map(|e| (e.wish_id, e.realized))
             .collect();
+        let was_suspect: HashMap<Digest, bool> = baseline
+            .wishes
+            .iter()
+            .map(|e| (e.wish_id, e.realized && e.suspect))
+            .collect();
         let mut newly_realized = Vec::new();
         let mut regressed = Vec::new();
+        let mut new_suspects = Vec::new();
         let (mut held, mut still_unrealized) = (0usize, 0usize);
         // Iterate current in wishlist-file order, so the lists are deterministic.
-        for (w, a) in current {
+        for (i, (w, a)) in current.iter().enumerate() {
             let now = is_realized(&a.status);
             match was_realized.get(&w.id) {
                 Some(true) if now => held += 1,
@@ -3140,6 +3154,12 @@ impl WishlistDelta {
                 Some(false) => still_unrealized += 1,
                 None => {} // a wish absent from the baseline — aggregate only
             }
+            // A hologram this change introduced: suspect now, not suspect before.
+            let now_suspect =
+                now && matches!(grades.get(i), Some(Some(HonestyGrade::OverfitSuspect)));
+            if now_suspect && !was_suspect.get(&w.id).copied().unwrap_or(false) {
+                new_suspects.push(w.label.clone());
+            }
         }
         WishlistDelta {
             realized_now: current.iter().filter(|(_, a)| is_realized(&a.status)).count(),
@@ -3147,6 +3167,7 @@ impl WishlistDelta {
             total_now: current.len(),
             newly_realized,
             regressed,
+            new_suspects,
             held,
             still_unrealized,
         }
@@ -3178,7 +3199,8 @@ fn wishlist_delta_report(delta: &WishlistDelta, color: bool) -> String {
         delta.realized_before,
         c(RESET)
     ));
-    if delta.newly_realized.is_empty() && delta.regressed.is_empty() {
+    if delta.newly_realized.is_empty() && delta.regressed.is_empty() && delta.new_suspects.is_empty()
+    {
         out.push_str(&format!(
             "  {}unchanged since baseline (held {} \u{00b7} still unrealized {}){}\n",
             c(DIM),
@@ -3204,6 +3226,15 @@ fn wishlist_delta_report(delta: &WishlistDelta, color: bool) -> String {
             delta.regressed.len(),
             c(RESET),
             delta.regressed.join(", ")
+        ));
+    }
+    if !delta.new_suspects.is_empty() {
+        out.push_str(&format!(
+            "  {}\u{26a0} suspect {} \u{2014} realized, but now a hologram (a counterfeit fix? confirm the probe is real){}: {}\n",
+            c(YELLOW),
+            delta.new_suspects.len(),
+            c(RESET),
+            delta.new_suspects.join(", ")
         ));
     }
     out.push_str(&format!(
@@ -3302,7 +3333,9 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             .ok()
             .and_then(|s| serde_json::from_str::<WishlistReading>(&s).ok())
     });
-    let delta = baseline.as_ref().map(|b| WishlistDelta::compute(b, &items));
+    let delta = baseline
+        .as_ref()
+        .map(|b| WishlistDelta::compute(b, &items, &grades));
 
     if args.json {
         if let Some(d) = &delta {
@@ -5155,7 +5188,7 @@ mod tests {
         let a_b = assess_wish(&w_b, &obs, ev);
         let items = vec![(w_a, a_a), (w_b, a_b)];
 
-        let delta = WishlistDelta::compute(&baseline, &items);
+        let delta = WishlistDelta::compute(&baseline, &items, &[None, None]);
         assert!(delta.has_regression(), "aa was realized, now is not");
         assert_eq!(delta.regressed.len(), 1);
         assert!(delta.regressed[0].contains("aa"), "{:?}", delta.regressed);
@@ -5164,6 +5197,59 @@ mod tests {
         let out = wishlist_delta_report(&delta, false);
         assert!(out.contains("regressed 1") && out.contains("newly realized 1"), "{out}");
         assert!(out.contains("baseline 1"), "shows the prior aggregate: {out}");
+    }
+
+    #[test]
+    fn wishlist_delta_flags_counterfeit_progress() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let w = Wish::new(
+            "a behaviour deep",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            ev,
+        );
+        // Baseline: w was unrealized (so not suspect).
+        let baseline = WishlistReading {
+            realized: 0,
+            total: 1,
+            wishes: vec![WishlistEntry {
+                wish_id: w.id,
+                wish: w.label.clone(),
+                realized: false,
+                suspect: false,
+                met: 0,
+                total: 1,
+            }],
+        };
+        // Current: realized now (crate present) but graded an over-fit suspect —
+        // a hologram this change introduced (a counterfeit fix).
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::crate_("solo"));
+        let a = assess_wish(&w, &obs, ev);
+        let items = vec![(w, a)];
+        let d1 = WishlistDelta::compute(&baseline, &items, &[Some(HonestyGrade::OverfitSuspect)]);
+        assert_eq!(d1.new_suspects.len(), 1, "the counterfeit fix is flagged");
+        assert!(d1.new_suspects[0].contains("deep"), "{:?}", d1.new_suspects);
+        assert!(!d1.has_regression(), "a hologram is not a status regression");
+        let out = wishlist_delta_report(&d1, false);
+        assert!(out.contains("suspect 1") && out.contains("counterfeit"), "{out}");
+
+        // A wish that was ALREADY a suspect at the baseline is not *newly* one.
+        let base2 = WishlistReading {
+            realized: 1,
+            total: 1,
+            wishes: vec![WishlistEntry {
+                wish_id: items[0].0.id,
+                wish: "x".into(),
+                realized: true,
+                suspect: true,
+                met: 1,
+                total: 1,
+            }],
+        };
+        let d2 = WishlistDelta::compute(&base2, &items, &[Some(HonestyGrade::OverfitSuspect)]);
+        assert!(d2.new_suspects.is_empty(), "an already-suspect wish is not newly suspect");
     }
 
     #[test]
