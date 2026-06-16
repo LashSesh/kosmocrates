@@ -3307,16 +3307,18 @@ impl WishlistDelta {
     }
 }
 
-/// Render a project-level wishlist delta for a human (Run 16).
-fn wishlist_delta_report(delta: &WishlistDelta, color: bool) -> String {
+/// Render a project-level wishlist delta for a human (Run 16). `title` names what
+/// the delta is *against* — a prior `--since` snapshot, or what `--apply` built.
+fn wishlist_delta_report(delta: &WishlistDelta, title: &str, color: bool) -> String {
     let c = |code: &'static str| if color { code } else { "" };
     let mut out = String::new();
     out.push_str(&format!(
-        "{}{}Kosmocrates wishlist{} {}\u{2014} delta since baseline{}\n",
+        "{}{}Kosmocrates wishlist{} {}\u{2014} {}{}\n",
         c(BOLD),
         c(CYAN),
         c(RESET),
         c(CYAN),
+        title,
         c(RESET)
     ));
     out.push_str(&format!(
@@ -3375,6 +3377,22 @@ fn wishlist_delta_report(delta: &WishlistDelta, color: bool) -> String {
     out
 }
 
+/// Observe the workspace at the deepest level any wish in a list requires (a
+/// deeper observation still answers shallower facets). Shared by the wishlist's
+/// measurement and its before/after build account (Run 26).
+fn observe_for(wishes: &[Wish], args: &Args) -> Result<ObservedTopology, String> {
+    if wishes.iter().any(wish_needs_service) {
+        observe_workspace_service(args.path.as_str())
+    } else if wishes.iter().any(wish_needs_runtime) {
+        observe_workspace_runtime(args.path.as_str())
+    } else if args.validated || wishes.iter().any(wish_needs_validation) {
+        observe_workspace_validated(args.path.as_str())
+    } else {
+        observe_workspace_deep(args.path.as_str())
+    }
+    .map_err(|e| format!("could not observe {}: {e}", args.path))
+}
+
 /// Measure a file of prose wishes — the project's definition-of-done — against
 /// the workspace at once (Run 15). One wish per non-empty, non-`#` line. Observes
 /// once at the deepest level any wish needs (a deeper observation still answers
@@ -3398,6 +3416,34 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
         .map(|p| compile_wish(p, Digest::ZERO, Digest::of_bytes(p.as_bytes())))
         .collect();
 
+    // Run 26 — the build account: under --apply, snapshot the project *before*
+    // descending, so the run can report what the build actually closed (and, via
+    // Run 19's check, whether anything it built is a suspect hologram).
+    let before: Option<WishlistReading> = if args.apply {
+        let o = observe_for(&wishes, args)?;
+        let entries: Vec<WishlistEntry> = wishes
+            .iter()
+            .map(|w| {
+                let a = assess_wish(w, &o, w.evidence_bundle_id);
+                WishlistEntry {
+                    wish_id: w.id,
+                    wish: w.label.clone(),
+                    realized: is_realized(&a.status),
+                    suspect: false,
+                    met: a.met_count,
+                    total: a.total_count,
+                }
+            })
+            .collect();
+        Some(WishlistReading {
+            realized: entries.iter().filter(|e| e.realized).count(),
+            total: entries.len(),
+            wishes: entries,
+        })
+    } else {
+        None
+    };
+
     // Run 18 — close the project: under --apply, descend every wish (writing the
     // workspace), accumulating, before the final measurement. The deterministic
     // scaffolder builds structural facets offline; deep facets fall to the
@@ -3420,16 +3466,7 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
     }
 
     // Observe once, at the deepest level any wish in the list requires.
-    let observed = if wishes.iter().any(wish_needs_service) {
-        observe_workspace_service(args.path.as_str())
-    } else if wishes.iter().any(wish_needs_runtime) {
-        observe_workspace_runtime(args.path.as_str())
-    } else if args.validated || wishes.iter().any(wish_needs_validation) {
-        observe_workspace_validated(args.path.as_str())
-    } else {
-        observe_workspace_deep(args.path.as_str())
-    }
-    .map_err(|e| format!("could not observe {}: {e}", args.path))?;
+    let observed = observe_for(&wishes, args)?;
 
     let items: Vec<(Wish, WishAssessment)> = wishes
         .into_iter()
@@ -3493,7 +3530,7 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             println!("{json}");
         }
     } else if let Some(d) = &delta {
-        print!("{}", wishlist_delta_report(d, args.color));
+        print!("{}", wishlist_delta_report(d, "delta since baseline", args.color));
     } else {
         if args.since.is_some() {
             println!(
@@ -3504,6 +3541,19 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             );
         }
         print!("{}", wishlist_report(path, &items, &grades, args.color));
+    }
+
+    // Run 26 — the build account: after --apply, the before→after delta of the
+    // build itself. What it closed (newly realized), anything it broke
+    // (regressed), and any hologram it scaffolded (a new suspect). Advisory.
+    if let Some(before) = &before {
+        if !args.json {
+            let account = WishlistDelta::compute(before, &items, &grades);
+            print!(
+                "{}",
+                wishlist_delta_report(&account, "what --apply built", args.color)
+            );
+        }
     }
 
     // The union of every unmet facet, deduped in file order — fed read-only to
@@ -5414,7 +5464,7 @@ mod tests {
         assert!(delta.regressed[0].contains("aa"), "{:?}", delta.regressed);
         assert_eq!(delta.newly_realized.len(), 1);
         assert!(delta.newly_realized[0].contains("bb"), "{:?}", delta.newly_realized);
-        let out = wishlist_delta_report(&delta, false);
+        let out = wishlist_delta_report(&delta, "delta since baseline", false);
         assert!(out.contains("regressed 1") && out.contains("newly realized 1"), "{out}");
         assert!(out.contains("baseline 1"), "shows the prior aggregate: {out}");
     }
@@ -5452,7 +5502,7 @@ mod tests {
         assert_eq!(d1.new_suspects.len(), 1, "the counterfeit fix is flagged");
         assert!(d1.new_suspects[0].contains("deep"), "{:?}", d1.new_suspects);
         assert!(!d1.has_regression(), "a hologram is not a status regression");
-        let out = wishlist_delta_report(&d1, false);
+        let out = wishlist_delta_report(&d1, "delta since baseline", false);
         assert!(out.contains("suspect 1") && out.contains("counterfeit"), "{out}");
 
         // A wish that was ALREADY a suspect at the baseline is not *newly* one.

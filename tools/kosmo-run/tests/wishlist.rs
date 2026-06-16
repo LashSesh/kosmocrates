@@ -254,6 +254,32 @@ fn wishlist_apply_closes_the_project() {
 }
 
 #[test]
+fn wishlist_apply_shows_a_build_account() {
+    let root = workspace(); // module alpha + function f present
+    let list = root.join("p.wishes");
+    fs::write(&list, "a module alpha\na module engine\n").unwrap(); // engine missing
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--apply",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run (--apply)");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        return;
+    }
+    // The final gauge plus the before→after account of the build itself.
+    assert!(stdout.contains("realized 2/2"), "the project was closed: {stdout}");
+    assert!(stdout.contains("what --apply built"), "the build account renders: {stdout}");
+    assert!(stdout.contains("newly realized 1"), "engine was closed this run: {stdout}");
+    assert!(stdout.contains("a module engine"), "the account names what it built: {stdout}");
+}
+
+#[test]
 fn wishlist_is_exclusive_with_wish() {
     let root = workspace();
     let list = root.join("x.wishes");
