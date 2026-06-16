@@ -132,6 +132,11 @@ $ kosmo-run --wish "a run 5=>out~25" ./pkg   →   REALIZED ✓   (by execution)
 The remaining strata are honest follow-ons (Verified-by-passing-test for
 non-Rust; Live for C/C++/Java, which need a compile step first).
 
+And for the *whole* polyglot tree as one shape: `kosmo-run --codematrix` pools
+every source's 5-axis code-fingerprint — any language — into one **holistic
+cube** (a language-blind centroid) plus a **homogeneity** scalar (how unified the
+topology is): all languages compressed into a single hypercube.
+
 ## Principles
 
 - **Deterministic & offline** — same inputs, same bytes; no LLM, no key.

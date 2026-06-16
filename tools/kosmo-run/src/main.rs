@@ -2717,6 +2717,41 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
     let mut prints: Vec<(String, CodeMatrixFingerprint)> = Vec::new();
     collect_fingerprints(root, root, 0, &mut prints);
     prints.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Run 37 — the holistic polyglot cube: every per-source code-cube (any of the
+    // recognized languages, via `from_auto`) pooled into ONE by the axis-wise mean
+    // — a language-blind centroid — plus the homogeneity of the whole (mean
+    // pairwise resonance: how unified the topology is). "All languages compressed
+    // into one holistic cube, the topology homogenized into an optimum." Advisory.
+    let holistic: Option<[f64; 5]> = (!prints.is_empty()).then(|| {
+        let n = prints.len() as f64;
+        let mut sums = [0.0f64; 5];
+        for (_, fp) in &prints {
+            for (k, a) in fp.axes().iter().enumerate() {
+                sums[k] += a.to_f64();
+            }
+        }
+        sums.map(|s| s / n)
+    });
+    let pairs: Vec<(Q16, &str, &str)> = if (2..=64).contains(&prints.len()) {
+        let mut p = Vec::new();
+        for i in 0..prints.len() {
+            for j in (i + 1)..prints.len() {
+                p.push((
+                    prints[i].1.resonance(&prints[j].1),
+                    prints[i].0.as_str(),
+                    prints[j].0.as_str(),
+                ));
+            }
+        }
+        p.sort_by(|a, b| b.0.raw().cmp(&a.0.raw()).then(a.1.cmp(b.1)));
+        p
+    } else {
+        Vec::new()
+    };
+    let homogeneity: Option<f64> = (!pairs.is_empty())
+        .then(|| pairs.iter().map(|(r, _, _)| r.to_f64()).sum::<f64>() / pairs.len() as f64);
+
     if args.json {
         println!(
             "{}",
@@ -2726,6 +2761,10 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
                     "axes_raw": fp.axes().map(|q| q.raw()),
                     "richness_raw": fp.richness().raw(),
                 })).collect::<Vec<_>>(),
+                "holistic": holistic.map(|h| serde_json::json!({
+                    "axes": h,
+                    "homogeneity": homogeneity,
+                })),
             }))
             .map_err(|e| e.to_string())?
         );
@@ -2756,18 +2795,7 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
             e.to_f64()
         );
     }
-    if prints.len() >= 2 && prints.len() <= 64 {
-        let mut pairs: Vec<(Q16, &str, &str)> = Vec::new();
-        for i in 0..prints.len() {
-            for j in (i + 1)..prints.len() {
-                pairs.push((
-                    prints[i].1.resonance(&prints[j].1),
-                    prints[i].0.as_str(),
-                    prints[j].0.as_str(),
-                ));
-            }
-        }
-        pairs.sort_by(|a, b| b.0.raw().cmp(&a.0.raw()).then(a.1.cmp(b.1)));
+    if !pairs.is_empty() {
         println!("  most resonant pairs:");
         for (res, a, b) in pairs.iter().take(5) {
             println!("    {:.2}  {a} \u{2194} {b}", res.to_f64());
@@ -2776,6 +2804,25 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
         println!(
             "  {}(pairwise resonance skipped above 64 sources){}",
             c(DIM),
+            c(RESET)
+        );
+    }
+    // The holistic polyglot cube — all sources homogenized into one.
+    if let Some([r, f, t, s, e]) = holistic {
+        let homo = match homogeneity {
+            Some(h) => format!(" \u{00b7} homogeneity {h:.2}"),
+            None => String::new(),
+        };
+        println!(
+            "  {}\u{2299} holistic cube (all {} sources, language-blind): r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}{}{}",
+            c(CYAN),
+            prints.len(),
+            r,
+            f,
+            t,
+            s,
+            e,
+            homo,
             c(RESET)
         );
     }
