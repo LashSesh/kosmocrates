@@ -195,3 +195,53 @@ fn python_live_runs_a_probe_under_the_sandbox() {
         "a wrong expectation is fail-closed"
     );
 }
+
+/// Whether an interpreter is on PATH (the Live door needs it).
+fn tool_available(name: &str) -> bool {
+    Command::new(name)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[test]
+fn javascript_live_runs_a_probe_under_the_sandbox() {
+    if !tool_available("node") {
+        eprintln!("node unavailable, skipping");
+        return;
+    }
+    let root = lang_workspace(
+        "jsrun",
+        "sq.js",
+        "// kosmo:run: 5=>out~25\nconsole.log(process.argv[2] * process.argv[2]);\n",
+    );
+    assert_eq!(
+        realizes(&root, "a run 5=>out~25"),
+        Some(true),
+        "the node run probe realizes by execution"
+    );
+    assert_eq!(
+        realizes(&root, "a run 5=>out~99"),
+        Some(false),
+        "a wrong expectation is fail-closed"
+    );
+}
+
+#[test]
+fn go_live_runs_a_probe_under_the_sandbox() {
+    if !tool_available("go") {
+        eprintln!("go unavailable, skipping");
+        return;
+    }
+    let root = lang_workspace(
+        "gorun",
+        "sq.go",
+        "package main\nimport (\"fmt\"; \"os\"; \"strconv\")\n// kosmo:run: 5=>out~25\nfunc main() { x, _ := strconv.Atoi(os.Args[1]); fmt.Println(x * x) }\n",
+    );
+    assert_eq!(
+        realizes(&root, "a run 5=>out~25"),
+        Some(true),
+        "the go run probe realizes by execution"
+    );
+}

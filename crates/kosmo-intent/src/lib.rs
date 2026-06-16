@@ -1228,51 +1228,92 @@ fn run_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
     out
 }
 
-/// Extract a `# kosmo:run:` probe key from a Python source line.
-fn python_run_marker(trimmed: &str) -> Option<String> {
-    let rest = trimmed.strip_prefix('#')?.trim_start();
+/// The interpreter command for a runnable language: `(program, leading args)`,
+/// with the script path appended by the caller. `None` for Rust (its own path)
+/// and compile-first languages (C/C++/Java — a follow-on).
+fn run_command(lang: SourceLanguage) -> Option<(&'static str, Vec<String>)> {
+    match lang {
+        SourceLanguage::Python => Some(("python3", vec![])),
+        SourceLanguage::JavaScript => Some(("node", vec![])),
+        SourceLanguage::Go => Some(("go", vec!["run".to_string()])),
+        _ => None,
+    }
+}
+
+/// Extract a `kosmo:run:` probe key from a source line — either comment style
+/// (`#` for Python, `//` for JS/Go).
+fn polyglot_run_marker(trimmed: &str) -> Option<String> {
+    let rest = trimmed
+        .strip_prefix("//")
+        .or_else(|| trimmed.strip_prefix('#'))?
+        .trim_start();
     let key = rest.strip_prefix("kosmo:run:")?.trim();
     (!key.is_empty()).then(|| key.to_string())
 }
 
-/// Read all `# kosmo:run:` probe keys under `dir`, each paired with the `.py`
-/// file that carries it (the script to execute). Read-only.
-fn python_run_probes_from_dir(dir: impl AsRef<Path>) -> Vec<(PathBuf, String)> {
-    let mut files = Vec::new();
-    collect_py(dir.as_ref(), &mut files);
-    files.sort();
-    let mut out = Vec::new();
-    for file in files {
-        if let Ok(content) = std::fs::read_to_string(&file) {
-            for line in content.lines() {
-                if let Some(key) = python_run_marker(line.trim()) {
-                    out.push((file.clone(), key));
+/// Every `kosmo:run:` probe under `dir` from a runnable non-Rust language, paired
+/// with its file and detected language (the script to execute). Read-only,
+/// deterministic (sorted, deduped).
+fn polyglot_run_probes(dir: &Path) -> Vec<(PathBuf, SourceLanguage, String)> {
+    fn walk(dir: &Path, out: &mut Vec<(PathBuf, SourceLanguage, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if matches!(
+                    name,
+                    "target" | ".git" | "node_modules" | "dist" | "build" | ".venv"
+                        | "__pycache__" | "vendor"
+                ) {
+                    continue;
+                }
+                walk(&path, out);
+            } else if let Some(lang) = path.to_str().and_then(SourceLanguage::from_path) {
+                if run_command(lang).is_none() {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        if let Some(key) = polyglot_run_marker(line.trim()) {
+                            out.push((path.clone(), lang, key));
+                        }
+                    }
                 }
             }
         }
     }
+    let mut out = Vec::new();
+    walk(dir, &mut out);
+    out.sort();
+    out.dedup();
     out
 }
 
-/// The Live door for Python: structural facets plus, for each `# kosmo:run:`
-/// marker, the carrying script *executed* under the same sandbox (`python3
-/// <file> <args>`) with its witness matched against the probe — emitting the
-/// `Run` facet only on a clean, matching exit (fail-closed, like the Rust path).
-fn observe_python_runtime(root: &Path) -> Result<ObservedTopology, ParseBackError> {
+/// The Live door for the polyglot: structural facets plus, for each `kosmo:run:`
+/// marker in a runnable non-Rust file, the carrying script *executed* under the
+/// same sandbox (`python3` / `node` / `go run` `<file> <args>`) with its witness
+/// matched against the probe — the `Run` facet emitted only on a clean, matching
+/// exit (fail-closed, like the Rust path).
+fn observe_polyglot_runtime(root: &Path) -> Result<ObservedTopology, ParseBackError> {
     use kosmo_sandbox::{RunSpec, Sandbox};
     let mut observed = observe_workspace_deep(root)?;
-    let probes = python_run_probes_from_dir(root);
+    let probes = polyglot_run_probes(root);
     if !probes.is_empty() {
         let sandbox = Sandbox::new()
             .with_cwd(root)
             .with_timeout(std::time::Duration::from_secs(60));
-        for (file, key) in probes {
-            let Some((args, expect)) = parse_run_key(&key) else {
+        for (file, lang, key) in probes {
+            let (Some((args, expect)), Some((prog, mut prog_args))) =
+                (parse_run_key(&key), run_command(lang))
+            else {
                 continue;
             };
-            let mut run_args = vec![file.to_string_lossy().into_owned()];
-            run_args.extend(args);
-            let witness = sandbox.run(&RunSpec::new("python3", run_args));
+            prog_args.push(file.to_string_lossy().into_owned());
+            prog_args.extend(args);
+            let witness = sandbox.run(&RunSpec::new(prog, prog_args));
             if run_matches(&witness, &expect) {
                 observed.insert(WishFacet::run(key));
             }
@@ -1304,9 +1345,10 @@ pub fn observe_workspace_runtime_diag(
     use kosmo_sandbox::{RunSpec, Sandbox};
     let root = root.into();
     // Polyglot runtime: a cargo-less workspace runs its script probes directly
-    // (`python3 <file> <args>`) under the same sandbox — the Live door for Python.
+    // (`python3`/`node`/`go run` `<file> <args>`) under the same sandbox — the
+    // Live door for Python, JavaScript, and Go.
     if is_cargoless_polyglot(&root) {
-        return Ok((observe_python_runtime(&root)?, None));
+        return Ok((observe_polyglot_runtime(&root)?, None));
     }
     let mut observed = observe_workspace_validated(&root)?;
     let probes = run_probes_from_dir(&root);

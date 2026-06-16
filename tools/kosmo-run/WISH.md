@@ -120,17 +120,17 @@ $ kosmo-run --wish "a module greeter and a function greet and a doc for greet" .
 Existence and Shape are observed lexically across **seven languages** — Rust,
 Python, JavaScript, Go, Java, C, and C++ — through one shared xlang extractor
 (`a function Add` against a `.go` file, `a type Calculator` against a `.java`
-file, all work). Python docstrings also satisfy `a doc for f`, and **Python
-reaches the Live stratum**: a `# kosmo:run:` probe is *executed* under the same
-sandbox as Rust —
+file, all work). Python docstrings also satisfy `a doc for f`, and **Python,
+JavaScript, and Go reach the Live stratum**: a `kosmo:run:` probe is *executed*
+under the same sandbox as Rust (`python3` / `node` / `go run`) —
 
 ```text
-# greeter.py:  # kosmo:run: World=>out~hi-World   (script prints "hi-World")
-$ kosmo-run --wish "a run World=>out~hi-World" ./pkg   →   REALIZED ✓
+# sq.py / sq.js / sq.go:  kosmo:run: 5=>out~25   (the script prints 25)
+$ kosmo-run --wish "a run 5=>out~25" ./pkg   →   REALIZED ✓   (by execution)
 ```
 
-The remaining toolchain strata (Verified-by-passing-test for non-Rust, and Live
-for JS/Go/…) are honest follow-ons.
+The remaining strata are honest follow-ons (Verified-by-passing-test for
+non-Rust; Live for C/C++/Java, which need a compile step first).
 
 ## Principles
 
