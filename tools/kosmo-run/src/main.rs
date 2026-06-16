@@ -3007,6 +3007,10 @@ struct WishlistEntry {
     wish_id: Digest,
     wish: String,
     realized: bool,
+    /// Realized, but an over-fit suspect (a deep claim over a sparse topology) —
+    /// the project gauge's honesty flag (Run 17). Defaulted for old baselines.
+    #[serde(default)]
+    suspect: bool,
     met: u32,
     total: u32,
 }
@@ -3027,11 +3031,22 @@ fn is_realized(status: &WishClosureStatus) -> bool {
     )
 }
 
-/// Render a wishlist measurement for a human: the aggregate `realized N/M` gauge
-/// and one marked line per wish with its met/total.
-fn wishlist_report(path: &str, items: &[(Wish, WishAssessment)], color: bool) -> String {
+/// Render a wishlist measurement for a human (Runs 15/17): the aggregate
+/// `realized N/M` gauge — flagged `· K over-fit suspect` when realized wishes are
+/// holograms (the project gauge tells the deep truth, not just the binary) — and
+/// one marked line per wish, with a `⚠ suspect` tag where it earned one.
+fn wishlist_report(
+    path: &str,
+    items: &[(Wish, WishAssessment)],
+    grades: &[Option<HonestyGrade>],
+    color: bool,
+) -> String {
     let c = |code: &'static str| if color { code } else { "" };
     let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
+    let suspects = grades
+        .iter()
+        .filter(|g| matches!(g, Some(HonestyGrade::OverfitSuspect)))
+        .count();
     let mut out = String::new();
     out.push_str(&format!(
         "{}{}Kosmocrates wishlist{} {}\u{2014} {}{}\n",
@@ -3042,16 +3057,36 @@ fn wishlist_report(path: &str, items: &[(Wish, WishAssessment)], color: bool) ->
         path,
         c(RESET)
     ));
-    out.push_str(&format!("  realized {}/{}\n", realized, items.len()));
-    for (w, a) in items {
+    let suspect_note = if suspects > 0 {
+        format!(
+            " {}\u{00b7} {} over-fit suspect{}",
+            c(YELLOW),
+            suspects,
+            c(RESET)
+        )
+    } else {
+        String::new()
+    };
+    out.push_str(&format!(
+        "  realized {}/{}{}\n",
+        realized,
+        items.len(),
+        suspect_note
+    ));
+    for (i, (w, a)) in items.iter().enumerate() {
         let (mark, col) = match a.status {
             WishClosureStatus::Realized => ("\u{2713}", c(GREEN)),
             WishClosureStatus::Vacuous => ("\u{00b7}", c(DIM)),
             WishClosureStatus::Approaching => ("\u{25d0}", c(YELLOW)),
             WishClosureStatus::Unstarted => ("\u{2717}", c(RED)),
         };
+        let suspect_tag = if matches!(grades.get(i), Some(Some(HonestyGrade::OverfitSuspect))) {
+            format!(" {}\u{26a0} suspect{}", c(YELLOW), c(RESET))
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "  {}{}{} {} {}({}/{}){}\n",
+            "  {}{}{} {} {}({}/{}){}{}\n",
             col,
             mark,
             c(RESET),
@@ -3059,7 +3094,8 @@ fn wishlist_report(path: &str, items: &[(Wish, WishAssessment)], color: bool) ->
             c(DIM),
             a.met_count,
             a.total_count,
-            c(RESET)
+            c(RESET),
+            suspect_tag
         ));
     }
     out
@@ -3223,6 +3259,20 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
         .collect();
     let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
 
+    // Run 17 — the honesty axis × the project axis: grade each realized wish so
+    // the gauge can flag holograms, not just count realizations. One topology
+    // reading for the whole workspace; one cube per wish (no re-observation).
+    let density = topology_density(&observed, args.capacity);
+    let grades: Vec<Option<HonestyGrade>> = items
+        .iter()
+        .map(|(w, _)| {
+            honesty_grade(
+                &assess_wish_layered(w, &observed, w.evidence_bundle_id),
+                density,
+            )
+        })
+        .collect();
+
     // Run 16 — the project delta: diff against a prior wishlist reading (the
     // --json output of an earlier run), matched per wish by content-addressed id.
     let baseline: Option<WishlistReading> = args.since.as_deref().and_then(|p| {
@@ -3244,10 +3294,12 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
                 total: items.len(),
                 wishes: items
                     .iter()
-                    .map(|(w, a)| WishlistEntry {
+                    .enumerate()
+                    .map(|(i, (w, a))| WishlistEntry {
                         wish_id: w.id,
                         wish: w.label.clone(),
                         realized: is_realized(&a.status),
+                        suspect: matches!(grades.get(i), Some(Some(HonestyGrade::OverfitSuspect))),
                         met: a.met_count,
                         total: a.total_count,
                     })
@@ -3268,7 +3320,7 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
                 if args.color { RESET } else { "" }
             );
         }
-        print!("{}", wishlist_report(path, &items, args.color));
+        print!("{}", wishlist_report(path, &items, &grades, args.color));
     }
 
     // A project regression (a wish that was realized no longer is) exits 2 — the
@@ -4139,6 +4191,39 @@ fn layer_state_word(view: &kosmo_core::WishLayerView) -> &'static str {
     }
 }
 
+/// The topology gear's classification of a *realized* wish (Runs 9/11/12), with
+/// no rendering — `None` until the wish has fully solidified. Lets a single wish
+/// (the verdict line) and a whole project (the wishlist gauge) share one source
+/// of truth for genuine vs. suspect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HonestyGrade {
+    /// Dense backing — a cut diamond.
+    Genuine,
+    /// Sparse backing under a deep (earned) claim — a stub-probe suspect.
+    OverfitSuspect,
+    /// Sparse backing under a shallow declarative claim — honest, no alarm.
+    ThinButShallow,
+}
+
+fn honesty_grade(cube: &WishCube, d: Q16) -> Option<HonestyGrade> {
+    if cube.structural_solidity != Q16::ONE {
+        return None;
+    }
+    let q = Q16::ratio(1, 4).unwrap_or(Q16::ZERO);
+    if d.at_least(q) {
+        return Some(HonestyGrade::Genuine);
+    }
+    let deep = cube
+        .solid_frontier()
+        .map(|l| l.rank() >= kosmo_core::WishLayer::Verified.rank())
+        .unwrap_or(false);
+    Some(if deep {
+        HonestyGrade::OverfitSuspect
+    } else {
+        HonestyGrade::ThinButShallow
+    })
+}
+
 /// The topology gear's judgement of a *realized* wish (Runs 9 / 11 / 12), as one
 /// line — `None` until the wish has fully solidified. Calibrated by confidence:
 ///
@@ -4154,39 +4239,30 @@ fn layer_state_word(view: &kosmo_core::WishLayerView) -> &'static str {
 /// surfaced separately by the caller and keep the wish from solidifying at all,
 /// so they never reach here. Advisory (CROSS-010).
 fn honesty_verdict(cube: &WishCube, d: Q16, color: bool) -> Option<String> {
-    if cube.structural_solidity != Q16::ONE {
-        return None;
-    }
+    let grade = honesty_grade(cube, d)?;
     let c = |code: &'static str| if color { code } else { "" };
-    let q = Q16::ratio(1, 4).unwrap_or(Q16::ZERO);
-    let deepest = cube.solid_frontier();
-    let claim = deepest.map(|l| l.label()).unwrap_or("nothing");
-    let deep = deepest
-        .map(|l| l.rank() >= kosmo_core::WishLayer::Verified.rank())
-        .unwrap_or(false);
-    let line = if d.at_least(q) {
-        format!(
+    let claim = cube.solid_frontier().map(|l| l.label()).unwrap_or("nothing");
+    let line = match grade {
+        HonestyGrade::Genuine => format!(
             "  {}\u{2713} genuine \u{2014} wish solid and topology dense ({:.3}): a cut diamond{}\n",
             c(GREEN),
             d.to_f64(),
             c(RESET)
-        )
-    } else if deep {
-        format!(
+        ),
+        HonestyGrade::OverfitSuspect => format!(
             "  {}\u{26a0} over-fit suspect \u{2014} a {} claim stands over a sparse topology ({:.3}); confirm the probe is substantive, not a stub (a hologram passes too){}\n",
             c(YELLOW),
             claim,
             d.to_f64(),
             c(RESET)
-        )
-    } else {
-        format!(
+        ),
+        HonestyGrade::ThinButShallow => format!(
             "  {}\u{00b7} thin but shallow \u{2014} only {} was claimed; a sparse topology ({:.3}) is honest for so shallow a wish{}\n",
             c(DIM),
             claim,
             d.to_f64(),
             c(RESET)
-        )
+        ),
     };
     Some(line)
 }
@@ -4976,10 +5052,39 @@ mod tests {
         let a_met = assess_wish(&met, &obs, ev);
         let a_unmet = assess_wish(&unmet, &obs, ev);
         let items = vec![(met, a_met), (unmet, a_unmet)];
-        let out = wishlist_report("spec.txt", &items, false);
+        let out = wishlist_report("spec.txt", &items, &[None, None], false);
         assert!(out.contains("realized 1/2"), "the aggregate gauge: {out}");
         assert!(out.contains("a crate solo") && out.contains("a crate ghost"), "{out}");
         assert!(out.contains("spec.txt"), "names the source: {out}");
+        assert!(!out.contains("suspect"), "no honesty flag without a grade: {out}");
+
+        // Run 17 — a realized wish graded an over-fit suspect flags the gauge.
+        let suspect_items = vec![(
+            Wish::new(
+                "a behaviour deep",
+                [WishPredicate::require(WishFacet::crate_("solo"))],
+                Digest::ZERO,
+                ev,
+            ),
+            assess_wish(
+                &Wish::new(
+                    "a behaviour deep",
+                    [WishPredicate::require(WishFacet::crate_("solo"))],
+                    Digest::ZERO,
+                    ev,
+                ),
+                &obs,
+                ev,
+            ),
+        )];
+        let flagged = wishlist_report(
+            "p",
+            &suspect_items,
+            &[Some(HonestyGrade::OverfitSuspect)],
+            false,
+        );
+        assert!(flagged.contains("1 over-fit suspect"), "aggregate flag: {flagged}");
+        assert!(flagged.contains("\u{26a0} suspect"), "per-wish tag: {flagged}");
     }
 
     #[test]
@@ -5007,6 +5112,7 @@ mod tests {
                     wish_id: w_a.id,
                     wish: w_a.label.clone(),
                     realized: true,
+                    suspect: false,
                     met: 1,
                     total: 1,
                 },
@@ -5014,6 +5120,7 @@ mod tests {
                     wish_id: w_b.id,
                     wish: w_b.label.clone(),
                     realized: false,
+                    suspect: false,
                     met: 0,
                     total: 1,
                 },
