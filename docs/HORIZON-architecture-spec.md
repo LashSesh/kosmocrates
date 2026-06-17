@@ -81,8 +81,8 @@ edges) and the precedence lens. Additive, deterministic, offline-testable, in
 | **45 — the spec format** ✅ | the whole DoD file read as ONE architecture (`--wishlist --blueprint`): components + edges, the city plan you *write* | additive | yes (done) |
 | **46 — edge-as-realization** ✅ | the plan stands only when every declared edge *holds* — **absorbed into 45**: `assess_wish` already checks `Dependency`/`Composition` against the observed topology, so a `from->to` line is met only when the edge is observed | additive | yes (done) |
 | **47 — coverage & honesty** ✅ | does the plan specify its connections (≥2 crates, 0 edges = a heap)? grade the *architecture* genuine/suspect when it stands (`blueprint_assessment_lines`, render-only) | additive | yes (done) |
-| **48 — the pse-traverse bridge** ◀ next | transform the blueprint → `pse-traverse` `FieldCube`/`CollapsePlan` + `PathExcision`: turn "the plan stands or not" into "the deterministic, foundations-first plan to *make* it stand, and what is wished-but-unreachable". Reuse `pse-traverse` via an adapter (no fork). | adapter | yes |
-| 49+ — invariants → **Stufe 3** | cross-component properties (consistency, data, resource) — system-level verification | core / research | partly |
+| **48 — the pse-traverse bridge** ✅ | `traverse_bridge.rs` (`--plan`): architecture → `ProblemSpec` → `FieldCube`/`DoFGraph`/`CollapsePlan` + `PathExcision`. "The plan stands or not" → "the deterministic, foundations-first plan to *make* it stand (`scan`→`wire`→`resolve`→`verify`→`commit`), and what is operationally unreachable (excised)". Consumed via `default-features=false` — the lean core, no fork. | adapter | yes (done) |
+| **49+ — invariants → Stufe 3** ◀ next | cross-component properties (consistency, data, resource) — system-level verification. `ConstraintSpec` already spans multiple dimensions; the harder, partly-research climb. | core / research | partly |
 
 ## The pre-kosmocrates substrate (surveyed Run 46)
 

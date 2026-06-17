@@ -94,6 +94,20 @@ a dependency api->logging   # a declared edge: met only when the dependency is o
 It pools every line into one graph and the plan stands only when every component
 *and every edge* holds.
 
+And `--plan` bridges the architecture into the `pse-traverse` kernel (the original
+topological substrate) and renders the deterministic, **foundations-first plan to
+realize it** — plus any facet that is operationally unreachable:
+
+```text
+$ kosmo-run --wish "a crate api and a module api::core and a function api::core::boot" --plan ./api
+  wire    api -> api::core
+  resolve api            # the foundation first …
+  resolve api::core      # … then what stands on it
+  resolve api::core::boot
+  verify · commit
+# a disconnected component (a heap) is formally excised — "no_admissible_path".
+```
+
 Mistyped a name? It guides you: `→ did you mean Module engine? (you wished enigne)`.
 
 ## Did the change break — or fake — anything?

@@ -147,6 +147,37 @@ fn wishlist_blueprint_warns_on_a_heap_with_no_edges() {
     );
 }
 
+// Run 47 — Stufe 2 brick 48: the pse-traverse bridge. --plan renders the
+// deterministic collapse plan; a heap's disconnected crates are operationally
+// unreachable (formally excised — the cousin of brick 47's coverage warning).
+#[test]
+fn wishlist_plan_renders_collapse_plan_and_excises_a_heap() {
+    let root = workspace();
+    let list = root.join("heap.wishes");
+    fs::write(&list, "a crate api\na crate logging\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--plan",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    assert!(stdout.contains("collapse plan"), "renders the plan: {stdout}");
+    assert!(stdout.contains("pse-traverse"), "names the engine: {stdout}");
+    assert!(
+        stdout.contains("excised"),
+        "a heap's components are operationally unreachable: {stdout}"
+    );
+}
+
 #[test]
 fn wishlist_all_realized_exits_0() {
     let root = workspace();

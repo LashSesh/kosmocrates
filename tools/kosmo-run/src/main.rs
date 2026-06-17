@@ -30,6 +30,7 @@ mod pruefstand;
 mod realize_bench;
 mod reforge;
 mod steward;
+mod traverse_bridge;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -130,6 +131,12 @@ struct Args {
     /// relation an edge. A read-only `--wish` render modifier; reveals the city
     /// plan already implicit in the facet keys. Advisory.
     blueprint: bool,
+    /// Stufe 2 (brick 48) — the bridge to `pse-traverse`: transform the
+    /// architecture into a `ProblemSpec` and render the deterministic,
+    /// foundations-first *collapse plan* to realize it, plus any facet formally
+    /// wished but operationally unreachable (a path excision). A `--wish`/
+    /// `--wishlist` modifier; advisory.
+    plan: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
@@ -271,6 +278,7 @@ impl Default for Args {
             layers: false,
             insist: false,
             blueprint: false,
+            plan: false,
             staged: false,
             mesh: false,
             flat: false,
@@ -367,6 +375,10 @@ OPTIONS:\n\
                           (every facet a node, every depends-on an edge) \u{2014} the\n\
                           city plan implicit in the facets. With --wishlist, reads\n\
                           the whole file as ONE architecture. A --wish modifier.\n\
+    --plan                bridge the architecture into pse-traverse and render the\n\
+                          deterministic, foundations-first collapse plan to realize\n\
+                          it, plus any facet operationally unreachable (excised). A\n\
+                          --wish/--wishlist modifier; advisory.\n\
     --vocab               print the wish vocabulary: the prose forms for each\n\
                           stratum, by example \u{2014} how to phrase a wish (Run 30)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
@@ -625,6 +637,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--flat" => args.flat = true,
             "--insist" => args.insist = true,
             "--blueprint" => args.blueprint = true,
+            "--plan" => args.plan = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
@@ -4101,6 +4114,31 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
         });
     }
 
+    // Brick 48 — the pse-traverse bridge over the whole architecture: the
+    // deterministic collapse plan + excisions for the pooled spec. Advisory
+    // (a realization plan, not a gate); short-circuits the flat gauge.
+    if args.plan {
+        let mut facets = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (w, _) in &items {
+            for p in &w.predicates {
+                if seen.insert(format!("{:?} {}", p.facet.kind, p.facet.key)) {
+                    facets.push(p.facet.clone());
+                }
+            }
+        }
+        let label = format!("architecture: {} components", items.len());
+        let view = traverse_bridge::collapse_plan_view(&label, &facets)?;
+        if args.json {
+            let json = serde_json::to_string_pretty(&view)
+                .map_err(|e| format!("failed to serialize plan: {e}"))?;
+            println!("{json}");
+        } else {
+            print!("{}", collapse_plan_render(&view, args.color));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
 
     // Run 17 — the honesty axis × the project axis: grade each realized wish so
@@ -4435,6 +4473,13 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             let json = serde_json::to_string_pretty(&nodes)
                 .map_err(|e| format!("failed to serialize blueprint: {e}"))?;
             println!("{json}");
+        } else if args.plan {
+            let facets: Vec<WishFacet> =
+                wish.predicates.iter().map(|p| p.facet.clone()).collect();
+            let view = traverse_bridge::collapse_plan_view(&wish.label, &facets)?;
+            let json = serde_json::to_string_pretty(&view)
+                .map_err(|e| format!("failed to serialize plan: {e}"))?;
+            println!("{json}");
         } else {
             let json = serde_json::to_string_pretty(&assessment)
                 .map_err(|e| format!("failed to serialize assessment: {e}"))?;
@@ -4493,6 +4538,15 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 "{}",
                 blueprint_assessment_lines(&nodes, &cube, density, args.color)
             );
+        }
+        // Brick 48 — the pse-traverse bridge: the deterministic collapse plan.
+        if args.plan {
+            let facets: Vec<WishFacet> =
+                wish.predicates.iter().map(|p| p.facet.clone()).collect();
+            match traverse_bridge::collapse_plan_view(&wish.label, &facets) {
+                Ok(view) => print!("{}", collapse_plan_render(&view, args.color)),
+                Err(e) => eprintln!("kosmo-run: plan: {e}"),
+            }
         }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
             print!(
@@ -5088,6 +5142,51 @@ fn blueprint_assessment_lines(
             _ => {} // thin-but-shallow: a small honest plan, no alarm (Run 11)
         }
     }
+    out
+}
+
+/// Brick 48 — render the `pse-traverse` collapse plan: the deterministic,
+/// foundations-first order to realize the architecture, plus any facet formally
+/// wished but operationally unreachable (a path excision — the operational
+/// cousin of brick 47's "a heap, not an architecture").
+fn collapse_plan_render(view: &traverse_bridge::CollapsePlanView, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates collapse plan \u{2014} pse-traverse (foundations-first realization){}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    for step in &view.steps {
+        if step.targets.is_empty() {
+            out.push_str(&format!("  {}{}{}\n", c(DIM), step.kind, c(RESET)));
+        } else {
+            out.push_str(&format!(
+                "  {}{:<7}{} {}\n",
+                c(DIM),
+                step.kind,
+                c(RESET),
+                step.targets.join(", ")
+            ));
+        }
+    }
+    for e in &view.excisions {
+        out.push_str(&format!(
+            "  {}\u{2717} excised: {} \u{2014} {} (impact {}){}\n",
+            c(RED),
+            e.facet,
+            e.reason,
+            e.impact,
+            c(RESET)
+        ));
+    }
+    out.push_str(&format!(
+        "  {}\u{2500}\u{2500} expected freedom reduction {:.2}{}\n",
+        c(BOLD),
+        view.expected_reduction,
+        c(RESET)
+    ));
     out
 }
 
