@@ -4086,6 +4086,13 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             println!("{json}");
         } else {
             print!("{}", blueprint_report(&nodes, &label, args.color));
+            // Brick 47 — the architecture's coverage and honesty (advisory).
+            let cube = assess_wish_layered(&arch, &observed, evidence);
+            let density = topology_density(&observed, args.capacity);
+            print!(
+                "{}",
+                blueprint_assessment_lines(&nodes, &cube, density, args.color)
+            );
         }
         return Ok(if is_realized(&assessment.status) {
             ExitCode::SUCCESS
@@ -4479,6 +4486,13 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         if args.blueprint {
             let nodes = blueprint_nodes(&wish, &assessment, evidence);
             print!("{}", blueprint_report(&nodes, &wish.label, args.color));
+            // Brick 47 — the architecture's coverage and honesty (advisory).
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let density = topology_density(&observed, args.capacity);
+            print!(
+                "{}",
+                blueprint_assessment_lines(&nodes, &cube, density, args.color)
+            );
         }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
             print!(
@@ -5003,6 +5017,78 @@ fn layer_word(l: WishLayer) -> &'static str {
         WishLayer::Verified => "verified",
         WishLayer::Live => "live",
     }
+}
+
+/// Is this facet kind an *edge* — a relationship between components (a dependency
+/// or a composition) — rather than a component itself?
+fn is_edge_kind(k: &WishFacetKind) -> bool {
+    matches!(
+        k,
+        WishFacetKind::Dependency | WishFacetKind::Composition
+    )
+}
+
+/// Stufe 2, brick 47 — the architecture's *coverage* and *honesty*, as advisory
+/// lines beneath a blueprint (render-only; never gates — CROSS-010).
+///
+/// - **Coverage** (Run 29 lifted onto the graph): does the plan specify its
+///   *connections*? Two or more crates (subsystems) with **no declared edges** is
+///   a heap, not an architecture — the architectural cousin of "this DoD checks
+///   structure, not that it works".
+/// - **Honesty** (Runs 9–12 lifted onto the pooled cube): when the city *stands*
+///   (every node realized), is it a cut diamond or a possible hologram? — judged
+///   by the topology density behind the whole architecture.
+fn blueprint_assessment_lines(
+    nodes: &[BlueprintNode],
+    cube: &WishCube,
+    density: Q16,
+    color: bool,
+) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    let edges = nodes.iter().filter(|n| is_edge_kind(&n.kind)).count();
+    let crates = nodes
+        .iter()
+        .filter(|n| n.kind == WishFacetKind::Crate)
+        .count();
+    if crates >= 2 && edges == 0 {
+        out.push_str(&format!(
+            "  {}\u{26a0} no connections \u{2014} {} subsystems, 0 edges: a heap, not an \
+             architecture (declare `a dependency a->b`){}\n",
+            c(YELLOW),
+            crates,
+            c(RESET)
+        ));
+    } else if edges > 0 {
+        out.push_str(&format!(
+            "  {}connections: {} edge(s) wiring the components{}\n",
+            c(DIM),
+            edges,
+            c(RESET)
+        ));
+    }
+    // Honesty only speaks when the whole city stands — else "incomplete" already
+    // told the truth.
+    let stands = !nodes.is_empty() && nodes.iter().all(|n| n.met);
+    if stands {
+        match honesty_grade(cube, density) {
+            Some(HonestyGrade::OverfitSuspect) => out.push_str(&format!(
+                "  {}\u{26a0} suspect \u{2014} the city stands over a sparse topology ({:.3}); a \
+                 hologram passes too{}\n",
+                c(YELLOW),
+                density.to_f64(),
+                c(RESET)
+            )),
+            Some(HonestyGrade::Genuine) => out.push_str(&format!(
+                "  {}\u{2713} genuine \u{2014} the city stands on a dense topology ({:.3}){}\n",
+                c(GREEN),
+                density.to_f64(),
+                c(RESET)
+            )),
+            _ => {} // thin-but-shallow: a small honest plan, no alarm (Run 11)
+        }
+    }
+    out
 }
 
 /// Descend toward a wish: observe → scaffold/synthesize → re-observe until
@@ -6192,6 +6278,81 @@ mod tests {
         let report = blueprint_report(&nodes, &wish.label, false);
         assert!(report.contains("1/4 realized"), "{report}");
         assert!(report.contains("incomplete"), "{report}");
+    }
+
+    #[test]
+    fn blueprint_assessment_grades_coverage_and_honesty() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        let lines_for = |w: &Wish, d: Q16| {
+            let a = assess_wish(w, &obs, ev);
+            let nodes = blueprint_nodes(w, &a, ev);
+            let cube = assess_wish_layered(w, &obs, ev);
+            blueprint_assessment_lines(&nodes, &cube, d, false)
+        };
+
+        // A heap: two subsystems (crates), no declared edges → the coverage warning.
+        let heap = Wish::new(
+            "two crates",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let heap_lines = lines_for(&heap, Q16::ZERO);
+        assert!(
+            heap_lines.contains("heap, not an architecture"),
+            "two crates with no edge is a heap: {heap_lines}"
+        );
+
+        // An edge between them is connective tissue → no heap warning.
+        let city = Wish::new(
+            "two crates + edge",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(
+                    WishFacetKind::Dependency,
+                    "api->logging",
+                )),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let city_lines = lines_for(&city, Q16::ZERO);
+        assert!(city_lines.contains("edge"), "an edge is connective tissue: {city_lines}");
+        assert!(!city_lines.contains("heap"), "no heap once wired: {city_lines}");
+
+        // A single crate with its own facets is NOT a heap (one subsystem).
+        let solo = Wish::new(
+            "one crate, two modules",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::module("api::core")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&solo, Q16::ZERO).contains("heap"),
+            "a single subsystem is not a heap"
+        );
+
+        // Honesty: a fully-realized DEEP city over a SPARSE topology is suspect.
+        let deep = layered_test_wish();
+        let deep_obs =
+            ObservedTopology::from_facets(deep.predicates.iter().map(|p| p.facet.clone()));
+        let da = assess_wish(&deep, &deep_obs, ev);
+        let dn = blueprint_nodes(&deep, &da, ev);
+        let dcube = assess_wish_layered(&deep, &deep_obs, ev);
+        let suspect = blueprint_assessment_lines(&dn, &dcube, Q16::ratio(5, 100).unwrap(), false);
+        assert!(suspect.contains("suspect"), "deep+sparse standing city is suspect: {suspect}");
+        // The same city on a DENSE topology is genuine.
+        let genuine = blueprint_assessment_lines(&dn, &dcube, Q16::ratio(80, 100).unwrap(), false);
+        assert!(genuine.contains("genuine"), "deep+dense standing city is genuine: {genuine}");
     }
 
     #[test]

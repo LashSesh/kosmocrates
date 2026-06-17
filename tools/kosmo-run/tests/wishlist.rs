@@ -118,6 +118,35 @@ fn wishlist_blueprint_json_emits_architecture_nodes() {
     );
 }
 
+// Run 46 — Stufe 2 brick 47: the architecture's coverage. Two subsystems with no
+// declared edges is a heap, not an architecture — a warning about the SPEC's
+// shape, independent of whether the crates are observed.
+#[test]
+fn wishlist_blueprint_warns_on_a_heap_with_no_edges() {
+    let root = workspace();
+    let list = root.join("heap.wishes");
+    fs::write(&list, "a crate api\na crate logging\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--blueprint",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    assert!(
+        stdout.contains("heap, not an architecture"),
+        "two crates, no edges → coverage warns: {stdout}"
+    );
+}
+
 #[test]
 fn wishlist_all_realized_exits_0() {
     let root = workspace();

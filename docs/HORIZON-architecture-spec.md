@@ -80,8 +80,33 @@ edges) and the precedence lens. Additive, deterministic, offline-testable, in
 | **44 — blueprint view** ✅ | materialise & render a wish's latent architecture graph, foundations-first (`--blueprint`) | additive | yes (done) |
 | **45 — the spec format** ✅ | the whole DoD file read as ONE architecture (`--wishlist --blueprint`): components + edges, the city plan you *write* | additive | yes (done) |
 | **46 — edge-as-realization** ✅ | the plan stands only when every declared edge *holds* — **absorbed into 45**: `assess_wish` already checks `Dependency`/`Composition` against the observed topology, so a `from->to` line is met only when the edge is observed | additive | yes (done) |
-| 47 — coverage & honesty | does the plan specify its connections? grade the *architecture* genuine/suspect (lift Run 29 + Run 9–12 onto the pooled graph) | additive | yes |
-| 48+ — invariants → **Stufe 3** | cross-component properties (consistency, data, resource) — system-level verification | core / research | partly |
+| **47 — coverage & honesty** ✅ | does the plan specify its connections (≥2 crates, 0 edges = a heap)? grade the *architecture* genuine/suspect when it stands (`blueprint_assessment_lines`, render-only) | additive | yes (done) |
+| **48 — the pse-traverse bridge** ◀ next | transform the blueprint → `pse-traverse` `FieldCube`/`CollapsePlan` + `PathExcision`: turn "the plan stands or not" into "the deterministic, foundations-first plan to *make* it stand, and what is wished-but-unreachable". Reuse `pse-traverse` via an adapter (no fork). | adapter | yes |
+| 49+ — invariants → **Stufe 3** | cross-component properties (consistency, data, resource) — system-level verification | core / research | partly |
+
+## The pre-kosmocrates substrate (surveyed Run 46)
+
+Before brick 48, a survey of the original PSE/traverse theory found that `pse-traverse`
+is, at its core, **already a conformance machine for abstract problem spaces** —
+deterministic, fail-closed, content-addressed:
+
+- **`pse-traverse` core** — `FieldCube` (dimensions + constraints + couplings) → `DoFGraph`
+  (degree-of-freedom graph) → `CollapsePlan` (deterministic collapse to zero DoF) →
+  `GateEngine` (fail-closed) + `PathExcision` (formal-but-unreachable). Symbolic-discrete,
+  196 tests. **Structurally isomorphic** to our architecture-spec: component→Dimension,
+  edge→Coupling, invariant→Constraint, realize→CollapsePlan. **This is brick 48's target.**
+- **TPC / TPT / MTL / 720° Horizon** (`pse-traverse` `cognition/`,`topology/`,`horizon/`) and
+  **Hivemind** (`phase-matrix`) — mature, deterministic, but **geometric-continuous**: they
+  need a *meaningful embedding* of software into a 5D phase space / resonance field, which is
+  the hard, unproven part (and TPT would recompute, obscurely, the cycles/components our
+  dependency graph already gives). **Concepts to harvest later** (counterfactual horizon →
+  richer honesty; Hivemind → multi-candidate convergence once a provider is armed), **code to
+  park** for now.
+
+The unifying fundamental concept across all of them — *collapse under constraints from many
+degrees of freedom to a determined, gated, evidence-bound state, the whole landscape (incl.
+the rejected) in view* — **is** the conformance machine, one altitude up. Brick 48 specialises
+the discrete core to the software-architecture problem space.
 
 Bricks 44–47 are the safe, additive, offline-provable climb that turns the flat
 facet list into a checkable city plan. Brick 48+ (invariants) is where Stufe 2
