@@ -38,7 +38,7 @@ use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
-    assess_wish, assess_wish_layered, Digest, FoundryCheckKind, FoundryCheckSpec,
+    assess_wish, assess_wish_layered, depends_on, Digest, FoundryCheckKind, FoundryCheckSpec,
     FoundryCommandPolicy, FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan,
     FoundryOutcome, FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult,
     KcubeArtifactKind, KcubeExportPolicy, KcubeWriteOutcome, ObservedTopology, ParseBackScanScope,
@@ -125,6 +125,11 @@ struct Args {
     /// suspect, a possible hologram — is **not accepted** (distinct exit 3). A
     /// modifier on `--wish`; default off, so the established path is byte-identical.
     insist: bool,
+    /// Stufe 2 (first brick) — render the wish's *latent* architecture graph as a
+    /// foundations-first blueprint: every facet a node, every `depends_on`
+    /// relation an edge. A read-only `--wish` render modifier; reveals the city
+    /// plan already implicit in the facet keys. Advisory.
+    blueprint: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
@@ -265,6 +270,7 @@ impl Default for Args {
             validated: false,
             layers: false,
             insist: false,
+            blueprint: false,
             staged: false,
             mesh: false,
             flat: false,
@@ -357,6 +363,9 @@ OPTIONS:\n\
     --insist              close the loop: arm the honesty grade as a gate \u{2014} a\n\
                           realized-but-suspect wish (a possible hologram) is NOT\n\
                           accepted (exit 3). A --wish modifier; default off.\n\
+    --blueprint           render the wish's architecture graph foundations-first\n\
+                          (every facet a node, every depends-on an edge) \u{2014} the\n\
+                          city plan implicit in the facets. A --wish modifier.\n\
     --vocab               print the wish vocabulary: the prose forms for each\n\
                           stratum, by example \u{2014} how to phrase a wish (Run 30)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
@@ -614,6 +623,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--mesh" => args.mesh = true,
             "--flat" => args.flat = true,
             "--insist" => args.insist = true,
+            "--blueprint" => args.blueprint = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
@@ -4376,6 +4386,11 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             let json = serde_json::to_string_pretty(&cube)
                 .map_err(|e| format!("failed to serialize cube: {e}"))?;
             println!("{json}");
+        } else if args.blueprint {
+            let nodes = blueprint_nodes(&wish, &assessment, evidence);
+            let json = serde_json::to_string_pretty(&nodes)
+                .map_err(|e| format!("failed to serialize blueprint: {e}"))?;
+            println!("{json}");
         } else {
             let json = serde_json::to_string_pretty(&assessment)
                 .map_err(|e| format!("failed to serialize assessment: {e}"))?;
@@ -4421,6 +4436,12 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 "{}",
                 did_you_mean_report(&assessment.unmet_facets, &observed, args.color)
             );
+        }
+        // Stufe 2 (first brick) — the architecture graph, foundations first: the
+        // city plan already implicit in the facet keys, made visible.
+        if args.blueprint {
+            let nodes = blueprint_nodes(&wish, &assessment, evidence);
+            print!("{}", blueprint_report(&nodes, &wish.label, args.color));
         }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
             print!(
@@ -4829,6 +4850,122 @@ fn staged_target(cube: Option<&WishCube>, flat_unmet: &[WishFacet]) -> Vec<WishF
         }
     }
     flat_unmet.to_vec()
+}
+
+/// One node of a wish's *materialized* architecture: a facet, whether it is
+/// realized, how many other facets depend on it (its leverage as a foundation),
+/// and the keys of its own prerequisites (the foundations it stands on).
+#[derive(Debug, Clone, serde::Serialize)]
+struct BlueprintNode {
+    kind: WishFacetKind,
+    key: String,
+    layer: WishLayer,
+    met: bool,
+    /// How many other facets depend on this one (Run 5's leverage).
+    bears: u32,
+    /// Keys of the facets this one depends on — its foundations.
+    stands_on: Vec<String>,
+}
+
+/// Stufe 2, first brick — materialize a wish's *latent* architecture graph. Every
+/// facet is a node; every [`depends_on`] relation an edge (path containment —
+/// `foo` ◁ `foo::bar` — and structural endpoints — the `from`/`to` of a
+/// dependency, the symbols of a composition/contract). Ordered foundations-first
+/// by [`PrecedenceOrder`]. Pure and deterministic: it only *reveals* the
+/// architecture already implicit in the facet keys — the city plan, drawn as a
+/// graph — reusing the Run 5 precedence lens and the existing assessment.
+fn blueprint_nodes(wish: &Wish, assessment: &WishAssessment, evidence: Digest) -> Vec<BlueprintNode> {
+    let facets: Vec<WishFacet> = wish.predicates.iter().map(|p| p.facet.clone()).collect();
+    let order = PrecedenceOrder::focus(&facets, wish.id, evidence);
+    order
+        .ranking
+        .iter()
+        .map(|lev| {
+            let f = &lev.facet;
+            let mut stands_on: Vec<String> = facets
+                .iter()
+                .filter(|p| depends_on(f, p))
+                .map(|p| p.key.clone())
+                .collect();
+            stands_on.sort();
+            BlueprintNode {
+                kind: f.kind.clone(),
+                key: f.key.clone(),
+                layer: f.kind.layer(),
+                met: !assessment.unmet_facets.contains(f),
+                bears: lev.leverage,
+                stands_on,
+            }
+        })
+        .collect()
+}
+
+/// Render the materialized architecture as a foundations-first city plan: each
+/// node with its realized mark, the layer it occupies, what it bears, and the
+/// foundations it stands on. The whole plan "stands" only when every node is met.
+fn blueprint_report(nodes: &[BlueprintNode], label: &str, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates blueprint \u{2014} the architecture, foundations first{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{label}\u{201d}\n"));
+    let met = nodes.iter().filter(|n| n.met).count();
+    for n in nodes {
+        let (mark, col) = if n.met {
+            ("\u{2713}", c(GREEN))
+        } else {
+            ("\u{2717}", c(RED))
+        };
+        let bears = if n.bears > 0 {
+            format!(" \u{00b7} bears {}", n.bears)
+        } else {
+            String::new()
+        };
+        let stands = if n.stands_on.is_empty() {
+            String::new()
+        } else {
+            format!(" \u{00b7} on {}", n.stands_on.join(", "))
+        };
+        out.push_str(&format!(
+            "  {col}{mark}{} {:?} {} {}({}){}{}{}\n",
+            c(RESET),
+            n.kind,
+            n.key,
+            c(DIM),
+            layer_word(n.layer),
+            c(RESET),
+            bears,
+            stands,
+        ));
+    }
+    out.push_str(&format!(
+        "  {}\u{2500}\u{2500} {}/{} realized{}{}\n",
+        c(BOLD),
+        met,
+        nodes.len(),
+        if met == nodes.len() && !nodes.is_empty() {
+            " \u{00b7} the plan stands"
+        } else {
+            " \u{00b7} the plan is incomplete"
+        },
+        c(RESET)
+    ));
+    out
+}
+
+/// The short name of a render stratum.
+fn layer_word(l: WishLayer) -> &'static str {
+    match l {
+        WishLayer::Existence => "existence",
+        WishLayer::Shape => "shape",
+        WishLayer::Wiring => "wiring",
+        WishLayer::Verified => "verified",
+        WishLayer::Live => "live",
+    }
 }
 
 /// Descend toward a wish: observe → scaffold/synthesize → re-observe until
@@ -5962,6 +6099,62 @@ mod tests {
             insist_rejection_line(true, true, &shallow, sparse, false).is_none(),
             "a shallow declarative wish is honest, not rejected"
         );
+    }
+
+    #[test]
+    fn blueprint_materializes_the_architecture_foundations_first() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let wish = Wish::new(
+            "a crate api and a module api::core and a function api::core::boot and api->logging",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::module("api::core")),
+                WishPredicate::require(WishFacet::symbol("api::core::boot")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        // Observe only the crate present — the foundation laid, nothing atop it.
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("api"));
+        let assessment = assess_wish(&wish, &observed, ev);
+        let nodes = blueprint_nodes(&wish, &assessment, ev);
+
+        // Foundations first: the crate `api` leads — everything stands on it.
+        assert_eq!(nodes[0].key, "api", "the crate is the foundation");
+        assert!(nodes[0].met, "the crate was observed present");
+        assert!(
+            nodes[0].bears >= 2,
+            "the module, symbol and edge stand on the crate: bears {}",
+            nodes[0].bears
+        );
+        assert!(nodes[0].stands_on.is_empty(), "the foundation stands on nothing");
+
+        // The symbol stands on its module AND its crate (path containment edges).
+        let sym = nodes
+            .iter()
+            .find(|n| n.key == "api::core::boot")
+            .expect("symbol node");
+        assert!(!sym.met, "the symbol was not observed");
+        assert!(sym.stands_on.contains(&"api".to_string()));
+        assert!(sym.stands_on.contains(&"api::core".to_string()));
+
+        // The dependency edge stands on its endpoint crate (structural endpoint).
+        let dep = nodes
+            .iter()
+            .find(|n| n.key == "api->logging")
+            .expect("dependency edge node");
+        assert!(
+            dep.stands_on.contains(&"api".to_string()),
+            "the edge stands on its from-crate"
+        );
+
+        // The plan does not yet stand: only 1 of 4 nodes is realized.
+        let report = blueprint_report(&nodes, &wish.label, false);
+        assert!(report.contains("1/4 realized"), "{report}");
+        assert!(report.contains("incomplete"), "{report}");
     }
 
     #[test]

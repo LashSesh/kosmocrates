@@ -66,6 +66,21 @@ $ kosmo-run --wish "a run World=>out~hi-World" --insist ./tiny # ✗ not accepte
 So the loop refuses to hand you a hologram. Default off — the established verdict
 is byte-identical.
 
+**See the architecture.** `--blueprint` renders the city plan already implicit in
+a compound wish — every facet a node, every dependency an edge, foundations
+first:
+
+```text
+$ kosmo-run --wish "a crate api and a module api::core and a function boot" --blueprint ./api
+  ✓ Crate api (existence) · bears 1
+  ✗ Module api::core (existence) · on api
+  ✓ Symbol boot (existence)
+  ── 2/3 realized · the plan is incomplete
+```
+
+The plan *stands* only when every node is realized — the first step of planning
+the whole system, not one house at a time (see `docs/HORIZON-architecture-spec.md`).
+
 Mistyped a name? It guides you: `→ did you mean Module engine? (you wished enigne)`.
 
 ## Did the change break — or fake — anything?
