@@ -127,6 +127,7 @@ pub fn catalog() -> DoorCatalog {
                     DoorInput::switch("--validated"),
                     DoorInput::switch("--scaffold"),
                     DoorInput::switch("--apply"),
+                    DoorInput::switch("--blueprint"),
                     DoorInput::valued("--since", "<reading>"),
                     workspace_input(),
                 ],

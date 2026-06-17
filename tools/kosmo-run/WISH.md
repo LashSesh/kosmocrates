@@ -81,6 +81,19 @@ $ kosmo-run --wish "a crate api and a module api::core and a function boot" --bl
 The plan *stands* only when every node is realized — the first step of planning
 the whole system, not one house at a time (see `docs/HORIZON-architecture-spec.md`).
 
+Plan a whole **city** by reading a DoD file as *one* architecture — components and
+the edges between them, foundations first — with `--wishlist <file> --blueprint`:
+
+```text
+# city.wishes — the whole system, planned at once
+a crate api
+a crate logging
+a dependency api->logging   # a declared edge: met only when the dependency is observed
+```
+
+It pools every line into one graph and the plan stands only when every component
+*and every edge* holds.
+
 Mistyped a name? It guides you: `→ did you mean Module engine? (you wished enigne)`.
 
 ## Did the change break — or fake — anything?

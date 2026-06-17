@@ -365,7 +365,8 @@ OPTIONS:\n\
                           accepted (exit 3). A --wish modifier; default off.\n\
     --blueprint           render the wish's architecture graph foundations-first\n\
                           (every facet a node, every depends-on an edge) \u{2014} the\n\
-                          city plan implicit in the facets. A --wish modifier.\n\
+                          city plan implicit in the facets. With --wishlist, reads\n\
+                          the whole file as ONE architecture. A --wish modifier.\n\
     --vocab               print the wish vocabulary: the prose forms for each\n\
                           stratum, by example \u{2014} how to phrase a wish (Run 30)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
@@ -4057,6 +4058,42 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
             (w, a)
         })
         .collect();
+
+    // Run 45 — Stufe 2: read the whole file as ONE architecture, not N
+    // independent wishes. Pool every facet into a single graph (deduped by
+    // kind+key), assess it against the one observation, and render it
+    // foundations-first as a city plan (Run 44's blueprint over the whole spec).
+    // The plan stands only when every component AND every declared edge is
+    // realized. Short-circuits the flat per-wish gauge — a different view.
+    if args.blueprint {
+        let evidence = Digest::of_bytes(path.as_bytes());
+        let mut preds = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (w, _) in &items {
+            for p in &w.predicates {
+                if seen.insert(format!("{:?} {}", p.facet.kind, p.facet.key)) {
+                    preds.push(p.clone());
+                }
+            }
+        }
+        let label = format!("architecture: {} components", items.len());
+        let arch = Wish::new(&label, preds, Digest::ZERO, evidence);
+        let assessment = assess_wish(&arch, &observed, evidence);
+        let nodes = blueprint_nodes(&arch, &assessment, evidence);
+        if args.json {
+            let json = serde_json::to_string_pretty(&nodes)
+                .map_err(|e| format!("failed to serialize blueprint: {e}"))?;
+            println!("{json}");
+        } else {
+            print!("{}", blueprint_report(&nodes, &label, args.color));
+        }
+        return Ok(if is_realized(&assessment.status) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        });
+    }
+
     let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
 
     // Run 17 — the honesty axis × the project axis: grade each realized wish so

@@ -78,9 +78,9 @@ edges) and the precedence lens. Additive, deterministic, offline-testable, in
 | Brick | What | Risk | Provable offline |
 |---|---|---|---|
 | **44 — blueprint view** ✅ | materialise & render a wish's latent architecture graph, foundations-first (`--blueprint`) | additive | yes (done) |
-| 45 — the spec format | a structured architecture file: components + edges (the city plan you *write*) | additive door | yes |
-| 46 — edge-as-realization | the plan stands only when every declared edge *holds*, not just every node exists | additive | yes (edges are observable) |
-| 47 — coverage & honesty | does the plan specify its connections? grade the *architecture* genuine/suspect | additive | yes |
+| **45 — the spec format** ✅ | the whole DoD file read as ONE architecture (`--wishlist --blueprint`): components + edges, the city plan you *write* | additive | yes (done) |
+| **46 — edge-as-realization** ✅ | the plan stands only when every declared edge *holds* — **absorbed into 45**: `assess_wish` already checks `Dependency`/`Composition` against the observed topology, so a `from->to` line is met only when the edge is observed | additive | yes (done) |
+| 47 — coverage & honesty | does the plan specify its connections? grade the *architecture* genuine/suspect (lift Run 29 + Run 9–12 onto the pooled graph) | additive | yes |
 | 48+ — invariants → **Stufe 3** | cross-component properties (consistency, data, resource) — system-level verification | core / research | partly |
 
 Bricks 44–47 are the safe, additive, offline-provable climb that turns the flat

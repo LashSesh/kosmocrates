@@ -59,6 +59,65 @@ fn wishlist_reports_aggregate_and_gates_unrealized() {
     assert_eq!(out.status.code(), Some(1), "not all realized → exit 1: {stdout}");
 }
 
+// Run 45 — Stufe 2: `--wishlist --blueprint` reads the file as ONE architecture
+// (a city plan), not N independent wishes — pooled into a single foundations-first
+// graph, the plan standing only when every node is realized.
+#[test]
+fn wishlist_blueprint_reads_the_file_as_one_architecture() {
+    let root = workspace();
+    let list = root.join("city.wishes");
+    fs::write(&list, "a module alpha\na function f\na module beta\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--blueprint",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    // One architecture, not three gauges: the blueprint render, foundations-first.
+    assert!(stdout.contains("blueprint"), "renders the city plan: {stdout}");
+    assert!(stdout.contains("the architecture"), "{stdout}");
+    assert!(stdout.contains("2/3 realized"), "alpha + f met, beta missing: {stdout}");
+    assert!(stdout.contains("incomplete"), "the plan does not yet stand: {stdout}");
+    assert_eq!(out.status.code(), Some(1), "not all realized → exit 1: {stdout}");
+}
+
+#[test]
+fn wishlist_blueprint_json_emits_architecture_nodes() {
+    let root = workspace();
+    let list = root.join("city2.wishes");
+    fs::write(&list, "a module alpha\na function f\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--blueprint",
+            "--json",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON array");
+    assert!(v.is_array(), "the blueprint machine view is an array of nodes: {stdout}");
+    assert!(
+        v.as_array().unwrap().iter().any(|n| n["key"] == "alpha"),
+        "a node for module alpha: {stdout}"
+    );
+}
+
 #[test]
 fn wishlist_all_realized_exits_0() {
     let root = workspace();
