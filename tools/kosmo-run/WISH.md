@@ -52,6 +52,20 @@ A passing test is execution-earned, so the instrument never *accuses* — it fla
 a *suspect* and names the real risk. Use `--flat` for just the verdict; the cube
 view (with the per-stratum render and this honesty line) is the default.
 
+**Insist on a diamond.** By default the honesty grade is advisory — it informs,
+it does not gate. With `--insist` it becomes the **acceptance gate**: a realized
+wish that is only an over-fit suspect (a possible hologram) is *not accepted* —
+distinct exit `3`, separate from `1` (incomplete) and `2` (regression):
+
+```text
+$ kosmo-run --wish "a run World=>out~hi-World" ./tiny          # REALIZED ✓  (exit 0)
+$ kosmo-run --wish "a run World=>out~hi-World" --insist ./tiny # ✗ not accepted — a live
+  claim over a sparse topology (0.020); a hologram passes too — rejected.   (exit 3)
+```
+
+So the loop refuses to hand you a hologram. Default off — the established verdict
+is byte-identical.
+
 Mistyped a name? It guides you: `→ did you mean Module engine? (you wished enigne)`.
 
 ## Did the change break — or fake — anything?

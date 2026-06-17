@@ -119,6 +119,12 @@ struct Args {
     /// (`--apply`) — without the layered hypercube, Konus focus, or staged film.
     /// Human render only; the `--json` machine contract is unaffected.
     flat: bool,
+    /// Stufe 1 — close the loop: arm the honesty grade as a *gate* (Run 9–12 made
+    /// it advisory). With `--insist`, a realized wish whose deepest met stratum is
+    /// *earned* (Verified/Live) yet stands over a sparse topology — an over-fit
+    /// suspect, a possible hologram — is **not accepted** (distinct exit 3). A
+    /// modifier on `--wish`; default off, so the established path is byte-identical.
+    insist: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
@@ -258,6 +264,7 @@ impl Default for Args {
             scaffold: false,
             validated: false,
             layers: false,
+            insist: false,
             staged: false,
             mesh: false,
             flat: false,
@@ -347,6 +354,9 @@ OPTIONS:\n\
                           observed structural density \u{2014} surfaces over-fit (Run 8)\n\
     --flat                opt out of the default cube view: print only the terse\n\
                           verdict, no layered hypercube/Konus/staged film (Run 10)\n\
+    --insist              close the loop: arm the honesty grade as a gate \u{2014} a\n\
+                          realized-but-suspect wish (a possible hologram) is NOT\n\
+                          accepted (exit 3). A --wish modifier; default off.\n\
     --vocab               print the wish vocabulary: the prose forms for each\n\
                           stratum, by example \u{2014} how to phrase a wish (Run 30)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
@@ -603,6 +613,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--mesh" => args.mesh = true,
             "--flat" => args.flat = true,
+            "--insist" => args.insist = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
@@ -4274,6 +4285,28 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 WishClosureStatus::Realized | WishClosureStatus::Vacuous
             )
         });
+        // Stufe 1 — `--insist`: the descent built every facet, but the honesty
+        // grade now gates *acceptance*. A realized-but-suspect outcome (a deep
+        // claim over a sparse topology — a possible hologram) is not accepted; the
+        // rejection steers both the learning sighting and the distinct exit 3.
+        let insist_line = if args.insist {
+            session.latest_cube().and_then(|cube| {
+                let d = observe_workspace_deep(&args.path)
+                    .ok()
+                    .map(|o| topology_density(&o, args.capacity))
+                    .unwrap_or(Q16::ZERO);
+                insist_rejection_line(args.insist, realized, cube, d, args.color)
+            })
+        } else {
+            None
+        };
+        if let Some(ref line) = insist_line {
+            if !args.json {
+                print!("{line}");
+            }
+        }
+        // A hologram is not a genuine realization — record what was *accepted*.
+        let accepted = realized && insist_line.is_none();
         // Learning: a finished --apply descent is one facet-bundle sighting.
         // --apply maps to operator_approved, the policy the store requires.
         if let Some(ref mut store) = norm_store {
@@ -4281,12 +4314,14 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 store,
                 &args.path,
                 &wish,
-                realized,
+                accepted,
                 evidence,
                 &PolicyProfile::operator_approved(),
             );
         }
-        return Ok(if realized {
+        return Ok(if insist_line.is_some() {
+            ExitCode::from(3)
+        } else if realized {
             ExitCode::SUCCESS
         } else {
             ExitCode::from(1)
@@ -4401,6 +4436,20 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     // status gates (CROSS-010); --since merely refines the unrealized code.
     if delta.as_ref().is_some_and(WishDelta::has_regression) {
         return Ok(ExitCode::from(2));
+    }
+    // Stufe 1 — `--insist`: refuse to call a hologram realized. The honesty grade
+    // gates the verdict; exit 3 (rejected: not genuine) is distinct from 1
+    // (incomplete) and 2 (regression). Disarmed, this is inert (byte-identical).
+    if args.insist {
+        let realized = matches!(assessment.status, WishClosureStatus::Realized);
+        let cube = assess_wish_layered(&wish, &observed, evidence);
+        let d = topology_density(&observed, args.capacity);
+        if let Some(line) = insist_rejection_line(args.insist, realized, &cube, d, args.color) {
+            if !args.json {
+                print!("{line}");
+            }
+            return Ok(ExitCode::from(3));
+        }
     }
     // Exit 0 only when the wish is realized — so scripts can gate on it.
     match assessment.status {
@@ -5044,6 +5093,39 @@ fn honesty_grade(cube: &WishCube, d: Q16) -> Option<HonestyGrade> {
     } else {
         HonestyGrade::ThinButShallow
     })
+}
+
+/// Stufe 1 — `--insist` closes the loop: the honesty grade, advisory since
+/// Runs 9–12, becomes the **acceptance gate**. Returns the rejection line when
+/// `armed`, the wish is `realized`, and its grade is [`HonestyGrade::OverfitSuspect`]
+/// — a deep (earned) claim over a sparse topology, a probe that may be a stub: a
+/// hologram we refuse to call realized. `None` means *accept* (genuine,
+/// thin-but-shallow, or not realized). Disarmed, it is always `None`, so the
+/// established verdict/exit path stays byte-identical. Pure — the caller prints
+/// the line (unless `--json`) and returns the distinct exit 3.
+fn insist_rejection_line(
+    armed: bool,
+    realized: bool,
+    cube: &WishCube,
+    density: Q16,
+    color: bool,
+) -> Option<String> {
+    if !armed || !realized {
+        return None;
+    }
+    if honesty_grade(cube, density) != Some(HonestyGrade::OverfitSuspect) {
+        return None;
+    }
+    let c = |code: &'static str| if color { code } else { "" };
+    let claim = cube.solid_frontier().map(|l| l.label()).unwrap_or("nothing");
+    Some(format!(
+        "  {}\u{2717} not accepted \u{2014} --insist: a {} claim stands over a sparse topology \
+         ({:.3}); a hologram passes too \u{2014} rejected, not realized.{}\n",
+        c(RED),
+        claim,
+        density.to_f64(),
+        c(RESET)
+    ))
 }
 
 /// The topology gear's judgement of a *realized* wish (Runs 9 / 11 / 12), as one
@@ -5829,6 +5911,57 @@ mod tests {
         ));
         assert!(layered_descent_report(&s, Some(Q16::ratio(5, 100).unwrap()), false)
             .contains("over-fit suspect"));
+    }
+
+    #[test]
+    fn insist_rejects_only_a_realized_hologram() {
+        use kosmo_core::WishPredicate;
+        let cube_of = |wish: Wish| {
+            let obs =
+                ObservedTopology::from_facets(wish.predicates.iter().map(|p| p.facet.clone()));
+            let mut s = WishSession::new(wish, Digest::of_bytes(b"ev"));
+            s.observe_layered(&obs);
+            s.latest_cube().cloned().expect("a cube")
+        };
+        let sparse = Q16::ratio(5, 100).unwrap();
+        let dense = Q16::ratio(80, 100).unwrap();
+
+        // A DEEP wish, solid over a SPARSE topology → over-fit suspect: armed and
+        // realized, --insist refuses to accept it.
+        let deep = cube_of(layered_test_wish());
+        let rejected = insist_rejection_line(true, true, &deep, sparse, false)
+            .expect("a realized hologram is rejected");
+        assert!(rejected.contains("not accepted"), "{rejected}");
+        assert!(rejected.contains("--insist"), "names the gate: {rejected}");
+
+        // Disarmed → never rejects, even the very same hologram (byte-identical
+        // default path).
+        assert!(
+            insist_rejection_line(false, true, &deep, sparse, false).is_none(),
+            "disarmed, the established path is untouched"
+        );
+
+        // Not realized → nothing to reject (a hologram is a *finished* fake).
+        assert!(insist_rejection_line(true, false, &deep, sparse, false).is_none());
+
+        // Genuine (dense backing) → accepted, even though deep and armed.
+        assert!(
+            insist_rejection_line(true, true, &deep, dense, false).is_none(),
+            "a cut diamond is accepted"
+        );
+
+        // A SHALLOW wish over the same sparse topology is thin-but-shallow, not a
+        // hologram → accepted (Run 11's no-false-alarm discipline holds).
+        let shallow = cube_of(Wish::new(
+            "shallow",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            Digest::of_bytes(b"ev"),
+        ));
+        assert!(
+            insist_rejection_line(true, true, &shallow, sparse, false).is_none(),
+            "a shallow declarative wish is honest, not rejected"
+        );
     }
 
     #[test]
