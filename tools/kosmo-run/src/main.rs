@@ -4107,6 +4107,16 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
                 blueprint_assessment_lines(&nodes, &cube, density, args.color)
             );
         }
+        // Brick 52 — the acceptance gate: --insist refuses an objectively broken
+        // architecture (a cycle or a dangling wire), distinct exit 3.
+        if args.insist {
+            if let Some(line) = insist_defect_line(&nodes, args.color) {
+                if !args.json {
+                    print!("{line}");
+                }
+                return Ok(ExitCode::from(3));
+            }
+        }
         return Ok(if is_realized(&assessment.status) {
             ExitCode::SUCCESS
         } else {
@@ -4570,7 +4580,12 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         let realized = matches!(assessment.status, WishClosureStatus::Realized);
         let cube = assess_wish_layered(&wish, &observed, evidence);
         let d = topology_density(&observed, args.capacity);
-        if let Some(line) = insist_rejection_line(args.insist, realized, &cube, d, args.color) {
+        let nodes = blueprint_nodes(&wish, &assessment, evidence);
+        // Reject a topology-sparse hologram (brick 43) OR an objectively broken
+        // architecture — a cycle or a dangling wire (brick 52).
+        let rejection = insist_rejection_line(args.insist, realized, &cube, d, args.color)
+            .or_else(|| insist_defect_line(&nodes, args.color));
+        if let Some(line) = rejection {
             if !args.json {
                 print!("{line}");
             }
@@ -5652,6 +5667,46 @@ fn insist_rejection_line(
         density.to_f64(),
         c(RESET)
     ))
+}
+
+/// Brick 52 — the architecture acceptance gate: an *objective* defect that makes
+/// an architecture un-genuine regardless of topology — a **dependency cycle**
+/// (won't compile) or a **dangling wire** (an edge to an undeclared component).
+/// Returns the defect, or `None` when the architecture is sound. Unlike "never
+/// run" (a coverage signal that stays advisory — CROSS-010, and gating it would
+/// reject legitimate structural wishes), these are correctness errors that
+/// `--insist` legitimately blocks: a broken architecture is not a genuine one.
+fn insist_architecture_defect(nodes: &[BlueprintNode]) -> Option<String> {
+    if let Some(cyc) = dependency_cycles(nodes).into_iter().next() {
+        return Some(format!("dependency cycle {}", cyc.join(" \u{2192} ")));
+    }
+    let components: std::collections::HashSet<&str> = nodes
+        .iter()
+        .filter(|n| !is_edge_kind(&n.kind))
+        .map(|n| n.key.as_str())
+        .collect();
+    for e in nodes.iter().filter(|n| is_edge_kind(&n.kind)) {
+        for ep in edge_component_endpoints(&e.kind, &e.key) {
+            if !components.contains(ep.as_str()) {
+                return Some(format!("dangling wire {} \u{2192} undeclared {}", e.key, ep));
+            }
+        }
+    }
+    None
+}
+
+/// Render the brick-52 architecture-defect rejection line (or `None` if sound).
+fn insist_defect_line(nodes: &[BlueprintNode], color: bool) -> Option<String> {
+    insist_architecture_defect(nodes).map(|why| {
+        let c = |code: &'static str| if color { code } else { "" };
+        format!(
+            "  {}\u{2717} not accepted \u{2014} --insist: {} \u{2014} a broken architecture is not \
+             genuine.{}\n",
+            c(RED),
+            why,
+            c(RESET)
+        )
+    })
 }
 
 /// The topology gear's judgement of a *realized* wish (Runs 9 / 11 / 12), as one
@@ -6772,6 +6827,75 @@ mod tests {
         let e = lines_for(&executed);
         assert!(e.contains("execution:"), "executed facets are counted: {e}");
         assert!(!e.contains("never run"), "an executed city is not 'never run': {e}");
+    }
+
+    #[test]
+    fn insist_rejects_a_broken_architecture_only() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        let nodes_of = |w: &Wish| {
+            let a = assess_wish(w, &obs, ev);
+            blueprint_nodes(w, &a, ev)
+        };
+
+        // A dependency cycle → an objective defect → rejected.
+        let cyclic = Wish::new(
+            "cyclic",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "logging->api")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(insist_architecture_defect(&nodes_of(&cyclic)).is_some(), "a cycle is a defect");
+        assert!(insist_defect_line(&nodes_of(&cyclic), false)
+            .unwrap()
+            .contains("not accepted"));
+
+        // A dangling wire → an objective defect → rejected.
+        let dangling = Wish::new(
+            "dangling",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(insist_architecture_defect(&nodes_of(&dangling)).is_some(), "a dangling wire is a defect");
+
+        // A sound architecture → NOT rejected.
+        let sound = Wish::new(
+            "sound",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(insist_architecture_defect(&nodes_of(&sound)).is_none(), "a sound architecture passes");
+
+        // A purely-structural wish (never run) is NOT a defect — coverage stays
+        // advisory (CROSS-010); --insist must not over-reject it.
+        let structural = Wish::new(
+            "structural",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::module("api::core")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            insist_architecture_defect(&nodes_of(&structural)).is_none(),
+            "never-run is advisory, not a defect — structural wishes are not over-rejected"
+        );
     }
 
     #[test]

@@ -270,6 +270,38 @@ fn wishlist_blueprint_flags_a_never_run_city() {
     );
 }
 
+// Run 51 — Stufe 3 brick 52: the acceptance gate. --insist refuses an
+// objectively broken architecture (a dependency cycle) — distinct exit 3 —
+// while a sound architecture is accepted.
+#[test]
+fn wishlist_insist_rejects_a_broken_architecture() {
+    let root = workspace();
+    let cyclic = root.join("cyclic.wishes");
+    fs::write(
+        &cyclic,
+        "a crate api\na crate logging\na dependency api->logging\na dependency logging->api\n",
+    )
+    .unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            cyclic.to_str().unwrap(),
+            "--blueprint",
+            "--insist",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    assert!(stdout.contains("not accepted"), "a cycle is refused under --insist: {stdout}");
+    assert_eq!(out.status.code(), Some(3), "rejection is the distinct exit 3: {stdout}");
+}
+
 #[test]
 fn wishlist_all_realized_exits_0() {
     let root = workspace();
