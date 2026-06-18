@@ -246,6 +246,9 @@ impl ActionSynthesizer for SwarmSynthesizer {
             consensus_telemetry(&report, candidates.len(), rounds),
             best.result.rationale
         );
+        // Carry the ensemble verdict as structured telemetry (the descent seals
+        // it into a content-addressed ResonanceReading).
+        result.consensus = Some(report);
         Ok(result.citing(request))
     }
 

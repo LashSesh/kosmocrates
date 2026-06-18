@@ -14,7 +14,9 @@
 //! No host file writes. All outputs are observations and decisions only.
 //! Default mode: `PolicyProfile::default_report_only()`.
 
+pub mod alchemy;
 pub mod assimilation;
+pub mod behaviour;
 pub mod code_hdag;
 pub mod codematrix;
 pub mod collapse;
@@ -40,6 +42,7 @@ pub mod swarm;
 pub mod void_map;
 pub mod xlang;
 
+pub use alchemy::{combine, primitives, Element, Inventory, StructuralCounts};
 pub use assimilation::{
     AssimilationDecision, AssimilationLedger, AssimilationOutcome, NegativeEvidenceRecord,
 };

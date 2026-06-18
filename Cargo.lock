@@ -1637,6 +1637,7 @@ dependencies = [
  "kosmo-synthesizer",
  "kosmo-synthesizer-llm",
  "pse-adapter-kosmo",
+ "pse-traverse",
  "serde",
  "serde_json",
 ]

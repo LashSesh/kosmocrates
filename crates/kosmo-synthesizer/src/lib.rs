@@ -286,6 +286,12 @@ pub struct SynthesisResult {
     /// knowledge that informed it.
     #[serde(default)]
     pub grounding_crystal_ids: Vec<String>,
+    /// The Ophanim/Konus/Monolith ensemble verdict, when this result came from a
+    /// swarm (`--swarm`). `None` for single-oracle or rule-based synthesis. Does
+    /// not enter `result_id` — it is telemetry about *how* the patch was chosen,
+    /// not part of the patch's identity.
+    #[serde(default)]
+    pub consensus: Option<crate::consensus::ConsensusReport>,
 }
 
 impl SynthesisResult {
@@ -302,7 +308,15 @@ impl SynthesisResult {
             test_hint: None,
             tokens_used: 0,
             grounding_crystal_ids: vec![],
+            consensus: None,
         }
+    }
+
+    /// Attach the ensemble verdict (swarm synthesis). Telemetry only — it does
+    /// not change `result_id`.
+    pub fn with_consensus(mut self, report: crate::consensus::ConsensusReport) -> Self {
+        self.consensus = Some(report);
+        self
     }
 
     /// Record which grounding crystals were in context for this synthesis.

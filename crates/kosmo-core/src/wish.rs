@@ -88,6 +88,90 @@ pub enum WishFacetKind {
     Service,
 }
 
+/// The render stratum a facet kind occupies — its height in the wish-hypercube,
+/// from the first-printed transparent scaffold ([`WishLayer::Existence`]) to the
+/// last-printed massive layer ([`WishLayer::Live`], a program that executes or
+/// serves). A *graded depth*, never a gate (CROSS-010): the stratum colours how
+/// solid a layer is and orders the rendering, but it grants no capability and it
+/// never un-meets a facet.
+///
+/// The ordering is the substrate's existing maturation ladder lifted onto the
+/// intent axis: existence-strata are the `Pending`-equivalent scaffold, the
+/// upper strata the `Certified`-equivalent solid core (cf. the crystal
+/// `CertificationStatus` lifecycle in `kosmo-hyphae`). The map is *explicit*
+/// (not the enum's derived `Ord`) because declaration order does not match
+/// semantic depth — `Capability`/`Resolution` are free-form tags with no
+/// structural depth, and `Doc` is a shape attribute, not a post-test concern.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum WishLayer {
+    /// The crate/module/symbol scaffold: the print exists but is transparent.
+    Existence,
+    /// Declared shape — signatures, dependency edges, docs — still a hologram.
+    Shape,
+    /// Typed interlock — contracts and compositions that wire together.
+    Wiring,
+    /// Observed-correct logic — tests pass, behaviours hold.
+    Verified,
+    /// The program executes / serves: the massive, solid diamond layer.
+    Live,
+}
+
+/// Number of render strata in a wish-hypercube (existence … live).
+pub const WISH_LAYER_COUNT: usize = 5;
+
+impl WishLayer {
+    /// All strata, shallowest (first-printed) first.
+    pub fn all() -> [WishLayer; WISH_LAYER_COUNT] {
+        [
+            WishLayer::Existence,
+            WishLayer::Shape,
+            WishLayer::Wiring,
+            WishLayer::Verified,
+            WishLayer::Live,
+        ]
+    }
+    /// The stratum's height — `0` is the first-printed scaffold. Used as the
+    /// stable key in content-addressed cube/trace ids (no float, no `Ord`-order
+    /// dependence).
+    pub fn rank(self) -> u8 {
+        match self {
+            WishLayer::Existence => 0,
+            WishLayer::Shape => 1,
+            WishLayer::Wiring => 2,
+            WishLayer::Verified => 3,
+            WishLayer::Live => 4,
+        }
+    }
+    /// A stable lowercase label for rendering and audit.
+    pub fn label(self) -> &'static str {
+        match self {
+            WishLayer::Existence => "existence",
+            WishLayer::Shape => "shape",
+            WishLayer::Wiring => "wiring",
+            WishLayer::Verified => "verified",
+            WishLayer::Live => "live",
+        }
+    }
+}
+
+impl WishFacetKind {
+    /// The render stratum of this facet kind — its height in the 3-D print, from
+    /// the transparent existence scaffold up to the massive `Live` layer.
+    ///
+    /// Explicit by design (see [`WishLayer`]): the enum's declaration order does
+    /// **not** match semantic depth, so this is never `self as usize`.
+    pub fn layer(&self) -> WishLayer {
+        use WishFacetKind::*;
+        match self {
+            Crate | Module | Symbol | Capability | Resolution => WishLayer::Existence,
+            Signature | Dependency | Doc => WishLayer::Shape,
+            Contract | Composition => WishLayer::Wiring,
+            Test | Behavior => WishLayer::Verified,
+            Run | Service => WishLayer::Live,
+        }
+    }
+}
+
 /// A single normalized structural facet: a `(kind, key)` pair.
 ///
 /// Two facets are equal iff they share both kind and key. The `key` is the
@@ -496,6 +580,225 @@ pub fn assess_wish(
     a
 }
 
+/// One rendered stratum of a wish-hypercube: how solid this layer currently is.
+///
+/// `opacity` is `ONE − (per-layer distance)` — `ZERO` ⇒ transparent (nothing in
+/// this stratum is met), `ONE` ⇒ solid (every facet in this stratum is met).
+/// `unmet_facets` is the per-layer gradient: exactly the gaps the loop must close
+/// to solidify this layer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WishLayerView {
+    pub layer: WishLayer,
+    pub met_count: u32,
+    pub total_count: u32,
+    /// `ONE − per-layer distance`. `ZERO` = transparent, `ONE` = solid.
+    pub opacity: Q16,
+    /// Fail-closed remaining gaps in this stratum (sorted, like the wish).
+    pub unmet_facets: Vec<WishFacet>,
+}
+
+impl WishLayerView {
+    /// Solid iff this stratum carries predicates and every one is met — the
+    /// wish-layer analogue of crystal `Certified`.
+    pub fn is_solid(&self) -> bool {
+        self.total_count > 0 && self.met_count == self.total_count
+    }
+    /// No predicates ask anything at this height: an empty (not hollow) stratum.
+    pub fn is_empty_layer(&self) -> bool {
+        self.total_count == 0
+    }
+}
+
+/// Content for the deterministic `WishCube` id.
+#[derive(Serialize)]
+struct WishCubeContent<'a> {
+    wish_id: &'a Digest,
+    assessment_id: &'a Digest,
+    /// Per stratum `(rank, opacity_raw, met, total)` — sorted by rank, JCS-friendly.
+    layers: &'a Vec<(u8, i64, u32, u32)>,
+    overall_opacity_raw: i64,
+    structural_solidity_raw: i64,
+    evidence_bundle_id: &'a Digest,
+}
+
+/// A wish projected as a layered hypercube: the flat predicate set partitioned by
+/// render-stratum, each stratum carrying its own opacity (`ONE − distance`).
+///
+/// Strictly a richer *view* over the same facts [`assess_wish`] measures — the
+/// flat [`WishAssessment`] is preserved and linked by `assessment_id`. Two
+/// solidity scalars are exposed, for two honest questions:
+/// - `overall_opacity` — the weighted-mean opacity (`== ONE − the flat distance`),
+///   the same number the scalar trajectory tracks; kept for continuity.
+/// - `structural_solidity` — the **geometric** mean of the non-empty layers'
+///   opacities, so one hollow layer silences the ensemble ([`Q16::geomean`]'s
+///   soft-unanimity): the "you cannot be a solid diamond above a hollow layer"
+///   measure — what a flat scalar cannot see.
+///
+/// Invariants:
+/// - `id = SHA-256(JCS(content))` — INVARIANT-007
+/// - `evidence_bundle_id ≠ ZERO` — CROSS-006
+/// - every quantity ranks, nothing gates — CROSS-010
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WishCube {
+    pub id: Digest,
+    pub wish_id: Digest,
+    /// Links the embedded flat [`WishAssessment`] this cube is a view over.
+    pub assessment_id: Digest,
+    /// One view per stratum, ascending by [`WishLayer::rank`].
+    pub layers: Vec<WishLayerView>,
+    /// `ONE − flat distance` — continuity with the scalar Run-1 measurement.
+    pub overall_opacity: Q16,
+    /// Geometric mean of the non-empty layers' opacities (soft-unanimity).
+    pub structural_solidity: Q16,
+    pub evidence_bundle_id: Digest,
+}
+
+impl WishCube {
+    fn compute_id(&self) -> Digest {
+        let layers: Vec<(u8, i64, u32, u32)> = self
+            .layers
+            .iter()
+            .map(|l| (l.layer.rank(), l.opacity.raw(), l.met_count, l.total_count))
+            .collect();
+        Digest::of(&WishCubeContent {
+            wish_id: &self.wish_id,
+            assessment_id: &self.assessment_id,
+            layers: &layers,
+            overall_opacity_raw: self.overall_opacity.raw(),
+            structural_solidity_raw: self.structural_solidity.raw(),
+            evidence_bundle_id: &self.evidence_bundle_id,
+        })
+    }
+
+    pub fn verify_id(&self) -> bool {
+        self.id == self.compute_id()
+    }
+
+    /// CROSS-006.
+    pub fn is_evidence_bound(&self) -> bool {
+        self.evidence_bundle_id != Digest::ZERO
+    }
+
+    /// The view for a given stratum (always present — empty strata included).
+    pub fn layer(&self, layer: WishLayer) -> Option<&WishLayerView> {
+        self.layers.iter().find(|l| l.layer == layer)
+    }
+
+    /// The deepest stratum of the *contiguous solid base*, skipping empty
+    /// strata (nothing asked there does not block the print). `None` until the
+    /// lowest non-empty stratum is solid. This is "how high the print has set" —
+    /// the curriculum frontier the staged pipeline climbs.
+    pub fn solid_frontier(&self) -> Option<WishLayer> {
+        let mut frontier = None;
+        for l in &self.layers {
+            if l.is_empty_layer() {
+                continue;
+            }
+            if l.is_solid() {
+                frontier = Some(l.layer);
+            } else {
+                break;
+            }
+        }
+        frontier
+    }
+
+    /// A deeper non-empty stratum has started rendering (`met_count > 0`) while a
+    /// shallower non-empty stratum is not yet solid — a layer "floating" in
+    /// mid-air above an unset base (suspect an over-fit shell). Advisory only
+    /// (CROSS-010); it never un-meets the floating facet.
+    pub fn has_floating_layer(&self) -> bool {
+        let mut unsolid_below = false;
+        for l in &self.layers {
+            if l.is_empty_layer() {
+                continue;
+            }
+            if l.met_count > 0 && unsolid_below {
+                return true;
+            }
+            if !l.is_solid() {
+                unsolid_below = true;
+            }
+        }
+        false
+    }
+}
+
+/// Render a wish into its layered hypercube against an observed topology.
+///
+/// Reuses [`assess_wish`] for the flat measurement (so `overall_opacity` is
+/// *exactly* `ONE − distance`) and partitions the predicates by
+/// [`WishFacetKind::layer`] for the per-stratum opacities. Pure and
+/// deterministic: identical `(wish, observed, evidence_bundle_id)` produce a
+/// byte-identical [`WishCube`].
+pub fn assess_wish_layered(
+    wish: &Wish,
+    observed: &ObservedTopology,
+    evidence_bundle_id: Digest,
+) -> WishCube {
+    let assessment = assess_wish(wish, observed, evidence_bundle_id);
+
+    let layers: Vec<WishLayerView> = WishLayer::all()
+        .into_iter()
+        .map(|layer| {
+            let mut met_count = 0u32;
+            let mut total_count = 0u32;
+            let mut unmet_facets: Vec<WishFacet> = Vec::new();
+            // `wish.predicates` is sorted by facet, so `unmet_facets` stays sorted.
+            for p in &wish.predicates {
+                if p.facet.kind.layer() != layer {
+                    continue;
+                }
+                total_count += 1;
+                if observed.contains(&p.facet) {
+                    met_count += 1;
+                } else {
+                    unmet_facets.push(p.facet.clone());
+                }
+            }
+            let opacity = if total_count == 0 {
+                Q16::ZERO
+            } else {
+                Q16::ratio(met_count as u64, total_count as u64).unwrap_or(Q16::ZERO)
+            };
+            WishLayerView {
+                layer,
+                met_count,
+                total_count,
+                opacity,
+                unmet_facets,
+            }
+        })
+        .collect();
+
+    let overall_opacity = Q16::ONE.saturating_sub(assessment.distance);
+
+    // Geomean over the non-empty strata only: an empty stratum is "nothing
+    // asked," not a hollow zero, so it must not drag solidity to ZERO.
+    let solidities: Vec<Q16> = layers
+        .iter()
+        .filter(|l| !l.is_empty_layer())
+        .map(|l| l.opacity)
+        .collect();
+    let structural_solidity = if solidities.is_empty() {
+        Q16::ZERO
+    } else {
+        Q16::geomean(&solidities)
+    };
+
+    let mut cube = WishCube {
+        id: Digest::ZERO,
+        wish_id: wish.id,
+        assessment_id: assessment.id,
+        layers,
+        overall_opacity,
+        structural_solidity,
+        evidence_bundle_id,
+    };
+    cube.id = cube.compute_id();
+    cube
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -825,5 +1128,178 @@ mod tests {
         let w = sample_wish();
         let a = assess_wish(&w, &ObservedTopology::empty(), assess_bundle());
         assert_eq!(a.wish_id, w.id);
+    }
+
+    // ── Run 3: the layer ladder ───────────────────────────────────────────
+
+    #[test]
+    fn every_facet_kind_has_a_layer() {
+        use WishFacetKind::*;
+        let expect = [
+            (Crate, WishLayer::Existence),
+            (Module, WishLayer::Existence),
+            (Symbol, WishLayer::Existence),
+            (Capability, WishLayer::Existence),
+            (Resolution, WishLayer::Existence),
+            (Signature, WishLayer::Shape),
+            (Dependency, WishLayer::Shape),
+            (Doc, WishLayer::Shape),
+            (Contract, WishLayer::Wiring),
+            (Composition, WishLayer::Wiring),
+            (Test, WishLayer::Verified),
+            (Behavior, WishLayer::Verified),
+            (Run, WishLayer::Live),
+            (Service, WishLayer::Live),
+        ];
+        for (kind, layer) in expect {
+            assert_eq!(kind.layer(), layer, "{kind:?} should map to {layer:?}");
+        }
+    }
+
+    #[test]
+    fn layers_are_strictly_graded_existence_lowest_live_highest() {
+        assert!(WishFacetKind::Crate.layer() < WishFacetKind::Service.layer());
+        assert_eq!(WishLayer::all().len(), WISH_LAYER_COUNT);
+        let ranks: Vec<u8> = WishLayer::all().iter().map(|l| l.rank()).collect();
+        assert_eq!(ranks, vec![0, 1, 2, 3, 4], "ranks ascend with semantic depth");
+    }
+
+    #[test]
+    fn layer_does_not_follow_enum_declaration_order() {
+        // `Doc` is declared AFTER `Test` in WishFacetKind, yet is shallower.
+        assert!(WishFacetKind::Doc.layer() < WishFacetKind::Test.layer());
+        // Free-form tags declared early are still existence-level.
+        assert_eq!(WishFacetKind::Resolution.layer(), WishLayer::Existence);
+    }
+
+    // ── Run 3: WishCube (per-layer opacity) ───────────────────────────────
+
+    /// A wish spanning three strata: crate (Existence), contract (Wiring),
+    /// run probe (Live). Shape and Verified are left empty on purpose.
+    fn layered_wish() -> Wish {
+        Wish::new(
+            "a spanning wish",
+            [
+                WishPredicate::require(WishFacet::crate_("kosmo-api")),
+                WishPredicate::require(WishFacet::new(
+                    WishFacetKind::Contract,
+                    "handle(Request)->Response",
+                )),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Run, "ping=>out~pong")),
+            ],
+            policy_id(),
+            bundle_id(),
+        )
+    }
+
+    #[test]
+    fn cube_partitions_predicates_by_layer() {
+        let w = layered_wish();
+        let cube = assess_wish_layered(&w, &ObservedTopology::empty(), assess_bundle());
+        assert_eq!(cube.layers.len(), WISH_LAYER_COUNT);
+        assert_eq!(cube.layer(WishLayer::Existence).unwrap().total_count, 1);
+        assert_eq!(cube.layer(WishLayer::Wiring).unwrap().total_count, 1);
+        assert_eq!(cube.layer(WishLayer::Live).unwrap().total_count, 1);
+        assert!(cube.layer(WishLayer::Shape).unwrap().is_empty_layer());
+        assert!(cube.layer(WishLayer::Verified).unwrap().is_empty_layer());
+    }
+
+    #[test]
+    fn empty_observed_cube_is_fully_transparent() {
+        let cube = assess_wish_layered(&layered_wish(), &ObservedTopology::empty(), assess_bundle());
+        for l in &cube.layers {
+            assert_eq!(l.opacity, Q16::ZERO);
+        }
+        assert_eq!(cube.overall_opacity, Q16::ZERO);
+        assert_eq!(cube.structural_solidity, Q16::ZERO);
+        assert_eq!(cube.solid_frontier(), None);
+    }
+
+    #[test]
+    fn full_observed_cube_is_fully_solid() {
+        let w = layered_wish();
+        let observed =
+            ObservedTopology::from_facets(w.predicates.iter().map(|p| p.facet.clone()));
+        let cube = assess_wish_layered(&w, &observed, assess_bundle());
+        for l in &cube.layers {
+            if !l.is_empty_layer() {
+                assert!(l.is_solid());
+                assert_eq!(l.opacity, Q16::ONE);
+            }
+        }
+        assert_eq!(cube.overall_opacity, Q16::ONE);
+        assert_eq!(cube.structural_solidity, Q16::ONE);
+        assert_eq!(cube.solid_frontier(), Some(WishLayer::Live));
+        assert!(!cube.has_floating_layer());
+    }
+
+    #[test]
+    fn overall_opacity_equals_one_minus_flat_distance() {
+        let w = layered_wish();
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]);
+        let a = assess_wish(&w, &observed, assess_bundle());
+        let cube = assess_wish_layered(&w, &observed, assess_bundle());
+        assert_eq!(cube.overall_opacity, Q16::ONE.saturating_sub(a.distance));
+        assert_eq!(cube.assessment_id, a.id, "cube links the flat assessment");
+    }
+
+    #[test]
+    fn structural_solidity_is_silenced_by_one_hollow_layer() {
+        // Existence solid, Wiring + Live hollow → geomean ZERO, though the
+        // weighted-mean opacity is a healthy fraction.
+        let w = layered_wish();
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]);
+        let cube = assess_wish_layered(&w, &observed, assess_bundle());
+        assert_eq!(cube.layer(WishLayer::Existence).unwrap().opacity, Q16::ONE);
+        assert_eq!(
+            cube.structural_solidity,
+            Q16::ZERO,
+            "one hollow layer silences solidity"
+        );
+        assert!(
+            cube.overall_opacity.is_positive(),
+            "but the mean opacity is non-zero"
+        );
+    }
+
+    #[test]
+    fn floating_layer_detected_when_deep_renders_over_hollow_shallow() {
+        // Live met while Existence is hollow → a layer floating in mid-air.
+        let w = layered_wish();
+        let observed =
+            ObservedTopology::from_facets([WishFacet::new(WishFacetKind::Run, "ping=>out~pong")]);
+        let cube = assess_wish_layered(&w, &observed, assess_bundle());
+        assert!(cube.layer(WishLayer::Live).unwrap().met_count > 0);
+        assert!(!cube.layer(WishLayer::Existence).unwrap().is_solid());
+        assert!(cube.has_floating_layer());
+        assert_eq!(cube.solid_frontier(), None, "nothing solid at the base");
+    }
+
+    #[test]
+    fn cube_id_deterministic_and_verifies() {
+        let w = layered_wish();
+        let o = ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]);
+        let c1 = assess_wish_layered(&w, &o, assess_bundle());
+        let c2 = assess_wish_layered(&w, &o, assess_bundle());
+        assert_eq!(c1.id, c2.id);
+        assert!(c1.verify_id());
+    }
+
+    #[test]
+    fn cube_evidence_mandatory() {
+        let cube =
+            assess_wish_layered(&layered_wish(), &ObservedTopology::empty(), assess_bundle());
+        assert!(cube.is_evidence_bound());
+        assert_ne!(cube.evidence_bundle_id, Digest::ZERO);
+    }
+
+    #[test]
+    fn cube_is_failclosed_on_unrelated_facet() {
+        // An observed facet not in the wish never raises any opacity.
+        let w = layered_wish();
+        let observed = ObservedTopology::from_facets([WishFacet::crate_("totally-unrelated")]);
+        let cube = assess_wish_layered(&w, &observed, assess_bundle());
+        assert_eq!(cube.overall_opacity, Q16::ZERO);
+        assert_eq!(cube.structural_solidity, Q16::ZERO);
     }
 }

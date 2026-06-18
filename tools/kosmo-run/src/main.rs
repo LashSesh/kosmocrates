@@ -30,6 +30,7 @@ mod pruefstand;
 mod realize_bench;
 mod reforge;
 mod steward;
+mod traverse_bridge;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,19 +39,22 @@ use std::sync::Arc;
 
 use kosmo_agent::{AgentOptions, AgentRunReport, AgentSession, CargoFoundryValidator};
 use kosmo_core::{
-    assess_wish, Digest, FoundryCheckKind, FoundryCheckSpec, FoundryCommandPolicy,
-    FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan, FoundryOutcome,
-    FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult, KcubeArtifactKind,
-    KcubeExportPolicy, KcubeWriteOutcome, ParseBackScanScope, PolicyProfile, StageStanding,
-    VentureSession, Wish, WishAssessment, WishClosureStatus, WishFacet, WishFacetKind, Q16,
+    assess_wish, assess_wish_layered, depends_on, Digest, FoundryCheckKind, FoundryCheckSpec,
+    FoundryCommandPolicy, FoundryEnvironmentPolicy, FoundryExecutionOutcome, FoundryExecutionPlan,
+    FoundryOutcome, FoundrySandboxKind, FoundrySandboxSpec, FoundryTimeoutPolicy, GateResult,
+    KcubeArtifactKind, KcubeExportPolicy, KcubeWriteOutcome, ObservedTopology, ParseBackScanScope,
+    PolicyProfile, PrecedenceOrder, RenderAnomaly, StagedClosureReport, StageStanding,
+    StratumClosure, VentureSession, Wish, WishAssessment, WishClosureStatus, WishCube, WishFacet,
+    WishFacetKind, WishLayer, Q16,
 };
 use kosmo_foundry::FoundryExecutor;
 use kosmo_hyphae::codematrix::CodeMatrixFingerprint;
 use kosmo_hyphae::{
-    promotable, FacetBundleObservation, NormInjectionSpec, NormLearningConfig, SourceLanguage,
+    promotable, CrossLanguageFingerprint, FacetBundleObservation, NormInjectionSpec,
+    NormLearningConfig, SourceLanguage,
 };
 use kosmo_intent::{
-    companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms,
+    companion_suggestions, compile_venture, compile_wish, compile_wish_with_norms, CubeMeshReading,
     is_reserved_wish_word, observe_workspace_deep, observe_workspace_runtime,
     observe_workspace_runtime_diag, observe_workspace_service, observe_workspace_service_diag,
     observe_workspace_validated, parse_atelier_command, AtelierCommand, ChatIntent, DraftSlot,
@@ -67,6 +71,7 @@ use kosmo_pipeline::{
 use kosmo_pse_bridge::MemoryRecall;
 use kosmo_sandbox::{RunSpec, Sandbox};
 use kosmo_store::NormStore;
+use kosmo_synthesizer::consensus::{ConsensusConfig, ResonanceReading};
 use kosmo_synthesizer::{
     ActionSynthesizer, ContextualSynthesizer, FacetScaffolder, FileChangeKind, GroundedSynthesizer,
     MockSynthesizer, SourceSnippet, SynthesisRequest,
@@ -99,10 +104,55 @@ struct Args {
     wish: Option<String>,
     scaffold: bool,
     validated: bool,
+    /// Render the wish as a layered hypercube whose strata fill from transparent
+    /// to solid (Run 3). A modifier on `--wish`; with `--apply`, one render block
+    /// per descent iteration — the 3-D-printer film.
+    layers: bool,
+    /// Drive the descent as a staged closure pipeline (Solve→Gate→Coagula),
+    /// solidifying stratum by stratum bottom-up (Run 4). Implies `--layers`.
+    staged: bool,
+    /// Mesh the wish-cube against the workspace's real SystemCube D-Density
+    /// (Run 8): the two gears — wish solidity vs. topology density — read
+    /// side by side, surfacing over-fit (wish solid, topology sparse).
+    mesh: bool,
+    /// Opt out of the graduated default human render (Run 10): print only the
+    /// terse verdict — the flat assessment (read-only) or the descent summary
+    /// (`--apply`) — without the layered hypercube, Konus focus, or staged film.
+    /// Human render only; the `--json` machine contract is unaffected.
+    flat: bool,
+    /// Stufe 1 — close the loop: arm the honesty grade as a *gate* (Run 9–12 made
+    /// it advisory). With `--insist`, a realized wish whose deepest met stratum is
+    /// *earned* (Verified/Live) yet stands over a sparse topology — an over-fit
+    /// suspect, a possible hologram — is **not accepted** (distinct exit 3). A
+    /// modifier on `--wish`; default off, so the established path is byte-identical.
+    insist: bool,
+    /// Stufe 2 (first brick) — render the wish's *latent* architecture graph as a
+    /// foundations-first blueprint: every facet a node, every `depends_on`
+    /// relation an edge. A read-only `--wish` render modifier; reveals the city
+    /// plan already implicit in the facet keys. Advisory.
+    blueprint: bool,
+    /// Stufe 2 (brick 48) — the bridge to `pse-traverse`: transform the
+    /// architecture into a `ProblemSpec` and render the deterministic,
+    /// foundations-first *collapse plan* to realize it, plus any facet formally
+    /// wished but operationally unreachable (a path excision). A `--wish`/
+    /// `--wishlist` modifier; advisory.
+    plan: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
     wish_session: Option<String>,
+    /// Path to a prior session (a `--wish-session` snapshot) to measure against:
+    /// `--since <path>` renders what moved for this wish — facets newly met,
+    /// newly broken, still missing — the regression/progress view (Run 13).
+    /// Human render only, read-only; the baseline must be the same wish.
+    since: Option<String>,
+    /// Path to a wishlist file — many prose wishes (one per non-`#` line) measured
+    /// against the workspace as a project's definition-of-done, into an aggregate
+    /// realization gauge (Run 15). Its own read-only mode; exclusive with --wish.
+    wishlist: Option<String>,
+    /// Print the wish vocabulary — the prose forms for each stratum, by example
+    /// (Run 30). A standalone informational mode; needs no workspace.
+    vocab: bool,
     /// Run the empirical Prüfstand: descend a reference corpus of known-good
     /// (and deliberately broken) systems and report the fidelity.
     pruefstand: bool,
@@ -189,6 +239,10 @@ struct Args {
     /// Codematrix door: per-source 5D fingerprints + most resonant pairs
     /// (advisory — ranks, never gates).
     codematrix: bool,
+    alchemy: bool,
+    behaviour: bool,
+    threshold: Option<f64>,
+    certify: bool,
     /// Steward mode: self-husbandry — survey the workspace's own landscape
     /// and, under --apply, descend the open chores inside the fence.
     steward: bool,
@@ -221,8 +275,18 @@ impl Default for Args {
             wish: None,
             scaffold: false,
             validated: false,
+            layers: false,
+            insist: false,
+            blueprint: false,
+            plan: false,
+            staged: false,
+            mesh: false,
+            flat: false,
             provider_set: false,
             wish_session: None,
+            since: None,
+            wishlist: None,
+            vocab: false,
             pruefstand: false,
             ledger: None,
             ground_top: 5,
@@ -254,6 +318,10 @@ impl Default for Args {
             parseback_baseline: None,
             kcube: None,
             codematrix: false,
+            alchemy: false,
+            behaviour: false,
+            threshold: None,
+            certify: false,
             steward: false,
             fence: None,
             steward_max: 0,
@@ -291,9 +359,41 @@ OPTIONS:\n\
                           (run probes accept a tail budget: \"hi=>out~hi,ms<50\"\n\
                           — the program must answer AND stay under 50ms)\n\
     --scaffold            also print the file changes that would close the gap\n\
+    --layers              render the wish as a hypercube: 5 strata whose opacity\n\
+                          fills from transparent to solid (Run 3; a --wish modifier)\n\
+    --staged              descend as a staged closure pipeline (Solve\u{2192}Gate\u{2192}\n\
+                          Coagula), solidifying stratum by stratum bottom-up\n\
+                          (Run 4; implies --layers)\n\
+    --mesh                read the two gears: wish solidity vs. the workspace's\n\
+                          observed structural density \u{2014} surfaces over-fit (Run 8)\n\
+    --flat                opt out of the default cube view: print only the terse\n\
+                          verdict, no layered hypercube/Konus/staged film (Run 10)\n\
+    --insist              close the loop: arm the honesty grade as a gate \u{2014} a\n\
+                          realized-but-suspect wish (a possible hologram) is NOT\n\
+                          accepted (exit 3). A --wish modifier; default off.\n\
+    --blueprint           render the wish's architecture graph foundations-first\n\
+                          (every facet a node, every depends-on an edge) \u{2014} the\n\
+                          city plan implicit in the facets. With --wishlist, reads\n\
+                          the whole file as ONE architecture. A --wish modifier.\n\
+    --plan                bridge the architecture into pse-traverse and render the\n\
+                          deterministic, foundations-first collapse plan to realize\n\
+                          it, plus any facet operationally unreachable (excised). A\n\
+                          --wish/--wishlist modifier; advisory.\n\
+    --vocab               print the wish vocabulary: the prose forms for each\n\
+                          stratum, by example \u{2014} how to phrase a wish (Run 30)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
                           if <path> already exists and matches the wish, resume\n\
                           from the prior session (auditable, replayable)\n\
+    --since <path>        measure against a prior --wish-session snapshot: render\n\
+                          what moved \u{2014} facets gained, regressed, still missing\n\
+                          (Run 13; read-only, same wish required)\n\
+    --wishlist <path>     measure a file of prose wishes (one per line, # comments)\n\
+                          against the workspace as a project definition-of-done;\n\
+                          aggregate gauge, exit 0 only if all realized (Run 15);\n\
+                          --scaffold previews the closure plan, --apply builds it\n\
+                          (Run 18/20); pair with --since <reading> (a prior --json\n\
+                          snapshot) for the project delta, exiting 2 on a regression\n\
+                          (Run 16)\n\
 \n\
     (wish + --apply descends: scaffold \u{2192} write \u{2192} re-observe until\n\
      realized; add --provider to let the LLM build facets the scaffolder can't)\n\
@@ -451,7 +551,20 @@ OPTIONS:\n\
                           silent overwrite). Exit 8 if not written.\n\
     --codematrix          per-source 5D fingerprints (relationality, cohesion,\n\
                           topology, symmetry, entropy) + most resonant pairs.\n\
-                          Advisory: ranks, never gates.\n\n\
+                          Advisory: ranks, never gates.\n\
+    --alchemy             the combine lab: seed structural elements from the\n\
+                          workspace, drive combine() to a fixpoint, report the\n\
+                          discovered catalog + frontier. Advisory.\n\
+    --certify             arm the validity gate for --alchemy: an element must\n\
+                          define substance (functions/types), not be pure\n\
+                          scaffolding (imports/tests) \u{2014} novel AND valid.\n\
+    --threshold <0..1>    novelty resolution for --alchemy; structural\n\
+                          similarity cutoff for --behaviour (default 0.90).\n\
+    --behaviour           the behavioural lattice: combine real runnable\n\
+                          functions by executed composition, dedup by\n\
+                          observational equality, and bridge back to structure\n\
+                          (synonyms + false friends). Workspace-independent.\n\
+                          --certify arms the informativeness gate. Advisory.\n\n\
 ENVIRONMENT:\n\
     ANTHROPIC_API_KEY / CEREBRAS_API_KEY / KOSMO_LLM_API_KEY   provider key\n\
     ANTHROPIC_MODEL / CEREBRAS_MODEL / KOSMO_LLM_MODEL         model override\n\
@@ -515,9 +628,26 @@ fn parse_args() -> Result<Option<Args>, String> {
             }
             "--scaffold" => args.scaffold = true,
             "--validated" => args.validated = true,
+            "--layers" => args.layers = true,
+            "--staged" => {
+                args.staged = true;
+                args.layers = true; // staged descent always renders its strata
+            }
+            "--mesh" => args.mesh = true,
+            "--flat" => args.flat = true,
+            "--insist" => args.insist = true,
+            "--blueprint" => args.blueprint = true,
+            "--plan" => args.plan = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
+            "--since" => {
+                args.since = Some(argv.next().ok_or("--since needs a value")?);
+            }
+            "--wishlist" => {
+                args.wishlist = Some(argv.next().ok_or("--wishlist needs a file path")?);
+            }
+            "--vocab" => args.vocab = true,
             "--pruefstand" | "--testbench" => args.pruefstand = true,
             "--swarm" => {
                 args.swarm = argv
@@ -618,6 +748,13 @@ fn parse_args() -> Result<Option<Args>, String> {
                 args.kcube = Some(argv.next().ok_or("--kcube needs an output directory")?);
             }
             "--codematrix" => args.codematrix = true,
+            "--alchemy" => args.alchemy = true,
+            "--behaviour" => args.behaviour = true,
+            "--certify" => args.certify = true,
+            "--threshold" => {
+                let v = argv.next().ok_or("--threshold needs a value in 0..=1")?;
+                args.threshold = Some(v.parse().map_err(|_| "--threshold must be a number")?);
+            }
             "--steward" => args.steward = true,
             "--fence" => {
                 args.fence = Some(argv.next().ok_or("--fence needs facet classes")?);
@@ -2635,24 +2772,138 @@ fn run_kcube_mode(args: &Args) -> Result<ExitCode, String> {
     })
 }
 
+/// One source's two fingerprints, collected in a single walk: the 5-axis
+/// `CodeMatrixFingerprint` (shape) and the language-INDEPENDENT
+/// `CrossLanguageFingerprint` (structural densities, CROSS-007), with the
+/// detected language.
+struct SourcePrint {
+    loc: String,
+    matrix: CodeMatrixFingerprint,
+    lang: SourceLanguage,
+    xlang: CrossLanguageFingerprint,
+}
+
+/// The cross-language reading: how strongly the structural fingerprint agrees
+/// *across* language boundaries (the operator's "same structure in any language →
+/// the same point"), plus the most equivalent cross-language pair.
+struct CrossReading {
+    agreement: f64,
+    languages: usize,
+    top: Option<(String, &'static str, String, &'static str, f64)>,
+}
+
+/// Mean `CrossLanguageFingerprint` similarity over pairs of sources in *different*
+/// languages (bounded, deterministic). `None` unless ≥2 languages and 2..=64
+/// sources are present — the language-independent agreement only means something
+/// across a boundary.
+fn cross_language_agreement(prints: &[SourcePrint]) -> Option<CrossReading> {
+    if !(2..=64).contains(&prints.len()) {
+        return None;
+    }
+    let distinct: std::collections::BTreeSet<&str> =
+        prints.iter().map(|sp| sp.lang.as_str()).collect();
+    if distinct.len() < 2 {
+        return None;
+    }
+    let mut sum = 0.0f64;
+    let mut count = 0u32;
+    let mut top: Option<(usize, usize, f64)> = None;
+    for i in 0..prints.len() {
+        for j in (i + 1)..prints.len() {
+            if prints[i].lang == prints[j].lang {
+                continue;
+            }
+            let sim = prints[i].xlang.similarity(&prints[j].xlang).to_f64();
+            sum += sim;
+            count += 1;
+            if top.is_none_or(|(_, _, best)| sim > best) {
+                top = Some((i, j, sim));
+            }
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+    let top = top.map(|(i, j, sim)| {
+        (
+            prints[i].loc.clone(),
+            prints[i].lang.as_str(),
+            prints[j].loc.clone(),
+            prints[j].lang.as_str(),
+            sim,
+        )
+    });
+    Some(CrossReading {
+        agreement: sum / f64::from(count),
+        languages: distinct.len(),
+        top,
+    })
+}
+
 /// `--codematrix`: the 5D fingerprint lens as a door — per-source axes
 /// (relationality, functional cohesion, topology, symmetry, entropy) and
 /// the most resonant pairs. Strictly advisory: it ranks, it never gates
 /// (CROSS-010); the floats below are display-only.
 fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
     let root = Path::new(&args.path);
-    let mut prints: Vec<(String, CodeMatrixFingerprint)> = Vec::new();
+    let mut prints: Vec<SourcePrint> = Vec::new();
     collect_fingerprints(root, root, 0, &mut prints);
-    prints.sort_by(|a, b| a.0.cmp(&b.0));
+    prints.sort_by(|a, b| a.loc.cmp(&b.loc));
+
+    // Run 37 — the holistic polyglot cube: every per-source code-cube (any of the
+    // recognized languages, via `from_auto`) pooled into ONE by the axis-wise mean
+    // — a language-blind centroid — plus the homogeneity of the whole (mean
+    // pairwise resonance: how unified the topology is). "All languages compressed
+    // into one holistic cube, the topology homogenized into an optimum." Advisory.
+    let holistic: Option<[f64; 5]> = (!prints.is_empty()).then(|| {
+        let n = prints.len() as f64;
+        let mut sums = [0.0f64; 5];
+        for sp in &prints {
+            for (k, a) in sp.matrix.axes().iter().enumerate() {
+                sums[k] += a.to_f64();
+            }
+        }
+        sums.map(|s| s / n)
+    });
+    let pairs: Vec<(Q16, &str, &str)> = if (2..=64).contains(&prints.len()) {
+        let mut p = Vec::new();
+        for i in 0..prints.len() {
+            for j in (i + 1)..prints.len() {
+                p.push((
+                    prints[i].matrix.resonance(&prints[j].matrix),
+                    prints[i].loc.as_str(),
+                    prints[j].loc.as_str(),
+                ));
+            }
+        }
+        p.sort_by(|a, b| b.0.raw().cmp(&a.0.raw()).then(a.1.cmp(b.1)));
+        p
+    } else {
+        Vec::new()
+    };
+    let homogeneity: Option<f64> = (!pairs.is_empty())
+        .then(|| pairs.iter().map(|(r, _, _)| r.to_f64()).sum::<f64>() / pairs.len() as f64);
+    // Run 38 — the language-INDEPENDENT structural agreement across languages.
+    let cross = cross_language_agreement(&prints);
+
     if args.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "sources": prints.iter().map(|(loc, fp)| serde_json::json!({
-                    "location": loc,
-                    "axes_raw": fp.axes().map(|q| q.raw()),
-                    "richness_raw": fp.richness().raw(),
+                "sources": prints.iter().map(|sp| serde_json::json!({
+                    "location": sp.loc,
+                    "language": sp.lang.as_str(),
+                    "axes_raw": sp.matrix.axes().map(|q| q.raw()),
+                    "richness_raw": sp.matrix.richness().raw(),
                 })).collect::<Vec<_>>(),
+                "holistic": holistic.map(|h| serde_json::json!({
+                    "axes": h,
+                    "homogeneity": homogeneity,
+                })),
+                "cross_language": cross.as_ref().map(|cr| serde_json::json!({
+                    "agreement": cr.agreement,
+                    "languages": cr.languages,
+                })),
             }))
             .map_err(|e| e.to_string())?
         );
@@ -2672,10 +2923,11 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
         "  {} source(s) \u{b7} axes: relationality \u{b7} cohesion \u{b7} topology \u{b7} symmetry \u{b7} entropy",
         prints.len()
     );
-    for (loc, fp) in &prints {
-        let [r, f, t, s, e] = fp.axes();
+    for sp in &prints {
+        let [r, f, t, s, e] = sp.matrix.axes();
         println!(
-            "  {loc}  r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}",
+            "  {}  r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}",
+            sp.loc,
             r.to_f64(),
             f.to_f64(),
             t.to_f64(),
@@ -2683,18 +2935,7 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
             e.to_f64()
         );
     }
-    if prints.len() >= 2 && prints.len() <= 64 {
-        let mut pairs: Vec<(Q16, &str, &str)> = Vec::new();
-        for i in 0..prints.len() {
-            for j in (i + 1)..prints.len() {
-                pairs.push((
-                    prints[i].1.resonance(&prints[j].1),
-                    prints[i].0.as_str(),
-                    prints[j].0.as_str(),
-                ));
-            }
-        }
-        pairs.sort_by(|a, b| b.0.raw().cmp(&a.0.raw()).then(a.1.cmp(b.1)));
+    if !pairs.is_empty() {
         println!("  most resonant pairs:");
         for (res, a, b) in pairs.iter().take(5) {
             println!("    {:.2}  {a} \u{2194} {b}", res.to_f64());
@@ -2706,17 +2947,331 @@ fn run_codematrix_mode(args: &Args) -> Result<ExitCode, String> {
             c(RESET)
         );
     }
+    // The holistic polyglot cube — all sources homogenized into one.
+    if let Some([r, f, t, s, e]) = holistic {
+        let homo = match homogeneity {
+            Some(h) => format!(" \u{00b7} homogeneity {h:.2}"),
+            None => String::new(),
+        };
+        println!(
+            "  {}\u{2299} holistic cube (all {} sources, language-blind): r={:.2} f={:.2} t={:.2} s={:.2} e={:.2}{}{}",
+            c(CYAN),
+            prints.len(),
+            r,
+            f,
+            t,
+            s,
+            e,
+            homo,
+            c(RESET)
+        );
+    }
+    // Run 38 — the cross-language agreement: the same structure recognized across
+    // language boundaries (the operator's "same behaviour anywhere → one point").
+    if let Some(cr) = &cross {
+        let top = cr
+            .top
+            .as_ref()
+            .map(|(al, alg, bl, blg, sim)| {
+                format!("  \u{00b7} top {al} ({alg}) \u{2261} {bl} ({blg}) {sim:.2}")
+            })
+            .unwrap_or_default();
+        println!(
+            "  {}\u{2726} cross-language structural agreement ({} languages): {:.2}{}{}",
+            c(CYAN),
+            cr.languages,
+            cr.agreement,
+            top,
+            c(RESET)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `--alchemy`: the combine lab as a door. Seed the inventory from the
+/// workspace's source-level structural elements — deduped by the CROSS-007
+/// novelty gate, so equivalent sources (any language) collapse to one — then
+/// drive [`kosmo_hyphae::alchemy::combine`] to a fixpoint and report the
+/// discovered catalog. The operator's "Doodle God" laboratory, over real code.
+/// Advisory: it discovers reachable structural *profiles*, it never gates. Falls
+/// back to the four primitives when no source is fingerprintable.
+fn run_alchemy_mode(args: &Args) -> Result<ExitCode, String> {
+    use kosmo_hyphae::alchemy::{self, Element, Inventory, StructuralCounts};
+    let root = Path::new(&args.path);
+    let mut prints: Vec<SourcePrint> = Vec::new();
+    collect_fingerprints(root, root, 0, &mut prints);
+
+    let thr_f = args.threshold.unwrap_or(0.9).clamp(0.0, 1.0);
+    let threshold = Q16::ratio((thr_f * 10_000.0).round() as u64, 10_000).unwrap_or(Q16::ONE);
+
+    let from_workspace = !prints.is_empty();
+    // An element per source — counts recovered from the fingerprint's densities
+    // and structural total (CROSS-007); empty sources fold to nothing.
+    let seeds: Vec<Element> = if from_workspace {
+        prints
+            .iter()
+            .map(|sp| {
+                let total = sp.xlang.structural_count;
+                let n = |d: Q16| (d.to_f64() * total as f64).round() as u64;
+                Element::new(
+                    sp.loc.clone(),
+                    StructuralCounts {
+                        functions: n(sp.xlang.function_density),
+                        types: n(sp.xlang.type_density),
+                        imports: n(sp.xlang.import_density),
+                        tests: n(sp.xlang.test_density),
+                    },
+                )
+            })
+            .collect()
+    } else {
+        alchemy::primitives()
+    };
+
+    let sources_seen = prints.len();
+    let mut inv = Inventory::new(threshold).with_validity_gate(args.certify);
+    for seed in seeds {
+        inv.admit(seed);
+    }
+    let distinct = inv.len();
+    let discovered = inv.saturate(32, 4096);
+    let total = inv.len();
+    let rejected = inv.invalid_rejections();
+    let fixpoint = {
+        let mut probe = inv.clone();
+        probe.expand_once() == 0
+    };
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "seeded_from": if from_workspace { "workspace" } else { "primitives" },
+                "sources_seen": sources_seen,
+                "distinct_elements": distinct,
+                "discovered": discovered,
+                "catalog": total,
+                "threshold": thr_f,
+                "certify": args.certify,
+                "invalid_rejections": rejected,
+                "fixpoint": fixpoint,
+                "elements": inv.elements().iter().take(64).map(|e| {
+                    let [f, t, i, x] = e.counts.densities();
+                    serde_json::json!({
+                        "name": e.name,
+                        "densities": [f.to_f64(), t.to_f64(), i.to_f64(), x.to_f64()],
+                        "total": e.counts.total(),
+                    })
+                }).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let c = |code: &'static str| if args.color { code } else { "" };
+    println!(
+        "{}Kosmocrates alchemy \u{2014} the combine lab (advisory){}",
+        c(BOLD),
+        c(RESET)
+    );
+    if from_workspace {
+        println!(
+            "  seeded from {sources_seen} workspace source(s) \u{2192} {distinct} distinct structural element(s) (threshold {thr_f:.2})"
+        );
+    } else {
+        println!(
+            "  no fingerprintable source under {} \u{2014} seeded from {} primitives (threshold {:.2})",
+            args.path, distinct, thr_f
+        );
+    }
+    if args.certify {
+        println!(
+            "  {}validity gate armed{} \u{2014} an element must define substance (functions/types), not pure scaffolding",
+            c(GREEN),
+            c(RESET)
+        );
+    }
+    let close = if fixpoint {
+        "fixpoint reached"
+    } else {
+        "bounded (cap/rounds)"
+    };
+    let rejected_note = if args.certify {
+        format!(" \u{b7} {rejected} rejected invalid")
+    } else {
+        String::new()
+    };
+    println!(
+        "  {}\u{2728} combine \u{2192} {} discoveries \u{b7} catalog {} element(s){} \u{b7} {}{}",
+        c(CYAN),
+        discovered,
+        total,
+        rejected_note,
+        close,
+        c(RESET)
+    );
+    println!("  elements (axes: function \u{b7} type \u{b7} import \u{b7} test):");
+    for e in inv.elements().iter().take(16) {
+        let [f, t, i, x] = e.counts.densities();
+        let name: String = if e.name.chars().count() > 56 {
+            format!("{}\u{2026}", e.name.chars().take(56).collect::<String>())
+        } else {
+            e.name.clone()
+        };
+        println!(
+            "    {:.2} {:.2} {:.2} {:.2}  {}",
+            f.to_f64(),
+            t.to_f64(),
+            i.to_f64(),
+            x.to_f64(),
+            name
+        );
+    }
+    if inv.len() > 16 {
+        println!(
+            "    {}\u{2026} and {} more{}",
+            c(DIM),
+            inv.len() - 16,
+            c(RESET)
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `--behaviour`: the behavioural lattice — the executed maximum. Combine real
+/// runnable functions by composition (genuinely run over the finite domain),
+/// dedup by observational equality, saturate to the generated transformation
+/// monoid, then bridge back to structure: the synonyms execution collapsed
+/// (different code, one behaviour — the structural proxy under-merges) and the
+/// false friends it would over-merge (similar shape, different behaviour).
+/// Workspace-independent — a closed, total value-algebra, never host code.
+fn run_behaviour_mode(args: &Args) -> Result<ExitCode, String> {
+    use kosmo_hyphae::behaviour::{generators, Monoid, DOMAIN};
+
+    let tau_f = args.threshold.unwrap_or(0.9).clamp(0.0, 1.0);
+    let tau = Q16::ratio((tau_f * 10_000.0).round() as u64, 10_000).unwrap_or(Q16::ONE);
+
+    let mut m = Monoid::seeded(generators(), args.certify);
+    let seeded = m.len();
+    let discovered = m.saturate(64, 4096);
+    let total = m.len();
+    let explored = m.explored();
+    let synonyms = m.synonyms();
+    let rejected = m.rejected_constant();
+    let (false_friends, pairs) = m.false_friends(tau);
+    let fixpoint = {
+        let mut probe = m.clone();
+        probe.expand_once() == 0
+    };
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "domain": DOMAIN,
+                "generators": seeded,
+                "discovered": discovered,
+                "monoid": total,
+                "explored": explored,
+                "synonyms": synonyms,
+                "certify": args.certify,
+                "rejected_constant": rejected,
+                "structural_threshold": tau_f,
+                "false_friends": false_friends,
+                "pairs": pairs,
+                "fixpoint": fixpoint,
+                "behaviours": m.elements().iter().take(64).map(|b| {
+                    serde_json::json!({ "name": b.name, "table": b.table.to_vec() })
+                }).collect::<Vec<_>>(),
+            }))
+            .map_err(|e| e.to_string())?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let c = |code: &'static str| if args.color { code } else { "" };
+    println!(
+        "{}Kosmocrates behaviour \u{2014} the executed lattice (advisory){}",
+        c(BOLD),
+        c(RESET)
+    );
+    println!(
+        "  domain D = {{0..{}}} \u{b7} {} generators \u{2192} executed composition",
+        DOMAIN - 1,
+        seeded
+    );
+    if args.certify {
+        println!(
+            "  {}informativeness gate armed{} \u{2014} a constant transmits nothing (the behavioural void)",
+            c(GREEN),
+            c(RESET)
+        );
+    }
+    let close = if fixpoint {
+        "monoid closed (fixpoint)"
+    } else {
+        "bounded (cap/rounds)"
+    };
+    let rej = if args.certify {
+        format!(" \u{b7} {rejected} constants rejected")
+    } else {
+        String::new()
+    };
+    println!(
+        "  {}\u{2728} {} compositions executed \u{2192} {} distinct behaviours{} \u{b7} {}{}",
+        c(CYAN),
+        explored,
+        total,
+        rej,
+        close,
+        c(RESET)
+    );
+    println!(
+        "  {}bridge to structure (executed ground truth):{}",
+        c(BOLD),
+        c(RESET)
+    );
+    println!(
+        "    {}\u{2261} synonyms{}: {} compositions collapsed onto a held behaviour \u{2014} \
+         different code, one behaviour (the proxy under-merges)",
+        c(DIM),
+        c(RESET),
+        synonyms
+    );
+    println!(
+        "    {}\u{2248} false friends{}: {} of {} pairs are structurally \u{2265} {:.2} yet behave \
+         differently (the proxy over-merges)",
+        c(DIM),
+        c(RESET),
+        false_friends,
+        pairs,
+        tau_f
+    );
+    println!("  behaviours (table over 0..{}):", DOMAIN - 1);
+    for b in m.elements().iter().take(8) {
+        let name: String = if b.name.chars().count() > 28 {
+            format!("{}\u{2026}", b.name.chars().take(28).collect::<String>())
+        } else {
+            b.name.clone()
+        };
+        let table: Vec<String> = b.table.iter().map(|v| v.to_string()).collect();
+        println!("    {:<29} [{}]", name, table.join(" "));
+    }
+    if m.len() > 8 {
+        println!(
+            "    {}\u{2026} and {} more{}",
+            c(DIM),
+            m.len() - 8,
+            c(RESET)
+        );
+    }
     Ok(ExitCode::SUCCESS)
 }
 
 /// Bounded, deterministic source walk for the codematrix lens (the same
 /// skip list as the language detector; entries sorted; capped).
-fn collect_fingerprints(
-    base: &Path,
-    dir: &Path,
-    depth: u32,
-    out: &mut Vec<(String, CodeMatrixFingerprint)>,
-) {
+fn collect_fingerprints(base: &Path, dir: &Path, depth: u32, out: &mut Vec<SourcePrint>) {
     const SKIP: &[&str] = &[
         ".git",
         "target",
@@ -2750,21 +3305,24 @@ fn collect_fingerprints(
                 .unwrap_or(&p)
                 .to_string_lossy()
                 .into_owned();
-            if SourceLanguage::from_path(&loc).is_none() {
+            let Some(lang) = SourceLanguage::from_path(&loc) else {
                 continue;
-            }
+            };
             let Ok(content) = fs::read_to_string(&p) else {
                 continue;
             };
             if content.len() > 512 * 1024 {
                 continue;
             }
-            if let Some(fp) = CodeMatrixFingerprint::from_auto(
-                Digest::of_bytes(content.as_bytes()),
-                &loc,
-                &content,
-            ) {
-                out.push((loc, fp));
+            let ev = Digest::of_bytes(content.as_bytes());
+            if let Some(matrix) = CodeMatrixFingerprint::from_auto(ev, &loc, &content) {
+                let xlang = CrossLanguageFingerprint::from_source(lang, ev, &content);
+                out.push(SourcePrint {
+                    loc,
+                    matrix,
+                    lang,
+                    xlang,
+                });
             }
         }
     }
@@ -2935,6 +3493,766 @@ fn record_norm_observation(
     }
 }
 
+/// One wish's standing in a wishlist measurement (Run 15) — the machine row.
+/// Carries the content-addressed `wish_id` so a reading can be a baseline that a
+/// later `--since` matches against (Run 16), even if the prose is re-edited.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct WishlistEntry {
+    wish_id: Digest,
+    wish: String,
+    realized: bool,
+    /// Realized, but an over-fit suspect (a deep claim over a sparse topology) —
+    /// the project gauge's honesty flag (Run 17). Defaulted for old baselines.
+    #[serde(default)]
+    suspect: bool,
+    met: u32,
+    total: u32,
+}
+
+/// A whole wishlist measured against the workspace: the aggregate project gauge,
+/// and — once persisted via `--json` — the baseline a later run diffs against.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct WishlistReading {
+    realized: usize,
+    total: usize,
+    wishes: Vec<WishlistEntry>,
+}
+
+fn is_realized(status: &WishClosureStatus) -> bool {
+    matches!(
+        status,
+        WishClosureStatus::Realized | WishClosureStatus::Vacuous
+    )
+}
+
+/// How an unmet wish can be closed (Run 22): the offline scaffolder can erect
+/// declarative facets (existence/shape/wiring), but a Verified/Live facet needs
+/// execution *evidence* — a passing test or a running program — which only a
+/// provider (or a real implementation) can supply. Honest triage for "what will
+/// --apply do for me?"; `""` when nothing is unmet.
+fn closure_hint(unmet: &[WishFacet]) -> &'static str {
+    if unmet.is_empty() {
+        return "";
+    }
+    let needs_evidence = unmet
+        .iter()
+        .any(|f| f.kind.layer().rank() >= kosmo_core::WishLayer::Verified.rank());
+    if needs_evidence {
+        "needs evidence (a passing test/run)"
+    } else {
+        "scaffoldable offline"
+    }
+}
+
+/// Damerau edit distance (optimal string alignment) over chars — deterministic.
+/// Counts an *adjacent transposition* as one edit (the commonest typo: `stoer`→
+/// `store`, `enigne`→`engine`), so near-misses survive a tight threshold even on
+/// short names. Used only to spot near-miss names (Run 23); keys are short.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut d = vec![vec![0usize; m + 1]; n + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=n {
+        for j in 1..=m {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            let mut v = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                v = v.min(d[i - 2][j - 2] + 1);
+            }
+            d[i][j] = v;
+        }
+    }
+    d[n][m]
+}
+
+/// The nearest *existing* structure of the same kind to an unmet facet's key —
+/// the "did you mean?" candidate (Runs 23/25). Two near-miss families:
+///
+/// - a **typo / naming drift**, within a length-scaled Damerau threshold; and
+/// - a **format near-miss** (Run 25): the observed key is the wished key plus a
+///   format suffix — a signature's `name/arity`, a contract's `name(..)->R`. The
+///   user keyed the stem (`add`); the workspace keys the full form (`add/2`).
+///   Treated as the closest possible match (distance 0), bridging the keying gap.
+///
+/// Deterministic: minimum distance, ties broken lexicographically. `None` when
+/// nothing is close (a genuine gap, not a typo or a format mismatch).
+fn nearest_existing(facet: &WishFacet, observed: &ObservedTopology) -> Option<String> {
+    let key = &facet.key;
+    let len = key.chars().count();
+    let threshold = (len / 3).max(1);
+    let mut best: Option<(usize, String)> = None;
+    for f in observed.facets() {
+        if f.kind != facet.kind || f.key == *key {
+            continue;
+        }
+        let stem = f.key.split(['/', '(']).next().unwrap_or(f.key.as_str());
+        let d = if stem == key.as_str() {
+            0
+        } else {
+            let e = edit_distance(key, &f.key);
+            if e > threshold || e >= len {
+                continue;
+            }
+            e
+        };
+        let better = match &best {
+            None => true,
+            Some((bd, bk)) => d < *bd || (d == *bd && f.key < *bk),
+        };
+        if better {
+            best = Some((d, f.key.clone()));
+        }
+    }
+    best.map(|(_, k)| k)
+}
+
+/// For every unmet facet that has a near-miss in the workspace, suggest it — most
+/// unmet wishes in practice are typos or naming drift, not real gaps (Run 23).
+/// Empty when nothing is close. Advisory.
+fn did_you_mean_report(unmet: &[WishFacet], observed: &ObservedTopology, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    for f in unmet {
+        if let Some(near) = nearest_existing(f, observed) {
+            out.push_str(&format!(
+                "  {}\u{2192} did you mean {:?} {}? (you wished {}){}\n",
+                c(CYAN),
+                f.kind,
+                near,
+                f.key,
+                c(RESET)
+            ));
+        }
+    }
+    out
+}
+
+/// Render a wishlist measurement for a human (Runs 15/17): the aggregate
+/// `realized N/M` gauge — flagged `· K over-fit suspect` when realized wishes are
+/// holograms (the project gauge tells the deep truth, not just the binary) — and
+/// one marked line per wish, with a `⚠ suspect` tag where it earned one.
+fn wishlist_report(
+    path: &str,
+    items: &[(Wish, WishAssessment)],
+    grades: &[Option<HonestyGrade>],
+    color: bool,
+) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
+    let suspects = grades
+        .iter()
+        .filter(|g| matches!(g, Some(HonestyGrade::OverfitSuspect)))
+        .count();
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wishlist{} {}\u{2014} {}{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(DIM),
+        path,
+        c(RESET)
+    ));
+    let suspect_note = if suspects > 0 {
+        format!(
+            " {}\u{00b7} {} over-fit suspect{}",
+            c(YELLOW),
+            suspects,
+            c(RESET)
+        )
+    } else {
+        String::new()
+    };
+    out.push_str(&format!(
+        "  realized {}/{}{}\n",
+        realized,
+        items.len(),
+        suspect_note
+    ));
+    for (i, (w, a)) in items.iter().enumerate() {
+        let (mark, col) = match a.status {
+            WishClosureStatus::Realized => ("\u{2713}", c(GREEN)),
+            WishClosureStatus::Vacuous => ("\u{00b7}", c(DIM)),
+            WishClosureStatus::Approaching => ("\u{25d0}", c(YELLOW)),
+            WishClosureStatus::Unstarted => ("\u{2717}", c(RED)),
+        };
+        let suspect_tag = if matches!(grades.get(i), Some(Some(HonestyGrade::OverfitSuspect))) {
+            format!(" {}\u{26a0} suspect{}", c(YELLOW), c(RESET))
+        } else {
+            String::new()
+        };
+        // Run 22 — for an unmet wish, say how it closes: offline or with evidence.
+        let closure_tag = if is_realized(&a.status) {
+            String::new()
+        } else {
+            match closure_hint(&a.unmet_facets) {
+                "" => String::new(),
+                h => format!(" {}\u{2014} {}{}", c(DIM), h, c(RESET)),
+            }
+        };
+        out.push_str(&format!(
+            "  {}{}{} {} {}({}/{}){}{}{}\n",
+            col,
+            mark,
+            c(RESET),
+            w.label,
+            c(DIM),
+            a.met_count,
+            a.total_count,
+            c(RESET),
+            suspect_tag,
+            closure_tag
+        ));
+    }
+    out
+}
+
+/// Aggregate which strata a wishlist's wishes touch and realize (Run 29), one
+/// `(layer, touched, met)` per stratum shallowest-first — the project DoD's own
+/// coverage, the meta-honesty companion to its realization.
+fn stratum_coverage(cubes: &[WishCube]) -> [(WishLayer, u32, u32); 5] {
+    let mut acc = [(0u32, 0u32); 5];
+    for cube in cubes {
+        for view in &cube.layers {
+            let i = view.layer.rank() as usize;
+            acc[i].0 += view.total_count;
+            acc[i].1 += view.met_count;
+        }
+    }
+    WishLayer::all().map(|l| {
+        let (t, m) = acc[l.rank() as usize];
+        (l, t, m)
+    })
+}
+
+/// Render a wishlist's stratum coverage (Run 29): which dimensions the DoD checks
+/// at all, and — the insight — an honest flag when it never reaches behaviour or
+/// run, so it verifies structure but not that the project actually *works*.
+fn coverage_report(cov: &[(WishLayer, u32, u32)], color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let touched: Vec<String> = cov
+        .iter()
+        .filter(|(_, t, _)| *t > 0)
+        .map(|(l, t, m)| format!("{} {}/{}", l.label(), m, t))
+        .collect();
+    if touched.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "  {}coverage:{} {}\n",
+        c(DIM),
+        c(RESET),
+        touched.join(" \u{00b7} ")
+    );
+    let checks_behaviour = cov
+        .iter()
+        .any(|(l, t, _)| *t > 0 && l.rank() >= WishLayer::Verified.rank());
+    if !checks_behaviour {
+        out.push_str(&format!(
+            "  {}\u{26a0} no behaviour or run wish \u{2014} this DoD checks structure, not that it works{}\n",
+            c(YELLOW),
+            c(RESET)
+        ));
+    }
+    out
+}
+
+/// The project-level delta between a prior wishlist reading and the current one
+/// (Run 16): which whole wishes newly realized and which regressed (were
+/// realized, now not), matched by content-addressed `wish_id`. The project analog
+/// of [`WishDelta`] — "did this change regress any wish in the project?".
+#[derive(Debug, Clone, serde::Serialize)]
+struct WishlistDelta {
+    realized_now: usize,
+    realized_before: usize,
+    total_now: usize,
+    /// Wishes unrealized at the baseline, realized now.
+    newly_realized: Vec<String>,
+    /// Wishes realized at the baseline, unrealized now — the project alarm.
+    regressed: Vec<String>,
+    /// Wishes that are over-fit suspects now but were not at the baseline (Run 19)
+    /// — a hologram introduced by this change: a counterfeit fix (unrealized →
+    /// suspect-realized) or quality erosion (genuine → suspect). Advisory.
+    new_suspects: Vec<String>,
+    held: usize,
+    still_unrealized: usize,
+}
+
+impl WishlistDelta {
+    fn compute(
+        baseline: &WishlistReading,
+        current: &[(Wish, WishAssessment)],
+        grades: &[Option<HonestyGrade>],
+    ) -> Self {
+        use std::collections::HashMap;
+        let was_realized: HashMap<Digest, bool> = baseline
+            .wishes
+            .iter()
+            .map(|e| (e.wish_id, e.realized))
+            .collect();
+        let was_suspect: HashMap<Digest, bool> = baseline
+            .wishes
+            .iter()
+            .map(|e| (e.wish_id, e.realized && e.suspect))
+            .collect();
+        let mut newly_realized = Vec::new();
+        let mut regressed = Vec::new();
+        let mut new_suspects = Vec::new();
+        let (mut held, mut still_unrealized) = (0usize, 0usize);
+        // Iterate current in wishlist-file order, so the lists are deterministic.
+        for (i, (w, a)) in current.iter().enumerate() {
+            let now = is_realized(&a.status);
+            match was_realized.get(&w.id) {
+                Some(true) if now => held += 1,
+                Some(true) => regressed.push(w.label.clone()),
+                Some(false) if now => newly_realized.push(w.label.clone()),
+                Some(false) => still_unrealized += 1,
+                None => {} // a wish absent from the baseline — aggregate only
+            }
+            // A hologram this change introduced: suspect now, not suspect before.
+            let now_suspect =
+                now && matches!(grades.get(i), Some(Some(HonestyGrade::OverfitSuspect)));
+            if now_suspect && !was_suspect.get(&w.id).copied().unwrap_or(false) {
+                new_suspects.push(w.label.clone());
+            }
+        }
+        WishlistDelta {
+            realized_now: current.iter().filter(|(_, a)| is_realized(&a.status)).count(),
+            realized_before: baseline.realized,
+            total_now: current.len(),
+            newly_realized,
+            regressed,
+            new_suspects,
+            held,
+            still_unrealized,
+        }
+    }
+
+    /// A change broke a previously-realized wish — the project regression.
+    fn has_regression(&self) -> bool {
+        !self.regressed.is_empty()
+    }
+}
+
+/// Render a project-level wishlist delta for a human (Run 16). `title` names what
+/// the delta is *against* — a prior `--since` snapshot, or what `--apply` built.
+fn wishlist_delta_report(delta: &WishlistDelta, title: &str, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wishlist{} {}\u{2014} {}{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(CYAN),
+        title,
+        c(RESET)
+    ));
+    out.push_str(&format!(
+        "  realized {}/{} {}(baseline {}){}\n",
+        delta.realized_now,
+        delta.total_now,
+        c(DIM),
+        delta.realized_before,
+        c(RESET)
+    ));
+    if delta.newly_realized.is_empty() && delta.regressed.is_empty() && delta.new_suspects.is_empty()
+    {
+        out.push_str(&format!(
+            "  {}unchanged since baseline (held {} \u{00b7} still unrealized {}){}\n",
+            c(DIM),
+            delta.held,
+            delta.still_unrealized,
+            c(RESET)
+        ));
+        return out;
+    }
+    if !delta.newly_realized.is_empty() {
+        out.push_str(&format!(
+            "  {}+ newly realized {}{}: {}\n",
+            c(GREEN),
+            delta.newly_realized.len(),
+            c(RESET),
+            delta.newly_realized.join(", ")
+        ));
+    }
+    if !delta.regressed.is_empty() {
+        out.push_str(&format!(
+            "  {}\u{2717} regressed {} \u{2014} wishes that were realized are no longer{}: {}\n",
+            c(RED),
+            delta.regressed.len(),
+            c(RESET),
+            delta.regressed.join(", ")
+        ));
+    }
+    if !delta.new_suspects.is_empty() {
+        out.push_str(&format!(
+            "  {}\u{26a0} suspect {} \u{2014} realized, but now a hologram (a counterfeit fix? confirm the probe is real){}: {}\n",
+            c(YELLOW),
+            delta.new_suspects.len(),
+            c(RESET),
+            delta.new_suspects.join(", ")
+        ));
+    }
+    out.push_str(&format!(
+        "  {}= held {} \u{00b7} still unrealized {}{}\n",
+        c(DIM),
+        delta.held,
+        delta.still_unrealized,
+        c(RESET)
+    ));
+    out
+}
+
+/// Print the wish vocabulary (Run 30): the prose forms for each stratum, by
+/// example, grounded in the actual grammar — so phrasing a wish is discoverable
+/// from the tool itself, not guessed (the gap that tripped Run 26's `--mesh`
+/// probe and would trip any newcomer). Existence → Live, shallow to deep.
+fn vocab_report(color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish vocabulary{} {}\u{2014} how to phrase a wish{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET),
+        c(DIM),
+        c(RESET)
+    ));
+    let head = |out: &mut String, name: &str, gloss: &str| {
+        out.push_str(&format!(
+            "  {}{}{} {}({}){}\n",
+            c(BOLD),
+            name,
+            c(RESET),
+            c(DIM),
+            gloss,
+            c(RESET)
+        ));
+    };
+    let entry = |out: &mut String, pat: &str, eg: &str| {
+        out.push_str(&format!("    {:<34} {}e.g. {}{}\n", pat, c(DIM), eg, c(RESET)));
+    };
+    head(&mut out, "Existence", "is it there?");
+    entry(&mut out, "a crate <name>", "a crate kosmo-run");
+    entry(&mut out, "a module <name>", "a module parser");
+    entry(&mut out, "a function <name>", "a function add  (also: type/struct/trait)");
+    entry(&mut out, "a capability <name>", "a capability login");
+    head(&mut out, "Shape", "is it formed?");
+    entry(&mut out, "a doc for <fn>", "a doc for add");
+    entry(&mut out, "a signature <fn>/<arity>", "a signature add/2");
+    entry(&mut out, "a dependency <name>", "a dependency serde");
+    head(&mut out, "Wiring", "does it interlock by type?");
+    entry(&mut out, "a contract <fn>(<T>,..)-><R>", "a contract add(i32,i32)->i32");
+    head(&mut out, "Verified", "does it behave?");
+    entry(&mut out, "a behaviour <fn>(<args>)=><result>", "a behaviour add(2,3)=>5");
+    entry(&mut out, "a test <name>", "a test parser_smoke");
+    head(&mut out, "Live", "does it run / serve?");
+    entry(&mut out, "a run <fn>,<args>=>out~<expected>", "a run add,2,3=>out~5");
+    entry(&mut out, "a service <METHOD>:/<path>=><status>", "a service GET:/health=>200");
+    out.push_str(&format!(
+        "  {}join with \"and\"; measure many at once with a .wishes file via --wishlist{}\n",
+        c(DIM),
+        c(RESET)
+    ));
+    out
+}
+
+/// Observe the workspace at the deepest level any wish in a list requires (a
+/// deeper observation still answers shallower facets). Shared by the wishlist's
+/// measurement and its before/after build account (Run 26).
+fn observe_for(wishes: &[Wish], args: &Args) -> Result<ObservedTopology, String> {
+    if wishes.iter().any(wish_needs_service) {
+        observe_workspace_service(args.path.as_str())
+    } else if wishes.iter().any(wish_needs_runtime) {
+        observe_workspace_runtime(args.path.as_str())
+    } else if args.validated || wishes.iter().any(wish_needs_validation) {
+        observe_workspace_validated(args.path.as_str())
+    } else {
+        observe_workspace_deep(args.path.as_str())
+    }
+    .map_err(|e| format!("could not observe {}: {e}", args.path))
+}
+
+/// Measure a file of prose wishes — the project's definition-of-done — against
+/// the workspace at once (Run 15). One wish per non-empty, non-`#` line. Observes
+/// once at the deepest level any wish needs (a deeper observation still answers
+/// shallower facets). Read-only and deterministic; exit 0 only when every wish is
+/// realized — the realization status gates, nothing else (CROSS-010).
+fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("could not read wishlist {path}: {e}"))?;
+    let proses: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
+    if proses.is_empty() {
+        return Err(format!(
+            "wishlist {path} has no wishes (one prose wish per line, # for comments)"
+        ));
+    }
+    let wishes: Vec<Wish> = proses
+        .iter()
+        .map(|p| compile_wish(p, Digest::ZERO, Digest::of_bytes(p.as_bytes())))
+        .collect();
+
+    // Run 26 — the build account: under --apply, snapshot the project *before*
+    // descending, so the run can report what the build actually closed (and, via
+    // Run 19's check, whether anything it built is a suspect hologram).
+    let before: Option<WishlistReading> = if args.apply {
+        let o = observe_for(&wishes, args)?;
+        let entries: Vec<WishlistEntry> = wishes
+            .iter()
+            .map(|w| {
+                let a = assess_wish(w, &o, w.evidence_bundle_id);
+                WishlistEntry {
+                    wish_id: w.id,
+                    wish: w.label.clone(),
+                    realized: is_realized(&a.status),
+                    suspect: false,
+                    met: a.met_count,
+                    total: a.total_count,
+                }
+            })
+            .collect();
+        Some(WishlistReading {
+            realized: entries.iter().filter(|e| e.realized).count(),
+            total: entries.len(),
+            wishes: entries,
+        })
+    } else {
+        None
+    };
+
+    // Run 18 — close the project: under --apply, descend every wish (writing the
+    // workspace), accumulating, before the final measurement. The deterministic
+    // scaffolder builds structural facets offline; deep facets fall to the
+    // provider (wish_fallback) when one is armed, else stay honestly unmet. Each
+    // descent re-observes, so later wishes see what earlier ones erected.
+    if args.apply {
+        let fallback = wish_fallback(args)?;
+        for w in &wishes {
+            let validated = args.validated || wish_needs_validation(w);
+            descend_to_wish(
+                &args.path,
+                w,
+                w.evidence_bundle_id,
+                validated,
+                8,
+                fallback.as_deref(),
+                None,
+            )?;
+        }
+    }
+
+    // Observe once, at the deepest level any wish in the list requires.
+    let observed = observe_for(&wishes, args)?;
+
+    let items: Vec<(Wish, WishAssessment)> = wishes
+        .into_iter()
+        .map(|w| {
+            let a = assess_wish(&w, &observed, w.evidence_bundle_id);
+            (w, a)
+        })
+        .collect();
+
+    // Run 45 — Stufe 2: read the whole file as ONE architecture, not N
+    // independent wishes. Pool every facet into a single graph (deduped by
+    // kind+key), assess it against the one observation, and render it
+    // foundations-first as a city plan (Run 44's blueprint over the whole spec).
+    // The plan stands only when every component AND every declared edge is
+    // realized. Short-circuits the flat per-wish gauge — a different view.
+    if args.blueprint {
+        let evidence = Digest::of_bytes(path.as_bytes());
+        let mut preds = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (w, _) in &items {
+            for p in &w.predicates {
+                if seen.insert(format!("{:?} {}", p.facet.kind, p.facet.key)) {
+                    preds.push(p.clone());
+                }
+            }
+        }
+        let label = format!("architecture: {} components", items.len());
+        let arch = Wish::new(&label, preds, Digest::ZERO, evidence);
+        let assessment = assess_wish(&arch, &observed, evidence);
+        let nodes = blueprint_nodes(&arch, &assessment, evidence);
+        if args.json {
+            let json = serde_json::to_string_pretty(&nodes)
+                .map_err(|e| format!("failed to serialize blueprint: {e}"))?;
+            println!("{json}");
+        } else {
+            print!("{}", blueprint_report(&nodes, &label, args.color));
+            // Brick 47 — the architecture's coverage and honesty (advisory).
+            let cube = assess_wish_layered(&arch, &observed, evidence);
+            let density = topology_density(&observed, args.capacity);
+            print!(
+                "{}",
+                blueprint_assessment_lines(&nodes, &cube, density, args.color)
+            );
+        }
+        return Ok(if is_realized(&assessment.status) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        });
+    }
+
+    // Brick 48 — the pse-traverse bridge over the whole architecture: the
+    // deterministic collapse plan + excisions for the pooled spec. Advisory
+    // (a realization plan, not a gate); short-circuits the flat gauge.
+    if args.plan {
+        let mut facets = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (w, _) in &items {
+            for p in &w.predicates {
+                if seen.insert(format!("{:?} {}", p.facet.kind, p.facet.key)) {
+                    facets.push(p.facet.clone());
+                }
+            }
+        }
+        let label = format!("architecture: {} components", items.len());
+        let view = traverse_bridge::collapse_plan_view(&label, &facets)?;
+        if args.json {
+            let json = serde_json::to_string_pretty(&view)
+                .map_err(|e| format!("failed to serialize plan: {e}"))?;
+            println!("{json}");
+        } else {
+            print!("{}", collapse_plan_render(&view, args.color));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let realized = items.iter().filter(|(_, a)| is_realized(&a.status)).count();
+
+    // Run 17 — the honesty axis × the project axis: grade each realized wish so
+    // the gauge can flag holograms, not just count realizations. One topology
+    // reading for the whole workspace; one cube per wish (no re-observation).
+    let density = topology_density(&observed, args.capacity);
+    let cubes: Vec<WishCube> = items
+        .iter()
+        .map(|(w, _)| assess_wish_layered(w, &observed, w.evidence_bundle_id))
+        .collect();
+    let grades: Vec<Option<HonestyGrade>> =
+        cubes.iter().map(|c| honesty_grade(c, density)).collect();
+    let coverage = stratum_coverage(&cubes);
+
+    // Run 16 — the project delta: diff against a prior wishlist reading (the
+    // --json output of an earlier run), matched per wish by content-addressed id.
+    let baseline: Option<WishlistReading> = args.since.as_deref().and_then(|p| {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|s| serde_json::from_str::<WishlistReading>(&s).ok())
+    });
+    let delta = baseline
+        .as_ref()
+        .map(|b| WishlistDelta::compute(b, &items, &grades));
+
+    if args.json {
+        if let Some(d) = &delta {
+            let json = serde_json::to_string_pretty(d)
+                .map_err(|e| format!("failed to serialize wishlist delta: {e}"))?;
+            println!("{json}");
+        } else {
+            // The reading IS the baseline artifact — persist it with --json.
+            let reading = WishlistReading {
+                realized,
+                total: items.len(),
+                wishes: items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (w, a))| WishlistEntry {
+                        wish_id: w.id,
+                        wish: w.label.clone(),
+                        realized: is_realized(&a.status),
+                        suspect: matches!(grades.get(i), Some(Some(HonestyGrade::OverfitSuspect))),
+                        met: a.met_count,
+                        total: a.total_count,
+                    })
+                    .collect(),
+            };
+            let json = serde_json::to_string_pretty(&reading)
+                .map_err(|e| format!("failed to serialize wishlist reading: {e}"))?;
+            println!("{json}");
+        }
+    } else if let Some(d) = &delta {
+        print!("{}", wishlist_delta_report(d, "delta since baseline", args.color));
+    } else {
+        if args.since.is_some() {
+            println!(
+                "  {}no readable wishlist baseline at {} (snapshot one first: --wishlist <file> --json > baseline){}",
+                if args.color { DIM } else { "" },
+                args.since.as_deref().unwrap_or(""),
+                if args.color { RESET } else { "" }
+            );
+        }
+        print!("{}", wishlist_report(path, &items, &grades, args.color));
+        print!("{}", coverage_report(&coverage, args.color));
+    }
+
+    // Run 26 — the build account: after --apply, the before→after delta of the
+    // build itself. What it closed (newly realized), anything it broke
+    // (regressed), and any hologram it scaffolded (a new suspect). Advisory.
+    if let Some(before) = &before {
+        if !args.json {
+            let account = WishlistDelta::compute(before, &items, &grades);
+            print!(
+                "{}",
+                wishlist_delta_report(&account, "what --apply built", args.color)
+            );
+        }
+    }
+
+    // The union of every unmet facet, deduped in file order — fed read-only to
+    // the "did you mean?" near-miss hint (Run 23, always) and, under --scaffold,
+    // the same FacetScaffolder dry run as a single wish (Run 20, the closure plan).
+    if !args.apply && !args.json {
+        let mut seen = std::collections::HashSet::new();
+        let mut unmet: Vec<WishFacet> = Vec::new();
+        for (_, a) in &items {
+            for f in &a.unmet_facets {
+                if seen.insert(format!("{:?} {}", f.kind, f.key)) {
+                    unmet.push(f.clone());
+                }
+            }
+        }
+        if !unmet.is_empty() {
+            print!("{}", did_you_mean_report(&unmet, &observed, args.color));
+            if args.scaffold {
+                print!("{}", scaffold_report(&args.path, &unmet, args.color));
+            }
+        }
+    }
+
+    // A project regression (a wish that was realized no longer is) exits 2 — the
+    // CI gate for "this change broke the project". Otherwise exit 0 only when
+    // every wish is realized. The realization status gates, nothing else (CROSS-010).
+    if delta.as_ref().is_some_and(WishlistDelta::has_regression) {
+        return Ok(ExitCode::from(2));
+    }
+    Ok(if realized == items.len() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
+}
+
 fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     let prose = args.wish.as_deref().unwrap_or("");
     // Bind the wish's identity to its prose — content-addressed, deterministic.
@@ -2959,6 +4277,16 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
     // not --validated was given — the keystone demands it.
     let validated = args.validated || wish_needs_validation(&wish);
 
+    // Run 10 — graduate the cube view to the default human render. The layered
+    // hypercube (with its Konus focus and Run 9 honesty verdict) and the
+    // staged-closure film now ride every human wish-run; `--flat` is the opt-out
+    // to the terse verdict that used to be the default. The headline summary
+    // (flat assessment / descent report) always prints either way, so scripts
+    // and the verdict strings keep their contract. The machine channel (--json)
+    // is untouched — it still selects serialization by explicit flag.
+    let show_layers = args.layers || args.staged || !args.flat;
+    let show_staged = args.staged || !args.flat;
+
     // --apply turns wish mode into a descent: observe → scaffold → apply →
     // re-observe, until the wish is realized. This WRITES to the workspace.
     if args.apply {
@@ -2969,24 +4297,79 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             .wish_session
             .as_deref()
             .and_then(|p| load_prior_session(p, &wish));
-        let session = descend_to_wish(
-            &args.path,
-            &wish,
-            evidence,
-            validated,
-            8,
-            fallback.as_deref(),
-            prior,
-        )?;
+        let session = if args.staged {
+            descend_staged(&args.path, &wish, evidence, validated, 8, fallback.as_deref(), prior)?
+        } else {
+            descend_to_wish(&args.path, &wish, evidence, validated, 8, fallback.as_deref(), prior)?
+        };
         if let Some(ref sp) = args.wish_session {
             save_session(sp, &session)?;
         }
         if args.json {
-            let json = serde_json::to_string_pretty(session.assessments())
-                .map_err(|e| format!("failed to serialize assessments: {e}"))?;
-            println!("{json}");
+            if args.mesh {
+                let d = observe_workspace_deep(&args.path)
+                    .map(|o| topology_density(&o, args.capacity))
+                    .unwrap_or(Q16::ZERO);
+                let reading = session
+                    .latest_cube()
+                    .map(|c| CubeMeshReading::read(c, d, evidence));
+                let json = serde_json::to_string_pretty(&reading)
+                    .map_err(|e| format!("failed to serialize mesh reading: {e}"))?;
+                println!("{json}");
+            } else if args.staged {
+                let report = StagedClosureReport::from_descent(
+                    session.cubes(),
+                    &session.layered_trace(),
+                    evidence,
+                );
+                let json = serde_json::to_string_pretty(&report)
+                    .map_err(|e| format!("failed to serialize staged report: {e}"))?;
+                println!("{json}");
+            } else if args.layers {
+                let json = serde_json::to_string_pretty(session.cubes())
+                    .map_err(|e| format!("failed to serialize cubes: {e}"))?;
+                println!("{json}");
+            } else {
+                let json = serde_json::to_string_pretty(session.assessments())
+                    .map_err(|e| format!("failed to serialize assessments: {e}"))?;
+                println!("{json}");
+            }
         } else {
+            // The topology gear: one read-only re-observation after the descent,
+            // shared by the cube-mode honesty verdict (Run 9) and --mesh (Run 8).
+            let mesh_density = if show_layers || args.mesh {
+                observe_workspace_deep(&args.path)
+                    .ok()
+                    .map(|o| topology_density(&o, args.capacity))
+            } else {
+                None
+            };
+            // The descent summary is the headline scripts gate on — always shown.
             print!("{}", descent_report(&session, args.color));
+            // Run 10 — the cube view rides every human descent by default: the
+            // layered hypercube (Konus focus + Run 9 honesty verdict) and, atop a
+            // staged descent, the Solve→Gate→Coagula film. --flat suppresses both.
+            if show_layers {
+                print!(
+                    "{}",
+                    layered_descent_report(&session, mesh_density, args.color)
+                );
+                if show_staged {
+                    let report = StagedClosureReport::from_descent(
+                        session.cubes(),
+                        &session.layered_trace(),
+                        evidence,
+                    );
+                    print!("{}", staged_closure_render(&report, args.color));
+                }
+            }
+            if args.mesh {
+                if let Some(c) = session.latest_cube() {
+                    let reading =
+                        CubeMeshReading::read(c, mesh_density.unwrap_or(Q16::ZERO), evidence);
+                    print!("{}", mesh_report(&reading, args.color));
+                }
+            }
         }
         let realized = session.latest().is_some_and(|a| {
             matches!(
@@ -2994,6 +4377,28 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 WishClosureStatus::Realized | WishClosureStatus::Vacuous
             )
         });
+        // Stufe 1 — `--insist`: the descent built every facet, but the honesty
+        // grade now gates *acceptance*. A realized-but-suspect outcome (a deep
+        // claim over a sparse topology — a possible hologram) is not accepted; the
+        // rejection steers both the learning sighting and the distinct exit 3.
+        let insist_line = if args.insist {
+            session.latest_cube().and_then(|cube| {
+                let d = observe_workspace_deep(&args.path)
+                    .ok()
+                    .map(|o| topology_density(&o, args.capacity))
+                    .unwrap_or(Q16::ZERO);
+                insist_rejection_line(args.insist, realized, cube, d, args.color)
+            })
+        } else {
+            None
+        };
+        if let Some(ref line) = insist_line {
+            if !args.json {
+                print!("{line}");
+            }
+        }
+        // A hologram is not a genuine realization — record what was *accepted*.
+        let accepted = realized && insist_line.is_none();
         // Learning: a finished --apply descent is one facet-bundle sighting.
         // --apply maps to operator_approved, the policy the store requires.
         if let Some(ref mut store) = norm_store {
@@ -3001,12 +4406,14 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
                 store,
                 &args.path,
                 &wish,
-                realized,
+                accepted,
                 evidence,
                 &PolicyProfile::operator_approved(),
             );
         }
-        return Ok(if realized {
+        return Ok(if insist_line.is_some() {
+            ExitCode::from(3)
+        } else if realized {
             ExitCode::SUCCESS
         } else {
             ExitCode::from(1)
@@ -3034,12 +4441,113 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         save_session(sp, &one_step)?;
     }
 
+    // Run 13/14 — the delta: diff this wish against a prior --wish-session
+    // snapshot. Computed once here, shared by --json, the human render, and the
+    // regression exit code. `None` when --since is absent or the baseline file
+    // is missing / for a different wish.
+    let delta = args.since.as_deref().and_then(|since| {
+        load_prior_session(since, &wish)
+            .and_then(|prior| prior.latest().map(|base| WishDelta::compute(&wish, base, &assessment)))
+    });
+
     if args.json {
-        let json = serde_json::to_string_pretty(&assessment)
-            .map_err(|e| format!("failed to serialize assessment: {e}"))?;
-        println!("{json}");
+        if args.since.is_some() {
+            // The machine delta — `null` when there was no matching baseline.
+            let json = serde_json::to_string_pretty(&delta)
+                .map_err(|e| format!("failed to serialize delta: {e}"))?;
+            println!("{json}");
+        } else if args.mesh {
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let d = topology_density(&observed, args.capacity);
+            let reading = CubeMeshReading::read(&cube, d, evidence);
+            let json = serde_json::to_string_pretty(&reading)
+                .map_err(|e| format!("failed to serialize mesh reading: {e}"))?;
+            println!("{json}");
+        } else if args.layers {
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let json = serde_json::to_string_pretty(&cube)
+                .map_err(|e| format!("failed to serialize cube: {e}"))?;
+            println!("{json}");
+        } else if args.blueprint {
+            let nodes = blueprint_nodes(&wish, &assessment, evidence);
+            let json = serde_json::to_string_pretty(&nodes)
+                .map_err(|e| format!("failed to serialize blueprint: {e}"))?;
+            println!("{json}");
+        } else if args.plan {
+            let facets: Vec<WishFacet> =
+                wish.predicates.iter().map(|p| p.facet.clone()).collect();
+            let view = traverse_bridge::collapse_plan_view(&wish.label, &facets)?;
+            let json = serde_json::to_string_pretty(&view)
+                .map_err(|e| format!("failed to serialize plan: {e}"))?;
+            println!("{json}");
+        } else {
+            let json = serde_json::to_string_pretty(&assessment)
+                .map_err(|e| format!("failed to serialize assessment: {e}"))?;
+            println!("{json}");
+        }
     } else {
+        // The flat verdict is the headline scripts gate on — always shown.
         print!("{}", wish_report(&wish, &assessment, args.color));
+        // The topology gear, computed once from this observation (free — no
+        // re-observe), drives both the cube-mode honesty verdict and --mesh.
+        let mesh_density = if show_layers || args.mesh {
+            Some(topology_density(&observed, args.capacity))
+        } else {
+            None
+        };
+        // Run 10 — the layered hypercube (Konus + Run 9 honesty verdict) rides
+        // every human read-only run by default; --flat falls back to the verdict.
+        if show_layers {
+            let mut one = WishSession::new(wish.clone(), evidence);
+            one.observe_layered(&observed);
+            print!("{}", layered_descent_report(&one, mesh_density, args.color));
+        }
+        // Run 13 — the delta: what moved since the baseline (read-only, advisory).
+        if let Some(d) = &delta {
+            print!("{}", delta_report(d, &wish.label, args.color));
+        } else if let Some(since) = args.since.as_deref() {
+            println!(
+                "  {}no matching baseline at {} (same wish required){}",
+                if args.color { DIM } else { "" },
+                since,
+                if args.color { RESET } else { "" }
+            );
+        }
+        if args.mesh {
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let reading = CubeMeshReading::read(&cube, mesh_density.unwrap_or(Q16::ZERO), evidence);
+            print!("{}", mesh_report(&reading, args.color));
+        }
+        // Run 23 — a typo or naming drift is the commonest cause of an unmet
+        // wish; suggest the nearest existing structure of the same kind.
+        if !assessment.unmet_facets.is_empty() {
+            print!(
+                "{}",
+                did_you_mean_report(&assessment.unmet_facets, &observed, args.color)
+            );
+        }
+        // Stufe 2 (first brick) — the architecture graph, foundations first: the
+        // city plan already implicit in the facet keys, made visible.
+        if args.blueprint {
+            let nodes = blueprint_nodes(&wish, &assessment, evidence);
+            print!("{}", blueprint_report(&nodes, &wish.label, args.color));
+            // Brick 47 — the architecture's coverage and honesty (advisory).
+            let cube = assess_wish_layered(&wish, &observed, evidence);
+            let density = topology_density(&observed, args.capacity);
+            print!(
+                "{}",
+                blueprint_assessment_lines(&nodes, &cube, density, args.color)
+            );
+        }
+        // Brick 48 — the pse-traverse bridge: the deterministic collapse plan.
+        if args.plan {
+            let facets: Vec<WishFacet> =
+                wish.predicates.iter().map(|p| p.facet.clone()).collect();
+            match traverse_bridge::collapse_plan_view(&wish.label, &facets) {
+                Ok(view) => print!("{}", collapse_plan_render(&view, args.color)),
+                Err(e) => eprintln!("kosmo-run: plan: {e}"),
+            }
+        }
         if args.scaffold && !assessment.unmet_facets.is_empty() {
             print!(
                 "{}",
@@ -3048,6 +4556,27 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
         }
     }
 
+    // Run 14 — a regression (a change broke a previously-met facet) is the more
+    // specific failure: exit 2 so CI can gate on "you broke something that
+    // worked", distinct from exit 1 ("still incomplete"). Only the realization
+    // status gates (CROSS-010); --since merely refines the unrealized code.
+    if delta.as_ref().is_some_and(WishDelta::has_regression) {
+        return Ok(ExitCode::from(2));
+    }
+    // Stufe 1 — `--insist`: refuse to call a hologram realized. The honesty grade
+    // gates the verdict; exit 3 (rejected: not genuine) is distinct from 1
+    // (incomplete) and 2 (regression). Disarmed, this is inert (byte-identical).
+    if args.insist {
+        let realized = matches!(assessment.status, WishClosureStatus::Realized);
+        let cube = assess_wish_layered(&wish, &observed, evidence);
+        let d = topology_density(&observed, args.capacity);
+        if let Some(line) = insist_rejection_line(args.insist, realized, &cube, d, args.color) {
+            if !args.json {
+                print!("{line}");
+            }
+            return Ok(ExitCode::from(3));
+        }
+    }
     // Exit 0 only when the wish is realized — so scripts can gate on it.
     match assessment.status {
         WishClosureStatus::Realized | WishClosureStatus::Vacuous => Ok(ExitCode::SUCCESS),
@@ -3099,6 +4628,102 @@ fn wish_report(wish: &Wish, a: &WishAssessment, color: bool) -> String {
             ));
         }
     }
+    out
+}
+
+/// What moved for a wish between a baseline observation and the current one
+/// (Run 13/14): a pure, serializable diff. Facet lists are ordered by their
+/// rendered label, so the value is byte-stable — no `HashSet` order, no wall
+/// clock (CROSS-006-friendly). Carries the content-addressed `wish_id` so a
+/// `--since --json` reading is self-describing.
+#[derive(Debug, Clone, serde::Serialize)]
+struct WishDelta {
+    wish_id: Digest,
+    /// Facets unmet at the baseline, met now.
+    gained: Vec<String>,
+    /// Facets met at the baseline, unmet now — the regression alarm.
+    regressed: Vec<String>,
+    /// Met at the baseline and still met.
+    held: u32,
+    /// Unmet at the baseline and still unmet.
+    still_missing: u32,
+}
+
+impl WishDelta {
+    fn compute(wish: &Wish, baseline: &WishAssessment, current: &WishAssessment) -> Self {
+        use std::collections::BTreeSet;
+        let label = |f: &WishFacet| format!("{:?} {}", f.kind, f.key);
+        let base_unmet: BTreeSet<String> = baseline.unmet_facets.iter().map(label).collect();
+        let curr_unmet: BTreeSet<String> = current.unmet_facets.iter().map(label).collect();
+        let gained: Vec<String> = base_unmet.difference(&curr_unmet).cloned().collect();
+        let regressed: Vec<String> = curr_unmet.difference(&base_unmet).cloned().collect();
+        let still_missing = base_unmet.intersection(&curr_unmet).count() as u32;
+        // Held = currently met minus the ones only just gained.
+        let held = current.met_count.saturating_sub(gained.len() as u32);
+        Self {
+            wish_id: wish.id,
+            gained,
+            regressed,
+            held,
+            still_missing,
+        }
+    }
+
+    /// A change broke a previously-met facet — the more specific failure.
+    fn has_regression(&self) -> bool {
+        !self.regressed.is_empty()
+    }
+}
+
+/// Render a [`WishDelta`] for a human (Run 13): facets gained, regressed (the
+/// alarm), and the held / still-missing counts. The temporal companion to the
+/// snapshot render — "an AI changed the workspace; what did it realize, what did
+/// it break?". Advisory.
+fn delta_report(delta: &WishDelta, wish_label: &str, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish \u{2014} delta since baseline{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", wish_label));
+    if delta.gained.is_empty() && delta.regressed.is_empty() {
+        out.push_str(&format!(
+            "  {}unchanged since baseline (held {} \u{00b7} still missing {}){}\n",
+            c(DIM),
+            delta.held,
+            delta.still_missing,
+            c(RESET)
+        ));
+        return out;
+    }
+    if !delta.gained.is_empty() {
+        out.push_str(&format!(
+            "  {}+ gained {}{}: {}\n",
+            c(GREEN),
+            delta.gained.len(),
+            c(RESET),
+            delta.gained.join(", ")
+        ));
+    }
+    if !delta.regressed.is_empty() {
+        out.push_str(&format!(
+            "  {}\u{2717} regressed {} \u{2014} the change broke a met facet{}: {}\n",
+            c(RED),
+            delta.regressed.len(),
+            c(RESET),
+            delta.regressed.join(", ")
+        ));
+    }
+    out.push_str(&format!(
+        "  {}= held {} \u{00b7} still missing {}{}\n",
+        c(DIM),
+        delta.held,
+        delta.still_missing,
+        c(RESET)
+    ));
     out
 }
 
@@ -3257,7 +4882,30 @@ fn apply_synthesis(
         if changes.is_empty() {
             if let Some(synth) = fallback {
                 match synth.synthesize(&req) {
-                    Ok(result) => changes = result.patch.file_changes,
+                    Ok(result) => {
+                        // Run 6: when a swarm chose this patch, surface the
+                        // Ophanim/Konus/Monolith resonance — the operator watches
+                        // the ensemble converge (sealed as a replayable reading).
+                        if let Some(report) = &result.consensus {
+                            let reading = ResonanceReading::seal(
+                                report,
+                                &ConsensusConfig::default(),
+                                Digest::of_bytes(facet.key.as_bytes()),
+                            );
+                            eprintln!(
+                                "  \u{2299} ophanim resonance: {} perspectives \u{00b7} d_total={:.3} \u{03b8}={:.3} \u{21d2} {}",
+                                reading.perspectives(),
+                                reading.d_total.to_f64(),
+                                reading.theta.to_f64(),
+                                if reading.convergent {
+                                    "CONVERGENT"
+                                } else {
+                                    "DIVERGENT"
+                                }
+                            );
+                        }
+                        changes = result.patch.file_changes;
+                    }
                     // Surface the error instead of silently swallowing it: a
                     // swallowed transport error is indistinguishable from "the
                     // model produced nothing", which is exactly what masked the
@@ -3293,13 +4941,390 @@ fn apply_synthesis(
     Ok(written)
 }
 
-/// Drive the workspace toward `wish` by repeated observe → assess → scaffold →
-/// apply, until it is realized, no further progress is possible, or `max_iters`
-/// is reached. Returns the [`WishSession`] carrying the full convergence
-/// trajectory — the attractor descent, executed.
+/// The curriculum target for a staged descent: the unmet facets of the
+/// *shallowest* non-solid stratum (solidify Existence before chasing a Run
+/// probe). Falls back to the flat unmet set when there is no cube yet or every
+/// non-empty stratum is already solid. Ranks/orders effort; it never forbids a
+/// facet (CROSS-010).
+fn staged_target(cube: Option<&WishCube>, flat_unmet: &[WishFacet]) -> Vec<WishFacet> {
+    if let Some(c) = cube {
+        for view in &c.layers {
+            if !view.is_empty_layer() && !view.is_solid() {
+                return view.unmet_facets.clone();
+            }
+        }
+    }
+    flat_unmet.to_vec()
+}
+
+/// One node of a wish's *materialized* architecture: a facet, whether it is
+/// realized, how many other facets depend on it (its leverage as a foundation),
+/// and the keys of its own prerequisites (the foundations it stands on).
+#[derive(Debug, Clone, serde::Serialize)]
+struct BlueprintNode {
+    kind: WishFacetKind,
+    key: String,
+    layer: WishLayer,
+    met: bool,
+    /// How many other facets depend on this one (Run 5's leverage).
+    bears: u32,
+    /// Keys of the facets this one depends on — its foundations.
+    stands_on: Vec<String>,
+}
+
+/// Stufe 2, first brick — materialize a wish's *latent* architecture graph. Every
+/// facet is a node; every [`depends_on`] relation an edge (path containment —
+/// `foo` ◁ `foo::bar` — and structural endpoints — the `from`/`to` of a
+/// dependency, the symbols of a composition/contract). Ordered foundations-first
+/// by [`PrecedenceOrder`]. Pure and deterministic: it only *reveals* the
+/// architecture already implicit in the facet keys — the city plan, drawn as a
+/// graph — reusing the Run 5 precedence lens and the existing assessment.
+fn blueprint_nodes(wish: &Wish, assessment: &WishAssessment, evidence: Digest) -> Vec<BlueprintNode> {
+    let facets: Vec<WishFacet> = wish.predicates.iter().map(|p| p.facet.clone()).collect();
+    let order = PrecedenceOrder::focus(&facets, wish.id, evidence);
+    order
+        .ranking
+        .iter()
+        .map(|lev| {
+            let f = &lev.facet;
+            let mut stands_on: Vec<String> = facets
+                .iter()
+                .filter(|p| depends_on(f, p))
+                .map(|p| p.key.clone())
+                .collect();
+            stands_on.sort();
+            BlueprintNode {
+                kind: f.kind.clone(),
+                key: f.key.clone(),
+                layer: f.kind.layer(),
+                met: !assessment.unmet_facets.contains(f),
+                bears: lev.leverage,
+                stands_on,
+            }
+        })
+        .collect()
+}
+
+/// Render the materialized architecture as a foundations-first city plan: each
+/// node with its realized mark, the layer it occupies, what it bears, and the
+/// foundations it stands on. The whole plan "stands" only when every node is met.
+fn blueprint_report(nodes: &[BlueprintNode], label: &str, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates blueprint \u{2014} the architecture, foundations first{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{label}\u{201d}\n"));
+    let met = nodes.iter().filter(|n| n.met).count();
+    for n in nodes {
+        let (mark, col) = if n.met {
+            ("\u{2713}", c(GREEN))
+        } else {
+            ("\u{2717}", c(RED))
+        };
+        let bears = if n.bears > 0 {
+            format!(" \u{00b7} bears {}", n.bears)
+        } else {
+            String::new()
+        };
+        let stands = if n.stands_on.is_empty() {
+            String::new()
+        } else {
+            format!(" \u{00b7} on {}", n.stands_on.join(", "))
+        };
+        out.push_str(&format!(
+            "  {col}{mark}{} {:?} {} {}({}){}{}{}\n",
+            c(RESET),
+            n.kind,
+            n.key,
+            c(DIM),
+            layer_word(n.layer),
+            c(RESET),
+            bears,
+            stands,
+        ));
+    }
+    out.push_str(&format!(
+        "  {}\u{2500}\u{2500} {}/{} realized{}{}\n",
+        c(BOLD),
+        met,
+        nodes.len(),
+        if met == nodes.len() && !nodes.is_empty() {
+            " \u{00b7} the plan stands"
+        } else {
+            " \u{00b7} the plan is incomplete"
+        },
+        c(RESET)
+    ));
+    out
+}
+
+/// The short name of a render stratum.
+fn layer_word(l: WishLayer) -> &'static str {
+    match l {
+        WishLayer::Existence => "existence",
+        WishLayer::Shape => "shape",
+        WishLayer::Wiring => "wiring",
+        WishLayer::Verified => "verified",
+        WishLayer::Live => "live",
+    }
+}
+
+/// Is this facet kind an *edge* — a relationship between components (a dependency
+/// or a composition) — rather than a component itself?
+fn is_edge_kind(k: &WishFacetKind) -> bool {
+    matches!(
+        k,
+        WishFacetKind::Dependency | WishFacetKind::Composition
+    )
+}
+
+/// The *component* endpoints an edge facet connects — the keys that ought to name
+/// declared components. A dependency `a->b` connects `a` and `b`; a composition
+/// `f>>T>>g` connects `f` and `g` (the middle `T` is the via-*type*, not a
+/// component). Used by the wiring-integrity check (brick 49).
+fn edge_component_endpoints(kind: &WishFacetKind, key: &str) -> Vec<String> {
+    let clean = |parts: Vec<&str>| -> Vec<String> {
+        parts
+            .into_iter()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    match kind {
+        WishFacetKind::Dependency => clean(key.split("->").collect()),
+        WishFacetKind::Composition => {
+            let parts: Vec<&str> = key.split(">>").map(str::trim).filter(|s| !s.is_empty()).collect();
+            // f>>T>>g → the components are the ends; the middle is the via-type.
+            if parts.len() >= 3 {
+                clean(vec![parts[0], parts[parts.len() - 1]])
+            } else {
+                clean(parts)
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Detect dependency cycles among the declared components (brick 50): a cross-
+/// component invariant — a healthy architecture's dependency graph is acyclic
+/// (in Rust, crate cycles do not even compile). Each `Dependency` facet
+/// `from->to` is a directed edge `from → to`; a cycle is a loop back to a node
+/// already on the current path. Deterministic (sorted vertices/adjacency),
+/// returning each distinct loop once. The third architecture-graph-health check,
+/// beside isolation (the bridge's `PathExcision`) and dangling refs (brick 49).
+fn dependency_cycles(nodes: &[BlueprintNode]) -> Vec<Vec<String>> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut adj: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut verts: BTreeSet<String> = BTreeSet::new();
+    for n in nodes.iter().filter(|n| n.kind == WishFacetKind::Dependency) {
+        let parts: Vec<&str> = n.key.split("->").map(str::trim).filter(|s| !s.is_empty()).collect();
+        if parts.len() == 2 {
+            verts.insert(parts[0].to_string());
+            verts.insert(parts[1].to_string());
+            adj.entry(parts[0].to_string()).or_default().push(parts[1].to_string());
+        }
+    }
+    for vs in adj.values_mut() {
+        vs.sort();
+        vs.dedup();
+    }
+    let mut color: BTreeMap<String, u8> = BTreeMap::new(); // 0 white, 1 gray, 2 black
+    let mut cycles: Vec<Vec<String>> = Vec::new();
+    for start in &verts {
+        if color.get(start).copied().unwrap_or(0) == 0 {
+            dfs_cycles(start, &adj, &mut color, &mut Vec::new(), &mut cycles);
+        }
+    }
+    cycles.sort();
+    cycles.dedup();
+    cycles
+}
+
+fn dfs_cycles(
+    u: &str,
+    adj: &std::collections::BTreeMap<String, Vec<String>>,
+    color: &mut std::collections::BTreeMap<String, u8>,
+    stack: &mut Vec<String>,
+    cycles: &mut Vec<Vec<String>>,
+) {
+    color.insert(u.to_string(), 1);
+    stack.push(u.to_string());
+    if let Some(neis) = adj.get(u) {
+        for v in neis {
+            match color.get(v).copied().unwrap_or(0) {
+                0 => dfs_cycles(v, adj, color, stack, cycles),
+                1 => {
+                    // A back-edge to a node still on the path closes a loop.
+                    if let Some(pos) = stack.iter().position(|x| x == v) {
+                        let mut cyc = stack[pos..].to_vec();
+                        cyc.push(v.clone());
+                        cycles.push(cyc);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    stack.pop();
+    color.insert(u.to_string(), 2);
+}
+
+/// Stufe 2, brick 47 — the architecture's *coverage* and *honesty*, as advisory
+/// lines beneath a blueprint (render-only; never gates — CROSS-010).
 ///
-/// `prior` resumes an earlier descent: the loaded session's assessments are
-/// prepended to the trajectory and the loop continues from the current state.
+/// - **Coverage** (Run 29 lifted onto the graph): does the plan specify its
+///   *connections*? Two or more crates (subsystems) with **no declared edges** is
+///   a heap, not an architecture — the architectural cousin of "this DoD checks
+///   structure, not that it works".
+/// - **Honesty** (Runs 9–12 lifted onto the pooled cube): when the city *stands*
+///   (every node realized), is it a cut diamond or a possible hologram? — judged
+///   by the topology density behind the whole architecture.
+fn blueprint_assessment_lines(
+    nodes: &[BlueprintNode],
+    cube: &WishCube,
+    density: Q16,
+    color: bool,
+) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    let edges = nodes.iter().filter(|n| is_edge_kind(&n.kind)).count();
+    let crates = nodes
+        .iter()
+        .filter(|n| n.kind == WishFacetKind::Crate)
+        .count();
+    if crates >= 2 && edges == 0 {
+        out.push_str(&format!(
+            "  {}\u{26a0} no connections \u{2014} {} subsystems, 0 edges: a heap, not an \
+             architecture (declare `a dependency a->b`){}\n",
+            c(YELLOW),
+            crates,
+            c(RESET)
+        ));
+    } else if edges > 0 {
+        out.push_str(&format!(
+            "  {}connections: {} edge(s) wiring the components{}\n",
+            c(DIM),
+            edges,
+            c(RESET)
+        ));
+    }
+    // Brick 49 — wiring integrity (the first cross-component invariant): does
+    // every declared edge connect *declared* components, or does it dangle to one
+    // the plan never names? A dangling wire is a real system inconsistency — and
+    // the static cousin of the bridge's PathExcision (which catches *isolated*
+    // facets, not *dangling references*).
+    let components: std::collections::HashSet<&str> = nodes
+        .iter()
+        .filter(|n| !is_edge_kind(&n.kind))
+        .map(|n| n.key.as_str())
+        .collect();
+    let mut dangling: Vec<(String, String)> = Vec::new();
+    for e in nodes.iter().filter(|n| is_edge_kind(&n.kind)) {
+        for ep in edge_component_endpoints(&e.kind, &e.key) {
+            if !components.contains(ep.as_str()) {
+                dangling.push((e.key.clone(), ep));
+            }
+        }
+    }
+    dangling.sort();
+    dangling.dedup();
+    for (edge, ep) in &dangling {
+        out.push_str(&format!(
+            "  {}\u{26a0} dangling wire \u{2014} {} references undeclared {}{}\n",
+            c(YELLOW),
+            edge,
+            ep,
+            c(RESET)
+        ));
+    }
+    // Brick 50 — dependency-cycle detection (a cross-component invariant): the
+    // dependency graph should be acyclic. Completes the graph-health triad
+    // (isolated → excised; undeclared ref → dangling; circular → cycle).
+    for cyc in dependency_cycles(nodes) {
+        out.push_str(&format!(
+            "  {}\u{26a0} dependency cycle \u{2014} {}{}\n",
+            c(YELLOW),
+            cyc.join(" \u{2192} "),
+            c(RESET)
+        ));
+    }
+    // Honesty only speaks when the whole city stands — else "incomplete" already
+    // told the truth.
+    let stands = !nodes.is_empty() && nodes.iter().all(|n| n.met);
+    if stands {
+        match honesty_grade(cube, density) {
+            Some(HonestyGrade::OverfitSuspect) => out.push_str(&format!(
+                "  {}\u{26a0} suspect \u{2014} the city stands over a sparse topology ({:.3}); a \
+                 hologram passes too{}\n",
+                c(YELLOW),
+                density.to_f64(),
+                c(RESET)
+            )),
+            Some(HonestyGrade::Genuine) => out.push_str(&format!(
+                "  {}\u{2713} genuine \u{2014} the city stands on a dense topology ({:.3}){}\n",
+                c(GREEN),
+                density.to_f64(),
+                c(RESET)
+            )),
+            _ => {} // thin-but-shallow: a small honest plan, no alarm (Run 11)
+        }
+    }
+    out
+}
+
+/// Brick 48 — render the `pse-traverse` collapse plan: the deterministic,
+/// foundations-first order to realize the architecture, plus any facet formally
+/// wished but operationally unreachable (a path excision — the operational
+/// cousin of brick 47's "a heap, not an architecture").
+fn collapse_plan_render(view: &traverse_bridge::CollapsePlanView, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates collapse plan \u{2014} pse-traverse (foundations-first realization){}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    for step in &view.steps {
+        if step.targets.is_empty() {
+            out.push_str(&format!("  {}{}{}\n", c(DIM), step.kind, c(RESET)));
+        } else {
+            out.push_str(&format!(
+                "  {}{:<7}{} {}\n",
+                c(DIM),
+                step.kind,
+                c(RESET),
+                step.targets.join(", ")
+            ));
+        }
+    }
+    for e in &view.excisions {
+        out.push_str(&format!(
+            "  {}\u{2717} excised: {} \u{2014} {} (impact {}){}\n",
+            c(RED),
+            e.facet,
+            e.reason,
+            e.impact,
+            c(RESET)
+        ));
+    }
+    out.push_str(&format!(
+        "  {}\u{2500}\u{2500} expected freedom reduction {:.2}{}\n",
+        c(BOLD),
+        view.expected_reduction,
+        c(RESET)
+    ));
+    out
+}
+
+/// Descend toward a wish: observe → scaffold/synthesize → re-observe until
+/// realized (flat targeting — the established loop). See [`descend_staged`] for
+/// the layered Solve→Gate→Coagula variant.
 fn descend_to_wish(
     path: &str,
     wish: &Wish,
@@ -3308,6 +5333,42 @@ fn descend_to_wish(
     max_iters: u32,
     fallback: Option<&dyn ActionSynthesizer>,
     prior: Option<WishSession>,
+) -> Result<WishSession, String> {
+    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, false)
+}
+
+/// Descend as a **staged closure pipeline** (Run 4): synthesis targets the
+/// shallowest non-solid stratum first, so the wish coagulates bottom-up (the
+/// "print → debind → sinter" curriculum). Same observation/contraction contract
+/// as [`descend_to_wish`]; only the targeting order differs. The session it
+/// returns carries the cube film [`StagedClosureReport::from_descent`] folds.
+fn descend_staged(
+    path: &str,
+    wish: &Wish,
+    evidence: Digest,
+    validated: bool,
+    max_iters: u32,
+    fallback: Option<&dyn ActionSynthesizer>,
+    prior: Option<WishSession>,
+) -> Result<WishSession, String> {
+    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, true)
+}
+
+/// Drive the workspace toward `wish` by repeated observe → assess → scaffold →
+/// apply, until it is realized, no further progress is possible, or `max_iters`
+/// is reached. Returns the [`WishSession`] carrying the full convergence
+/// trajectory — the attractor descent, executed. `prior` resumes an earlier
+/// descent; `staged` selects the bottom-up curriculum (see [`staged_target`]).
+#[allow(clippy::too_many_arguments)]
+fn descend_inner(
+    path: &str,
+    wish: &Wish,
+    evidence: Digest,
+    validated: bool,
+    max_iters: u32,
+    fallback: Option<&dyn ActionSynthesizer>,
+    prior: Option<WishSession>,
+    staged: bool,
 ) -> Result<WishSession, String> {
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
@@ -3369,7 +5430,10 @@ fn descend_to_wish(
             }
         };
 
-        let assessment = session.observe(&observed);
+        // Always render the layered cube alongside the flat assessment — cubes
+        // are cheap and give every descent a replayable per-stratum film.
+        session.observe_layered(&observed);
+        let assessment = session.latest().expect("just observed").clone();
         let done = matches!(
             assessment.status,
             WishClosureStatus::Realized | WishClosureStatus::Vacuous
@@ -3380,7 +5444,23 @@ fn descend_to_wish(
             break;
         }
         last_unmet = unmet.clone();
-        let written = apply_synthesis(Path::new(path), &unmet, fallback, run_diag.as_deref())
+        // Staged descent solidifies the shallowest non-solid stratum first, then
+        // focuses it foundation-first via the precedence lens (Run 5: realize the
+        // crate before its modules, both endpoints before a dependency edge). The
+        // flat descent attacks the whole unmet set in its existing order, so the
+        // bench-measured path stays byte-identical.
+        let target = if staged {
+            let stratum = staged_target(session.latest_cube(), &unmet);
+            let stratum = if stratum.is_empty() {
+                unmet.clone()
+            } else {
+                stratum
+            };
+            PrecedenceOrder::focus(&stratum, wish.id, evidence).ordered_facets()
+        } else {
+            unmet.clone()
+        };
+        let written = apply_synthesis(Path::new(path), &target, fallback, run_diag.as_deref())
             .map_err(|e| e.to_string())?;
         if written == 0 {
             break; // nothing scaffoldable — can't make progress, fail-closed
@@ -3447,11 +5527,388 @@ fn descent_report(session: &WishSession, color: bool) -> String {
     out
 }
 
+/// A unicode bar filled to `opacity` (0 → empty, ONE → full) over `width` cells.
+fn opacity_bar(opacity: Q16, width: usize) -> String {
+    let filled = ((opacity.to_f64() * width as f64).round() as usize).min(width);
+    let mut s = String::with_capacity(width * 3);
+    for _ in 0..filled {
+        s.push('\u{2588}'); // █
+    }
+    for _ in filled..width {
+        s.push('\u{2591}'); // ░
+    }
+    s
+}
+
+/// The render word for one stratum: solid / rendering / transparent / empty.
+fn layer_state_word(view: &kosmo_core::WishLayerView) -> &'static str {
+    if view.is_empty_layer() {
+        "—"
+    } else if view.is_solid() {
+        "solid"
+    } else if view.met_count > 0 {
+        "rendering"
+    } else {
+        "transparent"
+    }
+}
+
+/// The topology gear's classification of a *realized* wish (Runs 9/11/12), with
+/// no rendering — `None` until the wish has fully solidified. Lets a single wish
+/// (the verdict line) and a whole project (the wishlist gauge) share one source
+/// of truth for genuine vs. suspect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HonestyGrade {
+    /// Dense backing — a cut diamond.
+    Genuine,
+    /// Sparse backing under a deep (earned) claim — a stub-probe suspect.
+    OverfitSuspect,
+    /// Sparse backing under a shallow declarative claim — honest, no alarm.
+    ThinButShallow,
+}
+
+fn honesty_grade(cube: &WishCube, d: Q16) -> Option<HonestyGrade> {
+    if cube.structural_solidity != Q16::ONE {
+        return None;
+    }
+    let q = Q16::ratio(1, 4).unwrap_or(Q16::ZERO);
+    if d.at_least(q) {
+        return Some(HonestyGrade::Genuine);
+    }
+    let deep = cube
+        .solid_frontier()
+        .map(|l| l.rank() >= kosmo_core::WishLayer::Verified.rank())
+        .unwrap_or(false);
+    Some(if deep {
+        HonestyGrade::OverfitSuspect
+    } else {
+        HonestyGrade::ThinButShallow
+    })
+}
+
+/// Stufe 1 — `--insist` closes the loop: the honesty grade, advisory since
+/// Runs 9–12, becomes the **acceptance gate**. Returns the rejection line when
+/// `armed`, the wish is `realized`, and its grade is [`HonestyGrade::OverfitSuspect`]
+/// — a deep (earned) claim over a sparse topology, a probe that may be a stub: a
+/// hologram we refuse to call realized. `None` means *accept* (genuine,
+/// thin-but-shallow, or not realized). Disarmed, it is always `None`, so the
+/// established verdict/exit path stays byte-identical. Pure — the caller prints
+/// the line (unless `--json`) and returns the distinct exit 3.
+fn insist_rejection_line(
+    armed: bool,
+    realized: bool,
+    cube: &WishCube,
+    density: Q16,
+    color: bool,
+) -> Option<String> {
+    if !armed || !realized {
+        return None;
+    }
+    if honesty_grade(cube, density) != Some(HonestyGrade::OverfitSuspect) {
+        return None;
+    }
+    let c = |code: &'static str| if color { code } else { "" };
+    let claim = cube.solid_frontier().map(|l| l.label()).unwrap_or("nothing");
+    Some(format!(
+        "  {}\u{2717} not accepted \u{2014} --insist: a {} claim stands over a sparse topology \
+         ({:.3}); a hologram passes too \u{2014} rejected, not realized.{}\n",
+        c(RED),
+        claim,
+        density.to_f64(),
+        c(RESET)
+    ))
+}
+
+/// The topology gear's judgement of a *realized* wish (Runs 9 / 11 / 12), as one
+/// line — `None` until the wish has fully solidified. Calibrated by confidence:
+///
+/// - **dense backing** → `genuine`, a cut diamond.
+/// - **sparse backing under a deep (earned) claim** → an `over-fit suspect`, not
+///   a verdict: a passing test or run is execution-earned, so sparse topology is
+///   only a weak proxy for a *stub* probe — the line names that residual risk
+///   instead of falsely declaring the (genuinely realized) wish a hologram.
+/// - **sparse backing under a shallow declarative claim** → honest: a small wish
+///   in a small workspace, no alarm.
+///
+/// Definitive structural holograms (a stratum floating above a hollow base) are
+/// surfaced separately by the caller and keep the wish from solidifying at all,
+/// so they never reach here. Advisory (CROSS-010).
+fn honesty_verdict(cube: &WishCube, d: Q16, color: bool) -> Option<String> {
+    let grade = honesty_grade(cube, d)?;
+    let c = |code: &'static str| if color { code } else { "" };
+    let claim = cube.solid_frontier().map(|l| l.label()).unwrap_or("nothing");
+    let line = match grade {
+        HonestyGrade::Genuine => format!(
+            "  {}\u{2713} genuine \u{2014} wish solid and topology dense ({:.3}): a cut diamond{}\n",
+            c(GREEN),
+            d.to_f64(),
+            c(RESET)
+        ),
+        HonestyGrade::OverfitSuspect => format!(
+            "  {}\u{26a0} over-fit suspect \u{2014} a {} claim stands over a sparse topology ({:.3}); confirm the probe is substantive, not a stub (a hologram passes too){}\n",
+            c(YELLOW),
+            claim,
+            d.to_f64(),
+            c(RESET)
+        ),
+        HonestyGrade::ThinButShallow => format!(
+            "  {}\u{00b7} thin but shallow \u{2014} only {} was claimed; a sparse topology ({:.3}) is honest for so shallow a wish{}\n",
+            c(DIM),
+            claim,
+            d.to_f64(),
+            c(RESET)
+        ),
+    };
+    Some(line)
+}
+
+/// Render the latest cube as a 3-D-printer: one bar per stratum, filled to its
+/// opacity, plus the geomean-solidity gauge and the per-layer convergence
+/// verdict — the human watches the hologram become a solid diamond. When
+/// `mesh_density` is `Some` and the wish has fully solidified, the topology gear
+/// judges it via [`honesty_verdict`] — calibrated by confidence (Run 12): dense
+/// backing is genuine, a sparse deep claim is only a *suspect* (name the stub
+/// risk, don't cry hologram), a sparse shallow claim is honest. Advisory.
+fn layered_descent_report(
+    session: &WishSession,
+    mesh_density: Option<Q16>,
+    color: bool,
+) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates wish \u{2014} hypercube render{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!("  \u{201c}{}\u{201d}\n", session.wish().label));
+    let Some(cube) = session.latest_cube() else {
+        out.push_str("  (no render yet)\n");
+        return out;
+    };
+    for view in &cube.layers {
+        let col = if view.is_solid() {
+            c(GREEN)
+        } else if view.met_count > 0 {
+            c(YELLOW)
+        } else {
+            c(DIM)
+        };
+        out.push_str(&format!(
+            "  {:<10} {}{}{}  {}{:<11}{} {}/{}  {}(opacity {:.3}){}\n",
+            view.layer.label(),
+            col,
+            opacity_bar(view.opacity, 12),
+            c(RESET),
+            col,
+            layer_state_word(view),
+            c(RESET),
+            view.met_count,
+            view.total_count,
+            c(DIM),
+            view.opacity.to_f64(),
+            c(RESET),
+        ));
+    }
+    let frontier = cube.solid_frontier().map(|l| l.label()).unwrap_or("none");
+    out.push_str(&format!(
+        "  {}\u{2500}\u{2500} solidity(geomean) {:.3} \u{00b7} overall {:.3} \u{00b7} frontier: {}{}\n",
+        c(DIM),
+        cube.structural_solidity.to_f64(),
+        cube.overall_opacity.to_f64(),
+        frontier,
+        c(RESET)
+    ));
+    if cube.has_floating_layer() {
+        out.push_str(&format!(
+            "  {}\u{26a0} a stratum renders above a still-transparent base (over-fit suspect){}\n",
+            c(YELLOW),
+            c(RESET)
+        ));
+    }
+    // The descent-side Konus: the foundation facet the Solve stage targets next.
+    if let Some(next_stratum) = cube
+        .layers
+        .iter()
+        .find(|l| !l.is_empty_layer() && !l.is_solid())
+    {
+        let focus = PrecedenceOrder::focus(
+            &next_stratum.unmet_facets,
+            cube.wish_id,
+            cube.evidence_bundle_id,
+        );
+        if let Some(f) = focus.focal() {
+            out.push_str(&format!(
+                "  {}focus \u{2192} {:?} {}{}\n",
+                c(CYAN),
+                f.kind,
+                f.key,
+                c(RESET)
+            ));
+        }
+    }
+    // Per-layer convergence verdict — the resolution a flat scalar cannot give.
+    let trace = session.layered_trace();
+    for a in &trace.anomalies {
+        let msg = match a {
+            RenderAnomaly::MaskedDeepRegression { layer, step } => format!(
+                "masked deep regression in {} at iter {}",
+                layer.label(),
+                step
+            ),
+            RenderAnomaly::SetOutOfOrder {
+                deeper,
+                ungrounded_below,
+            } => format!(
+                "{} set before {} is solid",
+                deeper.label(),
+                ungrounded_below.label()
+            ),
+        };
+        out.push_str(&format!("  {}\u{2717} {}{}\n", c(RED), msg, c(RESET)));
+    }
+    if trace.is_strictly_contractive() {
+        out.push_str(&format!(
+            "  {}\u{2713} every stratum contractive \u{2014} the cut is clean{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
+    }
+    // The topology gear's calibrated judgement of a realized wish (Run 12).
+    if let (Some(d), Some(cube)) = (mesh_density, session.latest_cube()) {
+        if let Some(line) = honesty_verdict(cube, d, color) {
+            out.push_str(&line);
+        }
+    }
+    out
+}
+
+/// Render a staged closure report: the Solve→Gate→Coagula state of each stratum
+/// and where the print head has set (Run 4).
+fn staged_closure_render(report: &StagedClosureReport, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}staged closure \u{2014} Solve\u{2192}Gate\u{2192}Coagula{}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    for (layer, state) in &report.strata {
+        let (word, col) = match state {
+            StratumClosure::Coagulated => ("coagulated", c(GREEN)),
+            StratumClosure::Gated { .. } => ("gated", c(YELLOW)),
+            StratumClosure::Solving { .. } => ("solving", c(YELLOW)),
+            StratumClosure::Pending => ("pending", c(DIM)),
+            StratumClosure::Fractured { .. } => ("fractured", c(RED)),
+        };
+        out.push_str(&format!(
+            "  {:<10} {}{}{}\n",
+            layer.label(),
+            col,
+            word,
+            c(RESET)
+        ));
+    }
+    if report.fully_coagulated {
+        out.push_str(&format!(
+            "  {}\u{2713} fully coagulated \u{2014} the diamond is cut{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
+    } else {
+        let frontier = report.frontier.map(|l| l.label()).unwrap_or("none");
+        out.push_str(&format!(
+            "  {}print head at: {}{}\n",
+            c(DIM),
+            frontier,
+            c(RESET)
+        ));
+    }
+    out
+}
+
+/// Run 8 — the topology gear: the workspace's structural density, the count of
+/// structural facets the parser observed over `capacity`, clamped to `ONE`. Read
+/// straight from the observation — no analysis pipeline, no host writes — so a
+/// read-only mesh never mutates the workspace. (The SystemCube's void-fill
+/// D-density needs a host-write-enabled, operator-approved analysis, unsafe for
+/// a read-only mesh; this is the safe, wish-independent topology measure: it
+/// counts ALL observed structure, so a wish that reads solid over a sparse
+/// topology stands out as an over-fit shell.)
+fn topology_density(observed: &ObservedTopology, capacity: u32) -> Q16 {
+    let count = observed.facets().count() as u64;
+    let raw = Q16::ratio(count, capacity.max(1) as u64).unwrap_or(Q16::ZERO);
+    if raw.at_least(Q16::ONE) {
+        Q16::ONE
+    } else {
+        raw
+    }
+}
+
+/// Render the two gears (Zahnräder) in contact: the wish-cube's structural
+/// solidity against the system-cube's D-Density. Meshed when both have turned
+/// past the threshold together; divergent when the wish reads solid while the
+/// topology stays sparse — an over-fit shell. Advisory only (CROSS-010).
+fn mesh_report(reading: &CubeMeshReading, color: bool) -> String {
+    let c = |code: &'static str| if color { code } else { "" };
+    let q = Q16::ratio(1, 4).unwrap_or(Q16::ZERO);
+    let mut out = String::new();
+    out.push_str(&format!(
+        "{}{}Kosmocrates \u{2014} two gears (wish \u{27f7} topology){}\n",
+        c(BOLD),
+        c(CYAN),
+        c(RESET)
+    ));
+    out.push_str(&format!(
+        "  wish solidity   {}{}{}  {:.3}\n",
+        c(CYAN),
+        opacity_bar(reading.wish_solidity, 12),
+        c(RESET),
+        reading.wish_solidity.to_f64()
+    ));
+    out.push_str(&format!(
+        "  topology dense  {}{}{}  {:.3}\n",
+        c(CYAN),
+        opacity_bar(reading.system_d_density, 12),
+        c(RESET),
+        reading.system_d_density.to_f64()
+    ));
+    if reading.in_mesh(q) {
+        out.push_str(&format!(
+            "  {}\u{2699} meshed \u{2014} both gears turning toward the diamond{}\n",
+            c(GREEN),
+            c(RESET)
+        ));
+    } else if reading.wish_solidity.at_least(q) && !reading.system_d_density.at_least(q) {
+        out.push_str(&format!(
+            "  {}\u{2699} divergent \u{2014} wish solid but topology sparse (over-fit suspect){}\n",
+            c(YELLOW),
+            c(RESET)
+        ));
+    } else {
+        out.push_str(&format!(
+            "  {}\u{2699} turning \u{2014} gears not yet meshed{}\n",
+            c(DIM),
+            c(RESET)
+        ));
+    }
+    out
+}
+
 fn run() -> Result<ExitCode, String> {
     let args = match parse_args()? {
         Some(a) => a,
         None => return Ok(ExitCode::SUCCESS),
     };
+
+    // Vocabulary: how to phrase a wish. A standalone informational door — needs
+    // no workspace, runs and exits before any mode.
+    if args.vocab {
+        print!("{}", vocab_report(args.color));
+        return Ok(ExitCode::SUCCESS);
+    }
 
     // Doors: the binary's self-description — the machine-true catalog of
     // its own docking surface. With --doors-merge, other surfaces' emitted
@@ -3493,13 +5950,16 @@ fn run() -> Result<ExitCode, String> {
         + usize::from(args.witness.is_some())
         + usize::from(args.parseback)
         + usize::from(args.kcube.is_some())
-        + usize::from(args.codematrix);
+        + usize::from(args.codematrix)
+        + usize::from(args.alchemy)
+        + usize::from(args.behaviour);
     if organ_doors > 0 {
         let other_door = args.pruefstand
             || args.reforge
             || args.steward
             || args.landscape
             || args.wish.is_some()
+            || args.wishlist.is_some()
             || args.chat.is_some()
             || args.atelier.is_some()
             || args.venture.is_some()
@@ -3507,8 +5967,8 @@ fn run() -> Result<ExitCode, String> {
             || args.promote_norm.is_some();
         if organ_doors > 1 || other_door {
             return Err(
-                "--foundry / --witness / --parseback / --kcube / --codematrix are one door \
-                 per run (and exclusive with the other doors)"
+                "--foundry / --witness / --parseback / --kcube / --codematrix / --alchemy / \
+                 --behaviour are one door per run (and exclusive with the other doors)"
                     .into(),
             );
         }
@@ -3524,7 +5984,13 @@ fn run() -> Result<ExitCode, String> {
         if args.kcube.is_some() {
             return run_kcube_mode(&args);
         }
-        return run_codematrix_mode(&args);
+        if args.codematrix {
+            return run_codematrix_mode(&args);
+        }
+        if args.alchemy {
+            return run_alchemy_mode(&args);
+        }
+        return run_behaviour_mode(&args);
     }
 
     // The Prüfstand descends a built-in reference corpus and reports fidelity:
@@ -3629,6 +6095,15 @@ fn run() -> Result<ExitCode, String> {
     // (+ --apply) turns the top of the landscape into a descent.
     if args.landscape {
         return run_landscape_mode(&args);
+    }
+
+    // Wishlist: a file of wishes — the project's definition-of-done — measured
+    // all at once into an aggregate realization gauge. Exclusive with --wish.
+    if let Some(path) = args.wishlist.as_deref() {
+        if args.wish.is_some() {
+            return Err("--wishlist and --wish are mutually exclusive (one door per run)".into());
+        }
+        return run_wishlist_mode(&args, path);
     }
 
     // Wish mode is deterministic and offline (no LLM, no key): compile the
@@ -3745,6 +6220,790 @@ mod tests {
         let out = wish_report(&w, &a, false);
         assert!(out.contains("missing"));
         assert!(out.contains("foo"));
+    }
+
+    // ── Run 3 / Run 4: hypercube render + staged closure ──────────────────
+
+    /// A wish spanning Existence (crate), Wiring (contract) and Live (run).
+    fn layered_test_wish() -> Wish {
+        use kosmo_core::WishPredicate;
+        Wish::new(
+            "spanning",
+            [
+                WishPredicate::require(WishFacet::crate_("kosmo-api")),
+                WishPredicate::require(WishFacet::new(
+                    WishFacetKind::Contract,
+                    "handle(Req)->Resp",
+                )),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Run, "ping=>out~pong")),
+            ],
+            Digest::ZERO,
+            Digest::of_bytes(b"ev"),
+        )
+    }
+
+    #[test]
+    fn layered_descent_report_renders_all_five_strata() {
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("kosmo-api")); // existence solid
+        session.observe_layered(&observed);
+
+        let out = layered_descent_report(&session, None, false);
+        for label in ["existence", "shape", "wiring", "verified", "live"] {
+            assert!(out.contains(label), "missing stratum {label}: {out}");
+        }
+        assert!(out.contains("opacity"));
+        assert!(out.contains("solid"), "existence should read solid: {out}");
+        assert!(out.contains("frontier: existence"), "got: {out}");
+    }
+
+    #[test]
+    fn layered_report_flags_floating_layer() {
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::new(WishFacetKind::Run, "ping=>out~pong")); // live over hollow base
+        session.observe_layered(&observed);
+
+        let out = layered_descent_report(&session, None, false);
+        assert!(
+            out.contains("over-fit suspect"),
+            "should warn about a floating layer: {out}"
+        );
+    }
+
+    #[test]
+    fn staged_target_picks_shallowest_unsolid_stratum() {
+        let wish = layered_test_wish();
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("kosmo-api")); // existence solid; wiring+live unmet
+        let cube = assess_wish_layered(&wish, &observed, Digest::of_bytes(b"ev"));
+        let flat_unmet = vec![
+            WishFacet::new(WishFacetKind::Contract, "handle(Req)->Resp"),
+            WishFacet::new(WishFacetKind::Run, "ping=>out~pong"),
+        ];
+        let target = staged_target(Some(&cube), &flat_unmet);
+        assert_eq!(
+            target,
+            vec![WishFacet::new(WishFacetKind::Contract, "handle(Req)->Resp")],
+            "the curriculum targets wiring (the contract) before the live run probe"
+        );
+    }
+
+    #[test]
+    fn staged_closure_render_shows_coagulation() {
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("kosmo-api"));
+        session.observe_layered(&observed);
+        let report = StagedClosureReport::from_descent(
+            session.cubes(),
+            &session.layered_trace(),
+            Digest::of_bytes(b"ev"),
+        );
+
+        let out = staged_closure_render(&report, false);
+        assert!(out.contains("Solve"), "header names the pipeline: {out}");
+        assert!(out.contains("existence"));
+        assert!(out.contains("coagulated"), "existence coagulated: {out}");
+    }
+
+    #[test]
+    fn layered_report_shows_konus_focus() {
+        // Nothing observed → the shallowest non-solid stratum is existence, and
+        // the lens focuses on its foundation (the crate).
+        let mut session = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        session.observe_layered(&ObservedTopology::empty());
+        let out = layered_descent_report(&session, None, false);
+        assert!(out.contains("focus \u{2192}"), "render shows the lens focus: {out}");
+        assert!(out.contains("kosmo-api"), "focal foundation is the crate: {out}");
+    }
+
+    #[test]
+    fn mesh_report_flags_overfit_and_mesh() {
+        // A fully-solid wish cube (every facet observed present).
+        let wish = layered_test_wish();
+        let observed =
+            ObservedTopology::from_facets(wish.predicates.iter().map(|p| p.facet.clone()));
+        let cube = assess_wish_layered(&wish, &observed, Digest::of_bytes(b"ev"));
+        assert_eq!(cube.structural_solidity, Q16::ONE, "the wish gear is solid");
+
+        // Wish solid (1.0) but topology sparse (0.05) → over-fit divergence.
+        let overfit =
+            CubeMeshReading::read(&cube, Q16::ratio(5, 100).unwrap(), Digest::of_bytes(b"ev"));
+        let out = mesh_report(&overfit, false);
+        assert!(out.contains("two gears"));
+        assert!(
+            out.contains("over-fit suspect"),
+            "a sparse topology under a solid wish is over-fit: {out}"
+        );
+
+        // Both gears past the threshold → meshed.
+        let meshed =
+            CubeMeshReading::read(&cube, Q16::ratio(80, 100).unwrap(), Digest::of_bytes(b"ev"));
+        assert!(mesh_report(&meshed, false).contains("meshed"));
+    }
+
+    #[test]
+    fn honesty_verdict_calibrates_by_confidence() {
+        use kosmo_core::WishPredicate;
+        let cube_of = |wish: Wish| {
+            let obs =
+                ObservedTopology::from_facets(wish.predicates.iter().map(|p| p.facet.clone()));
+            let mut s = WishSession::new(wish, Digest::of_bytes(b"ev"));
+            s.observe_layered(&obs);
+            s.latest_cube().cloned().expect("a cube")
+        };
+
+        // A DEEP wish (claims Live), solid over a sparse topology: a passing probe
+        // is execution-earned, so the verdict is only a calibrated SUSPECT that
+        // names the real residual risk (a stub) — never a false hologram verdict.
+        let deep = cube_of(layered_test_wish());
+        let suspect = honesty_verdict(&deep, Q16::ratio(5, 100).unwrap(), false).unwrap();
+        assert!(suspect.contains("over-fit suspect"), "{suspect}");
+        assert!(suspect.contains("stub") && suspect.contains("live"), "{suspect}");
+        assert!(
+            !suspect.contains("a hologram, not a diamond"),
+            "the instrument does not falsely accuse earned work: {suspect}"
+        );
+
+        // Dense topology → genuine, at any depth.
+        let genuine = honesty_verdict(&deep, Q16::ratio(80, 100).unwrap(), false).unwrap();
+        assert!(genuine.contains("genuine"), "{genuine}");
+
+        // A SHALLOW wish (existence only), solid over the SAME sparse topology, is
+        // honest — a small wish in a small workspace, no alarm.
+        let shallow = cube_of(Wish::new(
+            "shallow",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            Digest::of_bytes(b"ev"),
+        ));
+        let thin = honesty_verdict(&shallow, Q16::ratio(5, 100).unwrap(), false).unwrap();
+        assert!(thin.contains("thin but shallow"), "{thin}");
+        assert!(!thin.contains("over-fit"), "no alarm for a shallow wish: {thin}");
+
+        // An unrealized wish gets no verdict at all.
+        let mut partial = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        let mut o = ObservedTopology::empty();
+        o.insert(WishFacet::crate_("kosmo-api"));
+        partial.observe_layered(&o);
+        assert!(honesty_verdict(
+            partial.latest_cube().unwrap(),
+            Q16::ratio(5, 100).unwrap(),
+            false
+        )
+        .is_none());
+
+        // The render wires it in: a realized session surfaces the verdict line.
+        let mut s = WishSession::new(layered_test_wish(), Digest::of_bytes(b"ev"));
+        s.observe_layered(&ObservedTopology::from_facets(
+            layered_test_wish().predicates.iter().map(|p| p.facet.clone()),
+        ));
+        assert!(layered_descent_report(&s, Some(Q16::ratio(5, 100).unwrap()), false)
+            .contains("over-fit suspect"));
+    }
+
+    #[test]
+    fn insist_rejects_only_a_realized_hologram() {
+        use kosmo_core::WishPredicate;
+        let cube_of = |wish: Wish| {
+            let obs =
+                ObservedTopology::from_facets(wish.predicates.iter().map(|p| p.facet.clone()));
+            let mut s = WishSession::new(wish, Digest::of_bytes(b"ev"));
+            s.observe_layered(&obs);
+            s.latest_cube().cloned().expect("a cube")
+        };
+        let sparse = Q16::ratio(5, 100).unwrap();
+        let dense = Q16::ratio(80, 100).unwrap();
+
+        // A DEEP wish, solid over a SPARSE topology → over-fit suspect: armed and
+        // realized, --insist refuses to accept it.
+        let deep = cube_of(layered_test_wish());
+        let rejected = insist_rejection_line(true, true, &deep, sparse, false)
+            .expect("a realized hologram is rejected");
+        assert!(rejected.contains("not accepted"), "{rejected}");
+        assert!(rejected.contains("--insist"), "names the gate: {rejected}");
+
+        // Disarmed → never rejects, even the very same hologram (byte-identical
+        // default path).
+        assert!(
+            insist_rejection_line(false, true, &deep, sparse, false).is_none(),
+            "disarmed, the established path is untouched"
+        );
+
+        // Not realized → nothing to reject (a hologram is a *finished* fake).
+        assert!(insist_rejection_line(true, false, &deep, sparse, false).is_none());
+
+        // Genuine (dense backing) → accepted, even though deep and armed.
+        assert!(
+            insist_rejection_line(true, true, &deep, dense, false).is_none(),
+            "a cut diamond is accepted"
+        );
+
+        // A SHALLOW wish over the same sparse topology is thin-but-shallow, not a
+        // hologram → accepted (Run 11's no-false-alarm discipline holds).
+        let shallow = cube_of(Wish::new(
+            "shallow",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            Digest::of_bytes(b"ev"),
+        ));
+        assert!(
+            insist_rejection_line(true, true, &shallow, sparse, false).is_none(),
+            "a shallow declarative wish is honest, not rejected"
+        );
+    }
+
+    #[test]
+    fn blueprint_materializes_the_architecture_foundations_first() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let wish = Wish::new(
+            "a crate api and a module api::core and a function api::core::boot and api->logging",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::module("api::core")),
+                WishPredicate::require(WishFacet::symbol("api::core::boot")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        // Observe only the crate present — the foundation laid, nothing atop it.
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::crate_("api"));
+        let assessment = assess_wish(&wish, &observed, ev);
+        let nodes = blueprint_nodes(&wish, &assessment, ev);
+
+        // Foundations first: the crate `api` leads — everything stands on it.
+        assert_eq!(nodes[0].key, "api", "the crate is the foundation");
+        assert!(nodes[0].met, "the crate was observed present");
+        assert!(
+            nodes[0].bears >= 2,
+            "the module, symbol and edge stand on the crate: bears {}",
+            nodes[0].bears
+        );
+        assert!(nodes[0].stands_on.is_empty(), "the foundation stands on nothing");
+
+        // The symbol stands on its module AND its crate (path containment edges).
+        let sym = nodes
+            .iter()
+            .find(|n| n.key == "api::core::boot")
+            .expect("symbol node");
+        assert!(!sym.met, "the symbol was not observed");
+        assert!(sym.stands_on.contains(&"api".to_string()));
+        assert!(sym.stands_on.contains(&"api::core".to_string()));
+
+        // The dependency edge stands on its endpoint crate (structural endpoint).
+        let dep = nodes
+            .iter()
+            .find(|n| n.key == "api->logging")
+            .expect("dependency edge node");
+        assert!(
+            dep.stands_on.contains(&"api".to_string()),
+            "the edge stands on its from-crate"
+        );
+
+        // The plan does not yet stand: only 1 of 4 nodes is realized.
+        let report = blueprint_report(&nodes, &wish.label, false);
+        assert!(report.contains("1/4 realized"), "{report}");
+        assert!(report.contains("incomplete"), "{report}");
+    }
+
+    #[test]
+    fn blueprint_assessment_grades_coverage_and_honesty() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        let lines_for = |w: &Wish, d: Q16| {
+            let a = assess_wish(w, &obs, ev);
+            let nodes = blueprint_nodes(w, &a, ev);
+            let cube = assess_wish_layered(w, &obs, ev);
+            blueprint_assessment_lines(&nodes, &cube, d, false)
+        };
+
+        // A heap: two subsystems (crates), no declared edges → the coverage warning.
+        let heap = Wish::new(
+            "two crates",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let heap_lines = lines_for(&heap, Q16::ZERO);
+        assert!(
+            heap_lines.contains("heap, not an architecture"),
+            "two crates with no edge is a heap: {heap_lines}"
+        );
+
+        // An edge between them is connective tissue → no heap warning.
+        let city = Wish::new(
+            "two crates + edge",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(
+                    WishFacetKind::Dependency,
+                    "api->logging",
+                )),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let city_lines = lines_for(&city, Q16::ZERO);
+        assert!(city_lines.contains("edge"), "an edge is connective tissue: {city_lines}");
+        assert!(!city_lines.contains("heap"), "no heap once wired: {city_lines}");
+
+        // A single crate with its own facets is NOT a heap (one subsystem).
+        let solo = Wish::new(
+            "one crate, two modules",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::module("api::core")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&solo, Q16::ZERO).contains("heap"),
+            "a single subsystem is not a heap"
+        );
+
+        // Honesty: a fully-realized DEEP city over a SPARSE topology is suspect.
+        let deep = layered_test_wish();
+        let deep_obs =
+            ObservedTopology::from_facets(deep.predicates.iter().map(|p| p.facet.clone()));
+        let da = assess_wish(&deep, &deep_obs, ev);
+        let dn = blueprint_nodes(&deep, &da, ev);
+        let dcube = assess_wish_layered(&deep, &deep_obs, ev);
+        let suspect = blueprint_assessment_lines(&dn, &dcube, Q16::ratio(5, 100).unwrap(), false);
+        assert!(suspect.contains("suspect"), "deep+sparse standing city is suspect: {suspect}");
+        // The same city on a DENSE topology is genuine.
+        let genuine = blueprint_assessment_lines(&dn, &dcube, Q16::ratio(80, 100).unwrap(), false);
+        assert!(genuine.contains("genuine"), "deep+dense standing city is genuine: {genuine}");
+    }
+
+    #[test]
+    fn blueprint_wiring_integrity_flags_dangling_edges() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        let lines_for = |w: &Wish| {
+            let a = assess_wish(w, &obs, ev);
+            let nodes = blueprint_nodes(w, &a, ev);
+            let cube = assess_wish_layered(w, &obs, ev);
+            blueprint_assessment_lines(&nodes, &cube, Q16::ZERO, false)
+        };
+
+        // A dependency to an UNDECLARED component → a dangling wire.
+        let dangling = Wish::new(
+            "dangling",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let d = lines_for(&dangling);
+        assert!(d.contains("dangling wire"), "edge to undeclared component: {d}");
+        assert!(d.contains("logging"), "names the undeclared endpoint: {d}");
+
+        // Both endpoints declared → intact wiring, no warning.
+        let intact = Wish::new(
+            "intact",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&intact).contains("dangling"),
+            "both endpoints declared → no dangling"
+        );
+
+        // A composition's via-TYPE is not a component — only the ends must be declared.
+        let comp = Wish::new(
+            "composition",
+            [
+                WishPredicate::require(WishFacet::symbol("make")),
+                WishPredicate::require(WishFacet::symbol("load")),
+                WishPredicate::require(WishFacet::new(
+                    WishFacetKind::Composition,
+                    "make>>Config>>load",
+                )),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&comp).contains("dangling"),
+            "ends declared, the via-type Config is exempt"
+        );
+    }
+
+    #[test]
+    fn blueprint_detects_dependency_cycles() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        let lines_for = |w: &Wish| {
+            let a = assess_wish(w, &obs, ev);
+            let nodes = blueprint_nodes(w, &a, ev);
+            let cube = assess_wish_layered(w, &obs, ev);
+            blueprint_assessment_lines(&nodes, &cube, Q16::ZERO, false)
+        };
+
+        // api → logging → api : a dependency cycle.
+        let cyclic = Wish::new(
+            "cyclic",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "logging->api")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let cl = lines_for(&cyclic);
+        assert!(cl.contains("dependency cycle"), "a->b->a is a cycle: {cl}");
+
+        // api → logging (acyclic) : no cycle warning.
+        let acyclic = Wish::new(
+            "acyclic",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&acyclic).contains("dependency cycle"),
+            "a one-way dependency is acyclic"
+        );
+
+        // Determinism: the cycle finder returns a stable result across runs.
+        let a = assess_wish(&cyclic, &obs, ev);
+        let nodes = blueprint_nodes(&cyclic, &a, ev);
+        assert_eq!(dependency_cycles(&nodes), dependency_cycles(&nodes));
+    }
+
+    #[test]
+    fn wish_delta_tracks_progress_and_regression() {
+        let wish = layered_test_wish(); // crate (existence) + contract (wiring) + run (live)
+        let ev = Digest::of_bytes(b"ev");
+        // Baseline: only the crate exists.
+        let mut base_obs = ObservedTopology::empty();
+        base_obs.insert(WishFacet::crate_("kosmo-api"));
+        let base = assess_wish(&wish, &base_obs, ev);
+        // Current: crate + contract — the contract was newly realized; run unmet.
+        let mut curr_obs = ObservedTopology::empty();
+        curr_obs.insert(WishFacet::crate_("kosmo-api"));
+        curr_obs.insert(WishFacet::new(WishFacetKind::Contract, "handle(Req)->Resp"));
+        let curr = assess_wish(&wish, &curr_obs, ev);
+
+        // Progress: the contract was gained, the run is still missing, no break.
+        let fwd = WishDelta::compute(&wish, &base, &curr);
+        assert_eq!(fwd.gained.len(), 1);
+        assert!(fwd.gained[0].contains("Contract"), "{:?}", fwd.gained);
+        assert_eq!(fwd.still_missing, 1);
+        assert!(!fwd.has_regression());
+        assert_eq!(fwd.wish_id, wish.id, "the delta is self-describing");
+        assert!(delta_report(&fwd, &wish.label, false).contains("gained 1"));
+
+        // Regression: the same two states reversed — the contract was broken.
+        let back = WishDelta::compute(&wish, &curr, &base);
+        assert!(back.has_regression());
+        assert_eq!(back.regressed.len(), 1);
+        assert!(back.regressed[0].contains("Contract"));
+        let r = delta_report(&back, &wish.label, false);
+        assert!(r.contains("regressed 1") && r.contains("broke a met facet"), "{r}");
+
+        // Unchanged: identical states.
+        let same = WishDelta::compute(&wish, &curr, &curr);
+        assert!(!same.has_regression() && same.gained.is_empty());
+        assert!(delta_report(&same, &wish.label, false).contains("unchanged"));
+    }
+
+    #[test]
+    fn wishlist_report_aggregates_per_wish_standing() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let met = Wish::new(
+            "a crate solo",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            ev,
+        );
+        let unmet = Wish::new(
+            "a crate ghost",
+            [WishPredicate::require(WishFacet::crate_("ghost"))],
+            Digest::ZERO,
+            ev,
+        );
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::crate_("solo")); // only the first wish is met
+        let a_met = assess_wish(&met, &obs, ev);
+        let a_unmet = assess_wish(&unmet, &obs, ev);
+        let items = vec![(met, a_met), (unmet, a_unmet)];
+        let out = wishlist_report("spec.txt", &items, &[None, None], false);
+        assert!(out.contains("realized 1/2"), "the aggregate gauge: {out}");
+        assert!(out.contains("a crate solo") && out.contains("a crate ghost"), "{out}");
+        assert!(out.contains("spec.txt"), "names the source: {out}");
+        assert!(!out.contains("suspect"), "no honesty flag without a grade: {out}");
+        assert!(
+            out.contains("scaffoldable offline"),
+            "the unmet crate is triaged as scaffoldable: {out}"
+        );
+
+        // Run 17 — a realized wish graded an over-fit suspect flags the gauge.
+        let suspect_items = vec![(
+            Wish::new(
+                "a behaviour deep",
+                [WishPredicate::require(WishFacet::crate_("solo"))],
+                Digest::ZERO,
+                ev,
+            ),
+            assess_wish(
+                &Wish::new(
+                    "a behaviour deep",
+                    [WishPredicate::require(WishFacet::crate_("solo"))],
+                    Digest::ZERO,
+                    ev,
+                ),
+                &obs,
+                ev,
+            ),
+        )];
+        let flagged = wishlist_report(
+            "p",
+            &suspect_items,
+            &[Some(HonestyGrade::OverfitSuspect)],
+            false,
+        );
+        assert!(flagged.contains("1 over-fit suspect"), "aggregate flag: {flagged}");
+        assert!(flagged.contains("\u{26a0} suspect"), "per-wish tag: {flagged}");
+    }
+
+    #[test]
+    fn closure_hint_triages_by_evidence() {
+        assert_eq!(closure_hint(&[]), "");
+        // Existence/shape/wiring → the offline scaffolder can erect them.
+        assert_eq!(closure_hint(&[WishFacet::crate_("x")]), "scaffoldable offline");
+        // A Run/Behaviour facet needs execution evidence, not just scaffolding.
+        assert_eq!(
+            closure_hint(&[WishFacet::new(WishFacetKind::Run, "p=>out~q")]),
+            "needs evidence (a passing test/run)"
+        );
+        // Any deep facet in the set tips the whole wish to "needs evidence".
+        assert_eq!(
+            closure_hint(&[
+                WishFacet::crate_("x"),
+                WishFacet::new(WishFacetKind::Behavior, "f(1)=>1"),
+            ]),
+            "needs evidence (a passing test/run)"
+        );
+    }
+
+    #[test]
+    fn nearest_existing_spots_typos() {
+        assert_eq!(edit_distance("engine", "enigne"), 1); // adjacent transposition
+        assert_eq!(edit_distance("store", "stoer"), 1); // and on a short name
+        assert_eq!(edit_distance("module", "module"), 0);
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::new(WishFacetKind::Module, "engine"));
+        obs.insert(WishFacet::new(WishFacetKind::Module, "store"));
+        // A near-miss of the same kind is suggested.
+        let typo = WishFacet::new(WishFacetKind::Module, "enigne");
+        assert_eq!(nearest_existing(&typo, &obs).as_deref(), Some("engine"));
+        // A genuine gap (nothing close) → no suggestion.
+        let gap = WishFacet::new(WishFacetKind::Module, "telemetry");
+        assert_eq!(nearest_existing(&gap, &obs), None);
+        // Same string, wrong kind → not a match (kind matters).
+        let wrong_kind = WishFacet::new(WishFacetKind::Symbol, "enigne");
+        assert_eq!(nearest_existing(&wrong_kind, &obs), None);
+        // The report names the candidate.
+        let out = did_you_mean_report(&[typo], &obs, false);
+        assert!(out.contains("did you mean") && out.contains("engine"), "{out}");
+    }
+
+    #[test]
+    fn nearest_existing_bridges_format_keys() {
+        // The observation keys a signature by arity; the prose keys the stem.
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::new(WishFacetKind::Signature, "add/2"));
+        obs.insert(WishFacet::new(WishFacetKind::Signature, "other/1"));
+        let wished = WishFacet::new(WishFacetKind::Signature, "add");
+        assert_eq!(
+            nearest_existing(&wished, &obs).as_deref(),
+            Some("add/2"),
+            "the stem matches the arity-keyed form"
+        );
+        // No stem match and not close → no false bridge.
+        let gap = WishFacet::new(WishFacetKind::Signature, "telemetry");
+        assert_eq!(nearest_existing(&gap, &obs), None);
+    }
+
+    #[test]
+    fn coverage_flags_a_structure_only_dod() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        // An existence-only DoD: a single crate wish.
+        let existence = Wish::new(
+            "a crate solo",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            ev,
+        );
+        let cov = stratum_coverage(&[assess_wish_layered(&existence, &obs, ev)]);
+        let report = coverage_report(&cov, false);
+        assert!(report.contains("coverage:") && report.contains("existence"), "{report}");
+        assert!(
+            report.contains("no behaviour or run"),
+            "a structure-only DoD is flagged: {report}"
+        );
+
+        // Add a behaviour wish — now the DoD reaches the Verified stratum, so it
+        // checks that it works; the flag clears and `verified` is shown.
+        let behaviour = Wish::new(
+            "a behaviour add(2,3)=>5",
+            [WishPredicate::require(WishFacet::new(
+                WishFacetKind::Behavior,
+                "add(2,3)=>5",
+            ))],
+            Digest::ZERO,
+            ev,
+        );
+        let cubes = vec![
+            assess_wish_layered(&existence, &obs, ev),
+            assess_wish_layered(&behaviour, &obs, ev),
+        ];
+        let report2 = coverage_report(&stratum_coverage(&cubes), false);
+        assert!(report2.contains("verified"), "the verified stratum is shown: {report2}");
+        assert!(
+            !report2.contains("no behaviour or run"),
+            "behaviour coverage clears the flag: {report2}"
+        );
+    }
+
+    #[test]
+    fn wishlist_delta_flags_project_regression() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let w_a = Wish::new(
+            "a crate aa",
+            [WishPredicate::require(WishFacet::crate_("aa"))],
+            Digest::ZERO,
+            ev,
+        );
+        let w_b = Wish::new(
+            "a crate bb",
+            [WishPredicate::require(WishFacet::crate_("bb"))],
+            Digest::ZERO,
+            ev,
+        );
+        // Baseline reading: aa realized, bb not (matched later by content id).
+        let baseline = WishlistReading {
+            realized: 1,
+            total: 2,
+            wishes: vec![
+                WishlistEntry {
+                    wish_id: w_a.id,
+                    wish: w_a.label.clone(),
+                    realized: true,
+                    suspect: false,
+                    met: 1,
+                    total: 1,
+                },
+                WishlistEntry {
+                    wish_id: w_b.id,
+                    wish: w_b.label.clone(),
+                    realized: false,
+                    suspect: false,
+                    met: 0,
+                    total: 1,
+                },
+            ],
+        };
+        // Current: aa broke (regressed), bb now realized (newly realized).
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::crate_("bb"));
+        let a_a = assess_wish(&w_a, &obs, ev);
+        let a_b = assess_wish(&w_b, &obs, ev);
+        let items = vec![(w_a, a_a), (w_b, a_b)];
+
+        let delta = WishlistDelta::compute(&baseline, &items, &[None, None]);
+        assert!(delta.has_regression(), "aa was realized, now is not");
+        assert_eq!(delta.regressed.len(), 1);
+        assert!(delta.regressed[0].contains("aa"), "{:?}", delta.regressed);
+        assert_eq!(delta.newly_realized.len(), 1);
+        assert!(delta.newly_realized[0].contains("bb"), "{:?}", delta.newly_realized);
+        let out = wishlist_delta_report(&delta, "delta since baseline", false);
+        assert!(out.contains("regressed 1") && out.contains("newly realized 1"), "{out}");
+        assert!(out.contains("baseline 1"), "shows the prior aggregate: {out}");
+    }
+
+    #[test]
+    fn wishlist_delta_flags_counterfeit_progress() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let w = Wish::new(
+            "a behaviour deep",
+            [WishPredicate::require(WishFacet::crate_("solo"))],
+            Digest::ZERO,
+            ev,
+        );
+        // Baseline: w was unrealized (so not suspect).
+        let baseline = WishlistReading {
+            realized: 0,
+            total: 1,
+            wishes: vec![WishlistEntry {
+                wish_id: w.id,
+                wish: w.label.clone(),
+                realized: false,
+                suspect: false,
+                met: 0,
+                total: 1,
+            }],
+        };
+        // Current: realized now (crate present) but graded an over-fit suspect —
+        // a hologram this change introduced (a counterfeit fix).
+        let mut obs = ObservedTopology::empty();
+        obs.insert(WishFacet::crate_("solo"));
+        let a = assess_wish(&w, &obs, ev);
+        let items = vec![(w, a)];
+        let d1 = WishlistDelta::compute(&baseline, &items, &[Some(HonestyGrade::OverfitSuspect)]);
+        assert_eq!(d1.new_suspects.len(), 1, "the counterfeit fix is flagged");
+        assert!(d1.new_suspects[0].contains("deep"), "{:?}", d1.new_suspects);
+        assert!(!d1.has_regression(), "a hologram is not a status regression");
+        let out = wishlist_delta_report(&d1, "delta since baseline", false);
+        assert!(out.contains("suspect 1") && out.contains("counterfeit"), "{out}");
+
+        // A wish that was ALREADY a suspect at the baseline is not *newly* one.
+        let base2 = WishlistReading {
+            realized: 1,
+            total: 1,
+            wishes: vec![WishlistEntry {
+                wish_id: items[0].0.id,
+                wish: "x".into(),
+                realized: true,
+                suspect: true,
+                met: 1,
+                total: 1,
+            }],
+        };
+        let d2 = WishlistDelta::compute(&base2, &items, &[Some(HonestyGrade::OverfitSuspect)]);
+        assert!(d2.new_suspects.is_empty(), "an already-suspect wish is not newly suspect");
     }
 
     #[test]

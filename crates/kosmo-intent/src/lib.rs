@@ -22,8 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use kosmo_core::{
-    assess_wish, Digest, ObservedTopology, ParseBackScanScope, Wish, WishAssessment,
-    WishConvergenceTrace, WishFacet, WishFacetKind, WishPredicate,
+    assess_wish, assess_wish_layered, Digest, LayeredConvergenceTrace, ObservedTopology,
+    ParseBackScanScope, Q16, Wish, WishAssessment, WishConvergenceTrace, WishCube, WishFacet,
+    WishFacetKind, WishPredicate,
 };
 use kosmo_hyphae::xlang::{symbol_sets, SourceLanguage};
 use kosmo_hyphae::Norm;
@@ -790,18 +791,183 @@ pub fn facets_from_python_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
     facets
 }
 
-/// A cargo-less workspace that carries Python source — observed without
-/// `cargo metadata`.
-fn workspace_is_python(root: &Path) -> bool {
+/// Recursively collect JavaScript files (`.js`/`.mjs`/`.cjs`/`.jsx`) under `dir`,
+/// skipping vendor/VCS/build directories.
+fn collect_js(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(
+                name,
+                "target" | ".git" | "node_modules" | "dist" | "build" | ".venv" | "__pycache__"
+            ) {
+                continue;
+            }
+            collect_js(&path, out);
+        } else if path.to_str().and_then(SourceLanguage::from_path) == Some(SourceLanguage::JavaScript)
+        {
+            out.push(path);
+        }
+    }
+}
+
+/// The module name of a JavaScript file: its stem, with `index.*` standing for
+/// its directory (the JS package convention, mirroring Python's `__init__`).
+fn js_module_name(file: &Path) -> Option<String> {
+    let stem = file.file_stem()?.to_str()?;
+    if stem == "index" {
+        file.parent()?
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(String::from)
+    } else {
+        Some(stem.to_string())
+    }
+}
+
+/// Lexical facets of every JavaScript file under `dir`: one `Module` per file
+/// (`index.js` standing for its directory), plus `Symbol` / `Signature` / `Test`
+/// facets from the shared xlang extractor (the same verified rules the substrate
+/// scans with). Read-only; needs no Node. (Doc facets — JSDoc — are a follow-on.)
+pub fn facets_from_js_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
+    let root = dir.as_ref();
+    let mut files = Vec::new();
+    collect_js(root, &mut files);
+    files.sort();
+    let mut facets = BTreeSet::new();
+    for file in &files {
+        let Some(module) = js_module_name(file) else {
+            continue;
+        };
+        let Ok(content) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        facets.insert(WishFacet::module(module));
+        let sets = symbol_sets(SourceLanguage::JavaScript, &content);
+        for key in &sets.functions {
+            if let Some((name, _arity)) = key.split_once('/') {
+                facets.insert(WishFacet::symbol(name));
+            }
+            facets.insert(WishFacet::signature(key.clone()));
+        }
+        for t in &sets.types {
+            facets.insert(WishFacet::symbol(t.clone()));
+        }
+        for t in &sets.tests {
+            facets.insert(WishFacet::test(t.clone()));
+        }
+    }
+    facets
+}
+
+/// Module + symbol/signature/type/test facets for one xlang source file, via
+/// the shared extractor. The `module` is the caller's chosen name.
+fn xlang_facets(file: &Path, lang: SourceLanguage, module: &str, facets: &mut BTreeSet<WishFacet>) {
+    let Ok(content) = std::fs::read_to_string(file) else {
+        return;
+    };
+    facets.insert(WishFacet::module(module.to_string()));
+    let sets = symbol_sets(lang, &content);
+    for key in &sets.functions {
+        if let Some((name, _arity)) = key.split_once('/') {
+            facets.insert(WishFacet::symbol(name));
+        }
+        facets.insert(WishFacet::signature(key.clone()));
+    }
+    for t in &sets.types {
+        facets.insert(WishFacet::symbol(t.clone()));
+    }
+    for t in &sets.tests {
+        facets.insert(WishFacet::test(t.clone()));
+    }
+}
+
+/// Lexical facets of every Go / Java / C / C++ file under `dir`, via the shared
+/// xlang extractor — completing the polyglot door alongside the Rust/Python/JS
+/// backends. Module = file stem. Read-only; needs no toolchain.
+pub fn facets_from_clike_dir(dir: impl AsRef<Path>) -> BTreeSet<WishFacet> {
+    fn walk(dir: &Path, facets: &mut BTreeSet<WishFacet>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if matches!(
+                    name,
+                    "target" | ".git" | "node_modules" | "dist" | "build" | ".venv"
+                        | "__pycache__" | "vendor"
+                ) {
+                    continue;
+                }
+                walk(&path, facets);
+            } else if let Some(lang) = path.to_str().and_then(SourceLanguage::from_path) {
+                if matches!(
+                    lang,
+                    SourceLanguage::Go | SourceLanguage::Java | SourceLanguage::C | SourceLanguage::Cpp
+                ) {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(String::from) {
+                        xlang_facets(&path, lang, &stem, facets);
+                    }
+                }
+            }
+        }
+    }
+    let mut facets = BTreeSet::new();
+    walk(dir.as_ref(), &mut facets);
+    facets
+}
+
+/// A cargo-less workspace that carries observable source (Python or JavaScript)
+/// — observed by the file = module law, without `cargo metadata`: the polyglot
+/// door.
+fn is_cargoless_polyglot(root: &Path) -> bool {
     if root.join("Cargo.toml").exists() {
         return false;
     }
-    if root.join("pyproject.toml").exists() {
+    if root.join("pyproject.toml").exists()
+        || root.join("package.json").exists()
+        || root.join("go.mod").exists()
+    {
         return true;
     }
-    let mut files = Vec::new();
-    collect_py(root, &mut files);
-    !files.is_empty()
+    has_non_rust_source(root)
+}
+
+/// True if any recognized non-Rust source file lives under `dir` (the signal
+/// that a Cargo-less directory is still an observable polyglot workspace).
+fn has_non_rust_source(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(
+                name,
+                "target" | ".git" | "node_modules" | "dist" | "build" | ".venv" | "__pycache__"
+                    | "vendor"
+            ) {
+                continue;
+            }
+            if has_non_rust_source(&path) {
+                return true;
+            }
+        } else if path
+            .to_str()
+            .and_then(SourceLanguage::from_path)
+            .is_some_and(|l| l != SourceLanguage::Rust)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Walk every `.rs` file under `dir` and collect the `(test_fn_name, spec)`
@@ -828,11 +994,17 @@ pub fn observe_workspace_deep(
     root: impl Into<PathBuf>,
 ) -> Result<ObservedTopology, ParseBackError> {
     let root = root.into();
-    // A cargo-less Python workspace observes by its own law (file = module)
-    // — no `cargo metadata` requirement: the polyglot door.
-    if workspace_is_python(&root) {
+    // A cargo-less polyglot workspace observes by its own law (file = module)
+    // — no `cargo metadata` requirement: the polyglot door (Python and/or JS).
+    if is_cargoless_polyglot(&root) {
         let mut observed = ObservedTopology::empty();
         for facet in facets_from_python_dir(&root) {
+            observed.insert(facet);
+        }
+        for facet in facets_from_js_dir(&root) {
+            observed.insert(facet);
+        }
+        for facet in facets_from_clike_dir(&root) {
             observed.insert(facet);
         }
         return Ok(observed);
@@ -841,9 +1013,15 @@ pub fn observe_workspace_deep(
     for facet in facets_from_rust_dir(&root) {
         observed.insert(facet);
     }
-    // Polyglot observation: Python files inside a cargo workspace are
-    // measurable targets too, not blind spots.
+    // Polyglot observation: Python, JavaScript, and Go/Java/C/C++ files inside a
+    // cargo workspace are measurable targets too, not blind spots.
     for facet in facets_from_python_dir(&root) {
+        observed.insert(facet);
+    }
+    for facet in facets_from_js_dir(&root) {
+        observed.insert(facet);
+    }
+    for facet in facets_from_clike_dir(&root) {
         observed.insert(facet);
     }
     Ok(observed)
@@ -1050,6 +1228,100 @@ fn run_probes_from_dir(dir: impl AsRef<Path>) -> Vec<String> {
     out
 }
 
+/// The interpreter command for a runnable language: `(program, leading args)`,
+/// with the script path appended by the caller. `None` for Rust (its own path)
+/// and compile-first languages (C/C++/Java — a follow-on).
+fn run_command(lang: SourceLanguage) -> Option<(&'static str, Vec<String>)> {
+    match lang {
+        SourceLanguage::Python => Some(("python3", vec![])),
+        SourceLanguage::JavaScript => Some(("node", vec![])),
+        SourceLanguage::Go => Some(("go", vec!["run".to_string()])),
+        _ => None,
+    }
+}
+
+/// Extract a `kosmo:run:` probe key from a source line — either comment style
+/// (`#` for Python, `//` for JS/Go).
+fn polyglot_run_marker(trimmed: &str) -> Option<String> {
+    let rest = trimmed
+        .strip_prefix("//")
+        .or_else(|| trimmed.strip_prefix('#'))?
+        .trim_start();
+    let key = rest.strip_prefix("kosmo:run:")?.trim();
+    (!key.is_empty()).then(|| key.to_string())
+}
+
+/// Every `kosmo:run:` probe under `dir` from a runnable non-Rust language, paired
+/// with its file and detected language (the script to execute). Read-only,
+/// deterministic (sorted, deduped).
+fn polyglot_run_probes(dir: &Path) -> Vec<(PathBuf, SourceLanguage, String)> {
+    fn walk(dir: &Path, out: &mut Vec<(PathBuf, SourceLanguage, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if matches!(
+                    name,
+                    "target" | ".git" | "node_modules" | "dist" | "build" | ".venv"
+                        | "__pycache__" | "vendor"
+                ) {
+                    continue;
+                }
+                walk(&path, out);
+            } else if let Some(lang) = path.to_str().and_then(SourceLanguage::from_path) {
+                if run_command(lang).is_none() {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        if let Some(key) = polyglot_run_marker(line.trim()) {
+                            out.push((path.clone(), lang, key));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, &mut out);
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The Live door for the polyglot: structural facets plus, for each `kosmo:run:`
+/// marker in a runnable non-Rust file, the carrying script *executed* under the
+/// same sandbox (`python3` / `node` / `go run` `<file> <args>`) with its witness
+/// matched against the probe — the `Run` facet emitted only on a clean, matching
+/// exit (fail-closed, like the Rust path).
+fn observe_polyglot_runtime(root: &Path) -> Result<ObservedTopology, ParseBackError> {
+    use kosmo_sandbox::{RunSpec, Sandbox};
+    let mut observed = observe_workspace_deep(root)?;
+    let probes = polyglot_run_probes(root);
+    if !probes.is_empty() {
+        let sandbox = Sandbox::new()
+            .with_cwd(root)
+            .with_timeout(std::time::Duration::from_secs(60));
+        for (file, lang, key) in probes {
+            let (Some((args, expect)), Some((prog, mut prog_args))) =
+                (parse_run_key(&key), run_command(lang))
+            else {
+                continue;
+            };
+            prog_args.push(file.to_string_lossy().into_owned());
+            prog_args.extend(args);
+            let witness = sandbox.run(&RunSpec::new(prog, prog_args));
+            if run_matches(&witness, &expect) {
+                observed.insert(WishFacet::run(key));
+            }
+        }
+    }
+    Ok(observed)
+}
+
 /// Observe a workspace **with runtime probes**: everything
 /// [`observe_workspace_validated`] sees, plus — for each `// kosmo:run:` marker
 /// — the built artifact is *executed* under the sandbox and the `Run` facet is
@@ -1072,6 +1344,12 @@ pub fn observe_workspace_runtime_diag(
 ) -> Result<(ObservedTopology, Option<String>), ParseBackError> {
     use kosmo_sandbox::{RunSpec, Sandbox};
     let root = root.into();
+    // Polyglot runtime: a cargo-less workspace runs its script probes directly
+    // (`python3`/`node`/`go run` `<file> <args>`) under the same sandbox — the
+    // Live door for Python, JavaScript, and Go.
+    if is_cargoless_polyglot(&root) {
+        return Ok((observe_polyglot_runtime(&root)?, None));
+    }
     let mut observed = observe_workspace_validated(&root)?;
     let probes = run_probes_from_dir(&root);
     let mut diag: Option<String> = None;
@@ -1811,6 +2089,10 @@ pub struct WishSession {
     wish: Wish,
     evidence_bundle_id: Digest,
     assessments: Vec<WishAssessment>,
+    /// The per-layer render film (Run 3), accumulated by [`WishSession::observe_layered`].
+    /// `#[serde(default)]` so descents persisted before the cube existed still load.
+    #[serde(default)]
+    cubes: Vec<WishCube>,
 }
 
 impl WishSession {
@@ -1821,6 +2103,7 @@ impl WishSession {
             wish,
             evidence_bundle_id,
             assessments: vec![],
+            cubes: vec![],
         }
     }
 
@@ -1856,6 +2139,38 @@ impl WishSession {
         WishConvergenceTrace::from_assessments(&self.assessments, self.evidence_bundle_id)
     }
 
+    /// Like [`WishSession::observe`], but also renders the *layered* hypercube
+    /// for this step (Run 3) and retains it, so the descent accumulates a film of
+    /// the wish solidifying stratum by stratum. The flat assessment is recorded
+    /// too (the headline trajectory stays intact). Returns the rendered cube.
+    pub fn observe_layered(&mut self, observed: &ObservedTopology) -> &WishCube {
+        let assessment = assess_wish(&self.wish, observed, self.evidence_bundle_id);
+        self.assessments.push(assessment);
+        let cube = assess_wish_layered(&self.wish, observed, self.evidence_bundle_id);
+        self.cubes.push(cube);
+        self.cubes.last().expect("just pushed a cube")
+    }
+
+    /// The per-layer render film recorded so far, oldest first.
+    pub fn cubes(&self) -> &[WishCube] {
+        &self.cubes
+    }
+
+    /// The most recently rendered cube, if any.
+    pub fn latest_cube(&self) -> Option<&WishCube> {
+        self.cubes.last()
+    }
+
+    /// The per-layer attractor contract accumulated so far (Run 3) — the
+    /// precision instrument that catches deep regressions the scalar [`trace`]
+    /// masks. Empty until [`observe_layered`] has been called.
+    ///
+    /// [`trace`]: WishSession::trace
+    /// [`observe_layered`]: WishSession::observe_layered
+    pub fn layered_trace(&self) -> LayeredConvergenceTrace {
+        LayeredConvergenceTrace::from_cubes(&self.cubes, self.evidence_bundle_id)
+    }
+
     /// The system is at the wish-attractor: the latest observation realized the wish.
     pub fn at_attractor(&self) -> bool {
         self.trace().at_attractor()
@@ -1869,6 +2184,81 @@ impl WishSession {
     /// The wish is realized and the descent never diverged.
     pub fn is_converged(&self) -> bool {
         self.trace().is_converged()
+    }
+}
+
+/// Content for the deterministic `CubeMeshReading` id.
+#[derive(Serialize)]
+struct MeshContent<'a> {
+    wish_cube_id: &'a Digest,
+    wish_opacity_raw: i64,
+    wish_solidity_raw: i64,
+    system_d_density_raw: i64,
+    evidence_bundle_id: &'a Digest,
+}
+
+/// A side-by-side reading of the two cubes at one instant: the wish-cube's
+/// structural solidity vs. the system-cube's D-Density — the two gear teeth
+/// (Zahnräder) in contact, the intent gear meshing with the topology gear.
+///
+/// Purely advisory: it ranks how aligned intent and topology are; it authorises
+/// nothing (CROSS-010). A wish that reads near-solid while the topology stays
+/// sparse is the over-fit signal. Content-addressed (INVARIANT-007),
+/// evidence-bound (CROSS-006).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CubeMeshReading {
+    pub id: Digest,
+    pub wish_cube_id: Digest,
+    /// [`WishCube`]`::overall_opacity` — the intent gear (mean opacity).
+    pub wish_opacity: Q16,
+    /// [`WishCube`]`::structural_solidity` — the intent gear's geomean solidity.
+    pub wish_solidity: Q16,
+    /// `DDensityReport::density` from `kosmo-systemcube` — the topology gear.
+    pub system_d_density: Q16,
+    pub evidence_bundle_id: Digest,
+}
+
+impl CubeMeshReading {
+    /// Read the two gears at one instant. `d_density` is the caller's
+    /// `SystemCube::export_dry_run(..).d_density.density` (kosmo-systemcube),
+    /// passed as a bare [`Q16`] so the gears mesh at the *data* level — no new
+    /// crate-dependency edge, no structural coupling.
+    pub fn read(cube: &WishCube, d_density: Q16, evidence_bundle_id: Digest) -> Self {
+        let mut m = Self {
+            id: Digest::ZERO,
+            wish_cube_id: cube.id,
+            wish_opacity: cube.overall_opacity,
+            wish_solidity: cube.structural_solidity,
+            system_d_density: d_density,
+            evidence_bundle_id,
+        };
+        m.id = m.compute_id();
+        m
+    }
+
+    fn compute_id(&self) -> Digest {
+        Digest::of(&MeshContent {
+            wish_cube_id: &self.wish_cube_id,
+            wish_opacity_raw: self.wish_opacity.raw(),
+            wish_solidity_raw: self.wish_solidity.raw(),
+            system_d_density_raw: self.system_d_density.raw(),
+            evidence_bundle_id: &self.evidence_bundle_id,
+        })
+    }
+
+    pub fn verify_id(&self) -> bool {
+        self.id == self.compute_id()
+    }
+
+    /// CROSS-006.
+    pub fn is_evidence_bound(&self) -> bool {
+        self.evidence_bundle_id != Digest::ZERO
+    }
+
+    /// Both gears have crossed `threshold` — meshed and turning toward solid
+    /// together. Advisory only (CROSS-010).
+    pub fn in_mesh(&self, threshold: Q16) -> bool {
+        self.wish_solidity.at_least(threshold) && self.system_d_density.at_least(threshold)
     }
 }
 
@@ -1984,6 +2374,101 @@ mod tests {
         assert_eq!(back.iterations(), 1);
         assert_eq!(back.wish().id, s.wish().id);
         assert_eq!(back.latest().unwrap().distance, Q16::HALF);
+    }
+
+    // ── Run 3 / Run 4 plumbing: layered session + the two gears ────────────
+
+    /// A wish spanning Existence (crate) + Wiring (contract).
+    fn layered_wish_intent() -> Wish {
+        Wish::new(
+            "a crate and a contract",
+            [
+                WishPredicate::require(WishFacet::crate_("kosmo-api")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Contract, "f(A)->B")),
+            ],
+            d(b"policy"),
+            d(b"evidence"),
+        )
+    }
+
+    #[test]
+    fn observe_layered_accumulates_cubes_and_keeps_flat_trace() {
+        let mut session = WishSession::new(layered_wish_intent(), d(b"evidence"));
+        session.observe_layered(&ObservedTopology::empty());
+        session.observe_layered(&ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]));
+
+        assert_eq!(session.cubes().len(), 2);
+        assert_eq!(
+            session.assessments().len(),
+            2,
+            "the flat trajectory is kept alongside the cubes"
+        );
+        assert_eq!(session.trace().distances.len(), 2);
+        let lt = session.layered_trace();
+        let existence = lt
+            .layers
+            .iter()
+            .find(|l| l.layer == kosmo_core::WishLayer::Existence)
+            .unwrap();
+        assert_eq!(existence.distances, vec![Q16::ONE, Q16::ZERO]);
+        assert!(session.latest_cube().is_some());
+    }
+
+    #[test]
+    fn old_session_without_cubes_still_deserializes() {
+        // A session persisted before the `cubes` field existed (key absent).
+        let json = serde_json::json!({
+            "wish": layered_wish_intent(),
+            "evidence_bundle_id": d(b"evidence"),
+            "assessments": [],
+        });
+        let session: WishSession =
+            serde_json::from_value(json).expect("serde(default) fills cubes");
+        assert!(session.cubes().is_empty());
+        assert_eq!(session.iterations(), 0);
+    }
+
+    #[test]
+    fn layered_session_round_trips_through_serde() {
+        let mut session = WishSession::new(layered_wish_intent(), d(b"evidence"));
+        session.observe_layered(&ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]));
+        let json = serde_json::to_string(&session).unwrap();
+        let back: WishSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.cubes().len(), 1);
+        assert_eq!(
+            back.latest_cube().unwrap().id,
+            session.latest_cube().unwrap().id
+        );
+    }
+
+    #[test]
+    fn mesh_reading_pairs_wish_solidity_with_d_density() {
+        let cube = assess_wish_layered(
+            &layered_wish_intent(),
+            &ObservedTopology::from_facets([WishFacet::crate_("kosmo-api")]),
+            d(b"evidence"),
+        );
+        let mesh = CubeMeshReading::read(&cube, Q16::HALF, d(b"evidence"));
+        assert_eq!(mesh.wish_cube_id, cube.id);
+        assert_eq!(mesh.wish_opacity, cube.overall_opacity);
+        assert_eq!(mesh.wish_solidity, cube.structural_solidity);
+        assert_eq!(mesh.system_d_density, Q16::HALF);
+        assert!(mesh.verify_id());
+        assert!(mesh.is_evidence_bound());
+    }
+
+    #[test]
+    fn mesh_reading_id_tracks_d_density() {
+        let cube = assess_wish_layered(
+            &layered_wish_intent(),
+            &ObservedTopology::empty(),
+            d(b"evidence"),
+        );
+        let m1 = CubeMeshReading::read(&cube, Q16::HALF, d(b"evidence"));
+        let m2 = CubeMeshReading::read(&cube, Q16::HALF, d(b"evidence"));
+        assert_eq!(m1.id, m2.id, "deterministic");
+        let m3 = CubeMeshReading::read(&cube, Q16::ONE, d(b"evidence"));
+        assert_ne!(m1.id, m3.id, "a different topology gear → a different reading");
     }
 
     // ── real-workspace observation (graceful skip if cargo unavailable) ────

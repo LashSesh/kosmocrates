@@ -73,12 +73,24 @@ pub fn catalog() -> DoorCatalog {
             "--wish",
             vec![],
             "compile a plain-prose wish and measure the workspace against it \
-         (offline, deterministic); under --apply, descend until realized",
+         (offline, deterministic); under --apply, descend until realized. \
+         --layers renders it as a hypercube whose strata fill from transparent \
+         to solid; --staged descends Solve\u{2192}Gate\u{2192}Coagula, coagulating \
+         stratum by stratum; --mesh reads the two gears (wish solidity vs. the \
+         workspace's observed structural density), surfacing over-fit",
             [
                 vec![
                     DoorInput::switch("--validated"),
                     DoorInput::switch("--scaffold"),
+                    DoorInput::switch("--layers"),
+                    DoorInput::switch("--staged"),
+                    DoorInput::switch("--mesh"),
+                    DoorInput::switch("--flat"),
+                    DoorInput::switch("--insist"),
+                    DoorInput::switch("--blueprint"),
+                    DoorInput::switch("--plan"),
                     DoorInput::valued("--wish-session", "<file>"),
+                    DoorInput::valued("--since", "<session>"),
                     DoorInput::switch("--apply"),
                     DoorInput::valued("--norms", "<dir>"),
                     workspace_input(),
@@ -100,6 +112,44 @@ pub fn catalog() -> DoorCatalog {
             [vec![DoorInput::switch("--validated")], output_inputs()].concat(),
             DoorGovernance::ReadOnly,
             vec![DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--wishlist",
+            vec![],
+            "measure a file of prose wishes (one per line; # comments and blank \
+         lines ignored) against the workspace as a project definition-of-done, \
+         into an aggregate realization gauge; read-only unless --apply, which \
+         descends every wish to close the project (writes the workspace); exit 0 \
+         only when every wish is realized; --since <reading> diffs against a prior \
+         --json snapshot and exits 2 on any project regression",
+            [
+                vec![
+                    DoorInput::switch("--validated"),
+                    DoorInput::switch("--scaffold"),
+                    DoorInput::switch("--apply"),
+                    DoorInput::switch("--blueprint"),
+                    DoorInput::switch("--plan"),
+                    DoorInput::valued("--since", "<reading>"),
+                    workspace_input(),
+                ],
+                armament_inputs(),
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::WritesWorkspace,
+            vec![DoorNeed::Workspace, DoorNeed::Cargo],
+        ),
+        Door::new(
+            here(),
+            "--vocab",
+            vec![],
+            "print the wish vocabulary \u{2014} the prose forms for each stratum \
+         (existence, shape, wiring, verified, live), by example; how to phrase a \
+         wish. Needs no workspace",
+            output_inputs(),
+            DoorGovernance::ReadOnly,
+            vec![],
         ),
         Door::new(
             here(),
@@ -395,6 +445,50 @@ pub fn catalog() -> DoorCatalog {
         ),
         Door::new(
             here(),
+            "--alchemy",
+            vec![],
+            "the combine lab: seed structural elements from the workspace \
+         (deduped by the cross-language novelty gate), drive combine() to a \
+         fixpoint, and report the discovered catalog and its frontier — the \
+         alchemy / \"Doodle God\" laboratory over real code; --certify arms the \
+         validity gate so an element must define substance (novel AND valid); \
+         strictly advisory",
+            [
+                vec![
+                    workspace_input(),
+                    DoorInput::switch("--certify"),
+                    DoorInput::valued("--threshold", "<0..1>"),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![DoorNeed::Workspace],
+        ),
+        Door::new(
+            here(),
+            "--behaviour",
+            vec![],
+            "the behavioural lattice: combine real runnable functions over a \
+         finite domain by *executed* composition, dedup by observational \
+         equality (the same behaviour, however expressed, is one point), and \
+         bridge back to structure — synonyms (different code, same behaviour) \
+         and false friends (similar structure, different behaviour); \
+         workspace-independent, --certify arms the informativeness gate; \
+         strictly advisory",
+            [
+                vec![
+                    DoorInput::switch("--certify"),
+                    DoorInput::valued("--threshold", "<0..1>"),
+                ],
+                output_inputs(),
+            ]
+            .concat(),
+            DoorGovernance::ReadOnly,
+            vec![],
+        ),
+        Door::new(
+            here(),
             "--doors",
             vec![],
             "this catalog: the binary's complete docking surface, spoken by the \
@@ -595,6 +689,19 @@ mod tests {
              a door without a description is a hole in the docking surface: \
              {undescribed:?}"
         );
+    }
+
+    #[test]
+    fn wish_door_speaks_layers_and_staged_flags() {
+        let catalog = catalog();
+        let wish = catalog
+            .doors
+            .iter()
+            .find(|d| d.name == "--wish")
+            .expect("a --wish door");
+        let inputs: BTreeSet<&str> = wish.inputs.iter().map(|i| i.name.as_str()).collect();
+        assert!(inputs.contains("--layers"), "the wish door renders strata");
+        assert!(inputs.contains("--staged"), "the wish door descends staged");
     }
 
     #[test]
