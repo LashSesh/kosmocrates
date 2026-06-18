@@ -108,6 +108,69 @@ degrees of freedom to a determined, gated, evidence-bound state, the whole lands
 the rejected) in view* — **is** the conformance machine, one altitude up. Brick 48 specialises
 the discrete core to the software-architecture problem space.
 
+---
+
+# Horizon — Stufe 3: system-level verification (the cartography)
+
+Mapped before we climb (Run 47). "Verified" must come to mean **works as a system**, not just
+"every part exists and passes in isolation". The map names the **destination (strongest result)**
+and the **intermediate step** that grounds the path to it.
+
+## The destination (strongest result)
+
+> The conformance machine verifies, **by execution**, that the architecture works *as a system*.
+> A system-level probe exercises multiple components together; the architecture is accepted only
+> when the *system's* observed behaviour is correct — deterministic acceptance + convergence at
+> the system level, grounded in the least-gameable signal there is. That is the true meaning of
+> "verified", and the strongest result Stufe 3 can reach.
+
+## What already exists (Stufe 3 is *not* greenfield — surveyed Run 47)
+
+- **Static cross-component wiring** — the `Composition` facet (`f>>T>>g`): A's output type *fits*
+  B's input. Derived from observed contracts (`kosmo-intent`), checkable today.
+- **Executed two-component composition** — `a flow f(x)>>g=>y`: a *validated* composition (run
+  f then g, check the output) — already a Behavior facet, executed.
+- **System-level contradiction & compatibility** — `ContradictionEnergyReport::from_units` +
+  `CompatibilityProfileReport::from_units` (`kosmo-systemcube`): pairwise contradiction
+  (duplicate/conflicting definitions) and compatibility-gap detection across components. Built,
+  pipeline-wired, **advisory** — but invisible to the wish/blueprint/plan surface.
+- **Invariant docking in the solver** — `pse-traverse` `NormSpec`/`NormKind` + multi-dimension
+  `ConstraintSpec` (a constraint already spans several dimensions). The bridge (brick 48) can
+  carry cross-component invariants straight into the `CollapsePlan`.
+
+## The gap
+
+A cross-component property cannot yet be **declared in the architecture spec** and **checked as
+part of the city standing**; the built system-level signals (contradiction, compatibility) never
+reach the operator's surface; and there is no **executed** check that *multiple* components work
+*together* (only the two-component `flow`).
+
+## The spine: intermediate step → strongest result
+
+| Brick | Step | What | Reuse / scope |
+|---|---|---|---|
+| **49** | **the intermediate step** | surface the cross-component signals that already exist onto the blueprint/plan, and wire them into the bridge as `ConstraintSpec`/`NormSpec`: does the declared `Composition` wiring *hold*? do components *contradict* each other (energy)? are there compatibility *gaps*? → "is the city internally consistent and correctly wired?" — a genuine cross-component property, **static & deterministic** | mostly reuse (`Composition` + `ContradictionEnergyReport`/`CompatibilityProfileReport` + `NormSpec`); additive, offline-provable |
+| 50 | declared invariants | the spec language for a first-class system invariant (`a flow A>>T>>B`, `no contradiction`, a compatibility requirement) checked as part of the architecture standing | `flow` prose already exists; additive |
+| **51** | **the strongest result** | **executed system verification** — generalise `flow`/run-probes to *multi-component* system probes; accept the architecture only when the *system* runs correctly end-to-end | partly reachable (the `flow` seed), partly the genuine research frontier (arbitrary orchestration) |
+| 52+ | the deep frontier | security, resource/performance, concurrency invariants; learned/embedded system properties | research |
+
+**Why the intermediate step is the right stepping stone:** brick 49 establishes the *surface* and
+the *solver wiring* for cross-component properties (declared invariants become `ConstraintSpec`/
+`NormSpec`, so the collapse plan + excision already respect them) **without** yet needing system
+execution. The strongest result (brick 51) then slots the *executed* layer onto that established
+invariant surface — `flow` (executed, two components) generalised to the whole system. Static
+consistency first, executed system-correctness second: the same discipline that took the wish from
+*existence* to *executed Live* (Runs 30s), now at the system altitude.
+
+## Honest scope
+
+Bricks 49–50 are additive and offline-provable (the recurring "already ~80% built, never surfaced"
+pattern — the SystemCube reports have existed since the early vision chain). Brick 51 is the real
+threshold where "verified = works as a system" becomes ground truth: its seed exists (`flow`), its
+generalisation to arbitrary multi-component orchestration is partly research. Brick 52+ is research.
+The engine's reach still bounds the result; coverage is still the ceiling (a system property the
+spec never declares, the machine cannot insist on).
+
 Bricks 44–47 are the safe, additive, offline-provable climb that turns the flat
 facet list into a checkable city plan. Brick 48+ (invariants) is where Stufe 2
 meets Stufe 3 and the genuinely hard, partly-research work begins — designed when
