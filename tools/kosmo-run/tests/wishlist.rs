@@ -178,6 +178,36 @@ fn wishlist_plan_renders_collapse_plan_and_excises_a_heap() {
     );
 }
 
+// Run 48 — Stufe 3 brick 49: wiring integrity (the first cross-component
+// invariant). An edge to an undeclared component is a dangling wire — a system
+// inconsistency the static check catches.
+#[test]
+fn wishlist_blueprint_flags_a_dangling_wire() {
+    let root = workspace();
+    let list = root.join("dangling.wishes");
+    fs::write(&list, "a crate api\na dependency api->logging\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--blueprint",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    assert!(
+        stdout.contains("dangling wire"),
+        "an edge to an undeclared component is flagged: {stdout}"
+    );
+    assert!(stdout.contains("logging"), "names the dangling endpoint: {stdout}");
+}
+
 #[test]
 fn wishlist_all_realized_exits_0() {
     let root = workspace();

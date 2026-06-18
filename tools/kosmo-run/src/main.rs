@@ -5082,6 +5082,34 @@ fn is_edge_kind(k: &WishFacetKind) -> bool {
     )
 }
 
+/// The *component* endpoints an edge facet connects — the keys that ought to name
+/// declared components. A dependency `a->b` connects `a` and `b`; a composition
+/// `f>>T>>g` connects `f` and `g` (the middle `T` is the via-*type*, not a
+/// component). Used by the wiring-integrity check (brick 49).
+fn edge_component_endpoints(kind: &WishFacetKind, key: &str) -> Vec<String> {
+    let clean = |parts: Vec<&str>| -> Vec<String> {
+        parts
+            .into_iter()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    match kind {
+        WishFacetKind::Dependency => clean(key.split("->").collect()),
+        WishFacetKind::Composition => {
+            let parts: Vec<&str> = key.split(">>").map(str::trim).filter(|s| !s.is_empty()).collect();
+            // f>>T>>g → the components are the ends; the middle is the via-type.
+            if parts.len() >= 3 {
+                clean(vec![parts[0], parts[parts.len() - 1]])
+            } else {
+                clean(parts)
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Stufe 2, brick 47 — the architecture's *coverage* and *honesty*, as advisory
 /// lines beneath a blueprint (render-only; never gates — CROSS-010).
 ///
@@ -5118,6 +5146,35 @@ fn blueprint_assessment_lines(
             "  {}connections: {} edge(s) wiring the components{}\n",
             c(DIM),
             edges,
+            c(RESET)
+        ));
+    }
+    // Brick 49 — wiring integrity (the first cross-component invariant): does
+    // every declared edge connect *declared* components, or does it dangle to one
+    // the plan never names? A dangling wire is a real system inconsistency — and
+    // the static cousin of the bridge's PathExcision (which catches *isolated*
+    // facets, not *dangling references*).
+    let components: std::collections::HashSet<&str> = nodes
+        .iter()
+        .filter(|n| !is_edge_kind(&n.kind))
+        .map(|n| n.key.as_str())
+        .collect();
+    let mut dangling: Vec<(String, String)> = Vec::new();
+    for e in nodes.iter().filter(|n| is_edge_kind(&n.kind)) {
+        for ep in edge_component_endpoints(&e.kind, &e.key) {
+            if !components.contains(ep.as_str()) {
+                dangling.push((e.key.clone(), ep));
+            }
+        }
+    }
+    dangling.sort();
+    dangling.dedup();
+    for (edge, ep) in &dangling {
+        out.push_str(&format!(
+            "  {}\u{26a0} dangling wire \u{2014} {} references undeclared {}{}\n",
+            c(YELLOW),
+            edge,
+            ep,
             c(RESET)
         ));
     }
@@ -6452,6 +6509,68 @@ mod tests {
         // The same city on a DENSE topology is genuine.
         let genuine = blueprint_assessment_lines(&dn, &dcube, Q16::ratio(80, 100).unwrap(), false);
         assert!(genuine.contains("genuine"), "deep+dense standing city is genuine: {genuine}");
+    }
+
+    #[test]
+    fn blueprint_wiring_integrity_flags_dangling_edges() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        let lines_for = |w: &Wish| {
+            let a = assess_wish(w, &obs, ev);
+            let nodes = blueprint_nodes(w, &a, ev);
+            let cube = assess_wish_layered(w, &obs, ev);
+            blueprint_assessment_lines(&nodes, &cube, Q16::ZERO, false)
+        };
+
+        // A dependency to an UNDECLARED component → a dangling wire.
+        let dangling = Wish::new(
+            "dangling",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let d = lines_for(&dangling);
+        assert!(d.contains("dangling wire"), "edge to undeclared component: {d}");
+        assert!(d.contains("logging"), "names the undeclared endpoint: {d}");
+
+        // Both endpoints declared → intact wiring, no warning.
+        let intact = Wish::new(
+            "intact",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&intact).contains("dangling"),
+            "both endpoints declared → no dangling"
+        );
+
+        // A composition's via-TYPE is not a component — only the ends must be declared.
+        let comp = Wish::new(
+            "composition",
+            [
+                WishPredicate::require(WishFacet::symbol("make")),
+                WishPredicate::require(WishFacet::symbol("load")),
+                WishPredicate::require(WishFacet::new(
+                    WishFacetKind::Composition,
+                    "make>>Config>>load",
+                )),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&comp).contains("dangling"),
+            "ends declared, the via-type Config is exempt"
+        );
     }
 
     #[test]
