@@ -5082,6 +5082,17 @@ fn is_edge_kind(k: &WishFacetKind) -> bool {
     )
 }
 
+/// Is this facet *execution-verified* — satisfied only by *running* the system
+/// (a behaviour/flow that executes, a run probe, a service probe), not by reading
+/// its structure? The least-gameable signal; the basis of the Stufe-3 execution
+/// coverage (brick 51).
+fn is_executed_kind(k: &WishFacetKind) -> bool {
+    matches!(
+        k,
+        WishFacetKind::Behavior | WishFacetKind::Run | WishFacetKind::Service
+    )
+}
+
 /// The *component* endpoints an edge facet connects — the keys that ought to name
 /// declared components. A dependency `a->b` connects `a` and `b`; a composition
 /// `f>>T>>g` connects `f` and `g` (the middle `T` is the via-*type*, not a
@@ -5253,6 +5264,19 @@ fn blueprint_assessment_lines(
             c(RESET)
         ));
     }
+    // Brick 51 — execution coverage (the Stufe-3 threshold): how much of the
+    // architecture is verified by *running* the system (Behavior/flow, Run,
+    // Service — the least-gameable signal), not merely by reading its structure?
+    let executed = nodes.iter().filter(|n| is_executed_kind(&n.kind)).count();
+    if executed > 0 {
+        out.push_str(&format!(
+            "  {}execution: {}/{} facet(s) verified by running the system{}\n",
+            c(DIM),
+            executed,
+            nodes.len(),
+            c(RESET)
+        ));
+    }
     // Honesty only speaks when the whole city stands — else "incomplete" already
     // told the truth.
     let stands = !nodes.is_empty() && nodes.iter().all(|n| n.met);
@@ -5272,6 +5296,17 @@ fn blueprint_assessment_lines(
                 c(RESET)
             )),
             _ => {} // thin-but-shallow: a small honest plan, no alarm (Run 11)
+        }
+        // Brick 51 — a city that *stands* on structure alone, never executed, is
+        // structurally complete but not system-verified: a hologram of a
+        // different kind. The Stufe-3 honesty signal.
+        if executed == 0 {
+            out.push_str(&format!(
+                "  {}\u{26a0} never run \u{2014} the city stands on structure alone; no facet is \
+                 verified by execution (add a flow/run/service){}\n",
+                c(YELLOW),
+                c(RESET)
+            ));
         }
     }
     out
@@ -6695,6 +6730,48 @@ mod tests {
         let a = assess_wish(&cyclic, &obs, ev);
         let nodes = blueprint_nodes(&cyclic, &a, ev);
         assert_eq!(dependency_cycles(&nodes), dependency_cycles(&nodes));
+    }
+
+    #[test]
+    fn blueprint_execution_coverage_flags_a_never_run_city() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let dense = Q16::ratio(80, 100).unwrap();
+        // Render a wish whose every facet is observed present (so the city STANDS).
+        let lines_for = |w: &Wish| {
+            let obs = ObservedTopology::from_facets(w.predicates.iter().map(|p| p.facet.clone()));
+            let a = assess_wish(w, &obs, ev);
+            let nodes = blueprint_nodes(w, &a, ev);
+            let cube = assess_wish_layered(w, &obs, ev);
+            blueprint_assessment_lines(&nodes, &cube, dense, false)
+        };
+
+        // A standing STRUCTURAL-only city → never run.
+        let structural = Wish::new(
+            "structural",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::module("api::core")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let s = lines_for(&structural);
+        assert!(s.contains("never run"), "a standing structure-only city is never run: {s}");
+
+        // Add an execution-verified facet (a run probe) → execution coverage, no warning.
+        let executed = Wish::new(
+            "executed",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Run, "x=>out~y")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let e = lines_for(&executed);
+        assert!(e.contains("execution:"), "executed facets are counted: {e}");
+        assert!(!e.contains("never run"), "an executed city is not 'never run': {e}");
     }
 
     #[test]

@@ -240,6 +240,36 @@ fn wishlist_blueprint_flags_a_dependency_cycle() {
     );
 }
 
+// Run 50 — Stufe 3 brick 51: execution coverage (the threshold). A city that
+// stands on structure alone — never run — is flagged as not system-verified.
+#[test]
+fn wishlist_blueprint_flags_a_never_run_city() {
+    let root = workspace(); // demo crate: module alpha + fn f present
+    let list = root.join("structural.wishes");
+    fs::write(&list, "a module alpha\na function f\n").unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--blueprint",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    // The structural city stands (alpha + f present) but is verified by no execution.
+    assert!(stdout.contains("the plan stands"), "structural city stands: {stdout}");
+    assert!(
+        stdout.contains("never run"),
+        "a standing structure-only city is not system-verified: {stdout}"
+    );
+}
+
 #[test]
 fn wishlist_all_realized_exits_0() {
     let root = workspace();
