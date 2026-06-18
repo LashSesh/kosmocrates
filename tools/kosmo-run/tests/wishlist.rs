@@ -208,6 +208,38 @@ fn wishlist_blueprint_flags_a_dangling_wire() {
     assert!(stdout.contains("logging"), "names the dangling endpoint: {stdout}");
 }
 
+// Run 49 — Stufe 3 brick 50: dependency-cycle detection (a cross-component
+// invariant). A <-> B dependency loop is flagged on the blueprint.
+#[test]
+fn wishlist_blueprint_flags_a_dependency_cycle() {
+    let root = workspace();
+    let list = root.join("cyclic.wishes");
+    fs::write(
+        &list,
+        "a crate api\na crate logging\na dependency api->logging\na dependency logging->api\n",
+    )
+    .unwrap();
+    let out = kosmo_run()
+        .args([
+            "--wishlist",
+            list.to_str().unwrap(),
+            "--blueprint",
+            "--no-color",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn kosmo-run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("could not observe") {
+        eprintln!("observe unavailable, skipping: {stdout}");
+        return;
+    }
+    assert!(
+        stdout.contains("dependency cycle"),
+        "a <-> b dependency loop is flagged: {stdout}"
+    );
+}
+
 #[test]
 fn wishlist_all_realized_exits_0() {
     let root = workspace();

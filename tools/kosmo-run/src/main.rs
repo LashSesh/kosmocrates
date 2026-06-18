@@ -5110,6 +5110,70 @@ fn edge_component_endpoints(kind: &WishFacetKind, key: &str) -> Vec<String> {
     }
 }
 
+/// Detect dependency cycles among the declared components (brick 50): a cross-
+/// component invariant — a healthy architecture's dependency graph is acyclic
+/// (in Rust, crate cycles do not even compile). Each `Dependency` facet
+/// `from->to` is a directed edge `from → to`; a cycle is a loop back to a node
+/// already on the current path. Deterministic (sorted vertices/adjacency),
+/// returning each distinct loop once. The third architecture-graph-health check,
+/// beside isolation (the bridge's `PathExcision`) and dangling refs (brick 49).
+fn dependency_cycles(nodes: &[BlueprintNode]) -> Vec<Vec<String>> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut adj: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut verts: BTreeSet<String> = BTreeSet::new();
+    for n in nodes.iter().filter(|n| n.kind == WishFacetKind::Dependency) {
+        let parts: Vec<&str> = n.key.split("->").map(str::trim).filter(|s| !s.is_empty()).collect();
+        if parts.len() == 2 {
+            verts.insert(parts[0].to_string());
+            verts.insert(parts[1].to_string());
+            adj.entry(parts[0].to_string()).or_default().push(parts[1].to_string());
+        }
+    }
+    for vs in adj.values_mut() {
+        vs.sort();
+        vs.dedup();
+    }
+    let mut color: BTreeMap<String, u8> = BTreeMap::new(); // 0 white, 1 gray, 2 black
+    let mut cycles: Vec<Vec<String>> = Vec::new();
+    for start in &verts {
+        if color.get(start).copied().unwrap_or(0) == 0 {
+            dfs_cycles(start, &adj, &mut color, &mut Vec::new(), &mut cycles);
+        }
+    }
+    cycles.sort();
+    cycles.dedup();
+    cycles
+}
+
+fn dfs_cycles(
+    u: &str,
+    adj: &std::collections::BTreeMap<String, Vec<String>>,
+    color: &mut std::collections::BTreeMap<String, u8>,
+    stack: &mut Vec<String>,
+    cycles: &mut Vec<Vec<String>>,
+) {
+    color.insert(u.to_string(), 1);
+    stack.push(u.to_string());
+    if let Some(neis) = adj.get(u) {
+        for v in neis {
+            match color.get(v).copied().unwrap_or(0) {
+                0 => dfs_cycles(v, adj, color, stack, cycles),
+                1 => {
+                    // A back-edge to a node still on the path closes a loop.
+                    if let Some(pos) = stack.iter().position(|x| x == v) {
+                        let mut cyc = stack[pos..].to_vec();
+                        cyc.push(v.clone());
+                        cycles.push(cyc);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    stack.pop();
+    color.insert(u.to_string(), 2);
+}
+
 /// Stufe 2, brick 47 — the architecture's *coverage* and *honesty*, as advisory
 /// lines beneath a blueprint (render-only; never gates — CROSS-010).
 ///
@@ -5175,6 +5239,17 @@ fn blueprint_assessment_lines(
             c(YELLOW),
             edge,
             ep,
+            c(RESET)
+        ));
+    }
+    // Brick 50 — dependency-cycle detection (a cross-component invariant): the
+    // dependency graph should be acyclic. Completes the graph-health triad
+    // (isolated → excised; undeclared ref → dangling; circular → cycle).
+    for cyc in dependency_cycles(nodes) {
+        out.push_str(&format!(
+            "  {}\u{26a0} dependency cycle \u{2014} {}{}\n",
+            c(YELLOW),
+            cyc.join(" \u{2192} "),
             c(RESET)
         ));
     }
@@ -6571,6 +6646,55 @@ mod tests {
             !lines_for(&comp).contains("dangling"),
             "ends declared, the via-type Config is exempt"
         );
+    }
+
+    #[test]
+    fn blueprint_detects_dependency_cycles() {
+        use kosmo_core::WishPredicate;
+        let ev = Digest::of_bytes(b"ev");
+        let obs = ObservedTopology::empty();
+        let lines_for = |w: &Wish| {
+            let a = assess_wish(w, &obs, ev);
+            let nodes = blueprint_nodes(w, &a, ev);
+            let cube = assess_wish_layered(w, &obs, ev);
+            blueprint_assessment_lines(&nodes, &cube, Q16::ZERO, false)
+        };
+
+        // api → logging → api : a dependency cycle.
+        let cyclic = Wish::new(
+            "cyclic",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "logging->api")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        let cl = lines_for(&cyclic);
+        assert!(cl.contains("dependency cycle"), "a->b->a is a cycle: {cl}");
+
+        // api → logging (acyclic) : no cycle warning.
+        let acyclic = Wish::new(
+            "acyclic",
+            [
+                WishPredicate::require(WishFacet::crate_("api")),
+                WishPredicate::require(WishFacet::crate_("logging")),
+                WishPredicate::require(WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+            ],
+            Digest::ZERO,
+            ev,
+        );
+        assert!(
+            !lines_for(&acyclic).contains("dependency cycle"),
+            "a one-way dependency is acyclic"
+        );
+
+        // Determinism: the cycle finder returns a stable result across runs.
+        let a = assess_wish(&cyclic, &obs, ev);
+        let nodes = blueprint_nodes(&cyclic, &a, ev);
+        assert_eq!(dependency_cycles(&nodes), dependency_cycles(&nodes));
     }
 
     #[test]
