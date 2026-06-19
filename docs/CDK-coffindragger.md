@@ -65,8 +65,8 @@ I7 condensation over growth.
 ```
 crates/kosmo-cdk-core   ✅ C0  types · metrics (D-energy) · qsr   (report-only, no host mutation)
 crates/kosmo-wings      ✅ C1  wing (Inv 11.2 + WingGate) · mesh · ophanim (roundtrip gate)  [mpk_bridge: next]
-crates/kosmo-coffindragger  run (CDK) · binding (KBL) · stack (ASCC fold) · diamond
-tools/kosmo-cdk             CLI: bind · stack · close · diamond · explain   (REST mirror)
+crates/kosmo-coffindragger ✅ C2  binding (KBL) · stack (ASCC: embed/accrete/contract/fold/close) · run (CDK purge)  [diamond: C3]
+tools/kosmo-cdk             CLI: bind · stack · close · diamond · explain   (REST mirror)   [C3]
 ```
 
 ## Gate cascade (§25.1, fail-closed) and the non-negotiable rule
@@ -81,14 +81,14 @@ override gates** (`Score(x) > Score(y) ⇏ Pass(x)`).
 | Class | Requirement | Ticket |
 |---|---|---|
 | ASCC-0 | terminology cleaned; stage objects defined | **C0 ✅** |
-| ASCC-1 | every successor stage carries an embedding certificate | C2 |
-| ASCC-2 | support accretion + residue reports | C2 |
-| ASCC-3 | contractive consolidation measurable + replayable | C2 |
-| ASCC-4 | stack closure emits content-addressed FoldBundle | C2 |
-| ASCC-5 | ACDC roundtrip checked via stack closure | C2 |
+| ASCC-1 | every successor stage carries an embedding certificate | C2 ✅ |
+| ASCC-2 | support accretion + residue reports | C2 ✅ |
+| ASCC-3 | contractive consolidation measurable + replayable | C2 ✅ |
+| ASCC-4 | stack closure emits content-addressed FoldBundle | C2 ✅ |
+| ASCC-5 | ACDC roundtrip checked via stack closure | C2 ✅ |
 | ASCC-6 | diamondization emits QSR-certified DiamondCube | C3 |
 | CDK-W | wing/Ophanim layer + full gate cascade | **C1 ✅** |
-| KBL-1 | Kosmocrates artifacts bound under Inv. 19.1 | C2 |
+| KBL-1 | Kosmocrates artifacts bound under Inv. 19.1 | C2 ✅ |
 
 DoD: all crates build+test green; `bind/stack/close/diamond/explain` run end-to-end
 report-only; all 16 negative tests (§26.1) covered by failing-closed tests; ASCC-0..6,
