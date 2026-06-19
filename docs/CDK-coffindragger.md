@@ -64,7 +64,7 @@ I7 condensation over growth.
 
 ```
 crates/kosmo-cdk-core   ✅ C0  types · metrics (D-energy) · qsr   (report-only, no host mutation)
-crates/kosmo-wings          wing · mesh · ophanim · mpk_bridge
+crates/kosmo-wings      ✅ C1  wing (Inv 11.2 + WingGate) · mesh · ophanim (roundtrip gate)  [mpk_bridge: next]
 crates/kosmo-coffindragger  run (CDK) · binding (KBL) · stack (ASCC fold) · diamond
 tools/kosmo-cdk             CLI: bind · stack · close · diamond · explain   (REST mirror)
 ```
@@ -87,7 +87,7 @@ override gates** (`Score(x) > Score(y) ⇏ Pass(x)`).
 | ASCC-4 | stack closure emits content-addressed FoldBundle | C2 |
 | ASCC-5 | ACDC roundtrip checked via stack closure | C2 |
 | ASCC-6 | diamondization emits QSR-certified DiamondCube | C3 |
-| CDK-W | wing/Ophanim layer + full gate cascade | C1 |
+| CDK-W | wing/Ophanim layer + full gate cascade | **C1 ✅** |
 | KBL-1 | Kosmocrates artifacts bound under Inv. 19.1 | C2 |
 
 DoD: all crates build+test green; `bind/stack/close/diamond/explain` run end-to-end

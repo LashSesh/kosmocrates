@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/kosmo-core",
     "crates/kosmo-cdk-core",
+    "crates/kosmo-wings",
     "crates/kosmo-pse-bridge",
     "crates/kosmo-foundry",
     "crates/kosmo-store",
