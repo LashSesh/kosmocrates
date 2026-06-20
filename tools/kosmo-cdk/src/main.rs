@@ -14,7 +14,15 @@ use kosmo_coffindragger::{
 };
 use kosmo_core::{AuthorityLabel, Digest, PolicyProfile, RunDescriptor, TaintLabel};
 use kosmo_systemcube::{BlueprintUnit, BlueprintUnitKind, ContradictionEnergyReport, SystemCubeManifest};
+
+use axum::{
+    extract::Path,
+    routing::{get, post},
+    Json, Router,
+};
+use std::net::SocketAddr;
 use std::process::ExitCode;
+use tokio::net::TcpListener;
 
 fn hex(d: &Digest) -> String {
     d.to_hex().chars().take(12).collect()
@@ -161,11 +169,115 @@ fn run(verb: &str, json: bool) -> ExitCode {
             println!("  verbs: bind · stack · close · diamond · explain   [--json]");
             ExitCode::SUCCESS
         }
+        "serve" => unreachable!("serve is dispatched in main"),
         other => {
-            eprintln!("kosmo-cdk: unknown verb `{other}` (bind|stack|close|diamond|explain) [--json]");
+            eprintln!("kosmo-cdk: unknown verb `{other}` (bind|stack|close|diamond|explain|serve) [--json]");
             ExitCode::from(2)
         }
     }
+}
+
+// ─── REST mirror (§24.2) ─────────────────────────────────────────────────────
+
+/// Build the JSON response body for a verb — the REST mirror of the CLI. Every
+/// response carries a `trace_root` and a `gate_result` (§24.2), report-only.
+fn rest_artifact(verb: &str, id: Option<&str>) -> serde_json::Value {
+    use serde_json::json;
+    let (stages, support, residue, k0, k1) = real_fold();
+    let trace = stages[0].trace_root.to_hex();
+    let wrap = |gate: &str, mut body: serde_json::Value| -> serde_json::Value {
+        if let serde_json::Value::Object(m) = &mut body {
+            m.insert("verb".into(), json!(verb));
+            m.insert("run_descriptor".into(), json!("report_only"));
+            m.insert("trace_root".into(), json!(trace));
+            m.insert("gate_result".into(), json!(gate));
+        }
+        body
+    };
+    match verb {
+        "bind" => wrap(
+            "pass",
+            json!({ "artifact_type": "SystemCube(payments)", "support_units": stages[0].units.len(), "contradiction_k": k0, "pullable": true }),
+        ),
+        "stack" => {
+            let qsr = qsr_stack(&stages);
+            wrap(&format!("{qsr:?}").to_lowercase(), json!({ "stages": stages.len(), "qsr_status": format!("{qsr:?}") }))
+        }
+        "close" => match close_stack(&stages, support, residue, true) {
+            ClosureOutcome::DiamondCandidate(b) => wrap(
+                "pass",
+                json!({ "closed": true, "fold_bundle": b.bundle_id.to_hex(), "support": b.support.len(), "residue": b.residue.len() }),
+            ),
+            ClosureOutcome::DeferredStackReport { bundle, .. } => {
+                wrap("defer", json!({ "closed": false, "fold_bundle": bundle.bundle_id.to_hex() }))
+            }
+        },
+        "diamond" => match close_stack(&stages, support, residue, true) {
+            ClosureOutcome::DiamondCandidate(bundle) => {
+                let cert = Digest::of(&("qsr-certificate", &bundle.bundle_id));
+                match press_diamond(&bundle, Status::Pass, Status::Pass, true, true, true, cert) {
+                    Ok(cube) => wrap("pass", json!({ "diamond": cube })),
+                    Err(e) => wrap("reject", json!({ "error": e.to_string() })),
+                }
+            }
+            ClosureOutcome::DeferredStackReport { .. } => wrap("defer", json!({ "deferred": true })),
+        },
+        "explain" => wrap(
+            "pass",
+            json!({ "id": id.unwrap_or("sample"), "contradiction": { "before": k0, "after": k1 }, "residue_units": residue.len(), "principle": "scores rank, gates decide (I2)" }),
+        ),
+        _ => json!({ "error": format!("unknown verb {verb}") }),
+    }
+}
+
+async fn h_bind() -> Json<serde_json::Value> {
+    Json(rest_artifact("bind", None))
+}
+async fn h_stack() -> Json<serde_json::Value> {
+    Json(rest_artifact("stack", None))
+}
+async fn h_close() -> Json<serde_json::Value> {
+    Json(rest_artifact("close", None))
+}
+async fn h_diamond() -> Json<serde_json::Value> {
+    Json(rest_artifact("diamond", None))
+}
+async fn h_explain(Path(id): Path<String>) -> Json<serde_json::Value> {
+    Json(rest_artifact("explain", Some(&id)))
+}
+
+/// The REST mirror of the CLI verbs (§24.2): `POST /cdk/{bind,stack,close,diamond}`
+/// and `GET /cdk/explain/{id}`. Report-only; every response carries trace_root +
+/// gate_result. Mirrors the same fold the CLI runs.
+fn serve(port: u16) -> ExitCode {
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("kosmo-cdk: runtime: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    rt.block_on(async move {
+        let app = Router::new()
+            .route("/cdk/bind", post(h_bind))
+            .route("/cdk/stack", post(h_stack))
+            .route("/cdk/close", post(h_close))
+            .route("/cdk/diamond", post(h_diamond))
+            .route("/cdk/explain/{id}", get(h_explain));
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        match TcpListener::bind(addr).await {
+            Ok(listener) => {
+                eprintln!("kosmo-cdk REST  http://{addr}");
+                eprintln!("  POST /cdk/{{bind,stack,close,diamond}} · GET /cdk/explain/{{id}}  (report-only)");
+                let _ = axum::serve(listener, app).await;
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("kosmo-cdk: cannot bind {addr}: {e}");
+                ExitCode::from(1)
+            }
+        }
+    })
 }
 
 fn main() -> ExitCode {
@@ -176,5 +288,37 @@ fn main() -> ExitCode {
         .find(|a| !a.starts_with("--"))
         .map(String::as_str)
         .unwrap_or("explain");
+    if verb == "serve" {
+        let port = args
+            .iter()
+            .position(|a| a == "--port")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(8731);
+        return serve(port);
+    }
     run(verb, json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rest_diamond_carries_trace_gate_and_the_cube() {
+        let v = rest_artifact("diamond", None);
+        assert_eq!(v["verb"], "diamond");
+        assert_eq!(v["gate_result"], "pass");
+        assert!(v["trace_root"].is_string(), "every response carries a trace_root");
+        assert!(v["diamond"]["diamond_id"].is_string(), "the certified cube");
+    }
+
+    #[test]
+    fn rest_bind_and_explain_are_well_formed_mirrors() {
+        let b = rest_artifact("bind", None);
+        assert_eq!(b["verb"], "bind");
+        assert!(b["trace_root"].is_string() && b["gate_result"].is_string());
+        let e = rest_artifact("explain", Some("abc123"));
+        assert_eq!(e["id"], "abc123", "GET /cdk/explain/{{id}} echoes the id");
+    }
 }

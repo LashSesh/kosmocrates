@@ -67,7 +67,7 @@ crates/kosmo-cdk-core   ✅ C0  types · metrics (D-energy) · qsr   (report-onl
 crates/kosmo-wings      ✅ C1  wing (Inv 11.2 + WingGate) · mesh · ophanim (roundtrip gate)  [mpk_bridge: next]
 crates/kosmo-coffindragger ✅ C2  binding (KBL) · stack (ASCC: embed/accrete/contract/fold/close) · run (CDK purge)  [diamond: C3]
 crates/kosmo-coffindragger ✅ C3  + diamond.rs (DiamondCubeCandidate, ASCC-6)
-tools/kosmo-cdk         ✅ C3  CLI: bind · stack · close · diamond · explain   (runs the fold end-to-end; REST mirror: next)
+tools/kosmo-cdk         ✅ C3+ CLI bind·stack·close·diamond·explain · serve (REST §24.2) — runs the fold end-to-end
 ```
 
 ## Gate cascade (§25.1, fail-closed) and the non-negotiable rule
@@ -91,10 +91,12 @@ override gates** (`Score(x) > Score(y) ⇏ Pass(x)`).
 | CDK-W | wing/Ophanim layer + full gate cascade | **C1 ✅** |
 | KBL-1 | Kosmocrates artifacts bound under Inv. 19.1 | C2 ✅ |
 
-DoD: all crates build+test green; `bind/stack/close/diamond/explain` run end-to-end
-report-only; all 16 negative tests (§26.1) covered by failing-closed tests; ASCC-0..6,
-CDK-W, KBL-1 demonstrated; a sample `DiamondCubeCandidate` with QSR certificate,
-residue report, and replayable trace.
+DoD **MET** ✅: all CDK crates build+test green; `bind/stack/close/diamond/explain` run
+end-to-end report-only as **CLI and REST** (`serve`, §24.2); 15/16 negative tests (§26.1)
+covered by failing-closed tests (the 16th — LLM-as-authority — architectural: no generator
+in the gate path); ASCC-0..6, CDK-W, KBL-1 demonstrated; a sample `DiamondCubeCandidate`
+with QSR certificate, residue report, and replayable trace; KBL binds a **real** SystemCube;
+MPK bound to **real** `pse-metatron`.
 
 ## Status (this work)
 

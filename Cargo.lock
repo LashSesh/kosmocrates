@@ -1455,11 +1455,13 @@ dependencies = [
 name = "kosmo-cdk"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "kosmo-cdk-core",
  "kosmo-coffindragger",
  "kosmo-core",
  "kosmo-systemcube",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
