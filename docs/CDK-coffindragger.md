@@ -32,7 +32,7 @@ I7 condensation over growth.
 | L1 QSR | stability/closure predicate | **`kosmo-cdk-core::qsr`** ✅ (C0) |
 | L2 ANL/SRG | reflection boundary, mirror-seam | `pse-*` reflection / boundary (map) |
 | L3 Wings of Samael | radial projection-arm layer | **`kosmo-wings`** (new) ← adapters/SourceCube workers |
-| L4 MPK | local finite symmetry/graph oracle | `pse-metatron` (orbit/stabilizer/complement) + `kosmo-hyphae::metatron` |
+| L4 MPK | local finite symmetry/graph oracle | **`kosmo-wings::mpk_bridge` → `pse-metatron`** (local-only, catalog-bound) ✅ |
 | L5 Panoptic projection | orbit completion, phase horizons | `pse-traverse` (cognition/, horizon/) |
 | L6 MERKABA runtime | scheduler/sync/gatekeeper/memory | `kosmo-synthesizer::consensus` (Ophanim/Konus/Monolith) + `pse-scheduler` |
 | L7 Con-Dragger / CDK | global centralization, diamondization | **`kosmo-coffindragger`** (new) + **`kosmo-cdk-core`** ✅ |
@@ -51,7 +51,7 @@ I7 condensation over growth.
 | D-energy `D=ψ·ρ·ω`, objective `D−λK−μC` | new fn; basis from `kosmo-hyphae` | **built** ✅ |
 | Wing (radial arm: probe∘orbit∘harvest∘condense∘anchor) | `kosmo-wings` ← existing SourceCube/projection workers, or new trait | next (C1) |
 | Ophanim (closed wing cycle, roundtrip self-calibration) | `kosmo-synthesizer::consensus` (Ophanim/Konus/Monolith) wrapped | next (C1) |
-| MPK (n≤8 oracle, orbit/stabilizer/spectrum, 13598 catalog) | `pse-metatron` + `kosmo-hyphae::metatron` — local oracle binding | next (C1) |
+| MPK (n≤8 oracle, orbit/stabilizer/spectrum, 13598 catalog) | `kosmo-wings::mpk_bridge` → `pse-metatron` (`classify_local`, `mpk_projection_gate`) | **wired** ✅ |
 | ASCC closure / fold / contraction (LPCM) | `kosmo-core::closure` (StagedClosure) + `pse-traverse::plan` (CollapsePlan = Contr) + `kosmo-hyphae` LPCM | next (C2) |
 | CDK run (Pull/Purge/Seed/Probe/Cen) | `kosmo-coffindragger::run` (orchestrates the above) | next (C2) |
 | KBL (bind WishCube/SystemCube/reports → CDK stages) | `kosmo-coffindragger::binding` | next (C2) |

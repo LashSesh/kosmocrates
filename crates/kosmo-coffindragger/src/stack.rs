@@ -2,7 +2,7 @@
 //! canonical embedding, support-preserving accretion, contractive consolidation,
 //! the fold, and the closure run. Cleaning is never silent forgetting.
 
-use kosmo_cdk_core::{qsr_stack, Canonical, Stage, StageEmbeddingCertificate, Status};
+use kosmo_cdk_core::{qsr_stack, Canonical, Delta, Stage, StageEmbeddingCertificate, Status};
 use kosmo_core::Digest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -70,6 +70,32 @@ pub fn verify_contraction(before: &[Digest], after: &[Digest], residue: &[Digest
         return Status::Reject; // not a contraction — cost rose
     }
     verify_accretion(before, after, &[], residue)
+}
+
+/// A successor stage must **assimilate**, not merely copy (negative test 3): a
+/// stage canonically identical to its predecessor with an empty delta (nothing
+/// accreted, nothing excluded) is a copy, not an assimilation stage.
+pub fn verify_assimilation(prev: &Stage, next: &Stage, delta: &Delta) -> Status {
+    let identical = next.canon() == prev.canon();
+    let empty_delta = delta.fragments.is_empty() && delta.exclusions.is_empty();
+    if identical && empty_delta {
+        return Status::Reject;
+    }
+    Status::Pass
+}
+
+/// ACDC roundtrip stability (Def. 9.1, negative test 7): `Cen(Dec(A⋆)) ≡ A⋆`. A
+/// roundtrip that returns a **different** attractor (canon mismatch) is admissible
+/// only with an *explained* delta gain; an unexplained attractor drift fails.
+pub fn verify_roundtrip(original: &Stage, roundtrip: &Stage, explained_delta: bool) -> Status {
+    if original.canon() == roundtrip.canon() {
+        return Status::Pass; // stable — the roundtrip returns to the same attractor
+    }
+    if explained_delta {
+        Status::Warn // changed, but the delta gain is explained
+    } else {
+        Status::Reject // unexplained attractor drift
+    }
 }
 
 /// A fold bundle `B_N` (Def. 8.7): a content-addressed, evidence-bound structural
@@ -229,6 +255,24 @@ mod tests {
             ClosureOutcome::DeferredStackReport { .. } => {}
             other => panic!("expected a deferred report, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_pure_copy_is_not_an_assimilation_and_drift_needs_an_explanation() {
+        let s = stage(&[b"a"], Q16::HALF, Q16::ZERO);
+        // Negative test 3 — identical stage + empty delta = a copy, not assimilation.
+        assert_eq!(verify_assimilation(&s, &s.clone(), &Delta::default()), Status::Reject);
+        let delta = Delta {
+            fragments: vec![d(b"new")],
+            ..Delta::default()
+        };
+        assert_eq!(verify_assimilation(&s, &s, &delta), Status::Pass, "a real fragment assimilates");
+
+        // Negative test 7 — roundtrip to the same attractor is stable.
+        assert_eq!(verify_roundtrip(&s, &s.clone(), false), Status::Pass);
+        let other = stage(&[b"b"], Q16::HALF, Q16::ZERO);
+        assert_eq!(verify_roundtrip(&s, &other, false), Status::Reject, "unexplained drift");
+        assert_eq!(verify_roundtrip(&s, &other, true), Status::Warn, "explained drift is downgraded");
     }
 
     #[test]

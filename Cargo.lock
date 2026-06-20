@@ -1788,6 +1788,7 @@ version = "0.1.0"
 dependencies = [
  "kosmo-cdk-core",
  "kosmo-core",
+ "pse-metatron",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

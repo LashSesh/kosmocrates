@@ -73,6 +73,13 @@ pub fn wing_gate(w: &dyn Wing, x: &Structure, out: &WingOutput) -> Status {
     if !w.condenses(x, out) {
         return Status::Reject; // exploration may enlarge, but the accepted output must condense
     }
+    // Negative test 8 — a wing must not integrate structure without evidence: any
+    // unit in the output not present in the input requires a non-null trace root.
+    let input: HashSet<&Digest> = x.units.iter().collect();
+    let integrates_foreign = out.structure.units.iter().any(|u| !input.contains(u));
+    if integrates_foreign && out.trace_root == Digest::ZERO {
+        return Status::Reject;
+    }
     let kept: HashSet<&Digest> = out.structure.units.iter().collect();
     let resid: HashSet<&Digest> = out.residue.iter().collect();
     for u in &x.units {
@@ -140,6 +147,20 @@ mod tests {
         };
         let w = CrystalWing { keep: 2 };
         assert_eq!(wing_gate(&w, &x, &bad), Status::Reject);
+    }
+
+    #[test]
+    fn integrating_foreign_structure_without_evidence_is_rejected() {
+        // Negative test 8 — a wing integrates a unit not in the input, with no
+        // trace root (no evidence) → rejected.
+        let x = structure(2);
+        let foreign = WingOutput {
+            structure: Structure::new(vec![x.units[0], Digest::of_bytes(b"foreign")], 2, 2),
+            residue: vec![x.units[1]],
+            trace_root: Digest::ZERO, // no evidence for the integrated structure
+        };
+        let w = CrystalWing { keep: 2 };
+        assert_eq!(wing_gate(&w, &x, &foreign), Status::Reject, "integration needs evidence");
     }
 
     #[test]

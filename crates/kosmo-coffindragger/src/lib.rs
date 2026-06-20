@@ -31,6 +31,6 @@ pub use binding::{bind_systemcube, BoundUnit};
 pub use diamond::{is_irreducible, press_diamond, DiamondCubeCandidate, MaterializationProfile};
 pub use run::{purge, PurgeResult};
 pub use stack::{
-    certify_embedding, close_stack, stack_closed, verify_accretion, verify_contraction,
-    ClosureOutcome, FoldBundle,
+    certify_embedding, close_stack, stack_closed, verify_accretion, verify_assimilation,
+    verify_contraction, verify_roundtrip, ClosureOutcome, FoldBundle,
 };

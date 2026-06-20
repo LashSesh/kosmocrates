@@ -19,9 +19,11 @@
 //! `docs/CDK-coffindragger.md`.
 
 pub mod mesh;
+pub mod mpk_bridge;
 pub mod ophanim;
 pub mod wing;
 
 pub use mesh::{Composition, WingMesh};
+pub use mpk_bridge::{classify_local, mpk_projection_gate, MpkCatalogBinding, MpkClassification, MpkScope};
 pub use ophanim::OphanimCycle;
 pub use wing::{wing_gate, CrystalWing, Structure, Wing, WingKind, WingOutput};
