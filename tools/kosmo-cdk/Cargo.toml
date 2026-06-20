@@ -16,4 +16,5 @@ path = "src/main.rs"
 kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
 kosmo-cdk-core = { path = "../../crates/kosmo-cdk-core", version = "0.1.0" }
 kosmo-coffindragger = { path = "../../crates/kosmo-coffindragger", version = "0.1.0" }
+kosmo-systemcube = { path = "../../crates/kosmo-systemcube", version = "0.1.0" }
 serde_json = { workspace = true }

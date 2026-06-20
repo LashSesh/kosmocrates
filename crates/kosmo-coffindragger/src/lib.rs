@@ -27,7 +27,7 @@ pub mod diamond;
 pub mod run;
 pub mod stack;
 
-pub use binding::BoundUnit;
+pub use binding::{bind_systemcube, BoundUnit};
 pub use diamond::{is_irreducible, press_diamond, DiamondCubeCandidate, MaterializationProfile};
 pub use run::{purge, PurgeResult};
 pub use stack::{

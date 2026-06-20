@@ -55,7 +55,7 @@ I7 condensation over growth.
 | ASCC closure / fold / contraction (LPCM) | `kosmo-core::closure` (StagedClosure) + `pse-traverse::plan` (CollapsePlan = Contr) + `kosmo-hyphae` LPCM | next (C2) |
 | CDK run (Pull/Purge/Seed/Probe/Cen) | `kosmo-coffindragger::run` (orchestrates the above) | next (C2) |
 | KBL (bind WishCube/SystemCube/reports → CDK stages) | `kosmo-coffindragger::binding` | next (C2) |
-| SystemCube / contradiction energy / BlueprintUnit | `kosmo-systemcube` (manifest/energy/compatibility) | reuse ✅ |
+| SystemCube / contradiction energy / BlueprintUnit | `kosmo-systemcube` — **bound via `bind_systemcube`** (real KBL→Stage) | **wired** ✅ |
 | DiamondCube (QSR-certified irreducible SystemCube core) | `kosmo-coffindragger::diamond` (wrapper + QSR cert) | next (C3) |
 | TPC / panoptic projection / phase horizons | `pse-traverse` (cognition/horizon) | reuse ✅ |
 | Materialization / PSE bridge | `kosmo-materialize`, `kosmo-pse-bridge`, `pse-adapter-kosmo` | reuse ✅ |

@@ -1458,6 +1458,7 @@ dependencies = [
  "kosmo-cdk-core",
  "kosmo-coffindragger",
  "kosmo-core",
+ "kosmo-systemcube",
  "serde_json",
 ]
 
@@ -1477,6 +1478,7 @@ version = "0.1.0"
 dependencies = [
  "kosmo-cdk-core",
  "kosmo-core",
+ "kosmo-systemcube",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
