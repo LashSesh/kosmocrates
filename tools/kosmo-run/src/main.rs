@@ -137,6 +137,11 @@ struct Args {
     /// wished but operationally unreachable (a path excision). A `--wish`/
     /// `--wishlist` modifier; advisory.
     plan: bool,
+    /// Stufe 1b — guided descent (with `--apply`): the evaluator's localized
+    /// critique (a did-you-mean naming-drift near-miss) steers synthesis — a drift
+    /// facet is routed to the provider to *rename*, never scaffolded as a duplicate.
+    /// Default off; the established descent is byte-identical.
+    guided: bool,
     provider_set: bool,
     /// Path to a JSON file that the convergence trajectory is written to (and
     /// resumed from, if the file already exists and matches the current wish).
@@ -279,6 +284,7 @@ impl Default for Args {
             insist: false,
             blueprint: false,
             plan: false,
+            guided: false,
             staged: false,
             mesh: false,
             flat: false,
@@ -379,6 +385,9 @@ OPTIONS:\n\
                           deterministic, foundations-first collapse plan to realize\n\
                           it, plus any facet operationally unreachable (excised). A\n\
                           --wish/--wishlist modifier; advisory.\n\
+    --guided              with --apply: the evaluator steers synthesis (Stufe 1b)\n\
+                          \u{2014} a naming-drift near-miss is routed to the provider to\n\
+                          RENAME, never scaffolded as a duplicate. Default off.\n\
     --vocab               print the wish vocabulary: the prose forms for each\n\
                           stratum, by example \u{2014} how to phrase a wish (Run 30)\n\
     --wish-session <path> write the convergence trajectory as JSON to <path>;\n\
@@ -638,6 +647,7 @@ fn parse_args() -> Result<Option<Args>, String> {
             "--insist" => args.insist = true,
             "--blueprint" => args.blueprint = true,
             "--plan" => args.plan = true,
+            "--guided" => args.guided = true,
             "--wish-session" => {
                 args.wish_session = Some(argv.next().ok_or("--wish-session needs a value")?);
             }
@@ -4307,7 +4317,11 @@ fn run_wish_mode(args: &Args) -> Result<ExitCode, String> {
             .wish_session
             .as_deref()
             .and_then(|p| load_prior_session(p, &wish));
-        let session = if args.staged {
+        let session = if args.guided {
+            // Stufe 1b — the evaluator's critique steers synthesis (rename a
+            // near-miss, never scaffold a duplicate).
+            descend_guided(&args.path, &wish, evidence, validated, 8, fallback.as_deref(), prior, args.staged)?
+        } else if args.staged {
             descend_staged(&args.path, &wish, evidence, validated, 8, fallback.as_deref(), prior)?
         } else {
             descend_to_wish(&args.path, &wish, evidence, validated, 8, fallback.as_deref(), prior)?
@@ -4852,12 +4866,15 @@ fn apply_synthesis(
     unmet: &[WishFacet],
     fallback: Option<&dyn ActionSynthesizer>,
     repair: Option<&str>,
+    observed: Option<&ObservedTopology>,
+    guided: bool,
 ) -> std::io::Result<usize> {
     let mut written = 0;
     // During a repair, show the model the current files so it can see what to
     // fix or delete. Normal iterations stay context-light to preserve the
-    // baseline behaviour the bench measures.
-    let repair_snippets = if repair.is_some() {
+    // baseline behaviour the bench measures. Guided mode also needs the snippets,
+    // so the provider can rename to the existing structure.
+    let repair_snippets = if repair.is_some() || guided {
         workspace_snippets(root)
     } else {
         Vec::new()
@@ -4877,16 +4894,35 @@ fn apply_synthesis(
         };
         let mut req = SynthesisRequest::new(action, root.to_string_lossy().to_string())
             .with_deps_allowed(deps_allowed);
-        if let Some(err) = repair {
+        // Stufe 1b — directed repair: a facet that is *naming drift* (a near-miss
+        // of an existing structure) must not be scaffolded as a DUPLICATE. Under
+        // `guided`, route it to the provider with the evaluator's rename critique,
+        // skipping the deterministic scaffolder for that facet. Offline (no
+        // provider) it stays honestly unmet rather than duplicated.
+        let drift = if guided {
+            observed.and_then(|obs| nearest_existing(facet, obs))
+        } else {
+            None
+        };
+        let facet_repair: Option<String> = repair.map(str::to_string).or_else(|| {
+            drift.as_ref().map(|near| {
+                format!(
+                    "naming drift: the workspace already has {:?} `{}`; rename/redirect to it \
+                     rather than create a duplicate of `{}`",
+                    facet.kind, near, facet.key
+                )
+            })
+        });
+        if let Some(err) = &facet_repair {
             req = req
-                .with_repair_diagnostics(vec![err.to_string()])
+                .with_repair_diagnostics(vec![err.clone()])
                 .with_snippets(repair_snippets.clone());
         }
 
         // Deterministic scaffolder first; consult the model only if it built
-        // nothing — except in a repair, where only the model can clean up its
-        // own mess (delete a stray binary, rewrite a broken file).
-        let mut changes = if repair.is_some() {
+        // nothing — except in a repair (or a guided naming-drift redirect), where
+        // the scaffolder is skipped so it cannot create a duplicate.
+        let mut changes = if facet_repair.is_some() {
             Vec::new()
         } else {
             FacetScaffolder
@@ -5384,7 +5420,7 @@ fn descend_to_wish(
     fallback: Option<&dyn ActionSynthesizer>,
     prior: Option<WishSession>,
 ) -> Result<WishSession, String> {
-    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, false)
+    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, false, false)
 }
 
 /// Descend as a **staged closure pipeline** (Run 4): synthesis targets the
@@ -5401,14 +5437,32 @@ fn descend_staged(
     fallback: Option<&dyn ActionSynthesizer>,
     prior: Option<WishSession>,
 ) -> Result<WishSession, String> {
-    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, true)
+    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, true, false)
+}
+
+/// Stufe 1b — a **guided** descent: the evaluator's localized critique (a
+/// did-you-mean naming-drift near-miss) steers synthesis — a drift facet is routed
+/// to the provider to *rename*, never scaffolded as a duplicate. `staged` selects
+/// the bottom-up curriculum as usual.
+fn descend_guided(
+    path: &str,
+    wish: &Wish,
+    evidence: Digest,
+    validated: bool,
+    max_iters: u32,
+    fallback: Option<&dyn ActionSynthesizer>,
+    prior: Option<WishSession>,
+    staged: bool,
+) -> Result<WishSession, String> {
+    descend_inner(path, wish, evidence, validated, max_iters, fallback, prior, staged, true)
 }
 
 /// Drive the workspace toward `wish` by repeated observe → assess → scaffold →
 /// apply, until it is realized, no further progress is possible, or `max_iters`
 /// is reached. Returns the [`WishSession`] carrying the full convergence
 /// trajectory — the attractor descent, executed. `prior` resumes an earlier
-/// descent; `staged` selects the bottom-up curriculum (see [`staged_target`]).
+/// descent; `staged` selects the bottom-up curriculum; `guided` lets the
+/// evaluator's critique steer synthesis (Stufe 1b).
 #[allow(clippy::too_many_arguments)]
 fn descend_inner(
     path: &str,
@@ -5419,6 +5473,7 @@ fn descend_inner(
     fallback: Option<&dyn ActionSynthesizer>,
     prior: Option<WishSession>,
     staged: bool,
+    guided: bool,
 ) -> Result<WishSession, String> {
     let mut session = prior.unwrap_or_else(|| WishSession::new(wish.clone(), evidence));
     let mut iter = 0u32;
@@ -5470,7 +5525,7 @@ fn descend_inner(
                 }
                 let diag = format!("could not build/observe the workspace: {e}");
                 let repaired =
-                    apply_synthesis(Path::new(path), &last_unmet, fallback, Some(diag.as_str()))
+                    apply_synthesis(Path::new(path), &last_unmet, fallback, Some(diag.as_str()), None, guided)
                         .map_err(|e| e.to_string())?;
                 if repaired == 0 {
                     break;
@@ -5510,8 +5565,15 @@ fn descend_inner(
         } else {
             unmet.clone()
         };
-        let written = apply_synthesis(Path::new(path), &target, fallback, run_diag.as_deref())
-            .map_err(|e| e.to_string())?;
+        let written = apply_synthesis(
+            Path::new(path),
+            &target,
+            fallback,
+            run_diag.as_deref(),
+            Some(&observed),
+            guided,
+        )
+        .map_err(|e| e.to_string())?;
         if written == 0 {
             break; // nothing scaffoldable — can't make progress, fail-closed
         }
@@ -7337,13 +7399,50 @@ mod tests {
         // A dependency edge is not deterministically scaffoldable.
         let dep = vec![WishFacet::dependency("a", "b")];
         // No fallback → the scaffolder builds nothing, so nothing is written.
-        assert_eq!(apply_synthesis(&root, &dep, None, None).unwrap(), 0);
+        assert_eq!(apply_synthesis(&root, &dep, None, None, None, false).unwrap(), 0);
         // With a synthesizer that proposes a change → the fallback is consulted.
         let mock =
             MockSynthesizer::confident().with_change(FileChange::create("FALLBACK.txt", "x\n"));
-        let n = apply_synthesis(&root, &dep, Some(&mock), None).unwrap();
+        let n = apply_synthesis(&root, &dep, Some(&mock), None, None, false).unwrap();
         assert_eq!(n, 1);
         assert!(root.join("FALLBACK.txt").exists());
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn guided_redirects_a_naming_drift_facet_away_from_a_duplicate() {
+        // Stufe 1b — the evaluator's critique steers synthesis: a facet that is a
+        // near-miss of an existing structure is routed to the provider to RENAME,
+        // never scaffolded as a duplicate.
+        use kosmo_synthesizer::FileChange;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-guided-{nanos}"));
+        fs::create_dir_all(&root).unwrap();
+
+        // The workspace already has module `engine`; the wish drifts to `enigne`.
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::module("engine"));
+        let drift = vec![WishFacet::module("enigne")];
+
+        // Guided + no provider: the near-miss is NOT scaffolded as a duplicate —
+        // offline it stays honestly unmet (nothing written).
+        assert_eq!(
+            apply_synthesis(&root, &drift, None, None, Some(&observed), true).unwrap(),
+            0,
+            "guided refuses to scaffold a duplicate of a near-miss"
+        );
+
+        // Guided + a provider: the drift facet is routed to it (with the rename
+        // critique), bypassing the scaffolder.
+        let mock =
+            MockSynthesizer::confident().with_change(FileChange::create("RENAMED.txt", "x\n"));
+        let n = apply_synthesis(&root, &drift, Some(&mock), None, Some(&observed), true).unwrap();
+        assert!(n > 0, "guided routes the near-miss to the provider to rename");
+        assert!(root.join("RENAMED.txt").exists());
 
         fs::remove_dir_all(&root).ok();
     }

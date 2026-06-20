@@ -110,6 +110,11 @@ $ kosmo-run --wish "a crate api and a module api::core and a function api::core:
 
 Mistyped a name? It guides you: `→ did you mean Module engine? (you wished enigne)`.
 
+And with `--apply --guided`, that guidance **steers the build**: a near-miss
+(`enigne` over an existing `engine`) is routed to the provider to *rename* — never
+scaffolded as a duplicate. The honest verifier doesn't just judge the result; it
+keeps the generator from taking the wrong step.
+
 ## Did the change break — or fake — anything?
 
 Snapshot, let the AI edit, re-measure:

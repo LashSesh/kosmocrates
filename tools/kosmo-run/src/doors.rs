@@ -89,6 +89,7 @@ pub fn catalog() -> DoorCatalog {
                     DoorInput::switch("--insist"),
                     DoorInput::switch("--blueprint"),
                     DoorInput::switch("--plan"),
+                    DoorInput::switch("--guided"),
                     DoorInput::valued("--wish-session", "<file>"),
                     DoorInput::valued("--since", "<session>"),
                     DoorInput::switch("--apply"),
