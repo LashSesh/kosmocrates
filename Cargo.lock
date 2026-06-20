@@ -1452,6 +1452,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kosmo-cdk"
+version = "0.1.0"
+dependencies = [
+ "kosmo-cdk-core",
+ "kosmo-coffindragger",
+ "kosmo-core",
+ "serde_json",
+]
+
+[[package]]
 name = "kosmo-cdk-core"
 version = "0.1.0"
 dependencies = [

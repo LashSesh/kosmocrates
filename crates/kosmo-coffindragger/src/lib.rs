@@ -15,16 +15,20 @@
 //!   `DeferredStackReport` (ASCC-4/5), fail-closed under stack-QSR.
 //! - [`run`] — CDK, the Con-Dragger cycle (ch. 3.2/10): the Purge exkalibration
 //!   primitive of `Cen ∘ Probe ∘ Seed ∘ Purge ∘ Pull`.
+//! - [`diamond`] — diamondization (ch. 17): [`press_diamond`] presses a closed
+//!   fold into a QSR-certified, irreducible, materializable [`DiamondCubeCandidate`]
+//!   (Def. 17.1), report-only by default (ASCC-6).
 //!
-//! Diamondization (`Diamondize(W) = Core(Fix(Ω(W)))` → a QSR-certified
-//! `DiamondCubeCandidate`) and the `kosmo-cdk` CLI (bind/stack/close/diamond/
-//! explain) are the next ticket (C3). See `docs/CDK-coffindragger.md`.
+//! The `kosmo-cdk` CLI (bind/stack/close/diamond/explain) drives the whole fold
+//! end-to-end. See `docs/CDK-coffindragger.md`.
 
 pub mod binding;
+pub mod diamond;
 pub mod run;
 pub mod stack;
 
 pub use binding::BoundUnit;
+pub use diamond::{is_irreducible, press_diamond, DiamondCubeCandidate, MaterializationProfile};
 pub use run::{purge, PurgeResult};
 pub use stack::{
     certify_embedding, close_stack, stack_closed, verify_accretion, verify_contraction,

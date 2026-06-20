@@ -100,6 +100,7 @@ members = [
     "crates/kosmo-intent-llm",
     "crates/kosmo-sandbox",
     "tools/kosmo-run",
+    "tools/kosmo-cdk",
 ]
 
 [workspace.package]

@@ -1,0 +1,19 @@
+[package]
+name = "kosmo-cdk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "kosmo-cdk — the Con-Dragger / ASCC CLI: bind, stack, close, diamond, explain (report-only, fail-closed)"
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "kosmo-cdk"
+path = "src/main.rs"
+
+[dependencies]
+kosmo-core = { path = "../../crates/kosmo-core", version = "0.1.0" }
+kosmo-cdk-core = { path = "../../crates/kosmo-cdk-core", version = "0.1.0" }
+kosmo-coffindragger = { path = "../../crates/kosmo-coffindragger", version = "0.1.0" }
+serde_json = { workspace = true }
