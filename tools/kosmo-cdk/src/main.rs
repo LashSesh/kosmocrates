@@ -80,15 +80,123 @@ fn real_fold() -> (Vec<Stage>, Vec<Digest>, Vec<Digest>, f64, f64) {
     (vec![s0, s1], support, residue, k0.to_f64(), k1.to_f64())
 }
 
-fn run(verb: &str, json: bool) -> ExitCode {
-    let (stages, support, residue, k0, k1) = real_fold();
+/// Extract a `[package] name = "..."` from a Cargo.toml's text (no TOML dep).
+fn parse_package_name(toml: &str) -> Option<String> {
+    let mut in_package = false;
+    for line in toml.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            in_package = l == "[package]";
+            continue;
+        }
+        if in_package {
+            if let Some(after) = l.strip_prefix("name") {
+                if let Some(after_eq) = after.trim_start().strip_prefix('=') {
+                    if let Some(name) = after_eq.split('"').nth(1) {
+                        if !name.is_empty() {
+                            return Some(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// **Live observation** of a real workspace: walk the directory (bounded, skipping
+/// `target/` and dotfiles) and emit one evidence-bound `BlueprintUnit` per crate
+/// (`[package] name`). A genuine SystemCube source — the host's real crate
+/// topology, read from the filesystem, not a fabricated sample.
+fn observe_workspace(root: &str) -> Vec<BlueprintUnit> {
+    let policy = PolicyProfile::default_report_only();
+    let mut units = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![(std::path::PathBuf::from(root), 0u32)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > 5 || units.len() >= 512 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name == "target" || name.starts_with('.') {
+                continue;
+            }
+            if p.is_dir() {
+                stack.push((p, depth + 1));
+            } else if name == "Cargo.toml" {
+                if let Ok(text) = std::fs::read_to_string(&p) {
+                    if let Some(pkg) = parse_package_name(&text) {
+                        if seen.insert(pkg.clone()) {
+                            units.push(BlueprintUnit::new(
+                                BlueprintUnitKind::ModuleBoundary,
+                                Digest::of_bytes(pkg.as_bytes()),
+                                AuthorityLabel::Operator,
+                                TaintLabel::Clean,
+                                vec![Digest::of_bytes(p.to_string_lossy().as_bytes())],
+                                &policy,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    units
+}
+
+/// Bind a real, live-observed workspace SystemCube into a 1-stage fold. Returns
+/// `None` if no crates are found. The contradiction `K` is the *real* pairwise
+/// report over the observed crates (a contradiction-free topology is already
+/// irreducible).
+#[allow(clippy::type_complexity)]
+fn live_fold(path: &str) -> Option<(Vec<Stage>, Vec<Digest>, Vec<Digest>, f64, f64)> {
+    let units = observe_workspace(path);
+    if units.is_empty() {
+        return None;
+    }
+    let policy = PolicyProfile::default_report_only();
+    let run = RunDescriptor::new(policy.id, path);
+    let manifest = SystemCubeManifest::new(Digest::of_bytes(path.as_bytes()), &run, &policy, &units);
+    let k = ContradictionEnergyReport::from_units(manifest.manifest_id, &policy, &units).total_energy;
+    let stage = bind_systemcube(&manifest, &units, k);
+    let support = stage.units.clone();
+    let kf = k.to_f64();
+    Some((vec![stage], support, vec![], kf, kf))
+}
+
+/// The fold to operate on: a live-observed workspace (`--workspace`) or the
+/// built-in sample. Returns the fold plus a human source label.
+#[allow(clippy::type_complexity)]
+fn fold_for(workspace: Option<&str>) -> (Vec<Stage>, Vec<Digest>, Vec<Digest>, f64, f64, String) {
+    if let Some(path) = workspace {
+        if let Some((stages, support, residue, k0, k1)) = live_fold(path) {
+            let n = stages.iter().map(|s| s.units.len()).max().unwrap_or(0);
+            return (stages, support, residue, k0, k1, format!("live: {path} ({n} crates)"));
+        }
+        eprintln!("kosmo-cdk: no crates found under {path}; using the sample");
+    }
+    let (a, b, c, d, e) = real_fold();
+    (a, b, c, d, e, "sample (payments service)".into())
+}
+
+fn run(verb: &str, json: bool, workspace: Option<&str>) -> ExitCode {
+    let (stages, support, residue, k0, k1, source) = fold_for(workspace);
     let s0 = &stages[0];
+    // Strong irreducibility (Def 17.2): the core is irreducible iff it carries no
+    // residual contradiction (K = 0). A redundant live workspace defers honestly.
+    let irreducible = k1 == 0.0;
     match verb {
         "bind" => {
             // KBL — the raw SystemCube bound into a CDK stage under invariant 19.1.
             let unit = BoundUnit {
                 id: s0.attractor,
-                artifact_type: "SystemCube(payments)".into(),
+                artifact_type: format!("SystemCube [{source}]"),
                 evidence: s0.evidence,
                 policy: Digest::of_bytes(b"policy.report_only"),
                 trace: s0.trace_root,
@@ -100,16 +208,18 @@ fn run(verb: &str, json: bool) -> ExitCode {
                 println!("{}", serde_json::to_string_pretty(&unit).unwrap());
             } else {
                 println!("kosmo-cdk bind — KBL: a real SystemCube bound (invariant 19.1)");
-                println!("  SystemCube(payments) {} · {} support units · pullable: {}", hex(&unit.id), s0.units.len(), unit.is_pullable());
-                println!("  contradiction energy K = {k0:.3}  (a duplicated module — real pairwise contradiction)");
+                println!("  {source} · {} · {} support units · pullable: {}", hex(&unit.id), s0.units.len(), unit.is_pullable());
+                println!("  contradiction energy K = {k0:.3}");
             }
             ExitCode::SUCCESS
         }
         "stack" => {
             let qsr = qsr_stack(&stages);
-            println!("kosmo-cdk stack — {} stage(s) (raw → condensed), stack-QSR: {qsr:?}", stages.len());
-            println!("  S0 {} · K={k0:.3} (raw, redundant)", hex(&s0.canon()));
-            println!("  S1 {} · K={k1:.3} (condensed — the duplicate exkalibrated)", hex(&stages[1].canon()));
+            println!("kosmo-cdk stack — {source} · {} stage(s), stack-QSR: {qsr:?}", stages.len());
+            for (i, s) in stages.iter().enumerate() {
+                let k = if i == 0 { k0 } else { k1 };
+                println!("  S{i} {} · {} units · K={k:.3}", hex(&s.canon()), s.units.len());
+            }
             ExitCode::SUCCESS
         }
         "close" => {
@@ -130,13 +240,14 @@ fn run(verb: &str, json: bool) -> ExitCode {
         "diamond" => match close_stack(&stages, support, residue, true) {
             ClosureOutcome::DiamondCandidate(bundle) => {
                 let qsr_cert = Digest::of(&("qsr-certificate", &bundle.bundle_id));
-                // The condensed core (K = 0) is irreducible and materializable.
-                match press_diamond(&bundle, Status::Pass, Status::Pass, true, true, true, qsr_cert) {
+                // Strong irreducibility (Def 17.2): only a contradiction-free core
+                // (K = 0) presses a diamond; a redundant one is refused, fail-closed.
+                match press_diamond(&bundle, Status::Pass, Status::Pass, true, irreducible, true, qsr_cert) {
                     Ok(cube) => {
                         if json {
                             println!("{}", serde_json::to_string_pretty(&cube).unwrap());
                         } else {
-                            println!("kosmo-cdk diamond — DiamondCubeCandidate ✓  (a real SystemCube, QSR-certified, report-only)");
+                            println!("kosmo-cdk diamond — DiamondCubeCandidate ✓  [{source}] (QSR-certified, report-only)");
                             println!("  diamond_id        {}", hex(&cube.diamond_id));
                             println!("  source_stack_id   {}", hex(&cube.source_stack_id));
                             println!("  qsr_certificate   {}", hex(&cube.qsr_certificate_id));
@@ -149,6 +260,7 @@ fn run(verb: &str, json: bool) -> ExitCode {
                     }
                     Err(e) => {
                         eprintln!("kosmo-cdk diamond — refused (fail-closed): {e}");
+                        eprintln!("  [{source}] K={k1:.3} — the topology is not yet irreducible; it needs condensation (contract the contradictions first).");
                         ExitCode::from(1)
                     }
                 }
@@ -161,12 +273,13 @@ fn run(verb: &str, json: bool) -> ExitCode {
         "explain" => {
             let qsr = qsr_stack(&stages);
             println!("kosmo-cdk explain — the fold over a real SystemCube, gate by gate (report-only):");
+            println!("  source: {source}");
             println!("  scores rank, gates decide (I2). Cleaning is never silent forgetting (I3).");
-            println!("  · bound a real SystemCube(payments) → 2 stages (raw S0, condensed S1)");
-            println!("  · contradiction energy K {k0:.3} → {k1:.3}  (the LLM's duplicate exkalibrated to residue)");
+            println!("  · contradiction energy K {k0:.3} → {k1:.3}  (redundancy exkalibrated to residue)");
             println!("  · stack-QSR (density/purity/irreducibility non-decreasing, K non-increasing): {qsr:?}");
             println!("  · residue (visible): {} unit(s); ids canonical (I1); trace roots present (I4)", residue.len());
-            println!("  verbs: bind · stack · close · diamond · explain   [--json]");
+            println!("  irreducible (K=0 → diamond-ready): {irreducible}");
+            println!("  verbs: bind · stack · close · diamond · explain · serve   [--json] [--workspace <path>]");
             ExitCode::SUCCESS
         }
         "serve" => unreachable!("serve is dispatched in main"),
@@ -297,7 +410,12 @@ fn main() -> ExitCode {
             .unwrap_or(8731);
         return serve(port);
     }
-    run(verb, json)
+    let workspace = args
+        .iter()
+        .position(|a| a == "--workspace")
+        .and_then(|i| args.get(i + 1))
+        .map(String::as_str);
+    run(verb, json, workspace)
 }
 
 #[cfg(test)]
@@ -320,5 +438,31 @@ mod tests {
         assert!(b["trace_root"].is_string() && b["gate_result"].is_string());
         let e = rest_artifact("explain", Some("abc123"));
         assert_eq!(e["id"], "abc123", "GET /cdk/explain/{{id}} echoes the id");
+    }
+
+    #[test]
+    fn parse_package_name_extracts_only_the_package_name() {
+        assert_eq!(
+            parse_package_name("[package]\nname = \"foo\"\nversion=\"0.1\"").as_deref(),
+            Some("foo")
+        );
+        assert_eq!(
+            parse_package_name("[dependencies]\nname = \"bar\"").as_deref(),
+            None,
+            "only the [package] table"
+        );
+    }
+
+    #[test]
+    fn observe_workspace_reads_real_crates_live() {
+        let dir = std::env::temp_dir().join(format!("cdk-ws-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        std::fs::write(dir.join("a/Cargo.toml"), "[package]\nname = \"crate_a\"\n").unwrap();
+        std::fs::write(dir.join("b/Cargo.toml"), "[package]\nname = \"crate_b\"\n").unwrap();
+        let units = observe_workspace(dir.to_str().unwrap());
+        assert_eq!(units.len(), 2, "two real crates observed from the filesystem");
+        assert!(live_fold(dir.to_str().unwrap()).is_some(), "a live fold over the workspace");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
