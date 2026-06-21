@@ -4057,17 +4057,56 @@ fn run_wishlist_mode(args: &Args, path: &str) -> Result<ExitCode, String> {
     // descent re-observes, so later wishes see what earlier ones erected.
     if args.apply {
         let fallback = wish_fallback(args)?;
+        // Stufe 1b, project scope — before a guided descent, the verifier reads the
+        // whole DoD as ONE architecture and warns (advisory) if it is structurally
+        // self-contradictory: a dependency cycle, or a wire to an undeclared
+        // component, cannot be realized by any amount of scaffolding. Directed
+        // repair surfaces the wrong step in the SPEC, not just a per-facet
+        // near-miss. Off without --guided; never gates (--blueprint --insist does).
+        if args.guided && !args.json {
+            if let Some(line) = guided_architecture_note(&wishes, args.color) {
+                print!("{line}");
+            }
+        }
         for w in &wishes {
             let validated = args.validated || wish_needs_validation(w);
-            descend_to_wish(
-                &args.path,
-                w,
-                w.evidence_bundle_id,
-                validated,
-                8,
-                fallback.as_deref(),
-                None,
-            )?;
+            // Stufe 1b extends to the project level: under --guided the evaluator's
+            // localized critique steers each component's synthesis the same way it
+            // does a single wish — a near-miss (`enigne` over an existing `engine`)
+            // is routed to rename, never scaffolded as a duplicate. The whole DoD,
+            // not one house, gets the directed repair.
+            if args.guided {
+                descend_guided(
+                    &args.path,
+                    w,
+                    w.evidence_bundle_id,
+                    validated,
+                    8,
+                    fallback.as_deref(),
+                    None,
+                    args.staged,
+                )?;
+            } else if args.staged {
+                descend_staged(
+                    &args.path,
+                    w,
+                    w.evidence_bundle_id,
+                    validated,
+                    8,
+                    fallback.as_deref(),
+                    None,
+                )?;
+            } else {
+                descend_to_wish(
+                    &args.path,
+                    w,
+                    w.evidence_bundle_id,
+                    validated,
+                    8,
+                    fallback.as_deref(),
+                    None,
+                )?;
+            }
         }
     }
 
@@ -5755,6 +5794,41 @@ fn insist_architecture_defect(nodes: &[BlueprintNode]) -> Option<String> {
         }
     }
     None
+}
+
+/// The project-level directed-repair note (Stufe 1b): read the whole wishlist as
+/// ONE architecture and, if it is structurally self-contradictory (a dependency
+/// cycle, or a wire to an undeclared component), surface it as an **advisory**
+/// warning before descent — no amount of scaffolding realizes a contradiction in
+/// the spec itself. The defect is purely structural (it reads node kinds and
+/// edges, not realization), so it is computed against an empty topology — a
+/// property of what was *asked*, before a single facet is built. Returns `None`
+/// when the architecture is sound. Never gates (CROSS-010); the gate is
+/// `--blueprint --insist`.
+fn guided_architecture_note(wishes: &[Wish], color: bool) -> Option<String> {
+    let evidence = Digest::ZERO;
+    let mut preds = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for w in wishes {
+        for p in &w.predicates {
+            if seen.insert(format!("{:?} {}", p.facet.kind, p.facet.key)) {
+                preds.push(p.clone());
+            }
+        }
+    }
+    let arch = Wish::new("architecture", preds, Digest::ZERO, evidence);
+    let assessment = assess_wish(&arch, &ObservedTopology::empty(), evidence);
+    let nodes = blueprint_nodes(&arch, &assessment, evidence);
+    insist_architecture_defect(&nodes).map(|why| {
+        let c = |code: &'static str| if color { code } else { "" };
+        format!(
+            "  {}\u{26a0} directed repair \u{2014} the DoD's architecture is self-contradictory: \
+             {}; no scaffolding realizes it (\u{2014}blueprint \u{2014}insist gates).{}\n",
+            c(YELLOW),
+            why,
+            c(RESET)
+        )
+    })
 }
 
 /// Render the brick-52 architecture-defect rejection line (or `None` if sound).
@@ -7445,6 +7519,101 @@ mod tests {
         assert!(root.join("RENAMED.txt").exists());
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn guided_directed_repair_is_surgical_across_a_project_batch() {
+        // Stufe 1b at project granularity (the --wishlist --apply --guided path,
+        // which descends every wish through this same apply_synthesis): a DoD that
+        // mixes a naming-drift near-miss (`enigne` over an existing `engine`) with a
+        // genuine gap (`widgets`) must be repaired SURGICALLY — refuse only the
+        // duplicate, and still build the real gap offline. Directed repair never
+        // freezes the whole batch; it redirects exactly the one wrong step.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kosmo-guided-batch-{nanos}"));
+        fs::create_dir_all(&root).unwrap();
+
+        // The workspace already has module `engine`.
+        let mut observed = ObservedTopology::empty();
+        observed.insert(WishFacet::module("engine"));
+
+        let drift = WishFacet::module("enigne"); // a near-miss of `engine`
+        let gap = WishFacet::module("widgets"); // a genuine, distant gap
+
+        // Guided + no provider: the genuine gap is scaffolded; the near-miss is not
+        // duplicated (it would route to a provider to rename — none armed here).
+        let written =
+            apply_synthesis(&root, &[drift, gap], None, None, Some(&observed), true).unwrap();
+        assert!(
+            written > 0,
+            "the genuine gap is still built under directed repair"
+        );
+        assert!(
+            root.join("src/widgets.rs").exists(),
+            "the real gap `widgets` was scaffolded"
+        );
+        assert!(
+            !root.join("src/enigne.rs").exists(),
+            "the near-miss `enigne` was NOT duplicated"
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn guided_architecture_note_warns_on_a_self_contradictory_dod() {
+        use kosmo_core::WishPredicate;
+        // The project-level directed-repair note pools the WHOLE wishlist into one
+        // architecture, so a defect that spans two separate wish-lines is still
+        // caught — the project analogue of the per-facet naming-drift critique.
+        let line = |label: &str, facet: WishFacet| {
+            Wish::new(
+                label,
+                [WishPredicate::require(facet)],
+                Digest::ZERO,
+                Digest::ZERO,
+            )
+        };
+
+        // A sound DoD: two components and a one-way edge. No defect.
+        let sound = vec![
+            line("c1", WishFacet::crate_("api")),
+            line("c2", WishFacet::crate_("logging")),
+            line("e", WishFacet::new(WishFacetKind::Dependency, "api->logging")),
+        ];
+        assert!(
+            guided_architecture_note(&sound, false).is_none(),
+            "a one-way DoD is sound"
+        );
+
+        // A cycle split across two separate wish-lines: api->logging and
+        // logging->api. Only the POOLED architecture sees it.
+        let mut cyclic = sound.clone();
+        cyclic.push(line(
+            "e2",
+            WishFacet::new(WishFacetKind::Dependency, "logging->api"),
+        ));
+        let note = guided_architecture_note(&cyclic, false).expect("a pooled cycle is a defect");
+        assert!(note.contains("cycle"), "the note names the cycle: {note}");
+        assert!(
+            note.contains("directed repair"),
+            "it is framed as directed repair, not an --insist rejection: {note}"
+        );
+
+        // A dangling wire: an edge to an undeclared component.
+        let dangling = vec![
+            line("c1", WishFacet::crate_("api")),
+            line("e", WishFacet::new(WishFacetKind::Dependency, "api->ghost")),
+        ];
+        let note =
+            guided_architecture_note(&dangling, false).expect("a dangling wire is a defect");
+        assert!(
+            note.contains("dangling"),
+            "the note names the dangling wire: {note}"
+        );
     }
 
     #[test]

@@ -148,6 +148,12 @@ Kosmocrates wishlist — project.wishes
   regressed any project wish — or scaffolded a hologram (a *counterfeit fix*).
 - **`--scaffold`** previews the closure plan; **`--apply`** builds it and prints a
   *build account* of what it closed (and any hologram it introduced).
+- **`--apply --guided`** steers the whole DoD, not one house: a near-miss is routed
+  to *rename* rather than scaffolded as a duplicate (surgically — the genuine gaps
+  are still built), and the wishlist is first read as **one architecture** — a
+  self-contradictory spec (a dependency cycle, or a wire to an undeclared
+  component) is surfaced as an advisory note *before* descent, because no
+  scaffolding realizes a contradiction.
 - **`coverage:`** tells you whether your DoD is deep enough —
   `⚠ no behaviour or run wish` means you check structure, not that it works.
 
