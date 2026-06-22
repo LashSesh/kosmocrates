@@ -1,0 +1,17 @@
+[package]
+name = "kosmo-coffindragger"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Con-Dragger L7: ASCC stack closure (embed/accrete/contract/fold), KBL binding, and the CDK Pull/Purge/Seed/Probe/Cen cycle — the pipeline core of the Coffin-Dragger master spec"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core", version = "0.1.0" }
+kosmo-cdk-core = { path = "../kosmo-cdk-core", version = "0.1.0" }
+kosmo-systemcube = { path = "../kosmo-systemcube", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

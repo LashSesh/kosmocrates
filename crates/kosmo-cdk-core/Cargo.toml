@@ -1,0 +1,15 @@
+[package]
+name = "kosmo-cdk-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Con-Dragger / ASCC core (L1/L7): Stage, AttractorStack, QSR predicates, condensation metrics, D-energy — the report-only C0 foundation of the Coffin-Dragger master spec"
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kosmo-core = { path = "../kosmo-core", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

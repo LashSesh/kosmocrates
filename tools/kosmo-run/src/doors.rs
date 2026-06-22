@@ -89,6 +89,7 @@ pub fn catalog() -> DoorCatalog {
                     DoorInput::switch("--insist"),
                     DoorInput::switch("--blueprint"),
                     DoorInput::switch("--plan"),
+                    DoorInput::switch("--guided"),
                     DoorInput::valued("--wish-session", "<file>"),
                     DoorInput::valued("--since", "<session>"),
                     DoorInput::switch("--apply"),
@@ -120,14 +121,18 @@ pub fn catalog() -> DoorCatalog {
             "measure a file of prose wishes (one per line; # comments and blank \
          lines ignored) against the workspace as a project definition-of-done, \
          into an aggregate realization gauge; read-only unless --apply, which \
-         descends every wish to close the project (writes the workspace); exit 0 \
-         only when every wish is realized; --since <reading> diffs against a prior \
-         --json snapshot and exits 2 on any project regression",
+         descends every wish to close the project (writes the workspace); \
+         --guided routes a near-miss to rename rather than scaffold a duplicate \
+         (directed repair, project-wide); --staged coagulates each wish bottom-up; \
+         exit 0 only when every wish is realized; --since <reading> diffs against \
+         a prior --json snapshot and exits 2 on any project regression",
             [
                 vec![
                     DoorInput::switch("--validated"),
                     DoorInput::switch("--scaffold"),
                     DoorInput::switch("--apply"),
+                    DoorInput::switch("--staged"),
+                    DoorInput::switch("--guided"),
                     DoorInput::switch("--blueprint"),
                     DoorInput::switch("--plan"),
                     DoorInput::valued("--since", "<reading>"),
@@ -702,6 +707,27 @@ mod tests {
         let inputs: BTreeSet<&str> = wish.inputs.iter().map(|i| i.name.as_str()).collect();
         assert!(inputs.contains("--layers"), "the wish door renders strata");
         assert!(inputs.contains("--staged"), "the wish door descends staged");
+    }
+
+    #[test]
+    fn wishlist_door_speaks_guided_directed_repair() {
+        // Stufe 1b reaches the project level: a whole DoD can be descended with
+        // directed repair (rename a near-miss, never duplicate it) and staged.
+        let catalog = catalog();
+        let wishlist = catalog
+            .doors
+            .iter()
+            .find(|d| d.name == "--wishlist")
+            .expect("a --wishlist door");
+        let inputs: BTreeSet<&str> = wishlist.inputs.iter().map(|i| i.name.as_str()).collect();
+        assert!(
+            inputs.contains("--guided"),
+            "the wishlist door steers a near-miss to rename, project-wide"
+        );
+        assert!(
+            inputs.contains("--staged"),
+            "the wishlist door coagulates each wish bottom-up"
+        );
     }
 
     #[test]
