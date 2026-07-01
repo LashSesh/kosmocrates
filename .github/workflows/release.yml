@@ -56,7 +56,7 @@ jobs:
             echo "See CHANGELOG.md for details." > release_notes.md
           fi
       - id: create
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ steps.tag.outputs.tag }}
@@ -184,7 +184,7 @@ jobs:
 
       - name: Upload artifacts to release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.tag }}
           files: |
@@ -234,7 +234,7 @@ jobs:
           (cd sbom && tar -czf ../kosmocrates-sbom.tar.gz .)
           sha256sum kosmocrates-sbom.tar.gz > kosmocrates-sbom.tar.gz.sha256
       - name: Upload SBOM to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.create-release.outputs.tag }}
           files: |
