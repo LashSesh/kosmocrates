@@ -45,7 +45,7 @@ jobs:
             pkg_name: '@kosmocrates/pse-wasm-node'
             out_dir: pkg-node
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
