@@ -129,7 +129,7 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 hkdf = "0.13"
 rusqlite = { version = "0.40", features = ["bundled"] }
 axum = { version = "0.8", features = ["ws"] }
